@@ -80,3 +80,86 @@ pallet-bags-list = { git = "https://github.com/paritytech/polkadot-sdk", tag = "
 pallet-election-provider-multi-phase = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503", default-features = false }
 pallet-fast-unstake = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503",  default-features = false }
 pallet-preimage = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503",  default-features = false }
+
+# ── Custom pallets (workspace members) ───────────────────────────────────────
+pallet-agents     = { path = "pallets/agents",     default-features = false }
+pallet-escrow     = { path = "pallets/escrow",     default-features = false }
+pallet-oracle     = { path = "pallets/oracle",     default-features = false }
+pallet-emissions  = { path = "pallets/emissions",  default-features = false }
+pallet-auto-params  = { path = "pallets/auto-params",  default-features = false }
+pallet-orchestrator = { path = "pallets/orchestrator", default-features = false }
+
+# ── Encoding / serialisation ──────────────────────────────────────────────────
+parity-scale-codec = { version = "3.7.5",  default-features = false, features = ["derive"] }
+scale-info         = { version = "2.11.3", default-features = false, features = ["derive"] }
+
+pallet-staking-reward-curve = { version = "11.0.0" }
+
+# ── Node-side (std only) ──────────────────────────────────────────────────────
+sc-cli             = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-service         = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-executor        = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-network         = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-rpc             = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-rpc-api         = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-transaction-pool = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-transaction-pool-api = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-basic-authorship = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-block-builder   = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-telemetry       = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-consensus-babe  = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-consensus-grandpa = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-consensus-slots = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-offchain        = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-authority-discovery = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+substrate-wasm-builder = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+
+# ── RPC ─────────────────────────────────────────────────────────────────────
+sp-timestamp = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503", default-features = false }
+substrate-frame-rpc-system = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+pallet-transaction-payment-rpc = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+clap               = { version = "4.5.23", features = ["derive"] }
+hex-literal        = { version = "0.4.1" }
+jsonrpsee          = { version = "0.24.9", features = ["server"] }
+serde              = { version = "1.0.217", features = ["derive"] }
+serde_json         = { version = "1.0.134" }
+log                = { version = "0.4.22" }
+
+[profile.release]
+opt-level     = 3
+lto           = "thin"
+codegen-units = 1
+panic         = "unwind"
+
+[profile.dev]
+opt-level = 0
+
+# Fast compilation for tests
+[profile.test]
+opt-level = 0
+
+[patch.crates-io]
+sc-cli                   = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-service               = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-executor              = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-network               = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-rpc                   = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-rpc-api               = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-transaction-pool      = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-transaction-pool-api  = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-basic-authorship      = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-block-builder         = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-telemetry             = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-consensus-babe        = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-consensus-grandpa     = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-consensus-slots       = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-offchain              = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+sc-authority-discovery   = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+frame-system-rpc-runtime-api = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+substrate-frame-rpc-system   = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+pallet-transaction-payment-rpc = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+substrate-wasm-builder       = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+frame-benchmarking-cli       = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+substrate-build-script-utils = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
