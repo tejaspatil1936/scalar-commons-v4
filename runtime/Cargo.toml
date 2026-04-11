@@ -68,3 +68,73 @@ pallet-salary             = { workspace = true }
 pallet-identity           = { workspace = true }
 pallet-preimage           = { workspace = true }
 pallet-treasury           = { workspace = true }
+
+# Custom pallets
+pallet-agents      = { workspace = true }
+pallet-escrow      = { workspace = true }
+pallet-oracle      = { workspace = true }
+pallet-emissions   = { workspace = true }
+pallet-auto-params         = { workspace = true }
+pallet-nomination-pools    = { workspace = true }
+pallet-orchestrator = { workspace = true }
+# V4: governance safety pallets (whitelist enables TC fast-track, safe-mode is emergency brake)
+pallet-whitelist        = { workspace = true }
+pallet-safe-mode        = { workspace = true }
+pallet-tx-pause         = { workspace = true }
+pallet-assets           = { workspace = true }
+# V4: constitution pallet (custom — 6 pre-dispatch invariants)
+pallet-constitution     = { path = "../pallets/constitution" }
+pallet-staking-reward-curve    = { version = "11.0.0" }
+pallet-authorship = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503", version = "40.0.0", default-features = false }
+
+[build-dependencies]
+substrate-wasm-builder     = { workspace = true }
+pallet-staking-reward-curve = { version = "11.0.0" }
+
+[features]
+default = ["std"]
+std = [
+    "serde/std",
+    "parity-scale-codec/std", "scale-info/std",
+    "frame-support/std", "frame-system/std", "frame-executive/std",
+    "frame-system-rpc-runtime-api/std",
+    "sp-core/std", "sp-runtime/std", "sp-io/std", "sp-std/std",
+    "sp-arithmetic/std", "sp-inherents/std", "sp-api/std",
+    "sp-block-builder/std", "sp-genesis-builder/std",
+    "sp-consensus-babe/std", "sp-consensus-grandpa/std",
+    "sp-session/std", "sp-staking/std", "sp-offchain/std",
+    "sp-transaction-pool/std",
+    "pallet-babe/std", "pallet-grandpa/std", "pallet-session/std",
+    "pallet-staking/std", "pallet-im-online/std",
+    "pallet-authority-discovery/std", "pallet-offences/std",
+    "pallet-bags-list/std", "pallet-election-provider-multi-phase/std",
+    "frame-election-provider-support/std",
+    "pallet-balances/std", "pallet-transaction-payment/std",
+    "pallet-timestamp/std", "pallet-vesting/std",
+    "pallet-sudo/std", "pallet-scheduler/std", "pallet-utility/std",
+    "pallet-multisig/std", "pallet-referenda/std",
+    "pallet-conviction-voting/std", "pallet-ranked-collective/std",
+    "pallet-salary/std", "pallet-identity/std", "pallet-treasury/std",
+    "pallet-whitelist/std", "pallet-safe-mode/std", "pallet-tx-pause/std",
+    "pallet-assets/std", "pallet-constitution/std", "pallet-nomination-pools/std",
+    "pallet-agents/std", "pallet-escrow/std", "pallet-oracle/std",
+    "pallet-emissions/std", "pallet-auto-params/std",
+    "pallet-orchestrator/std",
+    "sp-version/std",
+    "pallet-authorship/std",
+    "pallet-transaction-payment-rpc-runtime-api/std",
+    "pallet-preimage/std",
+    "frame-benchmarking?/std",
+]
+runtime-benchmarks = [
+    "frame-support/runtime-benchmarks",
+    "frame-system/runtime-benchmarks",
+    "pallet-balances/runtime-benchmarks",
+    "pallet-staking/runtime-benchmarks",
+    "pallet-agents/runtime-benchmarks",
+]
+try-runtime = [
+    "frame-support/try-runtime", "frame-system/try-runtime",
+    "frame-executive/try-runtime",
+    "pallet-agents/try-runtime", "pallet-emissions/try-runtime",
+]
