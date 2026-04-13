@@ -460,3 +460,465 @@ impl pallet_referenda::Config for Runtime {
     type Tracks            = governance::tracks::TracksInfo;
     type Preimages         = Preimage;
 }
+
+// ─── pallet-conviction-voting ─────────────────────────────────────────────────
+impl pallet_conviction_voting::Config for Runtime {
+    type WeightInfo        = pallet_conviction_voting::weights::SubstrateWeight<Self>;
+    type RuntimeEvent      = RuntimeEvent;
+    type Currency          = Balances;
+    type VoteLockingPeriod = ConstU32<{ ERA_BLOCKS }>;
+    type MaxVotes          = ConstU32<512>;
+    type MaxTurnout        = frame_support::traits::TotalIssuanceOf<Balances, AccountId>;
+    type Polls             = Referenda;
+}
+
+// ─── pallet-identity ──────────────────────────────────────────────────────────
+parameter_types! {
+    pub const BasicDeposit:   Balance = 10 * CMN;
+    pub const ByteDeposit:    Balance = CMN / 10;
+    pub const SubAccountDeposit: Balance = 2 * CMN;
+    pub const MaxSubAccounts: u32 = 100;
+    pub const MaxAdditionalFields: u32 = 20;
+    pub const MaxRegistrars:  u32 = 20;
+    pub const UsernameDeposit: Balance = CMN;
+    pub const UsernameGracePeriod: BlockNumber = 30 * DAYS;
+}
+impl pallet_identity::Config for Runtime {
+    type RuntimeEvent            = RuntimeEvent;
+    type Currency                = Balances;
+    type BasicDeposit            = BasicDeposit;
+    type ByteDeposit             = ByteDeposit;
+    type SubAccountDeposit       = SubAccountDeposit;
+    type MaxSubAccounts          = MaxSubAccounts;
+    type IdentityInformation     = pallet_identity::legacy::IdentityInfo<MaxAdditionalFields>;
+    type MaxRegistrars           = MaxRegistrars;
+    type Slashed                 = ();
+    type ForceOrigin             = EnsureRoot<AccountId>;
+    type RegistrarOrigin         = EnsureRoot<AccountId>;
+    type OffchainSignature       = Signature;
+    type SigningPublicKey        = <Signature as sp_runtime::traits::Verify>::Signer;
+    type UsernameAuthorityOrigin = EnsureRoot<AccountId>;
+    type PendingUsernameExpiration = ConstU32<{ 7 * DAYS }>;
+    type MaxSuffixLength         = ConstU32<7>;
+    type MaxUsernameLength       = ConstU32<32>;
+    type WeightInfo              = pallet_identity::weights::SubstrateWeight<Runtime>;
+    type UsernameDeposit         = UsernameDeposit;
+    type UsernameGracePeriod     = UsernameGracePeriod;
+}
+
+// ImOnline removed M1
+
+// ─── pallet-whitelist (V4: TC fast-track — enables 6h governance path) ───────
+// WhitelistOrigin: Either Root (sudo during 14-day bootstrap) OR rank-2+ agents (TC post-day-14).
+// After sudo removal, only ranked_collective members at rank 2+ can whitelist calls.
+// DispatchWhitelistedOrigin: same — only TC can dispatch a whitelisted call.
+impl pallet_whitelist::Config for Runtime {
+    type RuntimeEvent              = RuntimeEvent;
+    type WhitelistOrigin           = governance::origins::AgentsOrRoot;
+    type DispatchWhitelistedOrigin = governance::origins::AgentsOrRoot;
+    type Preimages                 = Preimage;
+    type WeightInfo                = pallet_whitelist::weights::SubstrateWeight<Runtime>;
+}
+
+// ─── pallet-safe-mode (V4: TC emergency circuit breaker — max 4h pause) ──────
+parameter_types! {
+    pub const SafeModeMaxDuration: BlockNumber = HOURS * 4;  // TC can pause chain ≤ 4 hours
+}
+/// Calls permitted through SafeMode when the chain is paused.
+/// Only governance calls pass — agents can still vote to exit safe mode.
+pub struct SafeModeWhitelistedCalls;
+impl frame_support::traits::Contains<RuntimeCall> for SafeModeWhitelistedCalls {
+    fn contains(call: &RuntimeCall) -> bool {
+        matches!(call,
+            // Governance must stay live so TC can act and resolve the emergency
+            RuntimeCall::Referenda(_)        |
+            RuntimeCall::ConvictionVoting(_) |
+            RuntimeCall::Whitelist(_)        |
+            RuntimeCall::SafeMode(_)         |
+            // TC (ranked-collective) must be able to vote to exit SafeMode
+            // post-sudo-removal — otherwise there is a deadlock where SafeMode
+            // blocks the only actors who can exit it.
+            RuntimeCall::RankedCollective(_) |
+            // Sudo must stay live during the 14-day bootstrap window
+            RuntimeCall::Sudo(_)             |
+            // System utility calls (timestamp inherent, etc.) must pass
+            RuntimeCall::Timestamp(_)        |
+            RuntimeCall::System(_)
+        )
+    }
+}
+impl pallet_safe_mode::Config for Runtime {
+    type RuntimeEvent          = RuntimeEvent;
+    type Currency              = Balances;
+    type RuntimeHoldReason     = RuntimeHoldReason;
+    type WhitelistedCalls      = SafeModeWhitelistedCalls;
+    type EnterOrigin           = EnsureRoot<AccountId>;  // TC multi-sig → root
+    type ForceEnterOrigin      = EnsureRoot<AccountId>;
+    type ExitOrigin            = EnsureRoot<AccountId>;
+    type ForceExitOrigin       = EnsureRoot<AccountId>;
+    type EnteredDeposit        = ConstU128<0>;
+    type ExtendDeposit         = ConstU128<0>;
+    type MaxDuration           = SafeModeMaxDuration;
+    type WeightInfo            = pallet_safe_mode::weights::SubstrateWeight<Runtime>;
+}
+
+// ─── pallet-tx-pause (V4: surgical pause of specific extrinsics) ──────────────
+impl pallet_tx_pause::Config for Runtime {
+    type RuntimeEvent          = RuntimeEvent;
+    type RuntimeCall           = RuntimeCall;
+    type PauseOrigin           = EnsureRoot<AccountId>;  // TC → root
+    type UnpauseOrigin         = EnsureRoot<AccountId>;
+    type FullNameOf            = pallet_tx_pause::RuntimeCallNameOf<Runtime>;
+    type MaxNameLen            = ConstU32<256>;
+    type WeightInfo            = pallet_tx_pause::weights::SubstrateWeight<Runtime>;
+}
+
+// ─── pallet-constitution (V4: 6 invariants as pre-dispatch hooks) ─────────────
+parameter_types! {
+    // 1% of supply cap = 1,000,000,000 CMN warning buffer
+    pub const ConstitutionCapWarning: Balance = 1_000_000_000 * CMN;
+    // Invariant 3: unstake cooldown floor — governance cannot go below 7 days
+    pub const ConstitutionMinCooldown: BlockNumber = 7 * DAYS;
+    // Invariant 4: oracle challenge window floor — governance cannot go below 1 hour
+    pub const ConstitutionMinChallengeWindow: BlockNumber = HOURS;
+    // Invariant 5: registration burn floor — Sybil cost cannot be removed
+    pub const ConstitutionMinBurn: Balance = 10 * CMN;
+}
+impl pallet_constitution::Config for Runtime {
+    type RuntimeEvent          = RuntimeEvent;
+    type Currency              = Balances;
+    type SupplyCap             = EmissionsSupplyCap;
+    type MinUnstakeCooldown    = ConstitutionMinCooldown;
+    type MinChallengeWindow    = ConstitutionMinChallengeWindow;
+    type MinRegistrationBurn   = ConstitutionMinBurn;
+    type CapWarningBuffer      = ConstitutionCapWarning;
+}
+
+// ─── pallet-nomination-pools (V4: active — any agent can pool-stake) ─────────
+parameter_types! {
+    pub const NomPoolsMinJoinBond:   Balance = 100 * CMN;
+    pub const NomPoolsMinCreateBond: Balance = 5_000 * CMN;
+    pub const NomPoolsMaxPools:      u32     = 1_000;
+    pub const NomPoolsMaxMembers:    u32     = 1_000_000;
+    pub const NomPoolsPalletId:      PalletId = PalletId(*b"nompools");
+}
+// Conversion helpers for nomination pools Balance ↔ U256
+pub struct BalanceToU256;
+impl sp_runtime::traits::Convert<Balance, sp_core::U256> for BalanceToU256 {
+    fn convert(b: Balance) -> sp_core::U256 { sp_core::U256::from(b) }
+}
+pub struct U256ToBalance;
+impl sp_runtime::traits::Convert<sp_core::U256, Balance> for U256ToBalance {
+    fn convert(u: sp_core::U256) -> Balance {
+        u.try_into().unwrap_or(Balance::MAX)
+    }
+}
+impl pallet_nomination_pools::Config for Runtime {
+    type RuntimeEvent           = RuntimeEvent;
+    type WeightInfo             = pallet_nomination_pools::weights::SubstrateWeight<Runtime>;
+    type Currency               = Balances;
+    type RuntimeFreezeReason    = RuntimeFreezeReason;
+    type RewardCounter          = sp_runtime::FixedU128;
+    type BalanceToU256          = BalanceToU256;
+    type U256ToBalance          = U256ToBalance;
+    type StakeAdapter           = pallet_nomination_pools::adapter::TransferStake<Self, Staking>;
+    type PostUnbondingPoolsWindow = ConstU32<4>;
+    type MaxMetadataLen         = ConstU32<256>;
+    type MaxUnbonding           = ConstU32<8>;
+    type PalletId               = NomPoolsPalletId;
+    type MaxPointsToBalance     = frame_support::traits::ConstU8<10>;
+    type AdminOrigin            = EnsureRoot<AccountId>;
+}
+
+
+parameter_types! {
+    pub const SessionsPerEra:    sp_staking::SessionIndex = 6;
+    pub const BondingDuration:   sp_staking::EraIndex     = 28;
+    pub const SlashDeferDuration: sp_staking::EraIndex    = 27;
+    pub const MaxExposurePageSize: u32 = 64;
+}
+pallet_staking_reward_curve::build! {
+    const REWARD_CURVE: sp_runtime::curve::PiecewiseLinear<'static> = curve!(
+        min_inflation: 0_025_000,
+        max_inflation: 0_100_000,
+        ideal_stake:   0_500_000,
+        falloff:       0_050_000,
+        max_piece_count: 40,
+        test_precision:  0_005_000,
+    );
+}
+parameter_types! {
+    pub const RewardCurve: &'static sp_runtime::curve::PiecewiseLinear<'static> = &REWARD_CURVE;
+}
+
+pub struct ScalarStakingBenchmarkConfig;
+impl pallet_staking::BenchmarkingConfig for ScalarStakingBenchmarkConfig {
+    type MaxValidators = ConstU32<1000>;
+    type MaxNominators = ConstU32<1000>;
+}
+
+impl pallet_staking::Config for Runtime {
+    type Currency                          = Balances;
+    type CurrencyBalance                   = Balance;
+    type UnixTime                          = Timestamp;
+    type CurrencyToVote                    = sp_staking::currency_to_vote::U128CurrencyToVote;
+    type RewardRemainder                   = Treasury; // leftover staking inflation → Treasury
+    type RuntimeEvent                      = RuntimeEvent;
+    type Slash                             = Treasury; // equivocation slashes → Treasury
+    type Reward                            = ();
+    type SessionsPerEra                    = SessionsPerEra;
+    type BondingDuration                   = BondingDuration;
+    type SlashDeferDuration                = SlashDeferDuration;
+    type AdminOrigin                       = EnsureRoot<AccountId>;
+    type SessionInterface                  = Self;
+    type EraPayout                         = pallet_staking::ConvertCurve<RewardCurve>;
+    type NextNewSession                    = Session;
+    type HistoryDepth                      = ConstU32<84>;
+    type MaxExposurePageSize               = MaxExposurePageSize;
+    type ElectionProvider                  = onchain::OnChainExecution<OnChainSeqPhragmen>;
+    type GenesisElectionProvider           = onchain::OnChainExecution<OnChainSeqPhragmen>;
+    type VoterList                         = VoterList; // pallet_bags_list — Score=VoteWeight=u64 ✓
+    type NominationsQuota                  = pallet_staking::FixedNominationsQuota<16>;
+    type TargetList                        = pallet_staking::UseValidatorsMap<Self>;
+    type MaxUnlockingChunks                = ConstU32<32>;
+    type BenchmarkingConfig                = ScalarStakingBenchmarkConfig;
+    type WeightInfo                        = pallet_staking::weights::SubstrateWeight<Runtime>;
+    type OldCurrency                       = Balances;
+    type RuntimeHoldReason                 = RuntimeHoldReason;
+    type MaxControllersInDeprecationBatch  = ConstU32<100>;
+    type EventListeners                    = ();
+    type Filter                            = ();
+}
+
+// ─── NPoS election setup ─────────────────────────────────────────────────────
+use frame_election_provider_support::{onchain, SequentialPhragmen, VoteWeight};
+
+pub struct OnChainSeqPhragmen;
+impl onchain::Config for OnChainSeqPhragmen {
+    type System      = Runtime;
+    type Solver      = SequentialPhragmen<AccountId, sp_runtime::Perbill>;
+    type DataProvider = Staking;
+    type WeightInfo  = frame_election_provider_support::weights::SubstrateWeight<Runtime>;
+    type MaxWinners  = ConstU32<100>;
+    type Bounds      = ElectionBoundsBuilder;
+}
+
+parameter_types! {
+    pub ElectionBoundsBuilder: frame_election_provider_support::bounds::ElectionBounds =
+        frame_election_provider_support::bounds::ElectionBoundsBuilder::default()
+            .voters_count(5_000.into()).targets_count(1_250.into()).build();
+}
+
+// pub struct LinearSignedDeposit;
+// impl sp_runtime::traits::Convert<usize, Balance> for LinearSignedDeposit {
+//     fn convert(n: usize) -> Balance { (n as Balance).saturating_mul(CMN / 100) }
+// }
+
+
+
+
+
+
+
+
+
+parameter_types! {
+    pub const BagsThresholdsParam: &'static [u64] = &[
+        10_000, 20_000, 30_000, 50_000, 75_000, 100_000, 150_000, 200_000,
+        300_000, 500_000, 750_000, 1_000_000, 1_500_000, 2_000_000, 3_000_000,
+        5_000_000, 7_500_000, 10_000_000, 15_000_000, 20_000_000, 30_000_000,
+        50_000_000, 75_000_000, 100_000_000, 150_000_000, 200_000_000, 300_000_000,
+        500_000_000, 750_000_000, 1_000_000_000, 2_000_000_000, 5_000_000_000,
+        10_000_000_000, 20_000_000_000, 50_000_000_000, 100_000_000_000,
+    ];
+}
+
+
+// ─── pallet-bags-list ─────────────────────────────────────────────────────────
+// Required by staking: Score = VoteWeight = u64 (compatible with staking's VoterList bound)
+impl pallet_bags_list::Config for Runtime {
+    type RuntimeEvent  = RuntimeEvent;
+    type ScoreProvider = Staking;
+    type WeightInfo    = pallet_bags_list::weights::SubstrateWeight<Runtime>;
+    type BagThresholds = BagsThresholdsParam;
+    type Score         = VoteWeight;
+}
+
+// ─── pallet-session ───────────────────────────────────────────────────────────
+impl pallet_session::Config for Runtime {
+    type RuntimeEvent         = RuntimeEvent;
+    type ValidatorId          = AccountId;
+    type ValidatorIdOf        = pallet_staking::StashOf<Runtime>;
+    type ShouldEndSession     = Babe;
+    type NextSessionRotation  = Babe;
+    type SessionManager       = pallet_session::historical::NoteHistoricalRoot<Self, Staking>;
+    type SessionHandler       = <SessionKeys as sp_runtime::traits::OpaqueKeys>::KeyTypeIdProviders;
+    type Keys                 = SessionKeys;
+    type WeightInfo           = pallet_session::weights::SubstrateWeight<Runtime>;
+    type DisablingStrategy    = pallet_session::disabling::UpToLimitDisablingStrategy<3>;
+}
+
+impl pallet_session::historical::Config for Runtime {
+    type FullIdentification    = pallet_staking::Exposure<AccountId, Balance>;
+    type FullIdentificationOf  = pallet_staking::ExposureOf<Runtime>;
+}
+
+impl pallet_offences::Config for Runtime {
+    type RuntimeEvent         = RuntimeEvent;
+    type IdentificationTuple  = pallet_session::historical::IdentificationTuple<Self>;
+    type OnOffenceHandler     = Staking;
+}
+
+impl pallet_authority_discovery::Config for Runtime {
+    type MaxAuthorities = ConstU32<100>;
+}
+
+// ─── Custom pallet bridge structs ─────────────────────────────────────────────
+
+pub struct RankedCollectiveBridge;
+// V4: RankedCollective is active — bridge reads/writes real pallet storage.
+impl pallet_agents::pallet::AgentCollective<AccountId> for RankedCollectiveBridge {
+    fn induct(who: &AccountId) -> frame_support::pallet_prelude::DispatchResult {
+        RankedCollective::do_add_member(who.clone())
+            .map_err(|_| frame_support::pallet_prelude::DispatchError::Other("ranked-collective: induct failed"))
+    }
+    fn promote(who: &AccountId) -> frame_support::pallet_prelude::DispatchResult {
+        RankedCollective::do_promote_member(who.clone(), None)
+            .map_err(|_| frame_support::pallet_prelude::DispatchError::Other("ranked-collective: promote failed"))
+    }
+    fn rank_of(who: &AccountId) -> Option<u32> {
+        pallet_ranked_collective::Members::<Runtime>::get(who).map(|m| m.rank as u32)
+    }
+    fn remove(who: &AccountId) {
+        // do_remove_member_from_rank removes the member if their rank <= max_rank.
+        // u16::MAX ensures removal at any rank (0, 1, 2, 3, ...).
+        let _ = RankedCollective::do_remove_member_from_rank(who, u16::MAX);
+    }
+}
+
+pub struct IdentityCapabilityBridge;
+impl pallet_agents::pallet::IdentityHandler<AccountId> for IdentityCapabilityBridge {
+    fn has_identity(who: &AccountId) -> bool {
+        pallet_identity::Pallet::<Runtime>::has_identity(who, Default::default())
+    }
+    fn set_capability(who: &AccountId, capability_id: u32, active: bool)
+        -> frame_support::pallet_prelude::DispatchResult
+    {
+        let _ = (who, capability_id, active);
+        Ok(())
+    }
+    fn agent_has_capability(who: &AccountId, capability_id: u32) -> bool {
+        let caps = pallet_agents::AgentCapabilities::<Runtime>::get(who);
+        caps.binary_search(&capability_id).is_ok()
+    }
+}
+
+pub struct OracleCapabilityGate;
+impl pallet_oracle::CapabilityChecker<AccountId> for OracleCapabilityGate {
+    fn agent_has_capability(who: &AccountId, capability_id: u32) -> bool {
+        let caps = pallet_agents::AgentCapabilities::<Runtime>::get(who);
+        caps.binary_search(&capability_id).is_ok()
+    }
+}
+
+pub struct ValidatorCountBridge;
+impl pallet_emissions::pallet::ValidatorCountProvider for ValidatorCountBridge {
+    fn active_validator_count() -> u32 {
+        pallet_staking::Pallet::<Runtime>::active_era()
+            .map(|era| pallet_staking::ErasStakersOverview::<Runtime>::iter_prefix(era.index).count() as u32)
+            .unwrap_or_else(|| pallet_staking::Validators::<Runtime>::count())
+    }
+}
+
+pub struct OrchestratorEmissionsImpl;
+impl pallet_emissions::pallet::OrchestratorEmissions<Balance> for OrchestratorEmissionsImpl {
+    fn compute_weights(multiplier: u32) -> (u128, u32) {
+        pallet_orchestrator::Pallet::<Runtime>::compute_era_orchestrator_weights(multiplier)
+    }
+    fn settle(orch_emission: Balance, orch_weight: u128) {
+        if orch_weight > 0 {
+            pallet_orchestrator::Pallet::<Runtime>::settle_orchestrator_era(orch_emission, orch_weight);
+        }
+    }
+}
+
+pub struct OrchestratorBridge;
+impl pallet_agents::pallet::OrchestratorLookup<AccountId, Balance> for OrchestratorBridge {
+    fn get_orchestrator(sub_agent: &AccountId) -> Option<AccountId> {
+        pallet_orchestrator::SubAgentToOrchestrator::<Runtime>::get(sub_agent)
+    }
+    fn add_orchestrator_volume(orchestrator: &AccountId, amount: Balance) {
+        pallet_orchestrator::Pallet::<Runtime>::add_orchestrator_volume(orchestrator, amount);
+    }
+}
+
+/// ConvictionVoting implements GovVoteVerifier by checking whether the agent
+/// has at least one active (non-empty) vote in any OpenGov referendum class.
+/// An agent that has never voted, or whose votes are all empty, fails the check.
+/// This prevents record_gov_vote() from being called without genuine participation.
+impl pallet_agents::pallet::GovVoteVerifier<AccountId> for ConvictionVoting {
+    fn is_actively_voting(who: &AccountId) -> bool {
+        use pallet_conviction_voting::{Voting, VotingFor};
+        VotingFor::<Runtime>::iter_prefix(who).any(|(_, voting)| {
+            matches!(&voting, Voting::Casting(c) if !c.votes.is_empty())
+        })
+    }
+}
+
+pub struct AutoParamsImpl;
+impl pallet_auto_params::pallet::AutoParamsProvider for AutoParamsImpl {
+    fn completion_fee_bps() -> u32 { pallet_auto_params::Pallet::<Runtime>::live_completion_fee_bps() }
+    fn alpha()              -> u32 { pallet_auto_params::Pallet::<Runtime>::live_alpha() }
+    fn beta()               -> u32 { pallet_auto_params::Pallet::<Runtime>::live_beta() }
+    fn floor_bps()          -> u32 { pallet_auto_params::Pallet::<Runtime>::live_floor_bps() }
+    fn min_score_eligible() -> u32 { pallet_auto_params::Pallet::<Runtime>::live_min_score_eligible() }
+    // V4: F-02 fix — run_era_rules is now called every settle_era
+    fn run_era_rules(metrics: pallet_auto_params::pallet::EraMetrics) {
+        pallet_auto_params::Pallet::<Runtime>::run_era_rules(metrics);
+    }
+}
+
+pub struct EscrowCompletionFee;
+impl frame_support::traits::Get<u32> for EscrowCompletionFee {
+    fn get() -> u32 { pallet_auto_params::Pallet::<Runtime>::live_completion_fee_bps() }
+}
+
+pub struct OracleCounterBridge;
+impl pallet_emissions::pallet::OracleCounters for OracleCounterBridge {
+    fn drain_era_counters() -> (u32, u32) {
+        pallet_oracle::Pallet::<Runtime>::drain_era_counters()
+    }
+}
+
+// ─── Custom pallet configs ─────────────────────────────────────────────────────
+
+parameter_types! {
+    pub const AgentsMinStake:             Balance = 1_000 * CMN;
+    pub const AgentsFullFloorStake:       Balance = 10_000 * CMN;
+    pub const AgentsMaxStakePerAgent:     Balance = 1_000_000 * CMN;
+    pub const AgentsUnstakeCooldown:      BlockNumber = 7 * DAYS;
+    pub const AgentsBaseRegistrationFee:  Balance = 50 * CMN;
+    pub const AgentsMaxRegistrationsPerBlock: u32 = 10;
+    pub const AgentsMaxAgents:            u32 = 10_000_000;
+    pub const AgentsRank3MinCompletions:  u32 = 50;
+    pub const AgentsMinRank3OracleScore:  u32 = 1_000;
+    pub const AgentsRank3SpanGate:        BlockNumber = 30 * DAYS;
+    pub const AgentsMaxVolToStakeRatio:   u32 = 10;
+    pub const AgentsHeartbeatGrace:       BlockNumber = HOURS * 18;   // V4: 3 eras grace (was 6h = 1 era — zero margin)
+    pub const AgentsHeartbeatDecay:       BlockNumber = DAYS * 90;
+    pub const AgentsMaxUriLen:             u32 = 256;
+    pub const AgentsMaxNameLen:            u32 = 64;
+    pub const AgentsMaxCapabilities:       u32 = 20;
+    pub const AgentsMaxDelegationPeriod:   BlockNumber = 90 * DAYS;
+    pub const AgentsSlashAppealWindow:     BlockNumber = 10;
+    pub const OrchestratorMaxFeeBps:       u32 = 500;
+    pub const OrchestratorLinkWindow:      BlockNumber = 7 * DAYS;
+}
+
+impl pallet_agents::Config for Runtime {
+    type RuntimeEvent             = RuntimeEvent;
+    type Currency                 = Balances;
+    type MinStake                 = AgentsMinStake;
+    type FullFloorStake           = AgentsFullFloorStake;
+    type MaxStakePerAgent         = AgentsMaxStakePerAgent;
+    type UnstakeCooldown          = AgentsUnstakeCooldown;
