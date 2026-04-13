@@ -922,3 +922,464 @@ impl pallet_agents::Config for Runtime {
     type FullFloorStake           = AgentsFullFloorStake;
     type MaxStakePerAgent         = AgentsMaxStakePerAgent;
     type UnstakeCooldown          = AgentsUnstakeCooldown;
+    type BaseRegistrationFee      = AgentsBaseRegistrationFee;
+    type MaxRegistrationsPerBlock = AgentsMaxRegistrationsPerBlock;
+    type MaxAgents                = AgentsMaxAgents;
+    type Rank3MinCompletions      = AgentsRank3MinCompletions;
+    type MinRank3OracleScore      = AgentsMinRank3OracleScore;
+    type Rank3SpanGate            = AgentsRank3SpanGate;
+    type MaxVolToStakeRatio       = AgentsMaxVolToStakeRatio;
+    type HeartbeatGracePeriod     = AgentsHeartbeatGrace;
+    type HeartbeatDecayPeriod     = AgentsHeartbeatDecay;
+    type OnAgentRegistered        = Emissions;
+    type OnAgentSlashed           = Emissions; // zeros AgentWeightSnapshot after slash
+    type OnStakeChanged           = Emissions; // zeros snapshot before stake increase (MasterChef fix)
+    type AgentCollective          = RankedCollectiveBridge;
+    type OracleScoreGate          = Oracle;
+    type GovVoteVerifier          = ConvictionVoting; // verifies active vote before gov credit
+    type IdentityHandler          = IdentityCapabilityBridge;
+    type OrchestratorLookup       = OrchestratorBridge;
+    type MaxUriLen                = AgentsMaxUriLen;
+    type MaxNameLen               = AgentsMaxNameLen;
+    type MaxCapabilitiesPerAgent  = AgentsMaxCapabilities;
+    type MaxDelegationPeriod      = AgentsMaxDelegationPeriod;
+    type SlashAppealWindow        = AgentsSlashAppealWindow;
+    // V4: F-05 — matches emissions MaxProposalsPerEra so cap is enforced at call time
+    type MaxProposalsPerEra       = EmissionsMaxProposalsPerEra;
+    // V4: F-07 — slash treasury destination (50% of slash goes here, 50% burned)
+    type SlashDestination         = Treasury;
+}
+
+parameter_types! {
+    pub const EscrowMaxAgreements:     u32 = 10;
+    pub const EscrowMaxAgreementSpan:  BlockNumber = 30 * DAYS;
+    pub const EscrowMinAmount:         Balance = 10 * CMN;
+    pub const EscrowMinDeliveryBlocks: BlockNumber = 10;
+    pub const EscrowBuyerRespWindow:   BlockNumber = 3 * DAYS;
+    pub const EscrowDisputeTimeout:    BlockNumber = 14 * DAYS;
+    pub const EscrowDisputeRespWindow: BlockNumber = 3 * DAYS;
+    pub const EscrowDisputeBountyBps:  u32 = 200;
+    pub const EscrowMinDisputeBounty:  Balance = CMN;
+    pub const EscrowDisputeBurnBps:    u32 = 0;
+}
+impl pallet_escrow::Config for Runtime {
+    type RuntimeEvent           = RuntimeEvent;
+    // No Currency type — escrow uses agents' currency via BalanceOf<T> = agents::BalanceOf<T>
+    type MaxAgreementsPerPair   = EscrowMaxAgreements;
+    type MaxAgreementSpan       = EscrowMaxAgreementSpan;
+    type MinAgreementAmount     = EscrowMinAmount;
+    type MinDeliveryBlocks      = EscrowMinDeliveryBlocks;
+    type BuyerResponseWindow    = EscrowBuyerRespWindow;
+    type DisputeTimeoutWindow   = EscrowDisputeTimeout;
+    type DisputeResponseWindow  = EscrowDisputeRespWindow;
+    type DisputeBountyBps       = EscrowDisputeBountyBps;
+    type MinDisputeBounty       = EscrowMinDisputeBounty;
+    type DisputeBurnBps         = EscrowDisputeBurnBps;
+    type DisputeOracle          = Oracle;
+    type DisputeCallback        = Escrow;
+    type CompletionFeeProvider  = EscrowCompletionFee;
+    // V4: completion fees (25 bps) route to Treasury for governance allocation
+    type FeeDestination         = Treasury;
+}
+
+parameter_types! {
+    pub const OracleMinBounty:          Balance = CMN;
+    pub const OracleMaxOpenRequests:    u32 = 1_000;
+    pub const OracleMinChallengeWindow: BlockNumber = HOURS;
+    pub const OracleMinConsensusThreshold: u8 = 50;
+    pub const OracleMaxResponsesPerRequest: u32 = 200;
+    pub const OracleMaxBatchSubmissions: u32 = 20;
+}
+impl pallet_oracle::Config for Runtime {
+    type RuntimeEvent              = RuntimeEvent;
+    // No Currency type — oracle uses agents' BalanceOf<T>
+    type MinOracleBounty           = OracleMinBounty;
+    type MaxOpenRequests           = OracleMaxOpenRequests;
+    type MinChallengeWindow        = OracleMinChallengeWindow;
+    type MinConsensusThreshold     = OracleMinConsensusThreshold;
+    type MaxResponsesPerRequest    = OracleMaxResponsesPerRequest;
+    type DisputeCallback           = Escrow;
+    type CapabilityChecker         = OracleCapabilityGate;
+    type MaxBatchSubmissions       = OracleMaxBatchSubmissions;
+}
+
+parameter_types! {
+    pub const EmissionsSupplyCap:        Balance = SUPPLY_CAP;
+    pub const EmissionsInitialPerEra:    Balance = 1_000_000 * CMN;
+    pub const EmissionsTargetPerAgent:   Balance = 10_000 * CMN;
+    pub const EmissionsFloorPerEra:      Balance = 100_000 * CMN;
+    pub const EmissionsEraDuration:      BlockNumber = ERA_BLOCKS;
+    pub const EmissionsOracleBonusBps:   u32 = 2_000;
+    pub const EmissionsMaxProposalsPerEra: u32 = 20;
+    pub const EmissionsUnitVolume:       Balance = 10 * CMN;    // V4: 10 CMN threshold — work_score works for standard agreements
+    /// Minimum era escrow volume for floor emission eligibility.
+    /// 5 × UnitVolume = 50 CMN. Agents must transact at least 50 CMN per era to
+    /// qualify for the floor share. This raises sybil floor farming cost from
+    /// 0.025 CMN/era (one 10 CMN deal) to 0.125 CMN/era (five 10 CMN deals or one 50 CMN deal).
+    /// Governance can raise this without a runtime upgrade via auto_params if needed.
+    pub const EmissionsMinQualifyingVol: Balance = 50 * CMN;
+    /// Capital velocity bonus: maximum additional weight for agents that actively
+    /// deploy their staked capital in escrow each era.
+    /// 3,000 bps = +30% weight when era_vol ≥ stake (full deployment).
+    /// An agent cycling 10,000 CMN stake through escrow earns 30% more than an
+    /// identical agent that just stakes and heartbeats without doing escrow work.
+    pub const EmissionsVelocityBonusBps: u32 = 3_000;
+    // V4: EmissionsGenesisBonusBps and EmissionsGenesisBonusEras removed.
+    // Replaced by per-agent onboarding_boost in compute_weight_cached.
+}
+impl pallet_emissions::Config for Runtime {
+    type RuntimeEvent              = RuntimeEvent;
+    type Currency                  = Balances;
+    type SupplyCap                 = EmissionsSupplyCap;
+    type InitialEmissionsPerEra    = EmissionsInitialPerEra;
+    type TargetEmissionPerAgent    = EmissionsTargetPerAgent;
+    type FloorEmissionPerEra       = EmissionsFloorPerEra;
+    type EraDuration               = EmissionsEraDuration;
+    type MaxBatchClaimSize         = ConstU32<100>;
+    type OracleBonusBps            = EmissionsOracleBonusBps;
+    type MaxProposalsPerEra        = EmissionsMaxProposalsPerEra;
+    type UnitVolume                = EmissionsUnitVolume;
+    type VelocityBonusBps          = EmissionsVelocityBonusBps; // +30% weight bonus at full capital deployment
+    type MinQualifyingVol          = EmissionsMinQualifyingVol;
+    // V4: GenesisAgentBonusBps/Eras removed — replaced by per-agent onboarding_boost
+    type AutoParams                = AutoParamsImpl;
+    type OracleScoreProvider       = ();
+    type OracleCounters            = OracleCounterBridge;
+    type MaxEmissionOverrideEras   = ConstU32<10>;
+    type ValidatorCountProvider    = ValidatorCountBridge;
+    type OrchestratorEmissions     = OrchestratorEmissionsImpl;
+    type OrchestratorEmissionMultiplier = ConstU32<5_000>;
+}
+
+impl pallet_orchestrator::Config for Runtime {
+    type RuntimeEvent                 = RuntimeEvent;
+    type MaxSubAgentsPerOrchestrator  = ConstU32<50>;
+    type MaxOrchestratorFeeBps        = OrchestratorMaxFeeBps;
+    type LinkApprovalWindow           = OrchestratorLinkWindow;
+    type MaxPendingProposals          = ConstU32<20>;
+    type SupplyCap                    = EmissionsSupplyCap; // shared 100B CMN cap
+}
+
+parameter_types! {
+    pub const AutoInitialFeeBps:       u32 = 25;   // V4: 0.25% from genesis — treasury income + ring deterrent active
+    pub const AutoInitialAlpha:        u32 = 4_000;
+    pub const AutoInitialBeta:         u32 = 5_000;
+    pub const AutoInitialFloorBps:     u32 = 1_000;
+    pub const AutoInitialMinScore:     u32 = 5;
+    pub const AutoRingThreshold:       u32 = 3_000;
+    pub const AutoOracleLowThreshold:  u32 = 4_000;
+    pub const AutoOracleHighThreshold: u32 = 9_000;
+    pub const AutoConcentrationHigh:   u32 = 7_000;
+    pub const AutoConcentrationLow:    u32 = 5_000;
+    pub const AutoMinQuestionsRule:    u32 = 5;
+    pub const AutoMinAgentsRule:       u32 = 50;
+}
+impl pallet_auto_params::Config for Runtime {
+    type RuntimeEvent                     = RuntimeEvent;
+    type GovernanceOrigin                 = EnsureRoot<AccountId>;
+    type InitialCompletionFeeBps          = AutoInitialFeeBps;
+    type InitialAlpha                     = AutoInitialAlpha;
+    type InitialBeta                      = AutoInitialBeta;
+    type InitialFloorBps                  = AutoInitialFloorBps;
+    type InitialMinScoreEligible          = AutoInitialMinScore;
+    type RingRatioThreshold               = AutoRingThreshold;
+    type OracleParticipationLowThreshold  = AutoOracleLowThreshold;
+    type OracleParticipationHighThreshold = AutoOracleHighThreshold;
+    type ConcentrationHighThreshold       = AutoConcentrationHigh;
+    type ConcentrationLowThreshold        = AutoConcentrationLow;
+    type MinQuestionsForOracleRule        = AutoMinQuestionsRule;
+    type MinAgentsForConcentrationRule    = AutoMinAgentsRule;
+}
+
+// ─── construct_runtime ────────────────────────────────────────────────────────
+#[frame_support::runtime]
+mod runtime {
+    #[runtime::runtime]
+    #[runtime::derive(RuntimeCall, RuntimeEvent, RuntimeError, RuntimeOrigin,
+                      RuntimeFreezeReason, RuntimeHoldReason, RuntimeSlashReason,
+                      RuntimeTask, RuntimeViewFunction)]
+    pub struct Runtime;
+
+    #[runtime::pallet_index(0)]  pub type System         = frame_system;
+    #[runtime::pallet_index(99)] pub type Authorship       = pallet_authorship;
+    #[runtime::pallet_index(1)]  pub type Timestamp       = pallet_timestamp;
+    #[runtime::pallet_index(35)] pub type Babe            = pallet_babe;
+    #[runtime::pallet_index(36)] pub type Grandpa         = pallet_grandpa;
+    #[runtime::pallet_index(4)]  pub type Balances         = pallet_balances;
+    #[runtime::pallet_index(13)] pub type TransactionPayment = pallet_transaction_payment;
+    #[runtime::pallet_index(34)] pub type Staking         = pallet_staking;
+    #[runtime::pallet_index(37)] pub type Session         = pallet_session;
+    #[runtime::pallet_index(6)]  pub type Historical      = pallet_session::historical;
+    // ImOnline removed M1 -- #[runtime::pallet_index(7)] pub type ImOnline = pallet_im_online;
+    #[runtime::pallet_index(8)]  pub type AuthorityDiscovery = pallet_authority_discovery;
+    #[runtime::pallet_index(9)]  pub type Offences        = pallet_offences;
+    #[runtime::pallet_index(10)] pub type VoterList = pallet_bags_list;
+    // EPM disabled M1
+    // // EPM disabled M1
+ // #[runtime::pallet_index(11)] pub type ElectionProviderMultiPhase = pallet_election_provider_multi_phase;
+    #[runtime::pallet_index(14)] pub type Vesting          = pallet_vesting;
+    // V4: Treasury active — receives slash 50% + completion fees each era.
+    #[runtime::pallet_index(15)] pub type Treasury         = pallet_treasury;
+    #[runtime::pallet_index(16)] pub type Sudo             = pallet_sudo;
+    #[runtime::pallet_index(17)] pub type Utility          = pallet_utility;
+    #[runtime::pallet_index(18)] pub type Multisig         = pallet_multisig;
+    #[runtime::pallet_index(19)] pub type Scheduler        = pallet_scheduler;
+    #[runtime::pallet_index(20)] pub type Preimage          = pallet_preimage;
+    #[runtime::pallet_index(21)] pub type Referenda         = pallet_referenda;         // V4: OpenGov
+    #[runtime::pallet_index(22)] pub type ConvictionVoting  = pallet_conviction_voting; // V4: OpenGov
+    #[runtime::pallet_index(23)] pub type RankedCollective  = pallet_ranked_collective; // V4: active TC
+    #[runtime::pallet_index(25)] pub type Identity         = pallet_identity;
+    #[runtime::pallet_index(26)] pub type Agents           = pallet_agents;
+    #[runtime::pallet_index(27)] pub type Escrow           = pallet_escrow;
+    #[runtime::pallet_index(28)] pub type Oracle           = pallet_oracle;
+    #[runtime::pallet_index(29)] pub type Emissions        = pallet_emissions;
+    #[runtime::pallet_index(30)] pub type AutoParams       = pallet_auto_params;
+    #[runtime::pallet_index(31)] pub type Orchestrator     = pallet_orchestrator;
+    // V4: governance safety stack
+    #[runtime::pallet_index(32)] pub type NominationPools  = pallet_nomination_pools;
+    #[runtime::pallet_index(33)] pub type Whitelist        = pallet_whitelist;
+    // V4: reassigned to unused indices (34/35/36 are taken by Staking/Babe/Grandpa above).
+    #[runtime::pallet_index(38)] pub type SafeMode         = pallet_safe_mode;
+    #[runtime::pallet_index(39)] pub type TxPause          = pallet_tx_pause;
+    #[runtime::pallet_index(40)] pub type Constitution     = pallet_constitution;
+}
+
+// ─── Runtime API implementations ─────────────────────────────────────────────
+impl_runtime_apis! {
+    impl sp_api::Core<Block> for Runtime {
+        fn version() -> RuntimeVersion { VERSION }
+        fn execute_block(block: Block) { Executive::execute_block(block); }
+        fn initialize_block(header: &<Block as BlockT>::Header)
+            -> sp_runtime::ExtrinsicInclusionMode
+        {
+            Executive::initialize_block(header)
+        }
+    }
+
+    impl sp_api::Metadata<Block> for Runtime {
+        fn metadata() -> OpaqueMetadata {
+            OpaqueMetadata::new(Runtime::metadata().into())
+        }
+        fn metadata_at_version(version: u32) -> Option<OpaqueMetadata> {
+            Runtime::metadata_at_version(version)
+        }
+        fn metadata_versions() -> sp_std::vec::Vec<u32> {
+            Runtime::metadata_versions()
+        }
+    }
+
+    impl sp_block_builder::BlockBuilder<Block> for Runtime {
+        fn apply_extrinsic(extrinsic: <Block as BlockT>::Extrinsic) -> ApplyExtrinsicResult {
+            Executive::apply_extrinsic(extrinsic)
+        }
+        fn finalize_block() -> <Block as BlockT>::Header { Executive::finalize_block() }
+        fn inherent_extrinsics(data: sp_inherents::InherentData) -> Vec<<Block as BlockT>::Extrinsic> {
+            data.create_extrinsics()
+        }
+        fn check_inherents(
+            block: Block,
+            data: sp_inherents::InherentData,
+        ) -> sp_inherents::CheckInherentsResult {
+            data.check_extrinsics(&block)
+        }
+    }
+
+    impl sp_transaction_pool::runtime_api::TaggedTransactionQueue<Block> for Runtime {
+        fn validate_transaction(
+            source: TransactionSource,
+            tx: <Block as BlockT>::Extrinsic,
+            block_hash: <Block as BlockT>::Hash,
+        ) -> TransactionValidity {
+            Executive::validate_transaction(source, tx, block_hash)
+        }
+    }
+
+    impl sp_offchain::OffchainWorkerApi<Block> for Runtime {
+        fn offchain_worker(header: &<Block as BlockT>::Header) {
+            Executive::offchain_worker(header)
+        }
+    }
+
+    impl sp_session::SessionKeys<Block> for Runtime {
+        fn generate_session_keys(seed: Option<Vec<u8>>) -> Vec<u8> {
+            SessionKeys::generate(seed)
+        }
+        fn decode_session_keys(encoded: Vec<u8>) -> Option<Vec<(Vec<u8>, KeyTypeId)>> {
+            SessionKeys::decode_into_raw_public_keys(&encoded)
+        }
+    }
+
+    impl sp_consensus_babe::BabeApi<Block> for Runtime {
+        fn configuration() -> sp_consensus_babe::BabeConfiguration {
+            let epoch_config = Babe::epoch_config().unwrap_or(BABE_GENESIS_EPOCH_CONFIG);
+            sp_consensus_babe::BabeConfiguration {
+                slot_duration:       Babe::slot_duration(),
+                epoch_length:        EpochDuration::get(),
+                c:                   epoch_config.c,
+                authorities:         Babe::authorities().to_vec(),
+                randomness:          Babe::randomness(),
+                allowed_slots:       epoch_config.allowed_slots,
+            }
+        }
+        fn current_epoch_start() -> sp_consensus_babe::Slot { Babe::current_epoch_start() }
+        fn current_epoch() -> sp_consensus_babe::Epoch { Babe::current_epoch() }
+        fn next_epoch() -> sp_consensus_babe::Epoch { Babe::next_epoch() }
+        fn generate_key_ownership_proof(
+            _slot: sp_consensus_babe::Slot,
+            authority_id: BabeId,
+        ) -> Option<sp_consensus_babe::OpaqueKeyOwnershipProof> {
+            use sp_runtime::codec::Encode;
+            use frame_support::traits::KeyOwnerProofSystem;
+            Historical::prove((sp_consensus_babe::KEY_TYPE, authority_id))
+                .map(|p: sp_session::MembershipProof| p.encode())
+                .map(sp_consensus_babe::OpaqueKeyOwnershipProof::new)
+        }
+        fn submit_report_equivocation_unsigned_extrinsic(
+            equivocation_proof: sp_consensus_babe::EquivocationProof<<Block as BlockT>::Header>,
+            key_ownership_proof: sp_consensus_babe::OpaqueKeyOwnershipProof,
+        ) -> Option<()> {
+            let key_ownership_proof = key_ownership_proof.decode()?;
+            Babe::submit_unsigned_equivocation_report(equivocation_proof, key_ownership_proof)
+        }
+    }
+
+    impl sp_consensus_grandpa::GrandpaApi<Block> for Runtime {
+        fn grandpa_authorities() -> sp_consensus_grandpa::AuthorityList {
+            Grandpa::grandpa_authorities()
+        }
+        fn current_set_id() -> sp_consensus_grandpa::SetId {
+            Grandpa::current_set_id()
+        }
+        fn submit_report_equivocation_unsigned_extrinsic(
+            _: sp_consensus_grandpa::EquivocationProof<
+                <Block as BlockT>::Hash,
+                NumberFor<Block>,
+            >,
+            _: sp_consensus_grandpa::OpaqueKeyOwnershipProof,
+        ) -> Option<()> { None }
+        fn generate_key_ownership_proof(
+            _: sp_consensus_grandpa::SetId,
+            _: GrandpaId,
+        ) -> Option<sp_consensus_grandpa::OpaqueKeyOwnershipProof> { None }
+    }
+
+    impl frame_system_rpc_runtime_api::AccountNonceApi<Block, AccountId, Index> for Runtime {
+        fn account_nonce(account: AccountId) -> Index {
+            System::account_nonce(account)
+        }
+    }
+
+    impl pallet_transaction_payment_rpc_runtime_api::TransactionPaymentApi<Block, Balance> for Runtime {
+        fn query_info(
+            uxt: <Block as BlockT>::Extrinsic,
+            len: u32,
+        ) -> pallet_transaction_payment_rpc_runtime_api::RuntimeDispatchInfo<Balance> {
+            TransactionPayment::query_info(uxt, len)
+        }
+        fn query_fee_details(
+            uxt: <Block as BlockT>::Extrinsic,
+            len: u32,
+        ) -> pallet_transaction_payment::FeeDetails<Balance> {
+            TransactionPayment::query_fee_details(uxt, len)
+        }
+        fn query_weight_to_fee(weight: Weight) -> Balance {
+            TransactionPayment::weight_to_fee(weight)
+        }
+        fn query_length_to_fee(length: u32) -> Balance {
+            TransactionPayment::length_to_fee(length)
+        }
+    }
+
+    impl crate::scalar_api::ScalarCommonsApi<Block, AccountId, Balance, BlockNumber> for Runtime {
+        fn get_agent_info(who: AccountId) -> Option<AgentInfo<AccountId, Balance, BlockNumber>> {
+            let stake = pallet_agents::AgentStake::<Runtime>::get(&who)?;
+            let rank = pallet_ranked_collective::Members::<Runtime>::get(&who)
+                .map(|m| m.rank as u32)
+                .unwrap_or(0u32);
+            let completions    = pallet_agents::CompletedAgreements::<Runtime>::get(&who);
+            let era_volume     = pallet_agents::EraEscrowVolume::<Runtime>::get(&who);
+            let unique_buyers  = pallet_agents::EraUniqueBuyers::<Runtime>::get(&who);
+            let last_heartbeat = pallet_agents::LastHeartbeat::<Runtime>::get(&who);
+            let heartbeat_mult = pallet_agents::Pallet::<Runtime>::heartbeat_multiplier(&who);
+            let capabilities   = pallet_agents::AgentCapabilities::<Runtime>::get(&who).to_vec();
+            let orchestrator   = pallet_orchestrator::SubAgentToOrchestrator::<Runtime>::get(&who);
+            let (uri, name) = pallet_agents::AgentMetadata::<Runtime>::get(&who)
+                .map(|m| (m.uri.to_vec(), m.name.to_vec()))
+                .unwrap_or_default();
+            let acc    = pallet_emissions::AccRewardPerStake::<Runtime>::get();
+            let debt   = pallet_emissions::AgentRewardDebt::<Runtime>::get(&who);
+            let weight = pallet_emissions::AgentWeightSnapshot::<Runtime>::get(&who);
+            const API_ACC_SCALE: u128 = 1u128 << 64;
+            let pending_emissions: Balance = if acc > debt && weight > 0 {
+                let delta   = acc.saturating_sub(debt);
+                let pending = delta.saturating_mul(weight).checked_div(API_ACC_SCALE).unwrap_or(0);
+                let issued: u128 = pallet_balances::Pallet::<Runtime>::total_issuance();
+                SUPPLY_CAP.saturating_sub(issued).min(pending)
+            } else { 0 };
+            Some(AgentInfo {
+                stake, rank, completions, era_volume, unique_buyers,
+                last_heartbeat, pending_emissions,
+                heartbeat_multiplier: heartbeat_mult as u32,
+                capabilities, uri, name, orchestrator,
+            })
+        }
+
+        fn get_era_metrics() -> EraSnapshot<Balance> {
+            let orch_count = pallet_orchestrator::OrchestratorRegistration::<Runtime>::iter()
+                .count() as u32;
+            EraSnapshot {
+                era_number:          pallet_agents::EraNumber::<Runtime>::get(),
+                active_agents:       pallet_agents::EraActiveSnapshot::<Runtime>::get(),
+                ring_count:          pallet_agents::EraRingSnapshot::<Runtime>::get(),
+                total_weight:        pallet_emissions::AgentWeightSnapshot::<Runtime>::iter()
+                                         .map(|(_, w)| w).sum(),
+                last_era_emission:   pallet_emissions::LastEraEmission::<Runtime>::get(),
+                completion_fee_bps:  pallet_auto_params::CompletionFeeBps::<Runtime>::get(),
+                alpha:               pallet_auto_params::Alpha::<Runtime>::get(),
+                beta:                pallet_auto_params::Beta::<Runtime>::get(),
+                floor_bps:           pallet_auto_params::FloorBps::<Runtime>::get(),
+                active_orchestrators: orch_count,
+            }
+        }
+
+        fn get_oracle_score(who: AccountId, capability: u32) -> u32 {
+            pallet_oracle::OracleScore::<Runtime>::get(&who, capability)
+        }
+
+        fn get_pending_emissions(who: AccountId) -> Balance {
+            let acc    = pallet_emissions::AccRewardPerStake::<Runtime>::get();
+            let debt   = pallet_emissions::AgentRewardDebt::<Runtime>::get(&who);
+            let weight = pallet_emissions::AgentWeightSnapshot::<Runtime>::get(&who);
+            const PE_ACC_SCALE: u128 = 1u128 << 64;
+            if acc > debt && weight > 0 {
+                let pending = acc.saturating_sub(debt)
+                    .saturating_mul(weight).checked_div(PE_ACC_SCALE).unwrap_or(0);
+                let issued: u128 = pallet_balances::Pallet::<Runtime>::total_issuance();
+                SUPPLY_CAP.saturating_sub(issued).min(pending)
+            } else { 0 }
+        }
+    }
+
+    impl sp_genesis_builder::GenesisBuilder<Block> for Runtime {
+        fn build_state(config: Vec<u8>) -> sp_genesis_builder::Result {
+            frame_support::genesis_builder_helper::build_state::<RuntimeGenesisConfig>(config)
+        }
+        fn get_preset(id: &Option<sp_genesis_builder::PresetId>) -> Option<Vec<u8>> {
+            frame_support::genesis_builder_helper::get_preset::<RuntimeGenesisConfig>(
+                id, |_| None,
+            )
+        }
+        fn preset_names() -> Vec<sp_genesis_builder::PresetId> { vec![] }
+    }
+}
+
+pub const BABE_GENESIS_EPOCH_CONFIG: sp_consensus_babe::BabeEpochConfiguration =
+    sp_consensus_babe::BabeEpochConfiguration {
+        c: (1, 4),
+        allowed_slots: sp_consensus_babe::AllowedSlots::PrimaryAndSecondaryPlainSlots,
+    };
+// pallet-authorship needed for Babe/Grandpa equivocation reports
+impl pallet_authorship::Config for Runtime {
+    type FindAuthor = pallet_session::FindAccountFromAuthorIndex<Self, Babe>;
+    type EventHandler = (Staking,); // ImOnline removed M1
+}
