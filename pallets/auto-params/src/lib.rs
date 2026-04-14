@@ -216,3 +216,221 @@ pub mod pallet {
     }
 
     #[derive(Clone, Copy, Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo, Debug, PartialEq, Eq)]
+    pub enum AdjustReason {
+        RingFarmingDetected,
+        RingFarmingSubsided,
+        OracleParticipationLow,
+        OracleParticipationHigh,
+        ConcentrationHigh,
+        ConcentrationLow,
+    }
+
+    // ─── Errors ───────────────────────────────────────────────────────────────
+    #[pallet::error]
+    pub enum Error<T> {
+        ValueOutOfBounds,
+    }
+
+    // ─── Calls ────────────────────────────────────────────────────────────────
+    #[pallet::call]
+    impl<T: Config> Pallet<T> {
+        /// Governance directly sets a live parameter (skips auto-rule for one era).
+        #[pallet::call_index(0)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(2, 1)
+            .saturating_add(Weight::from_parts(40_000_000, 0)))]
+        pub fn set_param(
+            origin: OriginFor<T>,
+            param: ParamId,
+            value: u32,
+        ) -> DispatchResult {
+            T::GovernanceOrigin::ensure_origin(origin)?;
+            Self::apply_param_checked(param, value)?;
+            Self::deposit_event(Event::ParamSetByGovernance { param, value });
+            Ok(())
+        }
+
+        /// Governance updates the bounds for a parameter.
+        #[pallet::call_index(1)]
+        #[pallet::weight(T::DbWeight::get().writes(1)
+            .saturating_add(Weight::from_parts(20_000_000, 0)))]
+        pub fn set_bounds(
+            origin: OriginFor<T>,
+            param: ParamId,
+            bounds: ParamBounds,
+        ) -> DispatchResult {
+            T::GovernanceOrigin::ensure_origin(origin)?;
+            match param {
+                ParamId::CompletionFeeBps             => CompletionFeeBounds::<T>::put(bounds.clone()),
+                ParamId::Alpha                         => AlphaBounds::<T>::put(bounds.clone()),
+                ParamId::Beta                          => BetaBounds::<T>::put(bounds.clone()),
+                ParamId::FloorBps                      => FloorBpsBounds::<T>::put(bounds.clone()),
+                ParamId::MinScoreEligibleResponses     => MinScoreBounds::<T>::put(bounds.clone()),
+            }
+            Self::deposit_event(Event::BoundsUpdated { param, bounds });
+            Ok(())
+        }
+    }
+
+    // ─── Public helpers ───────────────────────────────────────────────────────
+    impl<T: Config> Pallet<T> {
+        /// Called by pallet-emissions settle_era after drain_era_maps.
+        /// Fires all 3 autonomous rules within governance-set bounds.
+        pub fn run_era_rules(metrics: EraMetrics) {
+            Self::rule_ring_farming(&metrics);
+            Self::rule_oracle_participation(&metrics);
+            Self::rule_emission_concentration(&metrics);
+        }
+
+        /// AutoParamsProvider implementation helpers
+        pub fn live_completion_fee_bps() -> u32 { CompletionFeeBps::<T>::get() }
+        pub fn live_alpha()              -> u32 { Alpha::<T>::get() }
+        pub fn live_beta()               -> u32 { Beta::<T>::get() }
+        pub fn live_floor_bps()          -> u32 { FloorBps::<T>::get() }
+        pub fn live_min_score_eligible() -> u32 { MinScoreEligibleResponses::<T>::get() }
+
+        // ── Private rules ────────────────────────────────────────────────────
+
+        fn rule_ring_farming(m: &EraMetrics) {
+            if m.active_agents == 0 { return; }
+            let ring_ratio = (m.ring_count as u64)
+                .saturating_mul(10_000)
+                .checked_div(m.active_agents as u64)
+                .unwrap_or(0) as u32;
+            let threshold = T::RingRatioThreshold::get();
+            let current = CompletionFeeBps::<T>::get();
+            if ring_ratio > threshold {
+                if let Some(b) = CompletionFeeBounds::<T>::get() {
+                    let new_val = current.saturating_add(b.max_step).min(b.max);
+                    if new_val != current {
+                        CompletionFeeBps::<T>::put(new_val);
+                        Self::deposit_event(Event::ParamAutoAdjusted {
+                            param: ParamId::CompletionFeeBps,
+                            old_value: current, new_value: new_val,
+                            reason: AdjustReason::RingFarmingDetected,
+                        });
+                    }
+                }
+            } else if ring_ratio < threshold / 2 && current > 0 {
+                if let Some(b) = CompletionFeeBounds::<T>::get() {
+                    let initial = T::InitialCompletionFeeBps::get();
+                    if current > initial {
+                        let new_val = current.saturating_sub(b.max_step).max(initial).max(b.min);
+                        if new_val != current {
+                            CompletionFeeBps::<T>::put(new_val);
+                            Self::deposit_event(Event::ParamAutoAdjusted {
+                                param: ParamId::CompletionFeeBps,
+                                old_value: current, new_value: new_val,
+                                reason: AdjustReason::RingFarmingSubsided,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        fn rule_oracle_participation(m: &EraMetrics) {
+            if m.era_total_questions < T::MinQuestionsForOracleRule::get() { return; }
+            let success_rate = (m.era_finalized_questions as u64)
+                .saturating_mul(10_000)
+                .checked_div(m.era_total_questions as u64)
+                .unwrap_or(0) as u32;
+            let current = MinScoreEligibleResponses::<T>::get();
+            if success_rate < T::OracleParticipationLowThreshold::get() {
+                if let Some(b) = MinScoreBounds::<T>::get() {
+                    let new_val = current.saturating_sub(b.max_step).max(b.min);
+                    if new_val != current {
+                        MinScoreEligibleResponses::<T>::put(new_val);
+                        Self::deposit_event(Event::ParamAutoAdjusted {
+                            param: ParamId::MinScoreEligibleResponses,
+                            old_value: current, new_value: new_val,
+                            reason: AdjustReason::OracleParticipationLow,
+                        });
+                    }
+                }
+            } else if success_rate > T::OracleParticipationHighThreshold::get() {
+                if let Some(b) = MinScoreBounds::<T>::get() {
+                    let new_val = current.saturating_add(b.max_step).min(b.max);
+                    if new_val != current {
+                        MinScoreEligibleResponses::<T>::put(new_val);
+                        Self::deposit_event(Event::ParamAutoAdjusted {
+                            param: ParamId::MinScoreEligibleResponses,
+                            old_value: current, new_value: new_val,
+                            reason: AdjustReason::OracleParticipationHigh,
+                        });
+                    }
+                }
+            }
+        }
+
+        fn rule_emission_concentration(m: &EraMetrics) {
+            if m.active_agents < T::MinAgentsForConcentrationRule::get() { return; }
+            if m.total_weight == 0 { return; }
+            let concentration = (m.top_ten_pct_weight as u64)
+                .saturating_mul(10_000)
+                .checked_div(m.total_weight as u64)
+                .unwrap_or(0) as u32;
+            let current = Alpha::<T>::get();
+            if concentration > T::ConcentrationHighThreshold::get() {
+                if let Some(b) = AlphaBounds::<T>::get() {
+                    let new_val = current.saturating_sub(b.max_step).max(b.min);
+                    if new_val != current {
+                        Alpha::<T>::put(new_val);
+                        Self::deposit_event(Event::ParamAutoAdjusted {
+                            param: ParamId::Alpha,
+                            old_value: current, new_value: new_val,
+                            reason: AdjustReason::ConcentrationHigh,
+                        });
+                    }
+                }
+            } else if concentration < T::ConcentrationLowThreshold::get() {
+                if let Some(b) = AlphaBounds::<T>::get() {
+                    let new_val = current.saturating_add(b.max_step).min(b.max);
+                    if new_val != current {
+                        Alpha::<T>::put(new_val);
+                        Self::deposit_event(Event::ParamAutoAdjusted {
+                            param: ParamId::Alpha,
+                            old_value: current, new_value: new_val,
+                            reason: AdjustReason::ConcentrationLow,
+                        });
+                    }
+                }
+            }
+        }
+
+        fn apply_param_checked(param: ParamId, value: u32) -> DispatchResult {
+            let in_bounds = match param {
+                ParamId::CompletionFeeBps         => CompletionFeeBounds::<T>::get()
+                    .map(|b| value >= b.min && value <= b.max).unwrap_or(true),
+                ParamId::Alpha                     => AlphaBounds::<T>::get()
+                    .map(|b| value >= b.min && value <= b.max).unwrap_or(true),
+                ParamId::Beta                      => BetaBounds::<T>::get()
+                    .map(|b| value >= b.min && value <= b.max).unwrap_or(true),
+                ParamId::FloorBps                  => FloorBpsBounds::<T>::get()
+                    .map(|b| value >= b.min && value <= b.max).unwrap_or(true),
+                ParamId::MinScoreEligibleResponses => MinScoreBounds::<T>::get()
+                    .map(|b| value >= b.min && value <= b.max).unwrap_or(true),
+            };
+            ensure!(in_bounds, Error::<T>::ValueOutOfBounds);
+            match param {
+                ParamId::CompletionFeeBps         => CompletionFeeBps::<T>::put(value),
+                ParamId::Alpha                     => Alpha::<T>::put(value),
+                ParamId::Beta                      => Beta::<T>::put(value),
+                ParamId::FloorBps                  => FloorBps::<T>::put(value),
+                ParamId::MinScoreEligibleResponses => MinScoreEligibleResponses::<T>::put(value),
+            }
+            Ok(())
+        }
+    }
+
+    impl<T: Config> AutoParamsProvider for Pallet<T> {
+        fn completion_fee_bps() -> u32 { CompletionFeeBps::<T>::get() }
+        fn alpha()              -> u32 { Alpha::<T>::get() }
+        fn beta()               -> u32 { Beta::<T>::get() }
+        fn floor_bps()          -> u32 { FloorBps::<T>::get() }
+        fn min_score_eligible() -> u32 { MinScoreEligibleResponses::<T>::get() }
+        /// V4: F-02 — concrete dispatch to the era rules engine.
+        fn run_era_rules(metrics: EraMetrics) {
+            Self::run_era_rules(metrics);
+        }
+    }
+}
