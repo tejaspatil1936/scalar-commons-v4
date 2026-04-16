@@ -242,3 +242,247 @@ fn era_volume_tracking_increments_correctly() {
         assert_eq!(CompletedAgreements::<Test>::get(ALICE), 1);
     });
 }
+
+#[test]
+fn drain_era_maps_clears_per_era_storage() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(BOB), 1_000));
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 500));
+        assert_eq!(EraNumber::<Test>::get(), 0);
+
+        Agents::drain_era_maps(0);
+
+        // Per-era maps cleared
+        assert_eq!(EraEscrowVolume::<Test>::get(ALICE), 0);
+        assert_eq!(EraUniqueBuyers::<Test>::get(ALICE), 0);
+        // Era number incremented
+        assert_eq!(EraNumber::<Test>::get(), 1);
+        // Active snapshot set (alice had volume)
+        assert_eq!(EraActiveSnapshot::<Test>::get(), 1);
+    });
+}
+
+#[test]
+fn ring_signal_excludes_first_era_agents() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(BOB), 1_000));
+
+        // Alice's first ever completion — should NOT be ring-flagged
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 500));
+        // unique_buyers = 1, completions = 1 (first era agent)
+
+        Agents::drain_era_maps(0);
+
+        // Ring snapshot should be 0 — Alice is first-era, excluded
+        assert_eq!(EraRingSnapshot::<Test>::get(), 0);
+    });
+}
+
+#[test]
+fn ring_signal_fires_on_established_single_buyer_agent() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(BOB), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(3), 1_000)); // carol
+
+        // Era 0: alice's first completion with bob — excluded from ring signal
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 500));
+        Agents::drain_era_maps(0);
+
+        // Era 1: alice completes again, only with bob → established + unique_buyers=1 → ring suspect
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 500));
+        // 2 lifetime completions now — alice IS established
+
+        Agents::drain_era_maps(1);
+        assert_eq!(EraRingSnapshot::<Test>::get(), 1); // Alice flagged
+    });
+}
+
+#[test]
+fn integer_sqrt_correct() {
+    assert_eq!(integer_sqrt(0), 0);
+    assert_eq!(integer_sqrt(1), 1);
+    assert_eq!(integer_sqrt(4), 2);
+    assert_eq!(integer_sqrt(9), 3);
+    assert_eq!(integer_sqrt(100), 10);
+    assert_eq!(integer_sqrt(10_000), 100);
+    assert_eq!(integer_sqrt(u128::MAX), 18_446_744_073_709_551_615u128);
+}
+
+#[test]
+fn heartbeat_multiplier_full_when_fresh() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        frame_system::Pallet::<Test>::set_block_number(1);
+        assert_ok!(Agents::heartbeat(RuntimeOrigin::signed(ALICE)));
+        // Just sent heartbeat — should be 100
+        assert_eq!(Agents::heartbeat_multiplier(&ALICE), 100);
+    });
+}
+
+#[test]
+fn update_metadata_stores_uri_and_name() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+
+        let uri  = b"https://alice-agent.example.com/rpc".to_vec().try_into().unwrap();
+        let name = b"Alice AI Agent".to_vec().try_into().unwrap();
+
+        assert_ok!(Agents::update_metadata(RuntimeOrigin::signed(ALICE), uri, name));
+
+        let meta = AgentMetadata::<Test>::get(ALICE).expect("metadata should exist");
+        assert_eq!(meta.uri.as_slice(), b"https://alice-agent.example.com/rpc");
+        assert_eq!(meta.name.as_slice(), b"Alice AI Agent");
+        assert_eq!(meta.updated_at, 0u64);
+    });
+}
+
+#[test]
+fn update_metadata_fails_for_non_agent() {
+    new_test_ext().execute_with(|| {
+        let uri  = b"https://example.com".to_vec().try_into().unwrap();
+        let name = b"Nobody".to_vec().try_into().unwrap();
+        assert_noop!(
+            Agents::update_metadata(RuntimeOrigin::signed(ALICE), uri, name),
+            Error::<Test>::NotRegistered
+        );
+    });
+}
+
+#[test]
+fn set_capability_stores_and_removes() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+
+        // Set capability 42 active
+        assert_ok!(Agents::set_capability(RuntimeOrigin::signed(ALICE), 42, true));
+        let caps = AgentCapabilities::<Test>::get(ALICE);
+        assert!(caps.contains(&42u32));
+
+        // Set capability 100 active
+        assert_ok!(Agents::set_capability(RuntimeOrigin::signed(ALICE), 100, true));
+        let caps = AgentCapabilities::<Test>::get(ALICE);
+        assert!(caps.contains(&42u32));
+        assert!(caps.contains(&100u32));
+
+        // Deactivate capability 42
+        assert_ok!(Agents::set_capability(RuntimeOrigin::signed(ALICE), 42, false));
+        let caps = AgentCapabilities::<Test>::get(ALICE);
+        assert!(!caps.contains(&42u32));
+        assert!(caps.contains(&100u32));
+    });
+}
+
+#[test]
+fn complete_unstake_clears_metadata_and_capabilities() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        let uri = b"https://alice.ai".to_vec().try_into().unwrap();
+        let name = b"Alice".to_vec().try_into().unwrap();
+        assert_ok!(Agents::update_metadata(RuntimeOrigin::signed(ALICE), uri, name));
+        assert_ok!(Agents::set_capability(RuntimeOrigin::signed(ALICE), 7, true));
+
+        assert_ok!(Agents::request_unstake(RuntimeOrigin::signed(ALICE)));
+        frame_system::Pallet::<Test>::set_block_number(101);
+        assert_ok!(Agents::complete_unstake(RuntimeOrigin::signed(ALICE)));
+
+        // All storage cleared
+        assert!(AgentMetadata::<Test>::get(ALICE).is_none());
+        assert!(AgentCapabilities::<Test>::get(ALICE).is_empty());
+    });
+}
+
+#[test]
+fn delegate_voting_stores_record() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        // Delegate to BOB until block 500
+        assert_ok!(Agents::delegate_voting(RuntimeOrigin::signed(ALICE), BOB, 500));
+        let record = VotingDelegations::<Test>::get(ALICE).expect("delegation should exist");
+        assert_eq!(record.delegate_to, BOB);
+        assert_eq!(record.expires_at, 500u64);
+    });
+}
+
+#[test]
+fn delegate_voting_remove_with_zero_until() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::delegate_voting(RuntimeOrigin::signed(ALICE), BOB, 500));
+        // Pass until=0 to remove
+        assert_ok!(Agents::delegate_voting(RuntimeOrigin::signed(ALICE), BOB, 0));
+        assert!(VotingDelegations::<Test>::get(ALICE).is_none());
+    });
+}
+
+#[test]
+fn delegate_voting_fails_with_past_block() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        frame_system::Pallet::<Test>::set_block_number(100);
+        // until=50 is in the past (current block=100)
+        assert_noop!(
+            Agents::delegate_voting(RuntimeOrigin::signed(ALICE), BOB, 50),
+            Error::<Test>::DelegationExpired
+        );
+    });
+}
+
+#[test]
+fn delegate_voting_fails_period_too_long() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        // MaxDelegationPeriod = 90_000 blocks in test config
+        // Try to delegate for 100_000 blocks — exceeds maximum
+        assert_noop!(
+            Agents::delegate_voting(RuntimeOrigin::signed(ALICE), BOB, 100_001),
+            Error::<Test>::DelegationPeriodTooLong
+        );
+        // Exactly at limit should work
+        assert_ok!(Agents::delegate_voting(RuntimeOrigin::signed(ALICE), BOB, 90_000));
+    });
+}
+
+#[test]
+fn slash_appeal_stores_record() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        let reason = [42u8; 32];
+        // Submit appeal for era 0 while in early era
+        assert_ok!(Agents::slash_appeal(
+            RuntimeOrigin::signed(ALICE), 0, reason
+        ));
+        let rec = PendingSlashAppeals::<Test>::get(ALICE).expect("appeal should exist");
+        assert_eq!(rec.slash_era, 0);
+        assert_eq!(rec.reason_hash, reason);
+    });
+}
+
+#[test]
+fn slash_appeal_cleared_on_unstake() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::slash_appeal(RuntimeOrigin::signed(ALICE), 0, [0u8;32]));
+        assert!(PendingSlashAppeals::<Test>::contains_key(ALICE));
+        assert_ok!(Agents::request_unstake(RuntimeOrigin::signed(ALICE)));
+        // Advance past cooldown
+        frame_system::Pallet::<Test>::set_block_number(200);
+        assert_ok!(Agents::complete_unstake(RuntimeOrigin::signed(ALICE)));
+        assert!(!PendingSlashAppeals::<Test>::contains_key(ALICE));
+    });
+}
+
+#[test]
+fn slash_appeal_duplicate_rejected() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::slash_appeal(RuntimeOrigin::signed(ALICE), 0, [0u8;32]));
+        // Second appeal while first is pending
+        assert_noop!(
+            Agents::slash_appeal(RuntimeOrigin::signed(ALICE), 0, [1u8;32]),
+            Error::<Test>::AppealAlreadyPending
+        );
+    });
+}
