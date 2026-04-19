@@ -202,3 +202,207 @@ pub mod pallet {
             };
             Agreements::<T>::try_mutate(&buyer, &provider, |vec| {
                 vec.try_push(agreement).map_err(|_| Error::<T>::BilateralCapReached)
+            })?;
+
+            <T as agents_pallet::Config>::Currency::reserve(&buyer, amount)?;
+            agents_pallet::Pallet::<T>::increment_active_escrow(&provider)?;
+            ActiveAgreementCount::<T>::mutate(|c| *c = c.saturating_add(1));
+            Self::deposit_event(Event::AgreementCreated { buyer, provider, seq, amount });
+            Ok(())
+        }
+
+        #[pallet::call_index(1)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(2, 1)
+            .saturating_add(Weight::from_parts(80_000_000, 0)))]
+        pub fn record_delivery(
+            origin: OriginFor<T>, buyer: T::AccountId, seq: u32, delivery_hash: [u8; 32],
+        ) -> DispatchResult {
+            let provider = ensure_signed(origin)?;
+            Agreements::<T>::try_mutate(&buyer, &provider, |vec| {
+                let a = vec.iter_mut().find(|a| a.seq == seq).ok_or(Error::<T>::AgreementNotFound)?;
+                ensure!(a.status == AgreementStatus::Created, Error::<T>::WrongStatus);
+                let now = frame_system::Pallet::<T>::block_number();
+                ensure!(now <= a.deliver_by, Error::<T>::DeadlinePassed);
+                ensure!(now >= a.created_at.saturating_add(T::MinDeliveryBlocks::get()), Error::<T>::MinDeliveryBlocksNotElapsed);
+                a.status = AgreementStatus::Delivered;
+                a.delivery_proof = Some(delivery_hash);
+                Self::deposit_event(Event::DeliveryRecorded { provider: provider.clone(), buyer: buyer.clone(), seq, proof: delivery_hash });
+                Ok(())
+            })
+        }
+
+        #[pallet::call_index(2)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(4, 4)
+            .saturating_add(Weight::from_parts(120_000_000, 0)))]
+        pub fn confirm_delivery(origin: OriginFor<T>, provider: T::AccountId, seq: u32) -> DispatchResult {
+            let buyer = ensure_signed(origin)?;
+            let mut settled_amount = BalanceOf::<T>::zero();
+            Agreements::<T>::try_mutate(&buyer, &provider, |vec| {
+                let idx = vec.iter().position(|a| a.seq == seq).ok_or(Error::<T>::AgreementNotFound)?;
+                ensure!(vec[idx].status == AgreementStatus::Delivered, Error::<T>::WrongStatus);
+                let amount = vec[idx].amount;
+                settled_amount = amount;
+                let fee_bps = T::CompletionFeeProvider::get();
+                let fee: BalanceOf<T> = if fee_bps > 0 {
+                    amount.saturating_mul(fee_bps.into()).checked_div(&10_000u32.into()).unwrap_or_default()
+                } else { Zero::zero() };
+                let net = amount.saturating_sub(fee);
+                <T as agents_pallet::Config>::Currency::repatriate_reserved(
+                    &buyer, &provider, net, frame_support::traits::tokens::BalanceStatus::Free,
+                )?;
+                if fee > Zero::zero() {
+                    // V4: Route fee to Treasury via FeeDestination.
+                    // Escrow funds are reserved (not locked), so slash_reserved is correct here.
+                    // Note: use <T as ...>, not <Self as ...> — Self = Pallet<T> in function scope.
+                    let (fee_imbalance, _) = <T as agents_pallet::Config>::Currency
+                        ::slash_reserved(&buyer, fee);
+                    T::FeeDestination::on_unbalanced(fee_imbalance);
+                }
+                agents_pallet::Pallet::<T>::decrement_active_escrow(&provider);
+                agents_pallet::Pallet::<T>::add_era_escrow_volume(&provider, &buyer, amount)?;
+                ActiveAgreementCount::<T>::mutate(|c| *c = c.saturating_sub(1));
+                vec.swap_remove(idx);
+                Ok::<(), DispatchError>(())
+            })?;
+            Self::deposit_event(Event::DeliveryConfirmed { buyer, provider, seq, amount: settled_amount });
+            Ok(())
+        }
+
+        #[pallet::call_index(3)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(4, 3)
+            .saturating_add(Weight::from_parts(200_000_000, 0)))]
+        pub fn dispute_delivery(origin: OriginFor<T>, provider: T::AccountId, seq: u32) -> DispatchResult {
+            let buyer = ensure_signed(origin)?;
+            Agreements::<T>::try_mutate(&buyer, &provider, |vec| {
+                let a = vec.iter_mut().find(|a| a.seq == seq).ok_or(Error::<T>::AgreementNotFound)?;
+                ensure!(a.status == AgreementStatus::Delivered, Error::<T>::WrongStatus);
+                let now = frame_system::Pallet::<T>::block_number();
+                let bounty_raw = a.amount.saturating_mul(T::DisputeBountyBps::get().into())
+                    .checked_div(&10_000u32.into()).unwrap_or_default();
+                let bounty = bounty_raw.max(T::MinDisputeBounty::get());
+                a.amount = a.amount.saturating_sub(bounty);
+                a.status = AgreementStatus::Disputed;
+                a.dispute_opened_at = Some(now);
+                let deadline = now.saturating_add(T::DisputeResponseWindow::get());
+                let request_id = T::DisputeOracle::post_dispute_question(
+                    &buyer, &provider, seq, bounty, deadline, a.capability_id,
+                )?;
+                a.dispute_request_id = Some(request_id);
+                DisputeToAgreement::<T>::insert(request_id, (buyer.clone(), provider.clone(), seq));
+                Self::deposit_event(Event::DisputeOpened { buyer: buyer.clone(), provider: provider.clone(), seq, request_id });
+                Ok(())
+            })
+        }
+
+        #[pallet::call_index(4)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(3, 3)
+            .saturating_add(Weight::from_parts(80_000_000, 0)))]
+        pub fn claim_refund(origin: OriginFor<T>, provider: T::AccountId, seq: u32) -> DispatchResult {
+            let buyer = ensure_signed(origin)?;
+            let mut refund_amount = BalanceOf::<T>::zero();
+            Agreements::<T>::try_mutate(&buyer, &provider, |vec| {
+                let idx = vec.iter().position(|a| a.seq == seq).ok_or(Error::<T>::AgreementNotFound)?;
+                let a = &vec[idx];
+                let now = frame_system::Pallet::<T>::block_number();
+                let refundable = match a.status {
+                    AgreementStatus::Created | AgreementStatus::Delivered =>
+                        now > a.deliver_by.saturating_add(T::BuyerResponseWindow::get()),
+                    AgreementStatus::Disputed => {
+                        let opened = a.dispute_opened_at.unwrap_or(a.created_at);
+                        now >= opened.saturating_add(T::DisputeTimeoutWindow::get())
+                    },
+                };
+                ensure!(refundable, Error::<T>::DisputeTimeoutNotElapsed);
+                refund_amount = a.amount;
+                <T as agents_pallet::Config>::Currency::unreserve(&buyer, refund_amount);
+                agents_pallet::Pallet::<T>::decrement_active_escrow(&provider);
+                if let Some(rid) = a.dispute_request_id { DisputeToAgreement::<T>::remove(rid); }
+                ActiveAgreementCount::<T>::mutate(|c| *c = c.saturating_sub(1));
+                vec.swap_remove(idx);
+                Ok::<(), DispatchError>(())
+            })?;
+            Self::deposit_event(Event::RefundClaimed { buyer, provider, seq, amount: refund_amount });
+            Ok(())
+        }
+
+        #[pallet::call_index(5)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(2, 1)
+            .saturating_add(Weight::from_parts(60_000_000, 0)))]
+        pub fn extend_deadline(
+            origin: OriginFor<T>, provider: T::AccountId, seq: u32, new_deadline: BlockNumberFor<T>,
+        ) -> DispatchResult {
+            let buyer = ensure_signed(origin)?;
+            Agreements::<T>::try_mutate(&buyer, &provider, |vec| {
+                let a = vec.iter_mut().find(|a| a.seq == seq).ok_or(Error::<T>::AgreementNotFound)?;
+                ensure!(a.status == AgreementStatus::Created, Error::<T>::WrongStatus);
+                ensure!(new_deadline > a.deliver_by, Error::<T>::NewDeadlineMustBeLater);
+                let absolute_max = a.created_at.saturating_add(T::MaxAgreementSpan::get());
+                ensure!(new_deadline <= absolute_max, Error::<T>::DeadlineWouldExceedMaxSpan);
+                let old_deadline = a.deliver_by;
+                a.deliver_by = new_deadline;
+                Self::deposit_event(Event::DeadlineExtended {
+                    buyer: buyer.clone(), provider: provider.clone(), seq, old_deadline, new_deadline,
+                });
+                Ok(())
+            })
+        }
+    }
+
+    impl<T: Config> Pallet<T>
+    where
+        BalanceOf<T>: From<u32>,
+        <T as agents_pallet::Config>::Currency: ReservableCurrency<T::AccountId>,
+    {
+        pub fn settle_dispute_from_oracle(
+            buyer: &T::AccountId, provider: &T::AccountId, seq: u32, provider_wins: bool,
+        ) -> DispatchResult {
+            Agreements::<T>::try_mutate(buyer, provider, |vec| {
+                let idx = vec.iter().position(|a| a.seq == seq).ok_or(Error::<T>::AgreementNotFound)?;
+                let amount = vec[idx].amount;
+                if provider_wins {
+                    // DisputeBurnBps is a historical name — the amount is routed to
+                    // Treasury (via FeeDestination), not actually burned. Kept as a
+                    // public Config constant for backwards compatibility with governance
+                    // tooling that references the name.
+                    let dispute_fee_bps = T::DisputeBurnBps::get();
+                    let dispute_fee: BalanceOf<T> = if dispute_fee_bps > 0 {
+                        amount.saturating_mul(dispute_fee_bps.into()).checked_div(&10_000u32.into()).unwrap_or_default()
+                    } else { Zero::zero() };
+                    let net = amount.saturating_sub(dispute_fee);
+                    // Route dispute penalty to FeeDestination (Treasury), not burned.
+                    // slash_reserved → NegativeImbalance → on_unbalanced keeps total_issuance neutral.
+                    // Governance can direct collected dispute penalties via Track 1 spend proposals.
+                    if dispute_fee > Zero::zero() {
+                        let (fee_imbalance, _) = <T as agents_pallet::Config>::Currency
+                            ::slash_reserved(buyer, dispute_fee);
+                        T::FeeDestination::on_unbalanced(fee_imbalance);
+                    }
+                    <T as agents_pallet::Config>::Currency::repatriate_reserved(
+                        buyer, provider, net, frame_support::traits::tokens::BalanceStatus::Free,
+                    )?;
+                    agents_pallet::Pallet::<T>::add_era_escrow_volume(provider, buyer, net)?;
+                } else {
+                    <T as agents_pallet::Config>::Currency::unreserve(buyer, amount);
+                }
+                agents_pallet::Pallet::<T>::decrement_active_escrow(provider);
+                if let Some(rid) = vec[idx].dispute_request_id { DisputeToAgreement::<T>::remove(rid); }
+                ActiveAgreementCount::<T>::mutate(|c| *c = c.saturating_sub(1));
+                vec.swap_remove(idx);
+                Ok::<(), DispatchError>(())
+            })?;
+            Self::deposit_event(Event::DisputeResolved { buyer: buyer.clone(), provider: provider.clone(), seq, provider_wins });
+            Ok(())
+        }
+    }
+}
+
+impl<T: Config> crate::DisputeCallback<T::AccountId, pallet::BalanceOf<T>> for pallet::Pallet<T>
+where
+    pallet::BalanceOf<T>: From<u32>,
+{
+    fn on_dispute_resolved(
+        buyer: &T::AccountId, provider: &T::AccountId, seq: u32, provider_wins: bool,
+    ) -> frame_support::pallet_prelude::DispatchResult {
+        pallet::Pallet::<T>::settle_dispute_from_oracle(buyer, provider, seq, provider_wins)
+    }
+}
