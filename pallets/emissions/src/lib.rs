@@ -274,3 +274,279 @@ pub mod pallet {
 
             // Drain era maps AFTER weight computation but before next era
             agents_pallet::Pallet::<T>::drain_era_maps(era);
+
+            let orch_multiplier = T::OrchestratorEmissionMultiplier::get();
+            let (orch_total_weight, _orch_count) = T::OrchestratorEmissions::compute_weights(orch_multiplier);
+            total_weight = total_weight.saturating_add(orch_total_weight);
+
+            if total_weight > 0 {
+                let emu128: u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(emission);
+                if let Some(delta) = emu128.checked_mul(ACC_SCALE).and_then(|x| x.checked_div(total_weight)) {
+                    AccRewardPerStake::<T>::mutate(|acc| *acc = acc.saturating_add(delta));
+                }
+            }
+
+            if total_weight > 0 && orch_total_weight > 0 {
+                let emu128: u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(emission);
+                let orch_share_u128 = emu128.saturating_mul(orch_total_weight).checked_div(total_weight).unwrap_or(0);
+                if let Ok(orch_share) = orch_share_u128.try_into() {
+                    T::OrchestratorEmissions::settle(orch_share, orch_total_weight);
+                }
+            }
+
+            LastEraEmission::<T>::put(emission);
+
+            // V4: F-02 — run_era_rules is now called every era. Auto-params governs from era 1.
+            // Previously: let _ = (era_finalized_q, era_total_q, top_weight_sum); // suppress
+            T::AutoParams::run_era_rules(pallet_auto_params::pallet::EraMetrics {
+                active_agents:           agents_pallet::EraActiveSnapshot::<T>::get(),
+                ring_count:              agents_pallet::EraRingSnapshot::<T>::get(),
+                era_finalized_questions: era_finalized_q,
+                era_total_questions:     era_total_q,
+                total_weight,
+                top_ten_pct_weight:      top_weight_sum,
+                active_validators:       T::ValidatorCountProvider::active_validator_count(),
+            });
+
+            let next_era_block = now.saturating_add(T::EraDuration::get());
+            Self::deposit_event(Event::NextEraScheduled { block: next_era_block, scheduled: false });
+            Self::deposit_event(Event::EraSettled { era, total_emission: emission, total_weight });
+            Ok(())
+        }
+
+        #[pallet::call_index(1)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(5, 3)
+            .saturating_add(Weight::from_parts(80_000_000, 0)))]
+        pub fn claim(origin: OriginFor<T>) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            let amount = Self::do_claim(&who)?;
+            ensure!(!amount.is_zero(), Error::<T>::NothingToClaim);
+            Ok(())
+        }
+
+        #[pallet::call_index(2)]
+        #[pallet::weight({
+            let k = agents.len().min(T::MaxBatchClaimSize::get() as usize) as u64;
+            T::DbWeight::get().reads_writes(2 + k * 4, k * 2)
+                .saturating_add(Weight::from_parts(200_000_000 + 80_000_000 * k, 0))
+        })]
+        pub fn batch_claim(origin: OriginFor<T>, agents: Vec<T::AccountId>) -> DispatchResult {
+            ensure_signed(origin)?;
+            for agent in agents.iter().take(T::MaxBatchClaimSize::get() as usize) {
+                let _ = Self::do_claim(agent);
+            }
+            Ok(())
+        }
+
+        #[pallet::call_index(3)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(2, 1)
+            .saturating_add(Weight::from_parts(30_000_000, 0)))]
+        pub fn set_era_emission_override(
+            origin: OriginFor<T>, target_era: u32, amount: BalanceOf<T>,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            let current_era = agents_pallet::EraNumber::<T>::get();
+            let max_forward = T::MaxEmissionOverrideEras::get();
+            ensure!(
+                target_era > current_era && target_era <= current_era.saturating_add(max_forward),
+                Error::<T>::OverrideTooFarInFuture
+            );
+            let supply_cap: u128  = UniqueSaturatedInto::<u128>::unique_saturated_into(T::SupplyCap::get());
+            let amount_u128: u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(amount);
+            ensure!(amount_u128 <= supply_cap, Error::<T>::OverrideAmountExceedsCap);
+            EmissionOverrides::<T>::insert(target_era, amount);
+            Self::deposit_event(Event::EmissionOverrideSet { era: target_era, amount });
+            Ok(())
+        }
+    }
+
+    impl<T: Config> agents_pallet::OnAgentRegistered<T::AccountId> for Pallet<T>
+    where
+        BalanceOf<T>: From<u32>,
+        u128: TryInto<BalanceOf<T>>,
+    {
+        fn on_registered(who: &T::AccountId) {
+            AgentRewardDebt::<T>::insert(who, AccRewardPerStake::<T>::get());
+        }
+    }
+
+    impl<T: Config> agents_pallet::OnAgentSlashed<T::AccountId> for Pallet<T>
+    where
+        BalanceOf<T>: From<u32>,
+        u128: TryInto<BalanceOf<T>>,
+    {
+        /// Zero the weight snapshot so do_claim() cannot overclaim using
+        /// a pre-slash weight. The snapshot will be recalculated correctly
+        /// in the next settle_era with the reduced stake.
+        fn on_slashed(who: &T::AccountId) {
+            AgentWeightSnapshot::<T>::remove(who);
+        }
+    }
+
+    impl<T: Config> agents_pallet::OnStakeChanged<T::AccountId> for Pallet<T>
+    where
+        BalanceOf<T>: From<u32>,
+        u128: TryInto<BalanceOf<T>>,
+    {
+        /// Zero the weight snapshot before stake increases.
+        /// Prevents MasterChef overclaim: pending = delta × latest_weight applies the
+        /// new (higher) weight retroactively to prior-era deltas.
+        /// After zeroing, do_claim returns 0 until the next settle_era writes a
+        /// fresh snapshot reflecting the new stake. The agent forfeits unclaimed
+        /// rewards from the last era — a conservative trade-off for correctness.
+        fn on_stake_changed(who: &T::AccountId) {
+            AgentWeightSnapshot::<T>::remove(who);
+        }
+    }
+
+    impl<T: Config> Pallet<T>
+    where
+        BalanceOf<T>: From<u32>,
+        u128: TryInto<BalanceOf<T>>,
+    {
+        fn do_claim(who: &T::AccountId) -> Result<BalanceOf<T>, DispatchError> {
+            ensure!(agents_pallet::AgentStake::<T>::contains_key(who), Error::<T>::NotRegistered);
+            let acc  = AccRewardPerStake::<T>::get();
+            let debt = AgentRewardDebt::<T>::get(who);
+            if acc <= debt { return Ok(Zero::zero()); }
+            let weight = AgentWeightSnapshot::<T>::get(who);
+            if weight == 0 { return Ok(Zero::zero()); }
+            let delta = acc.saturating_sub(debt);
+            let pending_u128 = delta.saturating_mul(weight).checked_div(ACC_SCALE).unwrap_or(0);
+            AgentRewardDebt::<T>::insert(who, acc);
+            if pending_u128 == 0 { return Ok(Zero::zero()); }
+            let supply_cap:   u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(T::SupplyCap::get());
+            let total_issued: u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(<T as Config>::Currency::total_issuance());
+            let mintable = supply_cap.saturating_sub(total_issued).min(pending_u128);
+            if mintable == 0 {
+                Self::deposit_event(Event::CapReached { agent: who.clone() });
+                return Ok(Zero::zero());
+            }
+            let amount: BalanceOf<T> = mintable.try_into().map_err(|_| Error::<T>::ArithmeticOverflow)?;
+            let _ = <T as Config>::Currency::deposit_creating(who, amount);
+            Self::deposit_event(Event::RewardClaimed { agent: who.clone(), amount });
+            Ok(amount)
+        }
+
+        /// stake_u128: pre-converted stake value (avoids cross-pallet Balance type mismatch)
+        fn compute_weight_cached(
+            who: &T::AccountId,
+            stake_u128: u128,
+            alpha: u128, beta: u128, floor_bps: u128,
+            oracle_bonus_bps: u128, unit_u128: u128, max_props: u128,
+            onboarding_boost_bps: u128,
+            velocity_bonus_bps: u128,
+        ) -> u128 {
+            let sqrt_stake = integer_sqrt(stake_u128);
+
+            let rank = <T as agents_pallet::Config>::AgentCollective::rank_of(who).unwrap_or(0);
+            let rank_bps: u128 = match rank {
+                0 | 1 => 10_000,
+                2     => 12_000,
+                _     => 15_000,
+            };
+
+            let hb = agents_pallet::Pallet::<T>::heartbeat_multiplier(who);
+            let has_heartbeat = hb >= 90;
+
+            let vol_u128: u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(
+                agents_pallet::EraEscrowVolume::<T>::get(who)
+            );
+            let raw_vol = log2_scaled(vol_u128, unit_u128);
+            let unique_buyers = agents_pallet::EraUniqueBuyers::<T>::get(who) as u128;
+            let diversity_bps = diversity_score_bps(unique_buyers);
+            let work_score = if raw_vol == 0 || diversity_bps == 0 { 0 }
+                else { raw_vol.saturating_mul(diversity_bps) / SCORE_SCALE };
+
+            // ERA-BASED activity gate (V4 fix: was lifetime completions >= 1).
+            // Floor now requires actual escrow work THIS ERA, not just any past completion.
+            // This closes the dilution attack: minimal agents doing 1 lifetime completion
+            // to permanently farm the floor baseline weight while doing no ongoing work.
+            // An agent must deliver real value each era to claim the floor share.
+            let did_work_this_era = vol_u128 > 0;
+            let is_active = did_work_this_era && has_heartbeat;
+            // MinQualifyingVol gate: floor emission requires meaningful work, not just
+            // the presence of any volume. This raises the cost of sybil ring farming —
+            // agents must do at least 5× UnitVolume (5,000 CMN) in real escrow per era
+            // to earn the floor share. Pure micro-ring deals below this threshold earn
+            // nothing from floor, though they may still earn small work_score rewards.
+            let min_qual: u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(
+                T::MinQualifyingVol::get()
+            );
+            let qualifies_for_floor = is_active && (min_qual == 0 || vol_u128 >= min_qual);
+            let effective_floor = if qualifies_for_floor { floor_bps } else { 0 };
+
+            let gov_votes = agents_pallet::EraGovParticipation::<T>::get(who) as u128;
+            let gov_score = gov_votes.min(max_props).saturating_mul(SCORE_SCALE) / max_props;
+
+            // GOV SCORE GATING (V4 fix: was always additive).
+            // Gov participation amplifies work-based weight but cannot substitute for it.
+            // An agent with zero work_score earns zero from governance votes this era.
+            // This closes the gov farming attack: spamming record_gov_vote without doing
+            // any actual work no longer inflates weight by 4x.
+            // Legitimate governance participants who also do work still get full benefit.
+            let gov_contribution = if work_score > 0 {
+                alpha.saturating_mul(gov_score) / SCORE_SCALE
+            } else {
+                0
+            };
+
+            let activity = (effective_floor
+                .saturating_add(gov_contribution)
+                .saturating_add(beta.saturating_mul(work_score) / SCORE_SCALE))
+                .min(BPS_SCALE);
+
+            let base_weight = sqrt_stake
+                .saturating_mul(rank_bps).checked_div(BPS_SCALE).unwrap_or(0)
+                .saturating_mul(activity).checked_div(BPS_SCALE).unwrap_or(0)
+                .saturating_mul(hb).checked_div(100).unwrap_or(0);
+
+            let weight_after_oracle = if oracle_bonus_bps > 0 {
+                let oracle_score = T::OracleScoreProvider::best_score(who) as u128;
+                let bonus = base_weight
+                    .saturating_mul(oracle_score).checked_div(BPS_SCALE).unwrap_or(0)
+                    .saturating_mul(oracle_bonus_bps).checked_div(BPS_SCALE).unwrap_or(0);
+                base_weight.saturating_add(bonus)
+            } else { base_weight };
+
+            // Onboarding boost (first 10 completions get +100% weight).
+            let after_onboarding = weight_after_oracle
+                .saturating_mul(10_000u128.saturating_add(onboarding_boost_bps))
+                .saturating_div(10_000);
+
+            // Capital velocity bonus: agents that actively deploy their stake in escrow
+            // earn up to VelocityBonusBps extra weight on top of their base weight.
+            // velocity_ratio = era_vol / stake, capped at 1.0 (10000 bps).
+            // Encourages productive use of locked capital rather than passive staking.
+            if velocity_bonus_bps == 0 || stake_u128 == 0 {
+                after_onboarding
+            } else {
+                let velocity_ratio = vol_u128
+                    .saturating_mul(BPS_SCALE)
+                    .checked_div(stake_u128)
+                    .unwrap_or(0)
+                    .min(BPS_SCALE);
+                let bonus = after_onboarding
+                    .saturating_mul(velocity_ratio)
+                    .checked_div(BPS_SCALE).unwrap_or(0)
+                    .saturating_mul(velocity_bonus_bps)
+                    .checked_div(BPS_SCALE).unwrap_or(0);
+                after_onboarding.saturating_add(bonus)
+            }
+        }
+    }
+
+    fn log2_scaled(vol: u128, unit: u128) -> u128 {
+        if vol == 0 || unit == 0 { return 0; }
+        let ratio = vol.saturating_mul(1_000_000).checked_div(unit).unwrap_or(0);
+        if ratio == 0 { return 0; }
+        let bits = (128u32 - ratio.leading_zeros()) as u128;
+        bits.saturating_sub(19).saturating_mul(SCORE_SCALE / 10).min(SCORE_SCALE)
+    }
+
+    fn diversity_score_bps(unique_buyers: u128) -> u128 {
+        match unique_buyers {
+            0 => 0, 1 => 1_000, 2 => 3_000, 3 => 6_000, 4 => 8_000, _ => 10_000,
+        }
+    }
+}
