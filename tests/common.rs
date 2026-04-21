@@ -178,3 +178,180 @@ impl pallet_escrow::Config for TestRuntime {
     type MaxAgreementSpan          = ConstU64<10_000>;
     type MinAgreementAmount        = ConstU64<{1 * CMN}>;
     type MinDeliveryBlocks         = ConstU64<5>;
+    type BuyerResponseWindow       = ConstU64<100>;
+    type DisputeResponseWindow     = ConstU64<100>;
+    type DisputeTimeoutWindow      = ConstU64<500>;
+    type DisputeBountyBps          = ConstU32<200>;
+    type DisputeBurnBps            = ConstU32<0>;
+    type MinDisputeBounty          = ConstU64<{1 * CMN}>;
+    type CompletionFeeProvider     = ConstU32<0>;
+    type DisputeOracle             = Oracle;
+    type DisputeCallback           = Escrow;
+    type FeeDestination            = (); // integration test: fee burned (no treasury mock)
+}
+
+// ── Oracle Config ─────────────────────────────────────────────────────────────
+
+impl pallet_oracle::Config for TestRuntime {
+    type RuntimeEvent              = RuntimeEvent;
+    type MinOracleBounty           = ConstU64<{1 * CMN}>;
+    type MaxOpenRequests           = ConstU32<1000>;
+    type MinConsensusThreshold     = ConstU8<50>;
+    type MinChallengeWindow        = ConstU64<1>;
+    type MaxResponsesPerRequest    = ConstU32<100>;
+    type DisputeCallback           = Escrow;
+    type CapabilityChecker         = ();
+    type MaxBatchSubmissions       = ConstU32<20>;
+}
+
+// ── Emissions Config ──────────────────────────────────────────────────────────
+
+pub struct TestAutoParams;
+impl pallet_auto_params::pallet::AutoParamsProvider for TestAutoParams {
+    fn completion_fee_bps() -> u32 { pallet_auto_params::Pallet::<TestRuntime>::live_completion_fee_bps() }
+    fn alpha()              -> u32 { pallet_auto_params::Pallet::<TestRuntime>::live_alpha() }
+    fn beta()               -> u32 { pallet_auto_params::Pallet::<TestRuntime>::live_beta() }
+    fn floor_bps()          -> u32 { pallet_auto_params::Pallet::<TestRuntime>::live_floor_bps() }
+    fn min_score_eligible() -> u32 { pallet_auto_params::Pallet::<TestRuntime>::live_min_score_eligible() }
+}
+
+pub struct TestOracleCounters;
+impl pallet_emissions::pallet::OracleCounters for TestOracleCounters {
+    fn drain_era_counters() -> (u32, u32) {
+        pallet_oracle::Pallet::<TestRuntime>::drain_era_counters()
+    }
+}
+
+pub struct TestOrchestratorEmissions;
+impl pallet_emissions::pallet::OrchestratorEmissions<u64> for TestOrchestratorEmissions {
+    fn compute_weights(multiplier: u32) -> (u128, u32) {
+        pallet_orchestrator::Pallet::<TestRuntime>::compute_era_orchestrator_weights(multiplier)
+    }
+    fn settle(orch_emission: u64, orch_weight: u128) {
+        if orch_weight > 0 {
+            pallet_orchestrator::Pallet::<TestRuntime>::settle_orchestrator_era(orch_emission, orch_weight);
+        }
+    }
+}
+
+// Supply cap must fit in u64. Use 10B CMN (10^13 * 10^4 = 10^16) — fits in u64.
+// Real cap is 100B CMN but that overflows u64. Tests use scaled-down cap.
+parameter_types! {
+    pub const SupplyCapIntTest: u64 = 10_000_000_000_000_000_000; // ~10B CMN, fits in u64
+    pub const UnitVolumeInt:    u64 = 1_000 * CMN;
+}
+
+impl pallet_emissions::Config for TestRuntime {
+    type RuntimeEvent                    = RuntimeEvent;
+    type Currency                        = Balances;
+    type SupplyCap                       = SupplyCapIntTest;
+    type EraDuration                     = ConstU64<100>;
+    type InitialEmissionsPerEra          = ConstU64<1_000_000_000_000_000>;
+    type TargetEmissionPerAgent          = ConstU64<10_000_000_000_000>;
+    type FloorEmissionPerEra             = ConstU64<100_000_000_000_000>;
+    type OracleBonusBps                  = ConstU32<2_000>;
+    type MaxProposalsPerEra              = ConstU32<10>;
+    type UnitVolume                      = UnitVolumeInt;
+    type VelocityBonusBps          = ConstU32<0>; // +30% weight bonus at full capital deployment
+    type MinQualifyingVol                = ConstU32<0>; // disabled in integration tests
+    // V4: GenesisAgentBonusBps/Eras removed — replaced by per-agent onboarding_boost
+    type MaxBatchClaimSize               = ConstU32<100>;
+    type AutoParams                      = TestAutoParams;
+    type OracleScoreProvider             = ();
+    type OracleCounters                  = TestOracleCounters;
+    type ValidatorCountProvider          = ();
+    type MaxEmissionOverrideEras         = ConstU32<10>;
+    type OrchestratorEmissions           = TestOrchestratorEmissions;
+    type OrchestratorEmissionMultiplier  = ConstU32<5_000>;
+}
+
+// ── AutoParams Config ─────────────────────────────────────────────────────────
+
+parameter_types! {
+    pub const InitFeeBps:   u32 = 0;
+    pub const InitAlpha:    u32 = 4_000;
+    pub const InitBeta:     u32 = 5_000;
+    pub const InitFloor:    u32 = 1_000;
+    pub const InitMinScore: u32 = 3;
+}
+
+impl pallet_auto_params::Config for TestRuntime {
+    type RuntimeEvent                       = RuntimeEvent;
+    type GovernanceOrigin                   = frame_system::EnsureRoot<u64>;
+    type InitialCompletionFeeBps            = InitFeeBps;
+    type InitialAlpha                       = InitAlpha;
+    type InitialBeta                        = InitBeta;
+    type InitialFloorBps                    = InitFloor;
+    type InitialMinScoreEligible            = InitMinScore;
+    type RingRatioThreshold                 = ConstU32<3_000>;
+    type OracleParticipationLowThreshold    = ConstU32<4_000>;
+    type OracleParticipationHighThreshold   = ConstU32<9_000>;
+    type ConcentrationHighThreshold         = ConstU32<7_000>;
+    type ConcentrationLowThreshold          = ConstU32<5_000>;
+    type MinQuestionsForOracleRule          = ConstU32<3>;
+    type MinAgentsForConcentrationRule      = ConstU32<5>;
+}
+
+// ── Orchestrator Config ───────────────────────────────────────────────────────
+
+impl pallet_orchestrator::Config for TestRuntime {
+    type RuntimeEvent                    = RuntimeEvent;
+    type MaxSubAgentsPerOrchestrator     = ConstU32<10>;
+    type MaxOrchestratorFeeBps           = ConstU32<500>;
+    type LinkApprovalWindow              = ConstU64<100>;
+    type MaxPendingProposals             = ConstU32<20>;
+    type SupplyCap                       = SupplyCapIntTest;
+}
+
+// ── Test genesis ──────────────────────────────────────────────────────────────
+
+pub fn new_test_ext_with_balances(balances: Vec<(u64, u64)>) -> TestExternalities {
+    let mut storage = frame_system::GenesisConfig::<TestRuntime>::default()
+        .build_storage()
+        .unwrap();
+    pallet_balances::GenesisConfig::<TestRuntime> { balances, dev_accounts: None }
+        .assimilate_storage(&mut storage)
+        .unwrap();
+    pallet_auto_params::GenesisConfig::<TestRuntime>::default()
+        .assimilate_storage(&mut storage)
+        .unwrap();
+    storage.into()
+}
+
+pub fn new_test_ext() -> TestExternalities {
+    new_test_ext_with_balances(vec![
+        (ALICE, 1_000_000 * CMN),
+        (BOB,   1_000_000 * CMN),
+        (CAROL, 1_000_000 * CMN),
+        (DAVE,  1_000_000 * CMN),
+        (EVE,   1_000_000 * CMN),
+        (FRANK, 1_000_000 * CMN),
+        (ROOT,  1_000_000 * CMN),
+    ])
+}
+
+/// Register an agent with the given stake.
+pub fn register(who: u64, stake: u64) {
+    pallet_agents::Pallet::<TestRuntime>::register(
+        RuntimeOrigin::signed(who), stake,
+    ).expect(&format!("register({who}) failed"));
+}
+
+/// Complete a full escrow cycle: create → deliver → confirm.
+pub fn complete_escrow(buyer: u64, provider: u64, amount: u64, deliver_block: u64) -> u32 {
+    let seq = pallet_escrow::NextSeq::<TestRuntime>::get(&buyer, &provider);
+    advance_blocks(1);
+    pallet_escrow::Pallet::<TestRuntime>::create_agreement(
+        RuntimeOrigin::signed(buyer), provider, amount,
+        [1u8; 32], frame_system::Pallet::<TestRuntime>::block_number() + deliver_block,
+        None,
+    ).expect("create_agreement failed");
+    go_to_block(frame_system::Pallet::<TestRuntime>::block_number() + 10);
+    pallet_escrow::Pallet::<TestRuntime>::record_delivery(
+        RuntimeOrigin::signed(provider), buyer, seq, [2u8; 32],
+    ).expect("record_delivery failed");
+    pallet_escrow::Pallet::<TestRuntime>::confirm_delivery(
+        RuntimeOrigin::signed(buyer), provider, seq,
+    ).expect("confirm_delivery failed");
+    seq
+}
