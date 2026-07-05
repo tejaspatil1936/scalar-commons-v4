@@ -1,7 +1,6 @@
-# Swarm engine: an agent picks up any issue labeled `agent-task`
+# Swarm engine: picks up any issue labeled `agent-task`
 # or any @claude mention in issues/PRs, works it, and opens a PR.
 # Requires: Claude GitHub App installed on the repo + ANTHROPIC_API_KEY secret.
-# NOTE: verify inputs against the current anthropics/claude-code-action README on install.
 name: claude-swarm
 on:
   issues:
@@ -15,10 +14,11 @@ on:
 
 jobs:
   claude:
-    if: >
+    if: |
       (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'agent-task')) ||
-      contains(github.event.comment.body || '', '@claude') ||
-      contains(github.event.review.body || '', '@claude')
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
     runs-on: ubuntu-latest
     timeout-minutes: 90
     permissions:
@@ -26,13 +26,22 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
-      actions: read
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
       - uses: Swatinem/rust-cache@v2
+
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-claude_args: "--max-turns 60 --model claude-opus-4-8"
+          claude_args: |
+            --model claude-opus-4-8
+            --max-turns 60
+            --allowedTools Edit,Read,Write,Bash(git:*),Bash(cargo:*),Bash(rustfmt:*),Bash(ls:*),Bash(find:*),Bash(cat:*),Bash(grep:*),Bash(echo:*),Bash(mkdir:*),Bash(cp:*)
