@@ -1,0 +1,32 @@
+name: pr-ci-feedback
+on:
+  workflow_run:
+    workflows: ["ci-fast"]
+    types: [completed]
+
+jobs:
+  comment-on-failure:
+    if: |
+      github.event.workflow_run.conclusion == 'failure' &&
+      startsWith(github.event.workflow_run.head_branch, 'claude/')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Find linked issue and post CI failure comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const branch = run.head_branch;
+            const match = branch.match(/issue[_-](\d+)/i);
+            if (!match) { console.log('No issue number in branch:', branch); return; }
+            const issueNumber = parseInt(match[1]);
+            const runUrl = run.html_url;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `@claude ci-fast **failed** on branch \`${branch}\` — [view run](${runUrl}).\n\nPlease fix the compilation/test errors and push an updated commit to the same branch.`
+            });
