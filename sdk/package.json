@@ -1,0 +1,42 @@
+{
+  "name": "@scalar-commons/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript agent SDK for the Scalar Commons chain (P0-3 skeleton). polkadot-js based, no silent retries.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "RUN_INTEGRATION=1 vitest run tests/integration.test.ts"
+  },
+  "dependencies": {
+    "@polkadot/api": "^15.0.0",
+    "@polkadot/keyring": "^13.0.0",
+    "@polkadot/util": "^13.0.0",
+    "@polkadot/util-crypto": "^13.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
