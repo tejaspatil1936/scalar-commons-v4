@@ -155,6 +155,62 @@ pub fn staging_testnet_config() -> ChainSpec {
     .build()
 }
 
+// ─── sc-e1 fast-era testnet (P0-2 / protocol §8.2, HL-3) ─────────────
+
+/// λ (lambda) — the uniform fast-era time-compression factor for the `sc-e1`
+/// preset. Every block-denominated runtime constant is conceptually divided by
+/// λ to shorten eras for integration testing, so that *time-dependent results
+/// stay proportional* (HL-3: one unscaled block-denominated constant invalidates
+/// all time-dependent results).
+///
+/// OD-3: the production λ value is owned by Keith — this is a **parameterized
+/// placeholder**, not a ratified constant. It is defined in exactly ONE place so
+/// it can be changed without touching any preset body, and
+/// `scripts/check_lambda_scaling.py` is the CI gate that asserts every
+/// block-denominated constant divides cleanly by this λ (i.e. scaling is
+/// uniform, never lossy).
+pub const FAST_ERA_LAMBDA: u32 = 10;
+
+/// `sc-e1` fast-era testnet preset.
+///
+/// Genesis is identical to [`development_config`] (Alice/Bob/Charlie validators,
+/// same allocations) EXCEPT it is tagged as a distinct chain (`scalar-sc-e1`)
+/// carrying λ in its name, so integration harnesses can select it without
+/// colliding with the dev chain's on-disk state.
+///
+/// NOTE: block-denominated timing (era length, epoch duration, bonding, dispute
+/// windows, …) are **compile-time runtime constants** (`runtime/src/lib.rs`,
+/// `runtime/src/governance/tracks.rs`), *not* genesis-overridable fields — so
+/// this preset does not (and cannot) rewrite them from the chain-spec. It pairs
+/// with a λ-scaled runtime build; `scripts/check_lambda_scaling.py` enumerates
+/// every block-denominated constant and asserts uniform scaling by
+/// [`FAST_ERA_LAMBDA`]. Existing mainnet / testnet presets are left untouched.
+pub fn sc_e1_fast_era_config() -> Result<ChainSpec, String> {
+    let lambda = FAST_ERA_LAMBDA;
+    Ok(ChainSpec::builder(
+        scalar_commons_runtime::WASM_BINARY.ok_or("WASM binary not available")?,
+        Default::default(),
+    )
+    .with_name(&format!("Scalar Commons sc-e1 Fast-Era (lambda={lambda})"))
+    .with_id("scalar-sc-e1")
+    .with_chain_type(ChainType::Development)
+    .with_properties(chain_properties())
+    .with_genesis_config_patch(dev_genesis(
+        vec![
+            authority_keys_from_seed("Alice"),
+            authority_keys_from_seed("Bob"),
+            authority_keys_from_seed("Charlie"),
+        ],
+        vec![
+            account_id_from_seed::<sr25519::Public>("Alice"),
+            account_id_from_seed::<sr25519::Public>("Bob"),
+            account_id_from_seed::<sr25519::Public>("Charlie"),
+        ],
+        account_id_from_seed::<sr25519::Public>("Alice"),
+    ))
+    .build())
+}
+
 // ─── Genesis config builder ───────────────────────────────────────────────────
 
 fn dev_genesis(
