@@ -1001,6 +1001,7 @@ impl pallet_oracle::Config for Runtime {
     type DisputeCallback           = Escrow;
     type CapabilityChecker         = OracleCapabilityGate;
     type MaxBatchSubmissions       = OracleMaxBatchSubmissions;
+    type WeightInfo                = pallet_oracle::pallet::PlaceholderWeights;
 }
 
 parameter_types! {
