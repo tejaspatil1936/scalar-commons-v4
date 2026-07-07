@@ -46,8 +46,7 @@ pub mod pallet {
 
     #[pallet::config]
     pub trait Config: frame_system::Config {
-        type RuntimeEvent: From<Event<Self>>
-            + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// The currency implementation — needed to read total_issuance.
         type Currency: Currency<Self::AccountId>;
@@ -84,14 +83,14 @@ pub mod pallet {
         /// Agents monitoring this event should escalate to governance immediately.
         SupplyCapApproaching {
             current_issuance: BalanceOf<T>,
-            supply_cap:        BalanceOf<T>,
-            buffer_remaining:  BalanceOf<T>,
+            supply_cap: BalanceOf<T>,
+            buffer_remaining: BalanceOf<T>,
         },
         /// A supply cap violation was caught and blocked at the dispatch layer.
         /// This should never happen if run_era_rules emissions math is correct.
         SupplyCapBreachBlocked {
             attempted_issuance: BalanceOf<T>,
-            supply_cap:         BalanceOf<T>,
+            supply_cap: BalanceOf<T>,
         },
         /// Constitution is operating normally — periodic health confirmation.
         InvariantsHealthy { block: BlockNumberFor<T> },
@@ -127,22 +126,22 @@ pub mod pallet {
         /// Agents watching these events escalate to TC emergency governance.
         fn on_initialize(now: BlockNumberFor<T>) -> Weight {
             let current = T::Currency::total_issuance();
-            let cap     = T::SupplyCap::get();
-            let buffer  = T::CapWarningBuffer::get();
+            let cap = T::SupplyCap::get();
+            let buffer = T::CapWarningBuffer::get();
 
             if current > cap {
                 // This should be impossible if BaseCallFilter is wired correctly.
                 // If reached, something bypassed the filter. Emit loudly.
                 Self::deposit_event(Event::SupplyCapBreachBlocked {
                     attempted_issuance: current,
-                    supply_cap:         cap,
+                    supply_cap: cap,
                 });
             } else {
                 let remaining = cap.saturating_sub(current);
                 if remaining <= buffer {
                     Self::deposit_event(Event::SupplyCapApproaching {
                         current_issuance: current,
-                        supply_cap:       cap,
+                        supply_cap: cap,
                         buffer_remaining: remaining,
                     });
                 } else if (now % 100u32.into()).is_zero() {
@@ -165,7 +164,7 @@ pub mod pallet {
         /// Returns Ok(()) if safe to proceed, Err if the cap would be breached.
         pub fn check_supply_cap() -> DispatchResult {
             let current = T::Currency::total_issuance();
-            let cap     = T::SupplyCap::get();
+            let cap = T::SupplyCap::get();
             ensure!(current <= cap, Error::<T>::SupplyCapWouldBeBreached);
             Ok(())
         }
@@ -173,21 +172,30 @@ pub mod pallet {
         /// Invariant 3: proposed unstake cooldown must be at or above the minimum.
         /// Called before any governance proposal that would change AgentsUnstakeCooldown.
         pub fn check_unstake_cooldown(proposed: BlockNumberFor<T>) -> DispatchResult {
-            ensure!(proposed >= T::MinUnstakeCooldown::get(), Error::<T>::UnstakeCooldownTooShort);
+            ensure!(
+                proposed >= T::MinUnstakeCooldown::get(),
+                Error::<T>::UnstakeCooldownTooShort
+            );
             Ok(())
         }
 
         /// Invariant 4: proposed oracle challenge window must be at or above minimum.
         /// Called before any governance proposal that would change OracleMinChallengeWindow.
         pub fn check_challenge_window(proposed: BlockNumberFor<T>) -> DispatchResult {
-            ensure!(proposed >= T::MinChallengeWindow::get(), Error::<T>::ChallengeWindowTooShort);
+            ensure!(
+                proposed >= T::MinChallengeWindow::get(),
+                Error::<T>::ChallengeWindowTooShort
+            );
             Ok(())
         }
 
         /// Invariant 5: proposed registration burn must be at or above minimum.
         /// Called before any governance proposal that would change AgentsBaseRegistrationFee.
         pub fn check_registration_burn(proposed: BalanceOf<T>) -> DispatchResult {
-            ensure!(proposed >= T::MinRegistrationBurn::get(), Error::<T>::RegistrationBurnTooLow);
+            ensure!(
+                proposed >= T::MinRegistrationBurn::get(),
+                Error::<T>::RegistrationBurnTooLow
+            );
             Ok(())
         }
 
