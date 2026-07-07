@@ -9,6 +9,7 @@ members = [
     "pallets/auto-params",
     "pallets/orchestrator",
     "pallets/constitution",
+    "pallets/sc_gov_pallet",
     "tests",
 ]
 resolver = "2"
@@ -163,3 +164,6 @@ pallet-transaction-payment-rpc = { git = "https://github.com/paritytech/polkadot
 substrate-wasm-builder       = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
 frame-benchmarking-cli       = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
 substrate-build-script-utils = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+# core2 0.4.0 was yanked from crates.io; this local shim satisfies the ^0.4 requirement
+# from cid v0.9.0 (transitive via sc-network → scalar-node).
+core2                        = { path = "vendor/core2" }
