@@ -667,6 +667,15 @@ pub mod pallet {
                 new_score: score,
             });
         }
+
+        /// Test-only shim exposing the private consensus helper for boundary testing.
+        #[cfg(test)]
+        pub fn compute_factual_consensus_test(
+            responses: &[(T::AccountId, [u8; 32])],
+            threshold: u8,
+        ) -> (Option<[u8; 32]>, Vec<T::AccountId>, Vec<T::AccountId>) {
+            Self::compute_factual_consensus(responses, threshold)
+        }
     }
 
     impl<T: Config> pallet_agents::pallet::OracleScoreGate<T::AccountId> for Pallet<T>

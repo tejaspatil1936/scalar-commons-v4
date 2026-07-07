@@ -450,59 +450,50 @@ fn batch_submit_response_accepts_valid_skips_invalid() {
 }
 
 // ── compute_factual_consensus boundary tests ──────────────────────────────────
-// These exercise the saturating threshold arithmetic directly.
+// These exercise the saturating threshold arithmetic via the #[cfg(test)] accessor.
+// No runtime storage is accessed.
 
 #[test]
 fn quorum_zero_voters() {
     // Empty response set must return (None, [], []) without panic or div-by-zero.
-    new_test_ext().execute_with(|| {
-        let responses: Vec<(u64, [u8; 32])> = vec![];
-        let (result, winners, losers) = Pallet::<Test>::compute_factual_consensus(&responses, 67);
-        assert!(result.is_none());
-        assert!(winners.is_empty());
-        assert!(losers.is_empty());
-    });
+    let (result, winners, losers) = Oracle::compute_factual_consensus_test(&[], 67);
+    assert!(result.is_none());
+    assert!(winners.is_empty());
+    assert!(losers.is_empty());
+}
+
+#[test]
+fn quorum_single_member() {
+    // 1 respondent, threshold = 100 (%) → required = floor(1 * 100 / 100) = 1; 1 >= 1 → consensus.
+    let solo_hash = [0xCCu8; 32];
+    let responses: Vec<(u64, [u8; 32])> = vec![(1, solo_hash)];
+    let (result, winners, losers) = Oracle::compute_factual_consensus_test(&responses, 100);
+    assert_eq!(result, Some(solo_hash));
+    assert_eq!(winners.len(), 1);
+    assert!(losers.is_empty());
 }
 
 #[test]
 fn quorum_exactly_met() {
     // 3 respondents, 2 agree on the same hash, threshold = 67 (%).
     // required = floor(3 * 67 / 100) = 2; exactly 2 agree → consensus reached.
-    new_test_ext().execute_with(|| {
-        let agree_hash = [0xAAu8; 32];
-        let other_hash = [0xBBu8; 32];
-        let responses: Vec<(u64, [u8; 32])> =
-            vec![(1, agree_hash), (2, agree_hash), (3, other_hash)];
-        let (result, winners, losers) = Pallet::<Test>::compute_factual_consensus(&responses, 67);
-        assert_eq!(result, Some(agree_hash));
-        assert_eq!(winners.len(), 2);
-        assert_eq!(losers.len(), 1);
-    });
+    let agree_hash = [0xAAu8; 32];
+    let other_hash = [0xBBu8; 32];
+    let responses: Vec<(u64, [u8; 32])> = vec![(1, agree_hash), (2, agree_hash), (3, other_hash)];
+    let (result, winners, losers) = Oracle::compute_factual_consensus_test(&responses, 67);
+    assert_eq!(result, Some(agree_hash));
+    assert_eq!(winners.len(), 2);
+    assert_eq!(losers.len(), 1);
 }
 
 #[test]
 fn quorum_one_below() {
     // 3 respondents, only 1 agrees on a hash, threshold = 67 (%).
     // required = floor(3 * 67 / 100) = 2; 1 < 2 → no consensus.
-    new_test_ext().execute_with(|| {
-        let responses: Vec<(u64, [u8; 32])> =
-            vec![(1, [0x11u8; 32]), (2, [0x22u8; 32]), (3, [0x33u8; 32])];
-        let (result, winners, losers) = Pallet::<Test>::compute_factual_consensus(&responses, 67);
-        assert!(result.is_none());
-        assert!(winners.is_empty());
-        assert_eq!(losers.len(), 3);
-    });
-}
-
-#[test]
-fn quorum_single_member() {
-    // 1 respondent, threshold = 100 (%) → required = floor(1 * 100 / 100) = 1; 1 >= 1 → consensus.
-    new_test_ext().execute_with(|| {
-        let solo_hash = [0xCCu8; 32];
-        let responses: Vec<(u64, [u8; 32])> = vec![(1, solo_hash)];
-        let (result, winners, losers) = Pallet::<Test>::compute_factual_consensus(&responses, 100);
-        assert_eq!(result, Some(solo_hash));
-        assert_eq!(winners.len(), 1);
-        assert!(losers.is_empty());
-    });
+    let responses: Vec<(u64, [u8; 32])> =
+        vec![(1, [0x11u8; 32]), (2, [0x22u8; 32]), (3, [0x33u8; 32])];
+    let (result, winners, losers) = Oracle::compute_factual_consensus_test(&responses, 67);
+    assert!(result.is_none());
+    assert!(winners.is_empty());
+    assert_eq!(losers.len(), 3);
 }
