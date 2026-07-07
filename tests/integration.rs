@@ -20,9 +20,9 @@
 #![cfg(test)]
 
 mod common;
-mod era_cycle;
 mod dispute_flow;
-mod ring_detection;
-mod rank_promotion;
-mod supply_cap;
+mod era_cycle;
 mod orchestrator_flow;
+mod rank_promotion;
+mod ring_detection;
+mod supply_cap;

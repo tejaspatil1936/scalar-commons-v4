@@ -23,41 +23,60 @@ mod tests;
 #[cfg(feature = "runtime-benchmarks")]
 pub mod benchmarks;
 
-
-    /// Weight functions needed by pallet-agents.
-    /// Replaced by benchmarked weights from pallets/agents/src/weights.rs before mainnet.
-    pub trait WeightInfo {
-        fn register() -> Weight;
-        fn add_stake() -> Weight;
-        fn request_unstake() -> Weight;
-        fn complete_unstake() -> Weight;
-        fn heartbeat() -> Weight;
-        fn record_gov_vote() -> Weight;
-        fn update_metadata() -> Weight;
-        fn set_capability() -> Weight;
-        fn delegate_voting() -> Weight;
+/// Weight functions needed by pallet-agents.
+/// Replaced by benchmarked weights from pallets/agents/src/weights.rs before mainnet.
+pub trait WeightInfo {
+    fn register() -> Weight;
+    fn add_stake() -> Weight;
+    fn request_unstake() -> Weight;
+    fn complete_unstake() -> Weight;
+    fn heartbeat() -> Weight;
+    fn record_gov_vote() -> Weight;
+    fn update_metadata() -> Weight;
+    fn set_capability() -> Weight;
+    fn delegate_voting() -> Weight;
+}
+/// Placeholder weights returning zero — replaced by benchmark output before mainnet.
+pub struct PlaceholderWeights;
+impl WeightInfo for PlaceholderWeights {
+    fn register() -> Weight {
+        Weight::from_parts(200_000_000, 0)
     }
-    /// Placeholder weights returning zero — replaced by benchmark output before mainnet.
-    pub struct PlaceholderWeights;
-    impl WeightInfo for PlaceholderWeights {
-        fn register()         -> Weight { Weight::from_parts(200_000_000, 0) }
-        fn add_stake()        -> Weight { Weight::from_parts(80_000_000, 0) }
-        fn request_unstake()  -> Weight { Weight::from_parts(60_000_000, 0) }
-        fn complete_unstake() -> Weight { Weight::from_parts(90_000_000, 0) }
-        fn heartbeat()        -> Weight { Weight::from_parts(40_000_000, 0) }
-        fn record_gov_vote()  -> Weight { Weight::from_parts(35_000_000, 0) }
-        fn update_metadata()  -> Weight { Weight::from_parts(50_000_000, 0) }
-        fn set_capability()   -> Weight { Weight::from_parts(60_000_000, 0) }
-        fn delegate_voting()  -> Weight { Weight::from_parts(40_000_000, 0) }
+    fn add_stake() -> Weight {
+        Weight::from_parts(80_000_000, 0)
     }
+    fn request_unstake() -> Weight {
+        Weight::from_parts(60_000_000, 0)
+    }
+    fn complete_unstake() -> Weight {
+        Weight::from_parts(90_000_000, 0)
+    }
+    fn heartbeat() -> Weight {
+        Weight::from_parts(40_000_000, 0)
+    }
+    fn record_gov_vote() -> Weight {
+        Weight::from_parts(35_000_000, 0)
+    }
+    fn update_metadata() -> Weight {
+        Weight::from_parts(50_000_000, 0)
+    }
+    fn set_capability() -> Weight {
+        Weight::from_parts(60_000_000, 0)
+    }
+    fn delegate_voting() -> Weight {
+        Weight::from_parts(40_000_000, 0)
+    }
+}
 
 use frame_support::weights::Weight;
 #[frame_support::pallet]
 pub mod pallet {
     use frame_support::{
         pallet_prelude::*,
-        traits::{Currency, LockIdentifier, LockableCurrency, WithdrawReasons,
-                 ExistenceRequirement, ReservableCurrency, OnUnbalanced, Imbalance},
+        traits::{
+            Currency, ExistenceRequirement, Imbalance, LockIdentifier, LockableCurrency,
+            OnUnbalanced, ReservableCurrency, WithdrawReasons,
+        },
     };
     use frame_system::pallet_prelude::*;
     use sp_runtime::traits::{Saturating, Zero};
@@ -117,9 +136,15 @@ pub mod pallet {
         fn remove(who: &AccountId);
     }
     impl<AccountId> AgentCollective<AccountId> for () {
-        fn induct(_: &AccountId) -> DispatchResult { Ok(()) }
-        fn promote(_: &AccountId) -> DispatchResult { Ok(()) }
-        fn rank_of(_: &AccountId) -> Option<u32> { Some(0) }
+        fn induct(_: &AccountId) -> DispatchResult {
+            Ok(())
+        }
+        fn promote(_: &AccountId) -> DispatchResult {
+            Ok(())
+        }
+        fn rank_of(_: &AccountId) -> Option<u32> {
+            Some(0)
+        }
         fn remove(_: &AccountId) {}
     }
 
@@ -129,7 +154,9 @@ pub mod pallet {
         fn best_score(who: &AccountId) -> u32;
     }
     impl<AccountId> OracleScoreGate<AccountId> for () {
-        fn best_score(_: &AccountId) -> u32 { 0 }
+        fn best_score(_: &AccountId) -> u32 {
+            0
+        }
     }
 
     /// Cross-pallet: verifies that an agent is CURRENTLY casting a vote in
@@ -147,7 +174,9 @@ pub mod pallet {
         fn is_actively_voting(who: &AccountId) -> bool;
     }
     impl<AccountId> GovVoteVerifier<AccountId> for () {
-        fn is_actively_voting(_: &AccountId) -> bool { true }
+        fn is_actively_voting(_: &AccountId) -> bool {
+            true
+        }
     }
 
     /// Cross-pallet: writes capability registration to pallet-identity additional fields.
@@ -157,15 +186,29 @@ pub mod pallet {
         fn has_identity(who: &AccountId) -> bool;
         /// Sets or clears a capability field in the agent's identity.
         /// capability_id maps to a deterministic field key (b"cap:NNNN").
-        fn set_capability(who: &AccountId, capability_id: u32, active: bool) -> frame_support::pallet_prelude::DispatchResult;
+        fn set_capability(
+            who: &AccountId,
+            capability_id: u32,
+            active: bool,
+        ) -> frame_support::pallet_prelude::DispatchResult;
         /// Returns true if agent has this capability active.
         fn agent_has_capability(who: &AccountId, capability_id: u32) -> bool;
     }
     /// No-op implementation for test environments (identity not required in mock).
     impl<AccountId> IdentityHandler<AccountId> for () {
-        fn has_identity(_: &AccountId) -> bool { true } // permissive in tests
-        fn set_capability(_: &AccountId, _: u32, _: bool) -> frame_support::pallet_prelude::DispatchResult { Ok(()) }
-        fn agent_has_capability(_: &AccountId, _: u32) -> bool { true }
+        fn has_identity(_: &AccountId) -> bool {
+            true
+        } // permissive in tests
+        fn set_capability(
+            _: &AccountId,
+            _: u32,
+            _: bool,
+        ) -> frame_support::pallet_prelude::DispatchResult {
+            Ok(())
+        }
+        fn agent_has_capability(_: &AccountId, _: u32) -> bool {
+            true
+        }
     }
 
     /// Called by pallet-orchestrator to credit volume on the orchestrator side.
@@ -176,7 +219,9 @@ pub mod pallet {
         fn add_orchestrator_volume(orchestrator: &AccountId, amount: Balance);
     }
     impl<AccountId, Balance> OrchestratorLookup<AccountId, Balance> for () {
-        fn get_orchestrator(_: &AccountId) -> Option<AccountId> { None }
+        fn get_orchestrator(_: &AccountId) -> Option<AccountId> {
+            None
+        }
         fn add_orchestrator_volume(_: &AccountId, _: Balance) {}
     }
 
@@ -185,18 +230,22 @@ pub mod pallet {
     /// Integer square root (Newton's method). Correct for all u128 values.
     /// weight ∝ √stake so 100× stake → 10× weight (not 100×) — anti-whale.
     pub fn integer_sqrt(n: u128) -> u128 {
-        if n == 0 { return 0; }
+        if n == 0 {
+            return 0;
+        }
         let mut x = n;
         let mut y = (x + 1) / 2;
-        while y < x { x = y; y = (x + n / x) / 2; }
+        while y < x {
+            x = y;
+            y = (x + n / x) / 2;
+        }
         x
     }
 
     // ─── Config ──────────────────────────────────────────────────────────────
     #[pallet::config]
     pub trait Config: frame_system::Config {
-        type RuntimeEvent: From<Event<Self>>
-            + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         type Currency: LockableCurrency<Self::AccountId, Moment = BlockNumberFor<Self>>
             + ReservableCurrency<Self::AccountId>;
@@ -298,7 +347,7 @@ pub mod pallet {
         /// Set to pallet_treasury::Pallet<Runtime> in the runtime config.
         /// The burned share (50%) is handled by dropping the NegativeImbalance.
         type SlashDestination: OnUnbalanced<
-            <<Self as Config>::Currency as Currency<Self::AccountId>>::NegativeImbalance
+            <<Self as Config>::Currency as Currency<Self::AccountId>>::NegativeImbalance,
         >;
 
         /// V4: F-05 — max governance votes per agent per era.
@@ -324,9 +373,9 @@ pub mod pallet {
     #[scale_info(skip_type_params(T))]
     pub struct AgentMeta<T: Config> {
         /// Off-chain service endpoint URI (e.g. "https://agent.example.com/rpc").
-        pub uri:        BoundedVec<u8, T::MaxUriLen>,
+        pub uri: BoundedVec<u8, T::MaxUriLen>,
         /// Human-readable display name for the agent.
-        pub name:       BoundedVec<u8, T::MaxNameLen>,
+        pub name: BoundedVec<u8, T::MaxNameLen>,
         /// Block at which metadata was last updated.
         pub updated_at: BlockNumberFor<T>,
     }
@@ -338,11 +387,11 @@ pub mod pallet {
     #[scale_info(skip_type_params(T))]
     pub struct SlashAppealRecord<T: Config> {
         /// Era in which the slash occurred.
-        pub slash_era:    u32,
+        pub slash_era: u32,
         /// Block at which this appeal was submitted.
-        pub appealed_at:  BlockNumberFor<T>,
+        pub appealed_at: BlockNumberFor<T>,
         /// Hash of the off-chain justification document (IPFS CID).
-        pub reason_hash:  [u8; 32],
+        pub reason_hash: [u8; 32],
     }
 
     // ─── Delegation struct ────────────────────────────────────────────────────
@@ -354,9 +403,9 @@ pub mod pallet {
         /// Account receiving the delegation.
         pub delegate_to: T::AccountId,
         /// Block at which this delegation expires (agent must renew or it lapses).
-        pub expires_at:  BlockNumberFor<T>,
+        pub expires_at: BlockNumberFor<T>,
         /// Block at which delegation was created.
-        pub created_at:  BlockNumberFor<T>,
+        pub created_at: BlockNumberFor<T>,
     }
 
     // ─── Storage ─────────────────────────────────────────────────────────────
@@ -404,9 +453,13 @@ pub mod pallet {
     /// Collision rate ~1/65536 per pair — negligible for anti-ring purposes.
     #[pallet::storage]
     pub type EraSeenBuyerSlots<T: Config> = StorageDoubleMap<
-        _, Blake2_128Concat, T::AccountId,
-           Blake2_128Concat, u32,
-        bool, ValueQuery,
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Blake2_128Concat,
+        u32,
+        bool,
+        ValueQuery,
     >;
 
     /// Governance votes recorded this era per agent.
@@ -441,10 +494,8 @@ pub mod pallet {
     /// Pending slash appeals: agent → (slash_era, appeal_block, reason_hash).
     /// Governance referendum [Track 0] can overturn the slash within AppealWindow.
     #[pallet::storage]
-    pub type PendingSlashAppeals<T: Config> = StorageMap<
-        _, Blake2_128Concat, T::AccountId,
-        SlashAppealRecord<T>, OptionQuery
-    >;
+    pub type PendingSlashAppeals<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, SlashAppealRecord<T>, OptionQuery>;
 
     /// Active voting delegations: agent → DelegationRecord.
     /// Governance tooling reads this to route votes.
@@ -461,8 +512,11 @@ pub mod pallet {
     /// BoundedBTreeSet ensures sorted dedup and bounded storage.
     #[pallet::storage]
     pub type AgentCapabilities<T: Config> = StorageMap<
-        _, Blake2_128Concat, T::AccountId,
-        BoundedVec<u32, T::MaxCapabilitiesPerAgent>, ValueQuery,
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        BoundedVec<u32, T::MaxCapabilitiesPerAgent>,
+        ValueQuery,
     >;
 
     // ─── StorageVersion ──────────────────────────────────────────────────────
@@ -520,22 +574,72 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        AgentRegistered    { who: T::AccountId, stake: BalanceOf<T>, fee: BalanceOf<T> },
-        StakeAdded         { who: T::AccountId, added: BalanceOf<T>, total: BalanceOf<T> },
-        UnstakeRequested   { who: T::AccountId, unstake_at: BlockNumberFor<T> },
-        UnstakeCompleted   { who: T::AccountId, released: BalanceOf<T> },
-        HeartbeatSent      { who: T::AccountId },
-        EraMapsCleared     { era: u32, ring_snap: u32, active_snap: u32 },
-        GovVoteRecorded    { who: T::AccountId, total_era_votes: u32 },
-        EraVolumeAdded     { who: T::AccountId, amount: BalanceOf<T>, era_total: BalanceOf<T> },
-        MetadataUpdated    { who: T::AccountId },
-        CapabilitySet      { who: T::AccountId, capability_id: u32, active: bool },
-        VotingDelegated    { who: T::AccountId, to: T::AccountId, until: BlockNumberFor<T> },
-        VotingDelegationRemoved  { who: T::AccountId },
-        SlashAppealed            { who: T::AccountId, slash_era: u32, reason_hash: [u8; 32] },
-        SlashAppealWithdrawn     { who: T::AccountId },
+        AgentRegistered {
+            who: T::AccountId,
+            stake: BalanceOf<T>,
+            fee: BalanceOf<T>,
+        },
+        StakeAdded {
+            who: T::AccountId,
+            added: BalanceOf<T>,
+            total: BalanceOf<T>,
+        },
+        UnstakeRequested {
+            who: T::AccountId,
+            unstake_at: BlockNumberFor<T>,
+        },
+        UnstakeCompleted {
+            who: T::AccountId,
+            released: BalanceOf<T>,
+        },
+        HeartbeatSent {
+            who: T::AccountId,
+        },
+        EraMapsCleared {
+            era: u32,
+            ring_snap: u32,
+            active_snap: u32,
+        },
+        GovVoteRecorded {
+            who: T::AccountId,
+            total_era_votes: u32,
+        },
+        EraVolumeAdded {
+            who: T::AccountId,
+            amount: BalanceOf<T>,
+            era_total: BalanceOf<T>,
+        },
+        MetadataUpdated {
+            who: T::AccountId,
+        },
+        CapabilitySet {
+            who: T::AccountId,
+            capability_id: u32,
+            active: bool,
+        },
+        VotingDelegated {
+            who: T::AccountId,
+            to: T::AccountId,
+            until: BlockNumberFor<T>,
+        },
+        VotingDelegationRemoved {
+            who: T::AccountId,
+        },
+        SlashAppealed {
+            who: T::AccountId,
+            slash_era: u32,
+            reason_hash: [u8; 32],
+        },
+        SlashAppealWithdrawn {
+            who: T::AccountId,
+        },
         /// V4: F-07 — emitted when a slash is executed and CMN actually removed.
-        SlashExecuted            { who: T::AccountId, amount: BalanceOf<T>, burn: BalanceOf<T>, treasury: BalanceOf<T> },
+        SlashExecuted {
+            who: T::AccountId,
+            amount: BalanceOf<T>,
+            burn: BalanceOf<T>,
+            treasury: BalanceOf<T>,
+        },
     }
 
     // ─── Errors ──────────────────────────────────────────────────────────────
@@ -588,19 +692,32 @@ pub mod pallet {
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
 
-            ensure!(!AgentStake::<T>::contains_key(&who), Error::<T>::AlreadyRegistered);
-            ensure!(stake >= T::MinStake::get(),         Error::<T>::StakeTooLow);
-            ensure!(stake <= T::MaxStakePerAgent::get(), Error::<T>::StakeTooHigh);
-            ensure!(AgentStake::<T>::count() < T::MaxAgents::get(), Error::<T>::MaxAgentsReached);
+            ensure!(
+                !AgentStake::<T>::contains_key(&who),
+                Error::<T>::AlreadyRegistered
+            );
+            ensure!(stake >= T::MinStake::get(), Error::<T>::StakeTooLow);
+            ensure!(
+                stake <= T::MaxStakePerAgent::get(),
+                Error::<T>::StakeTooHigh
+            );
+            ensure!(
+                AgentStake::<T>::count() < T::MaxAgents::get(),
+                Error::<T>::MaxAgentsReached
+            );
 
             // Rate limit: checked before any state mutations
             let this_block = RegistrationsThisBlock::<T>::get();
-            ensure!(this_block < T::MaxRegistrationsPerBlock::get(), Error::<T>::RegistrationRateLimitExceeded);
+            ensure!(
+                this_block < T::MaxRegistrationsPerBlock::get(),
+                Error::<T>::RegistrationRateLimitExceeded
+            );
 
             let fee = T::BaseRegistrationFee::get();
             let min_balance = T::Currency::minimum_balance();
             ensure!(
-                T::Currency::free_balance(&who) >= stake.saturating_add(fee).saturating_add(min_balance),
+                T::Currency::free_balance(&who)
+                    >= stake.saturating_add(fee).saturating_add(min_balance),
                 Error::<T>::StakeTooLow
             );
 
@@ -608,7 +725,12 @@ pub mod pallet {
             RegistrationsThisBlock::<T>::put(this_block + 1);
 
             // Burn fee
-            let _ = T::Currency::withdraw(&who, fee, WithdrawReasons::FEE, ExistenceRequirement::KeepAlive)?;
+            let _ = T::Currency::withdraw(
+                &who,
+                fee,
+                WithdrawReasons::FEE,
+                ExistenceRequirement::KeepAlive,
+            )?;
 
             // Lock stake
             T::Currency::set_lock(AGENT_LOCK_ID, &who, stake, WithdrawReasons::all());
@@ -637,13 +759,19 @@ pub mod pallet {
             let who = ensure_signed(origin)?;
             ensure!(!amount.is_zero(), Error::<T>::StakeTooLow);
             let current_stake = AgentStake::<T>::get(&who).ok_or(Error::<T>::NotRegistered)?;
-            ensure!(UnstakeAt::<T>::get(&who).is_none(), Error::<T>::UnstakeAlreadyPending);
+            ensure!(
+                UnstakeAt::<T>::get(&who).is_none(),
+                Error::<T>::UnstakeAlreadyPending
+            );
             ensure!(
                 T::Currency::free_balance(&who) >= amount,
                 Error::<T>::StakeTooLow
             );
             let new_stake = current_stake.saturating_add(amount);
-            ensure!(new_stake <= T::MaxStakePerAgent::get(), Error::<T>::StakeTooHigh);
+            ensure!(
+                new_stake <= T::MaxStakePerAgent::get(),
+                Error::<T>::StakeTooHigh
+            );
 
             // Zero AgentWeightSnapshot before changing stake.
             // The MasterChef accumulator uses the LATEST snapshot weight to compute
@@ -663,7 +791,11 @@ pub mod pallet {
                 let _ = T::AgentCollective::promote(&who);
             }
 
-            Self::deposit_event(Event::StakeAdded { who, added: amount, total: new_stake });
+            Self::deposit_event(Event::StakeAdded {
+                who,
+                added: amount,
+                total: new_stake,
+            });
             Ok(())
         }
 
@@ -673,9 +805,18 @@ pub mod pallet {
             .saturating_add(Weight::from_parts(60_000_000, 0)))]
         pub fn request_unstake(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            ensure!(AgentStake::<T>::contains_key(&who), Error::<T>::NotRegistered);
-            ensure!(UnstakeAt::<T>::get(&who).is_none(), Error::<T>::UnstakeAlreadyPending);
-            ensure!(ActiveEscrowCount::<T>::get(&who) == 0, Error::<T>::HasActiveAgreements);
+            ensure!(
+                AgentStake::<T>::contains_key(&who),
+                Error::<T>::NotRegistered
+            );
+            ensure!(
+                UnstakeAt::<T>::get(&who).is_none(),
+                Error::<T>::UnstakeAlreadyPending
+            );
+            ensure!(
+                ActiveEscrowCount::<T>::get(&who) == 0,
+                Error::<T>::HasActiveAgreements
+            );
             let now = frame_system::Pallet::<T>::block_number();
             let unstake_at = now.saturating_add(T::UnstakeCooldown::get());
             UnstakeAt::<T>::insert(&who, unstake_at);
@@ -694,7 +835,10 @@ pub mod pallet {
             let now = frame_system::Pallet::<T>::block_number();
             ensure!(now >= unstake_at, Error::<T>::UnstakeCooldownNotElapsed);
             // Re-check: new escrow could have been created during cooldown
-            ensure!(ActiveEscrowCount::<T>::get(&who) == 0, Error::<T>::HasActiveAgreements);
+            ensure!(
+                ActiveEscrowCount::<T>::get(&who) == 0,
+                Error::<T>::HasActiveAgreements
+            );
 
             T::Currency::remove_lock(AGENT_LOCK_ID, &who);
             T::AgentCollective::remove(&who); // remove from ranked-collective
@@ -714,7 +858,10 @@ pub mod pallet {
                 sp_io::offchain_index::clear(&key);
             }
 
-            Self::deposit_event(Event::UnstakeCompleted { who, released: stake });
+            Self::deposit_event(Event::UnstakeCompleted {
+                who,
+                released: stake,
+            });
             Ok(())
         }
 
@@ -749,7 +896,10 @@ pub mod pallet {
         pub fn record_gov_vote(origin: OriginFor<T>, agent: T::AccountId) -> DispatchResult {
             let signer = ensure_signed(origin)?;
             ensure!(signer == agent, Error::<T>::Unauthorized);
-            ensure!(AgentStake::<T>::contains_key(&agent), Error::<T>::NotRegistered);
+            ensure!(
+                AgentStake::<T>::contains_key(&agent),
+                Error::<T>::NotRegistered
+            );
             // Verify the agent is CURRENTLY casting a vote in pallet_conviction_voting.
             // Without this check, any agent can call record_gov_vote() 20×/era and claim
             // full gov_score (+4,000 bps activity) with only the minimum 1,000 CMN escrow
@@ -765,9 +915,13 @@ pub mod pallet {
                 Error::<T>::GovVoteCapReached
             );
             let total = EraGovParticipation::<T>::mutate(&agent, |v| {
-                *v = v.saturating_add(1); *v
+                *v = v.saturating_add(1);
+                *v
             });
-            Self::deposit_event(Event::GovVoteRecorded { who: agent, total_era_votes: total });
+            Self::deposit_event(Event::GovVoteRecorded {
+                who: agent,
+                total_era_votes: total,
+            });
             Ok(())
         }
 
@@ -779,14 +933,21 @@ pub mod pallet {
             .saturating_add(Weight::from_parts(50_000_000, 0)))]
         pub fn update_metadata(
             origin: OriginFor<T>,
-            uri:    BoundedVec<u8, T::MaxUriLen>,
-            name:   BoundedVec<u8, T::MaxNameLen>,
+            uri: BoundedVec<u8, T::MaxUriLen>,
+            name: BoundedVec<u8, T::MaxNameLen>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            ensure!(AgentStake::<T>::contains_key(&who), Error::<T>::NotRegistered);
+            ensure!(
+                AgentStake::<T>::contains_key(&who),
+                Error::<T>::NotRegistered
+            );
 
             let now = frame_system::Pallet::<T>::block_number();
-            let meta = AgentMeta::<T> { uri, name, updated_at: now };
+            let meta = AgentMeta::<T> {
+                uri,
+                name,
+                updated_at: now,
+            };
             AgentMetadata::<T>::insert(&who, meta);
 
             Self::deposit_event(Event::MetadataUpdated { who });
@@ -801,13 +962,19 @@ pub mod pallet {
         #[pallet::weight(T::DbWeight::get().reads_writes(3, 2)
             .saturating_add(Weight::from_parts(60_000_000, 0)))]
         pub fn set_capability(
-            origin:        OriginFor<T>,
+            origin: OriginFor<T>,
             capability_id: u32,
-            active:        bool,
+            active: bool,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            ensure!(AgentStake::<T>::contains_key(&who), Error::<T>::NotRegistered);
-            ensure!(T::IdentityHandler::has_identity(&who), Error::<T>::IdentityRequired);
+            ensure!(
+                AgentStake::<T>::contains_key(&who),
+                Error::<T>::NotRegistered
+            );
+            ensure!(
+                T::IdentityHandler::has_identity(&who),
+                Error::<T>::IdentityRequired
+            );
 
             // Write to pallet-identity so oracle capability gate can read it
             T::IdentityHandler::set_capability(&who, capability_id, active)?;
@@ -819,7 +986,9 @@ pub mod pallet {
                     if !caps.contains(&capability_id) {
                         caps.try_push(capability_id)
                             .map_err(|_| Error::<T>::TooManyCapabilities)?;
-                        let mut v = caps.to_vec(); v.sort_unstable(); *caps = v.try_into().unwrap_or_default();
+                        let mut v = caps.to_vec();
+                        v.sort_unstable();
+                        *caps = v.try_into().unwrap_or_default();
                     }
                 } else {
                     // Remove if present
@@ -828,7 +997,11 @@ pub mod pallet {
                 Ok(())
             })?;
 
-            Self::deposit_event(Event::CapabilitySet { who, capability_id, active });
+            Self::deposit_event(Event::CapabilitySet {
+                who,
+                capability_id,
+                active,
+            });
             Ok(())
         }
 
@@ -848,12 +1021,15 @@ pub mod pallet {
         #[pallet::weight(T::DbWeight::get().reads_writes(2, 2)
             .saturating_add(Weight::from_parts(40_000_000, 0)))]
         pub fn delegate_voting(
-            origin:    OriginFor<T>,
-            to:        T::AccountId,
-            until:     BlockNumberFor<T>,
+            origin: OriginFor<T>,
+            to: T::AccountId,
+            until: BlockNumberFor<T>,
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            ensure!(AgentStake::<T>::contains_key(&who), Error::<T>::NotRegistered);
+            ensure!(
+                AgentStake::<T>::contains_key(&who),
+                Error::<T>::NotRegistered
+            );
             let now = frame_system::Pallet::<T>::block_number();
             // Validate: if non-zero, must be future and within max period
             if until != BlockNumberFor::<T>::zero() {
@@ -870,8 +1046,8 @@ pub mod pallet {
             } else {
                 let record = DelegationRecord::<T> {
                     delegate_to: to.clone(),
-                    expires_at:  until,
-                    created_at:  now,
+                    expires_at: until,
+                    created_at: now,
                 };
                 VotingDelegations::<T>::insert(&who, record);
                 Self::deposit_event(Event::VotingDelegated { who, to, until });
@@ -897,12 +1073,15 @@ pub mod pallet {
         #[pallet::weight(T::DbWeight::get().reads_writes(3, 2)
             .saturating_add(Weight::from_parts(50_000_000, 0)))]
         pub fn slash_appeal(
-            origin:      OriginFor<T>,
-            slash_era:   u32,
+            origin: OriginFor<T>,
+            slash_era: u32,
             reason_hash: [u8; 32],
         ) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            ensure!(AgentStake::<T>::contains_key(&who), Error::<T>::NotRegistered);
+            ensure!(
+                AgentStake::<T>::contains_key(&who),
+                Error::<T>::NotRegistered
+            );
             ensure!(
                 !PendingSlashAppeals::<T>::contains_key(&who),
                 Error::<T>::AppealAlreadyPending
@@ -913,10 +1092,13 @@ pub mod pallet {
             // Appeal must be filed within SlashAppealWindow eras of the slash
             // Using blocks here: approximate 1 era = EraDuration blocks
             ensure!(
-                era_now < slash_era.saturating_add(
-                    T::SlashAppealWindow::get().min(BlockNumberFor::<T>::from(255u32))
-                        .try_into().unwrap_or(0u32)
-                ),
+                era_now
+                    < slash_era.saturating_add(
+                        T::SlashAppealWindow::get()
+                            .min(BlockNumberFor::<T>::from(255u32))
+                            .try_into()
+                            .unwrap_or(0u32)
+                    ),
                 Error::<T>::AppealWindowExpired
             );
 
@@ -927,7 +1109,11 @@ pub mod pallet {
             };
             PendingSlashAppeals::<T>::insert(&who, record);
 
-            Self::deposit_event(Event::SlashAppealed { who, slash_era, reason_hash });
+            Self::deposit_event(Event::SlashAppealed {
+                who,
+                slash_era,
+                reason_hash,
+            });
             Ok(())
         }
 
@@ -947,22 +1133,22 @@ pub mod pallet {
             .saturating_add(Weight::from_parts(100_000_000, 0)))]
         pub fn execute_slash(
             origin: OriginFor<T>,
-            who:    T::AccountId,
-            bps:    u32,   // basis points of stake to slash, 1–10000 (100 bps = 1%)
+            who: T::AccountId,
+            bps: u32, // basis points of stake to slash, 1–10000 (100 bps = 1%)
         ) -> DispatchResult {
             ensure_root(origin)?;
             ensure!(bps > 0 && bps <= 10_000, Error::<T>::InvalidSlashBps);
 
-            let stake = AgentStake::<T>::get(&who)
-                .ok_or(Error::<T>::NotRegistered)?;
+            let stake = AgentStake::<T>::get(&who).ok_or(Error::<T>::NotRegistered)?;
 
             // slash_amount bounded: stake ≤ MaxStakePerAgent (1M CMN) × 10_000 / 10_000 = stake.
             // saturating_mul safe — no overflow at these magnitudes.
-            let slash_amount: BalanceOf<T> = stake
-                .saturating_mul(bps.into())
-                / 10_000u32.into();
+            let slash_amount: BalanceOf<T> = stake.saturating_mul(bps.into()) / 10_000u32.into();
 
-            ensure!(slash_amount > BalanceOf::<T>::zero(), Error::<T>::InvalidSlashBps);
+            ensure!(
+                slash_amount > BalanceOf::<T>::zero(),
+                Error::<T>::InvalidSlashBps
+            );
 
             let new_stake = stake.saturating_sub(slash_amount);
 
@@ -1002,7 +1188,7 @@ pub mod pallet {
             // Step 4: 50/50 split — treasury receives half, half burned on drop.
             let (treasury_imbalance, burn_imbalance) = imbalance.ration(50, 50);
             T::SlashDestination::on_unbalanced(treasury_imbalance);
-            let burn     = burn_imbalance.peek();
+            let burn = burn_imbalance.peek();
             let treasury = actually_slashed.saturating_sub(burn);
             drop(burn_imbalance); // NegativeImbalance drop → total_issuance -= burn
 
@@ -1031,7 +1217,10 @@ pub mod pallet {
     {
         /// Called by pallet-escrow when a new agreement is created.
         pub fn increment_active_escrow(provider: &T::AccountId) -> DispatchResult {
-            ensure!(AgentStake::<T>::contains_key(provider), Error::<T>::NotRegistered);
+            ensure!(
+                AgentStake::<T>::contains_key(provider),
+                Error::<T>::NotRegistered
+            );
             ActiveEscrowCount::<T>::mutate(provider, |c| *c = c.saturating_add(1));
             Ok(())
         }
@@ -1058,7 +1247,8 @@ pub mod pallet {
 
             // Accumulate era volume (single storage read via mutate)
             let era_total = EraEscrowVolume::<T>::mutate(agent, |v| {
-                *v = v.saturating_add(amount); *v
+                *v = v.saturating_add(amount);
+                *v
             });
 
             // Buyer diversity via bloom filter
@@ -1070,8 +1260,14 @@ pub mod pallet {
                 // Stake-weighted diversity cap: diversity credit stops above stake × ratio
                 let ratio = T::MaxVolToStakeRatio::get() as u128;
                 let diversity_ok = ratio == 0 || {
-                    let era_vol_u128: u128 = sp_runtime::traits::UniqueSaturatedInto::<u128>::unique_saturated_into(era_total);
-                    let stake_u128:   u128 = sp_runtime::traits::UniqueSaturatedInto::<u128>::unique_saturated_into(stake);
+                    let era_vol_u128: u128 =
+                        sp_runtime::traits::UniqueSaturatedInto::<u128>::unique_saturated_into(
+                            era_total,
+                        );
+                    let stake_u128: u128 =
+                        sp_runtime::traits::UniqueSaturatedInto::<u128>::unique_saturated_into(
+                            stake,
+                        );
                     era_vol_u128 <= stake_u128.saturating_mul(ratio)
                 };
                 if diversity_ok {
@@ -1081,7 +1277,8 @@ pub mod pallet {
 
             // Increment lifetime completions
             let completions = CompletedAgreements::<T>::mutate(agent, |c| {
-                *c = c.saturating_add(1); *c
+                *c = c.saturating_add(1);
+                *c
             });
 
             // Check rank promotions
@@ -1093,7 +1290,9 @@ pub mod pallet {
             }
 
             Self::deposit_event(Event::EraVolumeAdded {
-                who: agent.clone(), amount, era_total,
+                who: agent.clone(),
+                amount,
+                era_total,
             });
             Ok(())
         }
@@ -1102,17 +1301,19 @@ pub mod pallet {
         /// Returns 10–100 (percentage of floor to apply).
         pub fn heartbeat_multiplier(who: &T::AccountId) -> u128 {
             let last = LastHeartbeat::<T>::get(who);
-            let now  = frame_system::Pallet::<T>::block_number();
+            let now = frame_system::Pallet::<T>::block_number();
             let since = now.saturating_sub(last);
-            let grace  = T::HeartbeatGracePeriod::get();
-            let decay  = T::HeartbeatDecayPeriod::get();
+            let grace = T::HeartbeatGracePeriod::get();
+            let decay = T::HeartbeatDecayPeriod::get();
 
             if since <= grace {
                 return 100;
             }
-            let over: u128 = since.saturating_sub(grace)
+            let over: u128 = since
+                .saturating_sub(grace)
                 .min(decay)
-                .try_into().unwrap_or(0);
+                .try_into()
+                .unwrap_or(0);
             let decay_u128: u128 = decay.try_into().unwrap_or(1).max(1);
             let pct = 100u128.saturating_sub(90u128 * over / decay_u128);
             pct.max(10)
@@ -1121,7 +1322,7 @@ pub mod pallet {
         /// Called by emissions settle_era. Snapshots ring/active counts then clears
         /// all per-era storage and increments EraNumber.
         pub fn drain_era_maps(era: u32) {
-            let mut ring_snap:   u32 = 0;
+            let mut ring_snap: u32 = 0;
             let mut active_snap: u32 = 0;
 
             for (agent, vol) in EraEscrowVolume::<T>::iter() {
@@ -1150,7 +1351,11 @@ pub mod pallet {
             let _ = EraSeenBuyerSlots::<T>::clear(bound.saturating_mul(128), None);
 
             EraNumber::<T>::mutate(|n| *n = n.saturating_add(1));
-            Self::deposit_event(Event::EraMapsCleared { era, ring_snap, active_snap });
+            Self::deposit_event(Event::EraMapsCleared {
+                era,
+                ring_snap,
+                active_snap,
+            });
         }
 
         // ── Internal ─────────────────────────────────────────────────────────
