@@ -26,17 +26,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Pre-create isolated branch
-        if: github.event_name == 'issues' || github.event_name == 'issue_comment'
-        run: |
-          ISSUE_NUM="${{ github.event.issue.number }}"
-          BRANCH="claude/issue-${ISSUE_NUM}-$(date +%Y%m%d-%H%M)"
-          git config user.email "actions@github.com"
-          git config user.name "GitHub Actions"
-          git checkout -b "$BRANCH"
-          git push origin "$BRANCH"
-          echo "CLAUDE_BRANCH=$BRANCH" >> $GITHUB_ENV
-          echo "Pre-created branch: $BRANCH"
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
