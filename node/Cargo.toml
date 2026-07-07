@@ -1,0 +1,7 @@
+[package]
+name = "scalar-node"
+version = "4.0.0"
+edition = "2021"
+
+[dependencies]
+sc-cli = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503", default-features = false }
