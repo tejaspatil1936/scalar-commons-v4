@@ -83,7 +83,11 @@ pallet-safe-mode        = { workspace = true }
 pallet-tx-pause         = { workspace = true }
 pallet-assets           = { workspace = true }
 # V4: constitution pallet (custom — 6 pre-dispatch invariants)
-pallet-constitution     = { path = "../pallets/constitution" }
+# default-features = false is load-bearing: pallet-constitution defaults to
+# ["std"], and without this it stays on during the wasm-builder inner build,
+# dragging std into wasm32v1-none (getrandom/subtle then fail on `extern crate
+# std`). Every other runtime dependency already disables defaults.
+pallet-constitution     = { path = "../pallets/constitution", default-features = false }
 pallet-staking-reward-curve    = { version = "11.0.0" }
 pallet-authorship = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503", version = "40.0.0", default-features = false }
 
