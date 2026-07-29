@@ -10,10 +10,13 @@ frame-support = { git = "https://github.com/paritytech/polkadot-sdk", tag = "pol
 frame-system = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503", default-features = false }
 sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503", default-features = false }
 sp-std = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503", default-features = false }
+# sp-io: offchain_index (lib.rs:714,738) + hashing::blake2_256 for the
+# anti-ring buyer-slot bloom filter (lib.rs:1066).
+sp-io = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503", default-features = false }
 frame-benchmarking = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503", default-features = false, optional = true }
 
 [features]
 default = ["std"]
-std = ["parity-scale-codec/std","scale-info/std","frame-support/std","frame-system/std","sp-runtime/std","sp-std/std","frame-benchmarking?/std"]
+std = ["parity-scale-codec/std","scale-info/std","frame-support/std","frame-system/std","sp-runtime/std","sp-std/std","sp-io/std","frame-benchmarking?/std"]
 runtime-benchmarks = ["frame-support/runtime-benchmarks","frame-system/runtime-benchmarks","frame-benchmarking/runtime-benchmarks"]
 try-runtime = ["frame-support/try-runtime","frame-system/try-runtime"]
