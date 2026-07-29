@@ -5048,6 +5048,7 @@ dependencies = [
  "frame-system",
  "parity-scale-codec",
  "scale-info",
+ "sp-io",
  "sp-runtime",
  "sp-std",
 ]
@@ -5241,6 +5242,7 @@ dependencies = [
  "frame-support",
  "frame-system",
  "pallet-agents",
+ "pallet-auto-params",
  "parity-scale-codec",
  "scale-info",
  "sp-runtime",
@@ -5370,8 +5372,10 @@ dependencies = [
  "frame-support",
  "frame-system",
  "pallet-agents",
+ "pallet-escrow",
  "parity-scale-codec",
  "scale-info",
+ "sp-io",
  "sp-runtime",
  "sp-std",
 ]
