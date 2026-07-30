@@ -421,7 +421,26 @@ impl frame_support::traits::EnsureOrigin<RuntimeOrigin> for EnsureRootWithRank {
 }
 
 // V4: RankedCollective is active — Technical Council from rank-3 agents.
-// Polls wired to pallet_referenda so TC votes accelerate governance tracks.
+//
+// `Polls = NoOpPoll` — see the "Governance decision" section of ROUND3.md.
+// Briefly: a single pallet-referenda instance has exactly ONE Tally type for
+// all of its tracks. ConvictionVoting requires that tally to be
+// `conviction_voting::TallyOf`, while RankedCollective requires
+// `ranked_collective::TallyOf`. Wiring both to the same `Referenda` instance is
+// therefore type-impossible on any SDK version — it is not drift, and it never
+// compiled. The SDK's answer is a SECOND referenda instance (`RankedPolls`,
+// Instance2), which would mean adding a pallet index.
+//
+// The TC's documented V4 power — "fast-track: enables 6h governance path" — is
+// delivered by pallet-whitelist (WhitelistOrigin/DispatchWhitelistedOrigin =
+// AgentsOrRoot), which is wired and unaffected. Rank management, safe-mode and
+// tx-pause origins are likewise unaffected. What is deferred is TC voting on a
+// referenda poll set of its own.
+//
+// NoOpPoll is the SDK's sanctioned value for this field ("NoOp polling is
+// required if pallet-referenda functionality not needed" —
+// frame_support::traits::voting), used the same way for ranked-collective in
+// the SDK's salary and core-fellowship integration tests.
 impl pallet_ranked_collective::Config for Runtime {
     type WeightInfo          = pallet_ranked_collective::weights::SubstrateWeight<Self>;
     type RuntimeEvent        = RuntimeEvent;
@@ -430,7 +449,7 @@ impl pallet_ranked_collective::Config for Runtime {
     type DemoteOrigin        = EnsureRootWithRank;
     type RemoveOrigin        = EnsureRootWithRank;
     type ExchangeOrigin      = EnsureRoot<AccountId>;
-    type Polls               = Referenda;
+    type Polls               = frame_support::traits::NoOpPoll;
     type MinRankOfClass      = sp_runtime::traits::ConvertInto;
     type MemberSwappedHandler = ();
     type VoteWeight          = pallet_ranked_collective::Geometric;
