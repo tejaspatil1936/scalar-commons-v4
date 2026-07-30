@@ -229,7 +229,12 @@ pub mod pallet {
             let cached_floor            = T::AutoParams::floor_bps() as u128;
             let cached_oracle_bonus_bps = T::OracleBonusBps::get()  as u128;
             let cached_unit_vol: u128   = UniqueSaturatedInto::<u128>::unique_saturated_into(T::UnitVolume::get());
-            let cached_max_props        = (T::MaxProposalsPerEra::get() as u128).max(1);
+            // Fully qualified: pallet_agents::Config (a supertrait of this
+            // pallet's Config) also declares MaxProposalsPerEra, so a bare
+            // `T::MaxProposalsPerEra` is ambiguous (E0221). This pallet's own
+            // constant is the intended one — the governance-participation
+            // denominator for the emissions weight.
+            let cached_max_props        = (<T as crate::pallet::Config>::MaxProposalsPerEra::get() as u128).max(1);
             let cached_velocity_bps     = T::VelocityBonusBps::get() as u128;
             // V4: Remove genesis cliff. Replace with per-agent onboarding_boost read inside loop.
             // Each agent gets 10,000 bps bonus for their first 10 completions, regardless of era.
