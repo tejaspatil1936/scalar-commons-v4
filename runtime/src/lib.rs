@@ -101,7 +101,11 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name:         ::sp_runtime::create_runtime_str!("scalar-commons"),
     impl_name:         ::sp_runtime::create_runtime_str!("scalar-commons"),
     authoring_version: 1,
-    spec_version:      300,
+    // 300 -> 301: added pallet-referenda Instance2 (RankedPolls) at index 41.
+    // Adding a pallet changes the storage layout, which CLAUDE.md requires be
+    // accompanied by a spec_version bump. No migration is needed: this runtime
+    // has never produced a WASM blob, so there is no live chain state to move.
+    spec_version:      301,
     impl_version:      0,
     apis:              RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -422,25 +426,18 @@ impl frame_support::traits::EnsureOrigin<RuntimeOrigin> for EnsureRootWithRank {
 
 // V4: RankedCollective is active — Technical Council from rank-3 agents.
 //
-// `Polls = NoOpPoll` — see the "Governance decision" section of ROUND3.md.
-// Briefly: a single pallet-referenda instance has exactly ONE Tally type for
-// all of its tracks. ConvictionVoting requires that tally to be
-// `conviction_voting::TallyOf`, while RankedCollective requires
-// `ranked_collective::TallyOf`. Wiring both to the same `Referenda` instance is
-// therefore type-impossible on any SDK version — it is not drift, and it never
-// compiled. The SDK's answer is a SECOND referenda instance (`RankedPolls`,
-// Instance2), which would mean adding a pallet index.
+// `Polls = RankedPolls` — GOVERNANCE DECISION, see ROUND3.md.
 //
-// The TC's documented V4 power — "fast-track: enables 6h governance path" — is
-// delivered by pallet-whitelist (WhitelistOrigin/DispatchWhitelistedOrigin =
-// AgentsOrRoot), which is wired and unaffected. Rank management, safe-mode and
-// tx-pause origins are likewise unaffected. What is deferred is TC voting on a
-// referenda poll set of its own.
+// A single pallet-referenda instance has exactly ONE Tally type across all of
+// its tracks. ConvictionVoting requires `conviction_voting::TallyOf`;
+// RankedCollective requires `ranked_collective::TallyOf`. Pointing both at the
+// same `Referenda` instance (as the original code did) is type-impossible on
+// any SDK version — this is not drift, it never compiled.
 //
-// NoOpPoll is the SDK's sanctioned value for this field ("NoOp polling is
-// required if pallet-referenda functionality not needed" —
-// frame_support::traits::voting), used the same way for ranked-collective in
-// the SDK's salary and core-fellowship integration tests.
+// Resolved the way the SDK itself does it (substrate/bin/node/runtime): a
+// SECOND referenda instance, `RankedPolls` (Instance2), carrying the ranked
+// tally, while `Referenda` keeps the conviction tally for stake-weighted
+// OpenGov. The TC therefore votes on its own poll set.
 impl pallet_ranked_collective::Config for Runtime {
     type WeightInfo          = pallet_ranked_collective::weights::SubstrateWeight<Self>;
     type RuntimeEvent        = RuntimeEvent;
@@ -449,7 +446,7 @@ impl pallet_ranked_collective::Config for Runtime {
     type DemoteOrigin        = EnsureRootWithRank;
     type RemoveOrigin        = EnsureRootWithRank;
     type ExchangeOrigin      = EnsureRoot<AccountId>;
-    type Polls               = frame_support::traits::NoOpPoll;
+    type Polls               = RankedPolls;
     type MinRankOfClass      = sp_runtime::traits::ConvertInto;
     type MemberSwappedHandler = ();
     type VoteWeight          = pallet_ranked_collective::Geometric;
@@ -476,6 +473,35 @@ impl pallet_referenda::Config for Runtime {
     type Slash             = Treasury;
     type Votes             = pallet_conviction_voting::VotesOf<Runtime>;
     type Tally             = pallet_conviction_voting::TallyOf<Runtime>;
+    type SubmissionDeposit = SubmissionDeposit;
+    type MaxQueued         = ConstU32<100>;
+    type UndecidingTimeout = UndecidingTimeout;
+    type AlarmInterval     = ConstU32<1>;
+    type Tracks            = governance::tracks::TracksInfo;
+    type Preimages         = Preimage;
+}
+
+// ─── pallet-referenda Instance2: RankedPolls (Technical Council) ──────────────
+// The TC's own poll set, carrying the ranked-collective tally. Separate from the
+// stake-weighted `Referenda` instance above because one referenda instance can
+// only have one Tally type — see the note on pallet_ranked_collective::Config.
+// Mirrors substrate/bin/node/runtime's `RankedPolls` (Instance2) at this tag.
+//
+// Deposits, queue depth, timeout and tracks are deliberately identical to the
+// stake instance: this is a transport for the same governance tracks under a
+// different electorate, not a second economic regime. No new constants.
+impl pallet_referenda::Config<pallet_referenda::Instance2> for Runtime {
+    type WeightInfo        = pallet_referenda::weights::SubstrateWeight<Self>;
+    type RuntimeCall       = RuntimeCall;
+    type RuntimeEvent      = RuntimeEvent;
+    type Scheduler         = Scheduler;
+    type Currency          = Balances;
+    type SubmitOrigin      = frame_system::EnsureSigned<AccountId>;
+    type CancelOrigin      = EnsureRoot<AccountId>;
+    type KillOrigin        = EnsureRoot<AccountId>;
+    type Slash             = Treasury;
+    type Votes             = pallet_ranked_collective::Votes;
+    type Tally             = pallet_ranked_collective::TallyOf<Runtime>;
     type SubmissionDeposit = SubmissionDeposit;
     type MaxQueued         = ConstU32<100>;
     type UndecidingTimeout = UndecidingTimeout;
@@ -1203,6 +1229,10 @@ mod runtime {
     #[runtime::pallet_index(38)] pub type SafeMode         = pallet_safe_mode;
     #[runtime::pallet_index(39)] pub type TxPause          = pallet_tx_pause;
     #[runtime::pallet_index(40)] pub type Constitution     = pallet_constitution;
+    // V4: Technical Council poll set — pallet-referenda Instance2, carrying the
+    // ranked-collective tally. Appended at 41; indices are append-only and 41
+    // was previously unused. See ROUND3.md "Governance decisions".
+    #[runtime::pallet_index(41)] pub type RankedPolls      = pallet_referenda<Instance2>;
 }
 
 // ─── Runtime API implementations ─────────────────────────────────────────────
