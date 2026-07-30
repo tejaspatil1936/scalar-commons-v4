@@ -38,6 +38,11 @@ pub mod pallet {
         traits::{Currency, Get},
     };
     use frame_system::pallet_prelude::*;
+    // Saturating provides saturating_sub on the Currency Balance type used by
+    // the supply-cap canary hook. Deliberately NOT defensive_saturating_sub:
+    // the defensive_* variants panic in debug builds, which is the wrong
+    // behaviour for a hook that must observe and report rather than halt.
+    use frame_support::sp_runtime::traits::Saturating;
 
     pub type BalanceOf<T> =
         <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
