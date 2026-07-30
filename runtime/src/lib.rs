@@ -30,7 +30,7 @@ use frame_support::{
     weights::{constants::WEIGHT_REF_TIME_PER_SECOND, IdentityFee, Weight},
     PalletId,
 };
-use frame_system::EnsureRoot;
+use frame_system::{EnsureRoot, EnsureRootWithSuccess};
 use pallet_grandpa::AuthorityId as GrandpaId;
 use sp_api::impl_runtime_apis;
 use sp_consensus_babe::AuthorityId as BabeId;
@@ -546,6 +546,12 @@ impl pallet_whitelist::Config for Runtime {
 // ─── pallet-safe-mode (V4: TC emergency circuit breaker — max 4h pause) ──────
 parameter_types! {
     pub const SafeModeMaxDuration: BlockNumber = HOURS * 4;  // TC can pause chain ≤ 4 hours
+    /// Permissionless (deposit-funded) safe-mode entry is disabled — safe mode
+    /// is root/TC-only, as it was before the stable2503 Config reshape.
+    /// `None` disables the path; `Some(0)` would open it to anyone for free.
+    pub const NoSafeModeDeposit: Option<Balance> = None;
+    /// No deposits are taken, so there is nothing to hold back on release.
+    pub const NoReleaseDelay: Option<BlockNumber> = None;
 }
 /// Calls permitted through SafeMode when the chain is paused.
 /// Only governance calls pass — agents can still vote to exit safe mode.
@@ -570,28 +576,60 @@ impl frame_support::traits::Contains<RuntimeCall> for SafeModeWhitelistedCalls {
         )
     }
 }
+// stable2503 reshaped this Config. The old origin-gated entry
+// (EnterOrigin/ExitOrigin/MaxDuration/EnteredDeposit/ExtendDeposit) is gone;
+// entry is now either permissionless-with-deposit or via a Force*Origin that
+// returns the duration to pause for. Original intent — "TC emergency circuit
+// breaker, root-entered, max 4h" — maps as:
+//
+//   EnterOrigin  = EnsureRoot   -> ForceEnterOrigin  = EnsureRootWithSuccess<_, 4h>
+//   ExitOrigin   = EnsureRoot   -> ForceExitOrigin   = EnsureRoot
+//   MaxDuration  = 4h           -> the Success value carried by ForceEnterOrigin
+//   EnteredDeposit = ConstU128<0> -> EnterDepositAmount  = None
+//   ExtendDeposit  = ConstU128<0> -> ExtendDepositAmount = None
+//
+// `None` (not `Some(0)`) is the faithful reading of the original: entry was
+// root-only, and a zero deposit under the new API would instead let ANY signed
+// account put the chain into safe mode for free. None disables that path.
+// EnterDuration/ExtendDuration only govern the deposit path, which is off; they
+// are set to the same 4h bound for consistency rather than left arbitrary.
+//
+// No equivalent existed before for: Notify (-> (), no subscribers),
+// ForceDepositOrigin (-> root, inert while deposits are disabled),
+// ReleaseDelay (-> None, nothing to release).
 impl pallet_safe_mode::Config for Runtime {
     type RuntimeEvent          = RuntimeEvent;
     type Currency              = Balances;
     type RuntimeHoldReason     = RuntimeHoldReason;
     type WhitelistedCalls      = SafeModeWhitelistedCalls;
-    type EnterOrigin           = EnsureRoot<AccountId>;  // TC multi-sig → root
-    type ForceEnterOrigin      = EnsureRoot<AccountId>;
-    type ExitOrigin            = EnsureRoot<AccountId>;
+    type EnterDuration         = SafeModeMaxDuration;
+    type ExtendDuration        = SafeModeMaxDuration;
+    type EnterDepositAmount    = NoSafeModeDeposit;
+    type ExtendDepositAmount   = NoSafeModeDeposit;
+    type ForceEnterOrigin      = EnsureRootWithSuccess<AccountId, SafeModeMaxDuration>;
+    type ForceExtendOrigin     = EnsureRootWithSuccess<AccountId, SafeModeMaxDuration>;
     type ForceExitOrigin       = EnsureRoot<AccountId>;
-    type EnteredDeposit        = ConstU128<0>;
-    type ExtendDeposit         = ConstU128<0>;
-    type MaxDuration           = SafeModeMaxDuration;
+    type ForceDepositOrigin    = EnsureRoot<AccountId>;
+    type Notify                = ();
+    type ReleaseDelay          = NoReleaseDelay;
     type WeightInfo            = pallet_safe_mode::weights::SubstrateWeight<Runtime>;
 }
 
 // ─── pallet-tx-pause (V4: surgical pause of specific extrinsics) ──────────────
+// stable2503 drift: `FullNameOf` was removed (the pallet derives call names
+// itself now) and `WhitelistedCalls: Contains<RuntimeCallNameOf<Self>>` was
+// added — the set of calls that may NEVER be paused.
+//
+// `()` is the faithful port: the previous config carried no such protection, so
+// every call was pausable, and `()` preserves exactly that. See ROUND3.md — this
+// interacts with first principle #3 ("no root-gated liveness") and is flagged
+// there for review rather than silently changed here.
 impl pallet_tx_pause::Config for Runtime {
     type RuntimeEvent          = RuntimeEvent;
     type RuntimeCall           = RuntimeCall;
     type PauseOrigin           = EnsureRoot<AccountId>;  // TC → root
     type UnpauseOrigin         = EnsureRoot<AccountId>;
-    type FullNameOf            = pallet_tx_pause::RuntimeCallNameOf<Runtime>;
+    type WhitelistedCalls      = ();
     type MaxNameLen            = ConstU32<256>;
     type WeightInfo            = pallet_tx_pause::weights::SubstrateWeight<Runtime>;
 }
