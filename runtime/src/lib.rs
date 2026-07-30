@@ -24,6 +24,7 @@ pub mod opaque {
 
 use frame_support::{
     parameter_types,
+    traits::tokens::imbalance::ResolveTo,
     traits::{
         ConstU32, ConstU64, EqualPrivilegeOnly, Everything, WithdrawReasons,
     },
@@ -37,7 +38,10 @@ use sp_consensus_babe::AuthorityId as BabeId;
 use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
 use sp_runtime::{
     generic, impl_opaque_keys,
-    traits::{AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, Verify},
+    traits::{
+        AccountIdConversion, AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount,
+        IdentityLookup, NumberFor, Verify,
+    },
     transaction_validity::{TransactionSource, TransactionValidity},
     ApplyExtrinsicResult, MultiSignature,
 };
@@ -363,10 +367,13 @@ impl pallet_treasury::Config for Runtime {
     type SpendOrigin           = EnsureRootWithMaxBalance;
     type AssetKind             = ();
     type Beneficiary           = AccountId;
-    type BeneficiaryLookup     = frame_support::traits::IdentityLookup<AccountId>;
+    type BeneficiaryLookup     = IdentityLookup<AccountId>;
     type Paymaster             = frame_support::traits::tokens::pay::PayFromAccount<Balances, TreasuryAccount>;
     type BalanceConverter      = frame_support::traits::tokens::UnityAssetBalanceConversion;
     type PayoutPeriod          = PayoutPeriod;
+    // New at stable2503: pallets read block numbers through a provider rather
+    // than assuming frame_system. System is the local chain clock.
+    type BlockNumberProvider   = System;
     #[cfg(feature = "runtime-benchmarks")]
     type BenchmarkHelper       = ();
 }
@@ -479,6 +486,7 @@ impl pallet_referenda::Config for Runtime {
     type AlarmInterval     = ConstU32<1>;
     type Tracks            = governance::tracks::TracksInfo;
     type Preimages         = Preimage;
+    type BlockNumberProvider = System;
 }
 
 // ─── pallet-referenda Instance2: RankedPolls (Technical Council) ──────────────
@@ -508,6 +516,7 @@ impl pallet_referenda::Config<pallet_referenda::Instance2> for Runtime {
     type AlarmInterval     = ConstU32<1>;
     type Tracks            = governance::tracks::TracksInfo;
     type Preimages         = Preimage;
+    type BlockNumberProvider = System;
 }
 
 // ─── pallet-conviction-voting ─────────────────────────────────────────────────
@@ -519,6 +528,10 @@ impl pallet_conviction_voting::Config for Runtime {
     type MaxVotes          = ConstU32<512>;
     type MaxTurnout        = frame_support::traits::TotalIssuanceOf<Balances, AccountId>;
     type Polls             = Referenda;
+    type BlockNumberProvider = System;
+    // New at stable2503: an extension point for reacting to vote/lock changes.
+    // No subscribers here, matching the SDK's own runtime.
+    type VotingHooks       = ();
 }
 
 // ─── pallet-identity ──────────────────────────────────────────────────────────
@@ -563,6 +576,7 @@ impl pallet_identity::Config for Runtime {
 // DispatchWhitelistedOrigin: same — only TC can dispatch a whitelisted call.
 impl pallet_whitelist::Config for Runtime {
     type RuntimeEvent              = RuntimeEvent;
+    type RuntimeCall               = RuntimeCall;
     type WhitelistOrigin           = governance::origins::AgentsOrRoot;
     type DispatchWhitelistedOrigin = governance::origins::AgentsOrRoot;
     type Preimages                 = Preimage;
@@ -715,6 +729,10 @@ impl pallet_nomination_pools::Config for Runtime {
     type PalletId               = NomPoolsPalletId;
     type MaxPointsToBalance     = frame_support::traits::ConstU8<10>;
     type AdminOrigin            = EnsureRoot<AccountId>;
+    type BlockNumberProvider    = System;
+    // New at stable2503: restricts which accounts may join pools. Nothing =
+    // no restriction beyond the pallet's own rules, as in the SDK's runtime.
+    type Filter                 = frame_support::traits::Nothing;
 }
 
 
@@ -749,9 +767,13 @@ impl pallet_staking::Config for Runtime {
     type CurrencyBalance                   = Balance;
     type UnixTime                          = Timestamp;
     type CurrencyToVote                    = sp_staking::currency_to_vote::U128CurrencyToVote;
-    type RewardRemainder                   = Treasury; // leftover staking inflation → Treasury
+    // stable2503: these take a fungible-based OnUnbalanced. `Treasury` no
+    // longer satisfies it (it handles the old Currency NegativeImbalance).
+    // ResolveTo<TreasuryAccount, Balances> deposits into the very same treasury
+    // account TreasuryPalletId derives, so the destination of funds is unchanged.
+    type RewardRemainder                   = ResolveTo<TreasuryAccount, Balances>;
     type RuntimeEvent                      = RuntimeEvent;
-    type Slash                             = Treasury; // equivocation slashes → Treasury
+    type Slash                             = ResolveTo<TreasuryAccount, Balances>; // equivocation slashes → Treasury
     type Reward                            = ();
     type SessionsPerEra                    = SessionsPerEra;
     type BondingDuration                   = BondingDuration;
@@ -866,15 +888,20 @@ pub struct RankedCollectiveBridge;
 // V4: RankedCollective is active — bridge reads/writes real pallet storage.
 impl pallet_agents::pallet::AgentCollective<AccountId> for RankedCollectiveBridge {
     fn induct(who: &AccountId) -> frame_support::pallet_prelude::DispatchResult {
-        RankedCollective::do_add_member(who.clone())
+        // stable2503 added an `emit_event` flag; `true` matches the SDK's own
+        // RankedMembers::induct, so inductions stay observable to indexers.
+        RankedCollective::do_add_member(who.clone(), true)
             .map_err(|_| frame_support::pallet_prelude::DispatchError::Other("ranked-collective: induct failed"))
     }
     fn promote(who: &AccountId) -> frame_support::pallet_prelude::DispatchResult {
-        RankedCollective::do_promote_member(who.clone(), None)
+        RankedCollective::do_promote_member(who.clone(), None, true)
             .map_err(|_| frame_support::pallet_prelude::DispatchError::Other("ranked-collective: promote failed"))
     }
     fn rank_of(who: &AccountId) -> Option<u32> {
-        pallet_ranked_collective::Members::<Runtime>::get(who).map(|m| m.rank as u32)
+        // MemberRecord.rank became private at stable2503; rank_of on the
+        // RankedMembers trait is the public replacement.
+        <RankedCollective as frame_support::traits::RankedMembers>::rank_of(who)
+            .map(|r| r as u32)
     }
     fn remove(who: &AccountId) {
         // do_remove_member_from_rank removes the member if their rank <= max_rank.
@@ -939,11 +966,19 @@ impl pallet_agents::pallet::OrchestratorLookup<AccountId, Balance> for Orchestra
     }
 }
 
-/// ConvictionVoting implements GovVoteVerifier by checking whether the agent
-/// has at least one active (non-empty) vote in any OpenGov referendum class.
-/// An agent that has never voted, or whose votes are all empty, fails the check.
-/// This prevents record_gov_vote() from being called without genuine participation.
-impl pallet_agents::pallet::GovVoteVerifier<AccountId> for ConvictionVoting {
+/// Verifies an agent holds at least one active (non-empty) vote in any OpenGov
+/// referendum class. An agent that has never voted, or whose votes are all
+/// empty, fails the check. This prevents record_gov_vote() from being called
+/// without genuine participation.
+///
+/// Carried on a local bridge struct rather than on `ConvictionVoting` directly:
+/// both the trait's type parameter (`AccountId`) and the implementing type
+/// (`pallet_conviction_voting::Pallet`) are foreign to this crate, so the direct
+/// impl violates the orphan rule (E0117). Same shape as the other `*Bridge`
+/// structs above. The storage it reads — `pallet_conviction_voting::VotingFor` —
+/// is unchanged, which is the load-bearing part of this guard.
+pub struct ConvictionVotingBridge;
+impl pallet_agents::pallet::GovVoteVerifier<AccountId> for ConvictionVotingBridge {
     fn is_actively_voting(who: &AccountId) -> bool {
         use pallet_conviction_voting::{Voting, VotingFor};
         VotingFor::<Runtime>::iter_prefix(who).any(|(_, voting)| {
@@ -1023,7 +1058,7 @@ impl pallet_agents::Config for Runtime {
     type OnStakeChanged           = Emissions; // zeros snapshot before stake increase (MasterChef fix)
     type AgentCollective          = RankedCollectiveBridge;
     type OracleScoreGate          = Oracle;
-    type GovVoteVerifier          = ConvictionVoting; // verifies active vote before gov credit
+    type GovVoteVerifier          = ConvictionVotingBridge; // verifies active vote before gov credit
     type IdentityHandler          = IdentityCapabilityBridge;
     type OrchestratorLookup       = OrchestratorBridge;
     type MaxUriLen                = AgentsMaxUriLen;
@@ -1384,8 +1419,11 @@ impl_runtime_apis! {
     impl crate::scalar_api::ScalarCommonsApi<Block, AccountId, Balance, BlockNumber> for Runtime {
         fn get_agent_info(who: AccountId) -> Option<AgentInfo<AccountId, Balance, BlockNumber>> {
             let stake = pallet_agents::AgentStake::<Runtime>::get(&who)?;
-            let rank = pallet_ranked_collective::Members::<Runtime>::get(&who)
-                .map(|m| m.rank as u32)
+            // MemberRecord.rank became private at stable2503; rank_of on the
+            // RankedMembers trait is the public replacement. Semantics are
+            // unchanged, including the "not a member reads as rank 0" default.
+            let rank = <RankedCollective as frame_support::traits::RankedMembers>::rank_of(&who)
+                .map(|r| r as u32)
                 .unwrap_or(0u32);
             let completions    = pallet_agents::CompletedAgreements::<Runtime>::get(&who);
             let era_volume     = pallet_agents::EraEscrowVolume::<Runtime>::get(&who);
