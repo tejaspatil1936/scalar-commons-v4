@@ -223,7 +223,7 @@ fn sub_agent_cannot_link_to_two_orchestrators() {
         // BOB tries to accept CAROL — but already linked to ALICE
         assert_noop!(
             Orchestrator::accept_orchestrator_link(RuntimeOrigin::signed(BOB), CAROL),
-            Error::<Test>::AlreadyLinkedToOrchestrator
+            Error::<Test>::AlreadyLinked
         );
     });
 }
