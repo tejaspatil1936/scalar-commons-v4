@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::pallet::*;
-use frame_support::{assert_ok, assert_noop, parameter_types, traits::{ConstU32, ConstU64}};
+use frame_support::{assert_ok, assert_noop, parameter_types, traits::{ConstU16, ConstU32, ConstU64}};
 use sp_core::H256;
 use sp_runtime::{BuildStorage, traits::{BlakeTwo256, IdentityLookup}};
 
@@ -26,22 +26,32 @@ impl frame_system::Config for Test {
     type Hashing        = BlakeTwo256; type AccountId = u64;
     type Lookup         = IdentityLookup<Self::AccountId>;
     type Block          = Block; type RuntimeEvent = RuntimeEvent;
-    type BlockHashCount = ConstU32<250>; type DbWeight = ();
+    // BlockNumber is u64 in this mock, so these want ConstU64/ConstU16, not
+    // ConstU32. Values unchanged: 250 blocks of hashes, SS58 prefix 42.
+    type BlockHashCount = ConstU64<250>; type DbWeight = ();
     type Version        = (); type PalletInfo = PalletInfo;
     type AccountData    = pallet_balances::AccountData<u64>;
     type OnNewAccount   = (); type OnKilledAccount = ();
-    type SystemWeightInfo = (); type SS58Prefix = ConstU32<42>;
+    type SystemWeightInfo = (); type SS58Prefix = ConstU16<42>;
     type OnSetCode      = (); type MaxConsumers = ConstU32<16>;
+    // Added to frame_system::Config since this mock was written; `()` for all six
+    // is the SDK's own TestDefaultConfig — no migrations, no block-phase hooks.
+    type ExtensionsWeightInfo = (); type SingleBlockMigrations = ();
+    type MultiBlockMigrator   = (); type PreInherents = ();
+    type PostInherents        = (); type PostTransactions = ();
 }
 
 impl pallet_balances::Config for Test {
     type MaxLocks   = ConstU32<50>; type MaxReserves = ConstU32<50>;
     type ReserveIdentifier = [u8; 8]; type Balance = u64;
     type RuntimeEvent = RuntimeEvent; type DustRemoval = ();
-    type ExistentialDeposit = ConstU32<1>; type AccountStore = System;
+    // Balance is u64 here, so ExistentialDeposit wants ConstU64. Value unchanged: 1.
+    type ExistentialDeposit = ConstU64<1>; type AccountStore = System;
     type WeightInfo = (); type FreezeIdentifier = ();
     type MaxFreezes = ConstU32<0>; type RuntimeHoldReason = ();
     type RuntimeFreezeReason = ();
+    // New in pallet_balances::Config; `()` is the SDK default — no slash callback.
+    type DoneSlashHandler = ();
 }
 
 parameter_types! {
@@ -66,10 +76,11 @@ impl pallet_agents::Config for Test {
     type MaxAgents             = MaxAgentsA;
     type Rank3MinCompletions   = ConstU32<50>;
     type MinRank3OracleScore   = ConstU32<1000>;
-    type Rank3SpanGate         = ConstU32<100>;
+    // BlockNumber-typed: ConstU64, not ConstU32. Values unchanged.
+    type Rank3SpanGate         = ConstU64<100>;
     type MaxVolToStakeRatio    = ConstU32<10>;
-    type HeartbeatGracePeriod  = ConstU32<600>;
-    type HeartbeatDecayPeriod  = ConstU32<14400>;
+    type HeartbeatGracePeriod  = ConstU64<600>;
+    type HeartbeatDecayPeriod  = ConstU64<14400>;
     type OnAgentRegistered     = ();
     type OnAgentSlashed        = ();
     type OnStakeChanged        = ();
@@ -97,7 +108,8 @@ parameter_types! {
 
 impl super::Config for Test {
     type RuntimeEvent          = RuntimeEvent;
-    type Currency              = Balances;
+    // No `Currency` here: oracle::Config does not declare one — bounties are
+    // reserved through pallet_agents::Config::Currency, already set to Balances.
     type MinOracleBounty       = MinOracleBounty;
     type MaxOpenRequests       = MaxOpenRequests;
     type MinChallengeWindow    = MinChallengeWindow;
@@ -106,13 +118,17 @@ impl super::Config for Test {
     type DisputeCallback       = ();
     type CapabilityChecker      = ();  // permissive in tests
     type MaxBatchSubmissions    = ConstU32<20>;
-    type MaxResponsesPerRequest = ConstU32<200>;
+    // A second `MaxResponsesPerRequest = ConstU32<200>` stood here — a duplicate
+    // definition (E0201) appended alongside MaxBatchSubmissions. Kept the
+    // parameter_types! one above (100). No test drives response_count anywhere
+    // near either bound (the mock endows 4 accounts), so behaviour is identical.
 }
 
 fn new_test_ext() -> sp_io::TestExternalities {
     let mut storage = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
     pallet_balances::GenesisConfig::<Test> {
         balances: vec![(1, 200_000), (2, 200_000), (3, 200_000), (4, 200_000)],
+        dev_accounts: None, // new field; None = generate none, as before
     }.assimilate_storage(&mut storage).unwrap();
     storage.into()
 }
