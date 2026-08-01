@@ -5,13 +5,29 @@
 //! crate; a single module is enough here).
 //!
 //! Kept: `system` (account nonce / pending extrinsics — what any signer needs),
-//! `payment` (fee estimation), `babe`, `grandpa`, and `sync_state` (needed to
-//! serve `--sync-state` warp-sync snapshots).
+//! `payment` (fee estimation), `babe` and `grandpa`.
 //!
 //! Omitted because the runtime has no corresponding pallet or API:
 //! `mmr` (`MmrRuntimeApi`), `beefy`, `statement`, `mixnet`. Also omitted:
 //! `state_trie_migration` and `dev`, which are diagnostics, not chain
 //! function, and each drags in another crate.
+//!
+//! `sync_state` is omitted for a different reason, and it is worth being
+//! precise about it because it was tried and reverted. `SyncState::new`
+//! requires the chain spec to carry a `lightSyncState` extension; the
+//! reference node's `ChainSpec` declares an `Extensions` struct holding one,
+//! ours is a plain `sc_service::GenericChainSpec` with `NoExtension`. Wired
+//! in regardless, every startup died before the first block:
+//!
+//! ```text
+//! Essential task `babe-worker` failed. Shutting down service.
+//! Error: Service(Application(LightSyncStateExtensionNotFound))
+//! ```
+//!
+//! The fix is to adapt the node to the chain spec, not the reverse. The cost
+//! is that this node cannot *serve* warp-sync snapshots to others; it can
+//! still warp-sync itself, since the GRANDPA warp proof provider is wired in
+//! `service.rs`.
 //!
 //! The four custom `ScalarCommonsApi` methods (`get_agent_info`,
 //! `get_era_metrics`, `get_oracle_score`, `get_pending_emissions`) are
@@ -66,9 +82,11 @@ pub struct FullDeps<C, P, SC, B> {
     /// Transaction pool instance.
     pub pool: Arc<P>,
     /// The SelectChain Strategy.
+    ///
+    /// The reference also carries a `chain_spec` here, used only to construct
+    /// the `sync_state` RPC. That RPC is omitted (see the module docs), so the
+    /// field is omitted with it rather than left to rot.
     pub select_chain: SC,
-    /// A copy of the chain spec.
-    pub chain_spec: Box<dyn sc_chain_spec::ChainSpec>,
     /// BABE specific dependencies.
     pub babe: BabeDeps,
     /// GRANDPA specific dependencies.
@@ -77,7 +95,7 @@ pub struct FullDeps<C, P, SC, B> {
 
 /// Instantiate all Full RPC extensions.
 pub fn create_full<C, P, SC, B>(
-    FullDeps { client, pool, select_chain, chain_spec, babe, grandpa }: FullDeps<C, P, SC, B>,
+    FullDeps { client, pool, select_chain, babe, grandpa }: FullDeps<C, P, SC, B>,
 ) -> Result<RpcModule<()>, Box<dyn std::error::Error + Send + Sync>>
 where
     C: ProvideRuntimeApi<Block>
@@ -100,7 +118,6 @@ where
     use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
     use sc_consensus_babe_rpc::{Babe, BabeApiServer};
     use sc_consensus_grandpa_rpc::{Grandpa, GrandpaApiServer};
-    use sc_sync_state_rpc::{SyncState, SyncStateApiServer};
     use substrate_frame_rpc_system::{System, SystemApiServer};
 
     let mut io = RpcModule::new(());
@@ -116,22 +133,16 @@ where
 
     io.merge(System::new(client.clone(), pool).into_rpc())?;
     io.merge(TransactionPayment::new(client.clone()).into_rpc())?;
-    io.merge(
-        Babe::new(client.clone(), babe_worker_handle.clone(), keystore, select_chain).into_rpc(),
-    )?;
+    io.merge(Babe::new(client, babe_worker_handle, keystore, select_chain).into_rpc())?;
     io.merge(
         Grandpa::new(
             subscription_executor,
-            shared_authority_set.clone(),
+            shared_authority_set,
             shared_voter_state,
             justification_stream,
             finality_provider,
         )
         .into_rpc(),
-    )?;
-    io.merge(
-        SyncState::new(chain_spec, client.clone(), shared_authority_set, babe_worker_handle)?
-            .into_rpc(),
     )?;
 
     Ok(io)

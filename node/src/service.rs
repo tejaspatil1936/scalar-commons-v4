@@ -205,7 +205,6 @@ pub fn new_partial(
         let pool = transaction_pool.clone();
         let select_chain = select_chain.clone();
         let keystore = keystore_container.keystore();
-        let chain_spec = config.chain_spec.cloned_box();
 
         let rpc_extensions_builder =
             move |subscription_executor: crate::rpc::SubscriptionTaskExecutor| {
@@ -213,7 +212,6 @@ pub fn new_partial(
                     client: client.clone(),
                     pool: pool.clone(),
                     select_chain: select_chain.clone(),
-                    chain_spec: chain_spec.cloned_box(),
                     babe: crate::rpc::BabeDeps {
                         keystore: keystore.clone(),
                         babe_worker_handle: babe_worker_handle.clone(),
