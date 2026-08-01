@@ -1,7 +1,85 @@
 [package]
-name = "scalar-node"
+name    = "scalar-node"
 version = "4.0.0"
 edition = "2021"
+description = "Scalar Commons node — sovereign Substrate chain for autonomous AI-agent coordination."
+build   = "build.rs"
+
+# lib + thin bin, exactly as the reference splits them. The library exists so
+# `chain_spec::mainnet_genesis_config` — which takes five arguments that have
+# no safe defaults and so cannot be reached from a `--chain` id — remains a
+# public API instead of unreachable code.
+[lib]
+name = "scalar_node"
+path = "src/lib.rs"
+
+# The binary the whole project is named after. Ported from the kitchensink
+# reference node (`substrate/bin/node/cli` at tag polkadot-stable2503), which
+# is the only SDK node whose consensus shape matches this runtime:
+# Babe + Grandpa + Staking + Session + Historical + Offences + BagsList.
+[[bin]]
+name = "scalar-node"
+path = "src/main.rs"
 
 [dependencies]
-sc-cli = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503", default-features = false }
+# ── Third-party ──────────────────────────────────────────────────────────────
+clap        = { workspace = true }
+futures     = { workspace = true }
+jsonrpsee   = { workspace = true }
+log         = { workspace = true }
+serde_json  = { workspace = true }
+
+# ── The runtime this node executes ───────────────────────────────────────────
+scalar-commons-runtime = { path = "../runtime" }
+
+# ── Substrate client (node-side, std only) ───────────────────────────────────
+sc-basic-authorship     = { workspace = true }
+sc-chain-spec           = { workspace = true }
+sc-cli                  = { workspace = true }
+sc-client-api           = { workspace = true }
+sc-consensus            = { workspace = true }
+sc-consensus-babe       = { workspace = true }
+sc-consensus-babe-rpc   = { workspace = true }
+sc-consensus-grandpa    = { workspace = true }
+sc-consensus-grandpa-rpc = { workspace = true }
+sc-consensus-slots      = { workspace = true }
+sc-executor             = { workspace = true }
+sc-network              = { workspace = true }
+sc-network-sync         = { workspace = true }
+sc-offchain             = { workspace = true }
+sc-rpc                  = { workspace = true }
+sc-rpc-api              = { workspace = true }
+sc-service              = { workspace = true }
+sc-storage-monitor      = { workspace = true }
+sc-sync-state-rpc       = { workspace = true }
+sc-sysinfo              = { workspace = true }
+sc-telemetry            = { workspace = true }
+sc-transaction-pool     = { workspace = true }
+sc-transaction-pool-api = { workspace = true }
+
+# ── Substrate primitives ─────────────────────────────────────────────────────
+sp-api               = { workspace = true, default-features = true }
+sp-authority-discovery = { workspace = true, default-features = true }
+sp-block-builder     = { workspace = true, default-features = true }
+sp-blockchain        = { workspace = true }
+sp-consensus         = { workspace = true }
+sp-consensus-babe    = { workspace = true, default-features = true }
+sp-consensus-grandpa = { workspace = true, default-features = true }
+sp-core              = { workspace = true, default-features = true }
+sp-inherents         = { workspace = true, default-features = true }
+sp-io                = { workspace = true, default-features = true }
+sp-keystore          = { workspace = true, default-features = true }
+sp-runtime           = { workspace = true, default-features = true }
+sp-timestamp         = { workspace = true, default-features = true }
+
+# ── Runtime-API traits the RPC layer needs to name in its bounds ─────────────
+frame-system-rpc-runtime-api = { workspace = true, default-features = true }
+pallet-transaction-payment-rpc-runtime-api = { workspace = true, default-features = true }
+substrate-frame-rpc-system   = { workspace = true }
+pallet-transaction-payment-rpc = { workspace = true }
+
+# ── Genesis config types referenced by chain_spec.rs ─────────────────────────
+pallet-staking = { workspace = true, default-features = true }
+
+[build-dependencies]
+substrate-build-script-utils = { workspace = true }
