@@ -4,8 +4,11 @@
 // sp_authority_discovery::AuthorityId is the correct public type (pallet_authority_discovery::AuthorityId is private)
 use sp_authority_discovery::AuthorityId as AuthorityDiscoveryId;
 use sc_service::{ChainType, Properties};
+// ROUND4: `RuntimeGenesisConfig` was imported but never named — every builder
+// below hands the runtime a `serde_json` patch and lets `GenesisBuilder` type
+// it. Dropped rather than silenced.
 use scalar_commons_runtime::{
-    AccountId, Balance, RuntimeGenesisConfig,
+    AccountId, Balance,
     CMN, GENESIS_MINT,
     SessionKeys, BABE_GENESIS_EPOCH_CONFIG,
 };
@@ -14,17 +17,26 @@ use sp_consensus_grandpa::AuthorityId as GrandpaId;
 use sp_core::{sr25519, Pair, Public};
 use sp_runtime::traits::{IdentifyAccount, Verify};
 
+/// Specialized `ChainSpec` for the Scalar Commons runtime.
 pub type ChainSpec = sc_service::GenericChainSpec;
 type AccountPublic = <scalar_commons_runtime::Signature as Verify>::Signer;
 
 // ─── Genesis allocation constants ────────────────────────────────────────────
+/// Stake each genesis validator bonds. Sets the initial NPoS weight floor.
 pub const VALIDATOR_STASH_BOND:         Balance = 1_000_000 * CMN;
+/// Free balance given to each validator's controller account, for fees only.
 pub const VALIDATOR_CONTROLLER_BALANCE: Balance =    50_000 * CMN;
+/// Agent stake pre-registered for each genesis validator — the minimum that
+/// enables floor emissions from era 1.
 pub const GENESIS_AGENT_STAKE:          Balance =    10_000 * CMN;
 
+/// Founders' share of the 18B genesis mint.
 pub const FOUNDERS_ALLOC:    Balance = 7_000_000_000 * CMN;
+/// Researcher multisig's share of the 18B genesis mint.
 pub const RESEARCHERS_ALLOC: Balance = 3_000_000_000 * CMN;
+/// Treasury's share of the 18B genesis mint.
 pub const TREASURY_ALLOC:    Balance = 5_000_000_000 * CMN;
+/// Bootstrap multisig's share of the 18B genesis mint.
 pub const BOOTSTRAP_ALLOC:   Balance = 3_000_000_000 * CMN;
 
 const _: () = assert!(
@@ -72,6 +84,11 @@ fn chain_properties() -> Properties {
 
 // ─── Development chain ────────────────────────────────────────────────────────
 
+/// Single-machine development chain: Alice, Bob and Charlie as validators.
+///
+/// Note that all three are in the authority set, so `--dev` on one machine
+/// authors roughly a third of slots and cannot reach GRANDPA's 2/3 finality
+/// quorum on its own. See ROUND4.md "Gate B evidence".
 pub fn development_config() -> ChainSpec {
     ChainSpec::builder(
         scalar_commons_runtime::WASM_BINARY.expect("WASM binary not available"),
@@ -99,6 +116,7 @@ pub fn development_config() -> ChainSpec {
 
 // ─── Local testnet chain ──────────────────────────────────────────────────────
 
+/// Local multi-node testnet: the same three validators, six endowed accounts.
 pub fn local_testnet_config() -> ChainSpec {
     ChainSpec::builder(
         scalar_commons_runtime::WASM_BINARY.expect("WASM binary not available"),
@@ -129,6 +147,8 @@ pub fn local_testnet_config() -> ChainSpec {
 
 // ─── Staging testnet chain ────────────────────────────────────────────────────
 
+/// Staging testnet: seven validators and ten endowed user accounts, live chain
+/// type. Keys are still derived from well-known seeds — not for value.
 pub fn staging_testnet_config() -> ChainSpec {
     ChainSpec::builder(
         scalar_commons_runtime::WASM_BINARY.expect("WASM binary not available"),
@@ -310,6 +330,12 @@ fn dev_genesis(
 
 // ─── Mainnet genesis ──────────────────────────────────────────────────────────
 
+/// Mainnet genesis.
+///
+/// Deliberately not reachable from a `--chain` id: every argument below is a
+/// real-world key or allocation that must be supplied by whoever builds the
+/// launch spec, and none of them has a defensible default. Call this from a
+/// spec-building tool, then ship the resulting JSON.
 pub fn mainnet_genesis_config(
     initial_authorities: Vec<(AccountId, AccountId, GrandpaId, BabeId, AuthorityDiscoveryId)>,
     founder_accounts: Vec<(AccountId, Balance)>,
