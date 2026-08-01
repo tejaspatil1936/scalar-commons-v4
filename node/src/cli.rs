@@ -6,10 +6,12 @@
 //!
 //! * `mixnet_params` — this runtime has no mixnet pallet, so there is nothing
 //!   for the flag to configure.
-//! * the `Inspect` and `Benchmark` subcommands — see `ROUND4.md`; they pull in
-//!   `node-inspect` / `frame-benchmarking-cli`, and the benchmark path also
-//!   requires a `runtime-benchmarks` feature that this runtime does not yet
-//!   wire completely.
+//! * the `Inspect` subcommand — it pulls in `node-inspect` and only decodes
+//!   blocks and extrinsics.
+//!
+//! `Benchmark` was also absent in Round 4, for a reason that no longer holds:
+//! the runtime's `runtime-benchmarks` feature graph was incoherent. Round 5
+//! completed it and Round 6 cleared the last error, so the subcommand is wired.
 //!
 //! Everything else is the reference's set, verbatim in shape.
 
@@ -42,6 +44,12 @@ pub struct Cli {
 /// Possible subcommands of the main binary.
 #[derive(Debug, clap::Subcommand)]
 pub enum Subcommand {
+    /// Sub-commands concerned with benchmarking.
+    ///
+    /// The pallet benchmarking moved to the `pallet` sub-command.
+    #[command(subcommand)]
+    Benchmark(frame_benchmarking_cli::BenchmarkCmd),
+
     /// Key management cli utilities
     #[command(subcommand)]
     Key(sc_cli::KeySubcommand),

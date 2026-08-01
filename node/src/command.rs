@@ -24,9 +24,11 @@ use crate::{
     service::{self, new_partial, FullClient},
     Cli, Subcommand,
 };
+use frame_benchmarking_cli::{BenchmarkCmd, SUBSTRATE_REFERENCE_HARDWARE};
 use sc_cli::{Result, SubstrateCli};
 use sc_service::PartialComponents;
 use scalar_commons_runtime::opaque::Block;
+use sp_runtime::traits::HashingFor;
 use std::sync::Arc;
 
 impl SubstrateCli for Cli {
@@ -80,6 +82,74 @@ pub fn run() -> Result<()> {
             let runner = cli.create_runner(&cli.run)?;
             runner.run_node_until_exit(|config| async move {
                 service::new_full(config, cli).map_err(sc_cli::Error::Service)
+            })
+        },
+        Some(Subcommand::Benchmark(cmd)) => {
+            let runner = cli.create_runner(cmd)?;
+
+            runner.sync_run(|config| {
+                // This switch needs to be in the client, since the client decides
+                // which sub-commands it wants to support.
+                match cmd {
+                    BenchmarkCmd::Pallet(cmd) => {
+                        if !cfg!(feature = "runtime-benchmarks") {
+                            return Err(
+                                "Runtime benchmarking wasn't enabled when building the node. \
+                            You can enable it with `--features runtime-benchmarks`."
+                                    .into(),
+                            )
+                        }
+
+                        // The reference passes the statement-store host functions
+                        // here; this runtime has no statement store, so it gets
+                        // the same `HostFunctions` the executor is built with in
+                        // `service.rs` — they must match or the benchmark runs
+                        // against a different host than the node does.
+                        cmd.run_with_spec::<HashingFor<Block>, service::HostFunctions>(Some(
+                            config.chain_spec,
+                        ))
+                    },
+                    BenchmarkCmd::Block(cmd) => {
+                        // ensure that we keep the task manager alive
+                        let partial = new_partial(&config)?;
+                        cmd.run(partial.client)
+                    },
+                    #[cfg(not(feature = "runtime-benchmarks"))]
+                    BenchmarkCmd::Storage(_) => Err(
+                        "Storage benchmarking can be enabled with `--features runtime-benchmarks`."
+                            .into(),
+                    ),
+                    #[cfg(feature = "runtime-benchmarks")]
+                    BenchmarkCmd::Storage(cmd) => {
+                        // ensure that we keep the task manager alive
+                        let partial = new_partial(&config)?;
+                        let db = partial.backend.expose_db();
+                        let storage = partial.backend.expose_storage();
+
+                        cmd.run(config, partial.client, db, storage)
+                    },
+                    // The reference's Overhead and Extrinsic arms are driven by a
+                    // `benchmarking.rs` module of extrinsic builders — a
+                    // `RemarkBuilder` and a `TransferKeepAliveBuilder` that
+                    // construct and sign real calls against the runtime. Writing
+                    // those is authoring benchmark support code, which Round 6 is
+                    // explicitly not doing, so these two report what they need
+                    // rather than pretending to measure anything.
+                    BenchmarkCmd::Overhead(_) => Err(
+                        "Overhead benchmarking is not wired for this node: it needs an extrinsic \
+                         builder (the reference's `RemarkBuilder`) and inherent benchmark data. \
+                         See ROUND6.md."
+                            .into(),
+                    ),
+                    BenchmarkCmd::Extrinsic(_) => Err(
+                        "Extrinsic benchmarking is not wired for this node: it needs an extrinsic \
+                         factory (the reference's `RemarkBuilder` + `TransferKeepAliveBuilder`). \
+                         See ROUND6.md."
+                            .into(),
+                    ),
+                    BenchmarkCmd::Machine(cmd) =>
+                        cmd.run(&config, SUBSTRATE_REFERENCE_HARDWARE.clone()),
+                }
             })
         },
         Some(Subcommand::Key(cmd)) => cmd.run(&cli),
