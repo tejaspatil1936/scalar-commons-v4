@@ -109,7 +109,14 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // Adding a pallet changes the storage layout, which CLAUDE.md requires be
     // accompanied by a spec_version bump. No migration is needed: this runtime
     // has never produced a WASM blob, so there is no live chain state to move.
-    spec_version:      301,
+    //
+    // 301 -> 302: declared AuthorityDiscoveryApi. This adds an entry to
+    // RUNTIME_API_VERSIONS below, which is part of the RuntimeVersion a node
+    // checks before it will execute a block, so it must be accompanied by a
+    // bump even though no storage layout changed. No migration: the API is
+    // read-only over pallet_authority_discovery's existing Keys/NextKeys
+    // storage, which is already populated by pallet-session every rotation.
+    spec_version:      302,
     impl_version:      0,
     apis:              RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1387,6 +1394,26 @@ impl_runtime_apis! {
             _: sp_consensus_grandpa::SetId,
             _: GrandpaId,
         ) -> Option<sp_consensus_grandpa::OpaqueKeyOwnershipProof> { None }
+    }
+
+    /// ROUND5: the API `sc-authority-discovery` calls to learn the current and
+    /// next authority sets, so validators can publish and resolve each other's
+    /// addresses over the DHT.
+    ///
+    /// `pallet_authority_discovery` has been in `construct_runtime` (index 8)
+    /// with its key in `SessionKeys` since before this runtime first compiled,
+    /// but this declaration was missing — so the node had a discovery key it
+    /// could never use, and multi-node networks needed explicit `--bootnodes`
+    /// for every peer. See ROUND4.md gap 1.
+    ///
+    /// `Pallet::authorities()` returns the current keys concatenated with the
+    /// next session's, sorted and deduplicated — which is exactly the contract
+    /// `AuthorityDiscoveryApi` documents ("identifiers of the current and next
+    /// authority set"), so no adaptation is needed.
+    impl sp_authority_discovery::AuthorityDiscoveryApi<Block> for Runtime {
+        fn authorities() -> Vec<sp_authority_discovery::AuthorityId> {
+            AuthorityDiscovery::authorities()
+        }
     }
 
     impl frame_system_rpc_runtime_api::AccountNonceApi<Block, AccountId, Index> for Runtime {

@@ -33,6 +33,11 @@ sp-block-builder       = { workspace = true }
 sp-genesis-builder     = { workspace = true }
 sp-consensus-babe      = { workspace = true }
 sp-consensus-grandpa   = { workspace = true }
+# ROUND5: needed to declare AuthorityDiscoveryApi in impl_runtime_apis!.
+# pallet-authority-discovery has been wired since before Round 3, but the
+# runtime API the sc-authority-discovery worker calls was never declared, so
+# the node could not spawn the worker at all. See ROUND4.md gap 1.
+sp-authority-discovery = { workspace = true }
 sp-session             = { workspace = true }
 sp-staking             = { workspace = true }
 sp-offchain            = { workspace = true }
@@ -106,6 +111,7 @@ std = [
     "sp-arithmetic/std", "sp-inherents/std", "sp-api/std",
     "sp-block-builder/std", "sp-genesis-builder/std",
     "sp-consensus-babe/std", "sp-consensus-grandpa/std",
+    "sp-authority-discovery/std",
     "sp-session/std", "sp-staking/std", "sp-offchain/std",
     "sp-transaction-pool/std",
     "pallet-babe/std", "pallet-grandpa/std", "pallet-session/std",
