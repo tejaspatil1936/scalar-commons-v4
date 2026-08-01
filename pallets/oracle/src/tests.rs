@@ -300,7 +300,9 @@ fn batch_submit_response_accepts_valid_skips_invalid() {
             (q2, [20u8;32], 0),
             (bogus_id, [30u8;32], 0), // will be skipped — request not found
         ];
-        let bounded: pallet_oracle::pallet::BoundedVec<_,_> =
+        // `pallet_oracle::` — a crate cannot name itself, and the pallet's own
+        // re-export is private. Same type, named where it is public.
+        let bounded: frame_support::BoundedVec<_,_> =
             submissions.try_into().unwrap();
 
         assert_ok!(Oracle::batch_submit_response(RuntimeOrigin::signed(BOB), bounded));
