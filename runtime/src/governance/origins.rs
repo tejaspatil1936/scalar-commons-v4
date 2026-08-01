@@ -10,8 +10,7 @@ use frame_system::{EnsureRoot, EnsureRootWithSuccess};
 
 /// Origin for Track 0: Ranked-collective members (Rank 2+).
 /// Bounded parameter changes only.
-pub type AgentsCollectiveOrigin =
-    pallet_ranked_collective::EnsureRanked<Runtime, (), 2>;
+pub type AgentsCollectiveOrigin = pallet_ranked_collective::EnsureRanked<Runtime, (), 2>;
 
 /// Origin for Track 1: Standard staking-based governance.
 pub type GeneralAdminOrigin = EnsureRoot<crate::AccountId>;
@@ -25,10 +24,8 @@ pub type GeneralAdminOrigin = EnsureRoot<crate::AccountId>;
 /// `EnsureRootWithSuccess<_, MaxRank>` gives root the maximum representable
 /// rank, which is the correct reading of "root outranks every agent" and
 /// matches how the SDK composes root with ranked origins.
-pub type AgentsOrRoot = EitherOf<
-    AgentsCollectiveOrigin,
-    EnsureRootWithSuccess<crate::AccountId, MaxRank>,
->;
+pub type AgentsOrRoot =
+    EitherOf<AgentsCollectiveOrigin, EnsureRootWithSuccess<crate::AccountId, MaxRank>>;
 
 frame_support::parameter_types! {
     /// Rank attributed to the root origin when it stands in for the collective.

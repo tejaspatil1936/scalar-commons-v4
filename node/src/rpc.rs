@@ -45,7 +45,9 @@ use sc_consensus_grandpa::{
 };
 pub use sc_rpc::SubscriptionTaskExecutor;
 use sc_transaction_pool_api::TransactionPool;
-use scalar_commons_runtime::{opaque::Block, AccountId, Balance, BlockNumber, Hash, Index as Nonce};
+use scalar_commons_runtime::{
+    opaque::Block, AccountId, Balance, BlockNumber, Hash, Index as Nonce,
+};
 use sp_api::ProvideRuntimeApi;
 use sp_block_builder::BlockBuilder;
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
@@ -95,7 +97,13 @@ pub struct FullDeps<C, P, SC, B> {
 
 /// Instantiate all Full RPC extensions.
 pub fn create_full<C, P, SC, B>(
-    FullDeps { client, pool, select_chain, babe, grandpa }: FullDeps<C, P, SC, B>,
+    FullDeps {
+        client,
+        pool,
+        select_chain,
+        babe,
+        grandpa,
+    }: FullDeps<C, P, SC, B>,
 ) -> Result<RpcModule<()>, Box<dyn std::error::Error + Send + Sync>>
 where
     C: ProvideRuntimeApi<Block>
@@ -122,7 +130,10 @@ where
 
     let mut io = RpcModule::new(());
 
-    let BabeDeps { keystore, babe_worker_handle } = babe;
+    let BabeDeps {
+        keystore,
+        babe_worker_handle,
+    } = babe;
     let GrandpaDeps {
         shared_voter_state,
         shared_authority_set,

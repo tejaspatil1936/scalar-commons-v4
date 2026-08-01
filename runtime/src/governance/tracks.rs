@@ -42,22 +42,22 @@ const TRACKS_DATA: [Track<u16, crate::Balance, crate::BlockNumber>; 3] = [
         id: 0,
         info: TrackInfo {
             name: s("agents"),
-            max_deciding:         10,
-            decision_deposit:     500 * crate::CMN,
-            prepare_period:       ERA_BLOCKS,        // 6h
-            decision_period:      4 * ERA_BLOCKS,    // 24h
-            confirm_period:       ERA_BLOCKS,        // 6h confirmation
-            min_enactment_period: ERA_BLOCKS,        // 6h minimum
+            max_deciding: 10,
+            decision_deposit: 500 * crate::CMN,
+            prepare_period: ERA_BLOCKS,       // 6h
+            decision_period: 4 * ERA_BLOCKS,  // 24h
+            confirm_period: ERA_BLOCKS,       // 6h confirmation
+            min_enactment_period: ERA_BLOCKS, // 6h minimum
             min_approval: Curve::LinearDecreasing {
                 length: Perbill::from_percent(100),
-                floor:  Perbill::from_percent(50),
-                ceil:   Perbill::from_percent(80),
+                floor: Perbill::from_percent(50),
+                ceil: Perbill::from_percent(80),
             },
             // 2 ppm = ~36K CMN. Reachable if any founder participates.
             min_support: Curve::LinearDecreasing {
                 length: Perbill::from_percent(100),
-                floor:  Perbill::from_parts(2_000),      // ~36K CMN at genesis
-                ceil:   Perbill::from_percent(10),
+                floor: Perbill::from_parts(2_000), // ~36K CMN at genesis
+                ceil: Perbill::from_percent(10),
             },
         },
     },
@@ -66,22 +66,22 @@ const TRACKS_DATA: [Track<u16, crate::Balance, crate::BlockNumber>; 3] = [
         id: 1,
         info: TrackInfo {
             name: s("network"),
-            max_deciding:         5,
-            decision_deposit:     5_000 * crate::CMN,
-            prepare_period:       2 * ERA_BLOCKS,    // 12h
-            decision_period:      28 * ERA_BLOCKS,   // 7 days
-            confirm_period:       4 * ERA_BLOCKS,    // 24h
-            min_enactment_period: 4 * ERA_BLOCKS,    // 24h
+            max_deciding: 5,
+            decision_deposit: 5_000 * crate::CMN,
+            prepare_period: 2 * ERA_BLOCKS,       // 12h
+            decision_period: 28 * ERA_BLOCKS,     // 7 days
+            confirm_period: 4 * ERA_BLOCKS,       // 24h
+            min_enactment_period: 4 * ERA_BLOCKS, // 24h
             min_approval: Curve::LinearDecreasing {
                 length: Perbill::from_percent(100),
-                floor:  Perbill::from_percent(50),
-                ceil:   Perbill::from_percent(67),
+                floor: Perbill::from_percent(50),
+                ceil: Perbill::from_percent(67),
             },
             // 100 ppm = ~1.8M CMN. Validators accumulate in ~2 days.
             min_support: Curve::LinearDecreasing {
                 length: Perbill::from_percent(100),
-                floor:  Perbill::from_parts(100_000),    // ~1.8M CMN at genesis
-                ceil:   Perbill::from_percent(25),
+                floor: Perbill::from_parts(100_000), // ~1.8M CMN at genesis
+                ceil: Perbill::from_percent(25),
             },
         },
     },
@@ -90,24 +90,24 @@ const TRACKS_DATA: [Track<u16, crate::Balance, crate::BlockNumber>; 3] = [
         id: 2,
         info: TrackInfo {
             name: s("root"),
-            max_deciding:         2,
-            decision_deposit:     50_000 * crate::CMN,
-            prepare_period:       8 * ERA_BLOCKS,    // 2 days
-            decision_period:      80 * ERA_BLOCKS,   // 20 days
-            confirm_period:       8 * ERA_BLOCKS,    // 2 days
-            min_enactment_period: 8 * ERA_BLOCKS,    // 2 days
+            max_deciding: 2,
+            decision_deposit: 50_000 * crate::CMN,
+            prepare_period: 8 * ERA_BLOCKS,       // 2 days
+            decision_period: 80 * ERA_BLOCKS,     // 20 days
+            confirm_period: 8 * ERA_BLOCKS,       // 2 days
+            min_enactment_period: 8 * ERA_BLOCKS, // 2 days
             min_approval: Curve::LinearDecreasing {
                 length: Perbill::from_percent(100),
-                floor:  Perbill::from_percent(75),
-                ceil:   Perbill::from_percent(100),
+                floor: Perbill::from_percent(75),
+                ceil: Perbill::from_percent(100),
             },
             // 1000 ppm = ~18M CMN. Validators accumulate in ~15 days.
             // Ensures sudo removal referendum (day 14) can pass with
             // validator emissions + any founder participation.
             min_support: Curve::LinearDecreasing {
                 length: Perbill::from_percent(100),
-                floor:  Perbill::from_parts(1_000_000),  // ~18M CMN at genesis
-                ceil:   Perbill::from_percent(50),
+                floor: Perbill::from_parts(1_000_000), // ~18M CMN at genesis
+                ceil: Perbill::from_percent(50),
             },
         },
     },
@@ -118,7 +118,8 @@ impl pallet_referenda::TracksInfo<crate::Balance, crate::BlockNumber> for Tracks
     type RuntimeOrigin =
         <crate::RuntimeOrigin as frame_support::traits::OriginTrait>::PalletsOrigin;
 
-    fn tracks() -> impl Iterator<Item = Cow<'static, Track<Self::Id, crate::Balance, crate::BlockNumber>>>
+    fn tracks(
+    ) -> impl Iterator<Item = Cow<'static, Track<Self::Id, crate::Balance, crate::BlockNumber>>>
     {
         TRACKS_DATA.iter().map(Cow::Borrowed)
     }

@@ -122,7 +122,9 @@ pub fn new_partial(
     let client = Arc::new(client);
 
     let telemetry = telemetry.map(|(worker, telemetry)| {
-        task_manager.spawn_handle().spawn("telemetry", None, worker.run());
+        task_manager
+            .spawn_handle()
+            .spawn("telemetry", None, worker.run());
         telemetry
     });
 
@@ -157,8 +159,8 @@ pub fn new_partial(
     )?;
 
     let slot_duration = babe_link.config().slot_duration();
-    let (import_queue, babe_worker_handle) =
-        sc_consensus_babe::import_queue(sc_consensus_babe::ImportQueueParams {
+    let (import_queue, babe_worker_handle) = sc_consensus_babe::import_queue(
+        sc_consensus_babe::ImportQueueParams {
             link: babe_link.clone(),
             block_import: block_import.clone(),
             justification_import: Some(Box::new(justification_import)),
@@ -179,7 +181,8 @@ pub fn new_partial(
             registry: config.prometheus_registry(),
             telemetry: telemetry.as_ref().map(|x| x.handle()),
             offchain_tx_pool_factory: OffchainTransactionPoolFactory::new(transaction_pool.clone()),
-        })?;
+        },
+    )?;
 
     let import_setup = (block_import, grandpa_link, babe_link);
 
@@ -282,8 +285,9 @@ pub fn new_full_base<N: NetworkBackend<Block, <Block as BlockT>::Hash>>(
         other: (rpc_builder, import_setup, rpc_setup, mut telemetry),
     } = new_partial(&config)?;
 
-    let metrics =
-        N::register_notification_metrics(config.prometheus_config.as_ref().map(|cfg| &cfg.registry));
+    let metrics = N::register_notification_metrics(
+        config.prometheus_config.as_ref().map(|cfg| &cfg.registry),
+    );
     let shared_voter_state = rpc_setup;
     // Read before `config` is consumed by `spawn_tasks` below — the discovery
     // worker is spawned after that point.
@@ -292,10 +296,17 @@ pub fn new_full_base<N: NetworkBackend<Block, <Block as BlockT>::Hash>>(
 
     let mut net_config = sc_network::config::FullNetworkConfiguration::<_, _, N>::new(
         &config.network,
-        config.prometheus_config.as_ref().map(|cfg| cfg.registry.clone()),
+        config
+            .prometheus_config
+            .as_ref()
+            .map(|cfg| cfg.registry.clone()),
     );
 
-    let genesis_hash = client.block_hash(0).ok().flatten().expect("Genesis block exists; qed");
+    let genesis_hash = client
+        .block_hash(0)
+        .ok()
+        .flatten()
+        .expect("Genesis block exists; qed");
     let peer_store_handle = net_config.peer_store_handle();
 
     let grandpa_protocol_name = grandpa::protocol_standard_name(&genesis_hash, &config.chain_spec);
@@ -401,12 +412,14 @@ pub fn new_full_base<N: NetworkBackend<Block, <Block as BlockT>::Hash>>(
         let authority_discovery_role =
             sc_authority_discovery::Role::PublishAndDiscover(keystore_container.keystore());
         let dht_event_stream =
-            network.event_stream("authority-discovery").filter_map(|e| async move {
-                match e {
-                    Event::Dht(e) => Some(e),
-                    _ => None,
-                }
-            });
+            network
+                .event_stream("authority-discovery")
+                .filter_map(|e| async move {
+                    match e {
+                        Event::Dht(e) => Some(e),
+                        _ => None,
+                    }
+                });
         let (authority_discovery_worker, _service) =
             sc_authority_discovery::new_worker_and_service_with_config(
                 sc_authority_discovery::WorkerConfig {
@@ -430,7 +443,11 @@ pub fn new_full_base<N: NetworkBackend<Block, <Block as BlockT>::Hash>>(
 
     // if the node isn't actively participating in consensus then it doesn't
     // need a keystore, regardless of which protocol we use below.
-    let keystore = if role.is_authority() { Some(keystore_container.keystore()) } else { None };
+    let keystore = if role.is_authority() {
+        Some(keystore_container.keystore())
+    } else {
+        None
+    };
 
     let grandpa_config = grandpa::Config {
         // FIXME #1578 make this available through chainspec
@@ -474,22 +491,27 @@ pub fn new_full_base<N: NetworkBackend<Block, <Block as BlockT>::Hash>>(
     }
 
     if enable_offchain_worker {
-        let offchain_workers = sc_offchain::OffchainWorkers::new(sc_offchain::OffchainWorkerOptions {
-            runtime_api_provider: client.clone(),
-            keystore: Some(keystore_container.keystore()),
-            offchain_db: backend.offchain_storage(),
-            transaction_pool: Some(OffchainTransactionPoolFactory::new(transaction_pool.clone())),
-            network_provider: Arc::new(network.clone()),
-            is_validator: role.is_authority(),
-            enable_http_requests: true,
-            // The reference registers the statement-store extension here. No
-            // statement store in this runtime, so no custom extensions.
-            custom_extensions: |_| Vec::new(),
-        })?;
+        let offchain_workers =
+            sc_offchain::OffchainWorkers::new(sc_offchain::OffchainWorkerOptions {
+                runtime_api_provider: client.clone(),
+                keystore: Some(keystore_container.keystore()),
+                offchain_db: backend.offchain_storage(),
+                transaction_pool: Some(OffchainTransactionPoolFactory::new(
+                    transaction_pool.clone(),
+                )),
+                network_provider: Arc::new(network.clone()),
+                is_validator: role.is_authority(),
+                enable_http_requests: true,
+                // The reference registers the statement-store extension here. No
+                // statement store in this runtime, so no custom extensions.
+                custom_extensions: |_| Vec::new(),
+            })?;
         task_manager.spawn_handle().spawn(
             "offchain-workers-runner",
             "offchain-work",
-            offchain_workers.run(client.clone(), task_manager.spawn_handle()).boxed(),
+            offchain_workers
+                .run(client.clone(), task_manager.spawn_handle())
+                .boxed(),
         );
     }
 
@@ -508,12 +530,14 @@ pub fn new_full(config: Configuration, cli: Cli) -> Result<TaskManager, ServiceE
     let database_path = config.database.path().map(Path::to_path_buf);
 
     let task_manager = match config.network.network_backend.unwrap_or_default() {
-        sc_network::config::NetworkBackendType::Libp2p =>
+        sc_network::config::NetworkBackendType::Libp2p => {
             new_full_base::<sc_network::NetworkWorker<_, _>>(config, |_, _| ())
-                .map(|NewFullBase { task_manager, .. }| task_manager)?,
-        sc_network::config::NetworkBackendType::Litep2p =>
+                .map(|NewFullBase { task_manager, .. }| task_manager)?
+        }
+        sc_network::config::NetworkBackendType::Litep2p => {
             new_full_base::<sc_network::Litep2pNetworkBackend>(config, |_, _| ())
-                .map(|NewFullBase { task_manager, .. }| task_manager)?,
+                .map(|NewFullBase { task_manager, .. }| task_manager)?
+        }
     };
 
     if let Some(database_path) = database_path {

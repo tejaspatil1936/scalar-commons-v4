@@ -5,13 +5,13 @@
 
 use crate::*;
 use frame_support::{
-    assert_ok, assert_noop, parameter_types,
+    assert_noop, assert_ok, parameter_types,
     traits::{ConstU32, ConstU64},
 };
 use sp_core::H256;
 use sp_runtime::{
-    BuildStorage,
     traits::{BlakeTwo256, IdentityLookup},
+    BuildStorage,
 };
 
 // ── Mock runtime ─────────────────────────────────────────────────────────────
@@ -31,60 +31,60 @@ parameter_types! {
 }
 
 impl frame_system::Config for Test {
-    type BaseCallFilter             = frame_support::traits::Everything;
-    type BlockWeights               = ();
-    type BlockLength                = ();
-    type RuntimeOrigin              = RuntimeOrigin;
-    type RuntimeCall                = RuntimeCall;
-    type RuntimeTask                = ();
-    type Nonce                      = u64;
-    type Hash                       = H256;
-    type Hashing                    = BlakeTwo256;
-    type AccountId                  = u64;
-    type Lookup                     = IdentityLookup<Self::AccountId>;
-    type Block                      = Block;
-    type RuntimeEvent               = RuntimeEvent;
-    type BlockHashCount             = BlockHashCount;
-    type DbWeight                   = ();
-    type Version                    = ();
-    type PalletInfo                 = PalletInfo;
-    type AccountData                = pallet_balances::AccountData<u64>;
-    type OnNewAccount               = ();
-    type OnKilledAccount            = ();
-    type SystemWeightInfo           = ();
-    type SS58Prefix                 = SS58Prefix;
-    type OnSetCode                  = ();
-    type MaxConsumers               = ConstU32<16>;
+    type BaseCallFilter = frame_support::traits::Everything;
+    type BlockWeights = ();
+    type BlockLength = ();
+    type RuntimeOrigin = RuntimeOrigin;
+    type RuntimeCall = RuntimeCall;
+    type RuntimeTask = ();
+    type Nonce = u64;
+    type Hash = H256;
+    type Hashing = BlakeTwo256;
+    type AccountId = u64;
+    type Lookup = IdentityLookup<Self::AccountId>;
+    type Block = Block;
+    type RuntimeEvent = RuntimeEvent;
+    type BlockHashCount = BlockHashCount;
+    type DbWeight = ();
+    type Version = ();
+    type PalletInfo = PalletInfo;
+    type AccountData = pallet_balances::AccountData<u64>;
+    type OnNewAccount = ();
+    type OnKilledAccount = ();
+    type SystemWeightInfo = ();
+    type SS58Prefix = SS58Prefix;
+    type OnSetCode = ();
+    type MaxConsumers = ConstU32<16>;
     // Added to frame_system::Config since this mock was written. All six are `()`
     // in the SDK's own TestDefaultConfig (frame/system/src/lib.rs:335,354-358),
     // i.e. no migrations and no block-phase callbacks — which is what this mock
     // already did implicitly.
-    type ExtensionsWeightInfo       = ();
-    type SingleBlockMigrations      = ();
-    type MultiBlockMigrator         = ();
-    type PreInherents               = ();
-    type PostInherents              = ();
-    type PostTransactions           = ();
+    type ExtensionsWeightInfo = ();
+    type SingleBlockMigrations = ();
+    type MultiBlockMigrator = ();
+    type PreInherents = ();
+    type PostInherents = ();
+    type PostTransactions = ();
 }
 
 impl pallet_balances::Config for Test {
-    type MaxLocks          = ConstU32<50>;
-    type MaxReserves       = ConstU32<50>;
+    type MaxLocks = ConstU32<50>;
+    type MaxReserves = ConstU32<50>;
     type ReserveIdentifier = [u8; 8];
-    type Balance           = u64;
-    type RuntimeEvent      = RuntimeEvent;
-    type DustRemoval       = ();
+    type Balance = u64;
+    type RuntimeEvent = RuntimeEvent;
+    type DustRemoval = ();
     type ExistentialDeposit = ConstU64<1>;
-    type AccountStore      = System;
-    type WeightInfo        = ();
-    type FreezeIdentifier  = ();
-    type MaxFreezes        = ConstU32<0>;
+    type AccountStore = System;
+    type WeightInfo = ();
+    type FreezeIdentifier = ();
+    type MaxFreezes = ConstU32<0>;
     type RuntimeHoldReason = ();
     type RuntimeFreezeReason = ();
     // Added to pallet_balances::Config since this mock was written; `()` is the
     // SDK's own default (frame/balances/src/lib.rs:247) — no slash bookkeeping
     // callback, matching this mock's prior behaviour.
-    type DoneSlashHandler  = ();
+    type DoneSlashHandler = ();
 }
 
 parameter_types! {
@@ -104,37 +104,37 @@ parameter_types! {
 }
 
 impl Config for Test {
-    type RuntimeEvent            = RuntimeEvent;
-    type Currency                = Balances;
-    type MinStake                = MinStake;
-    type FullFloorStake          = FullFloorStake;
-    type MaxStakePerAgent        = MaxStakePerAgent;
-    type UnstakeCooldown         = UnstakeCooldown;
-    type BaseRegistrationFee     = BaseRegistrationFee;
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type MinStake = MinStake;
+    type FullFloorStake = FullFloorStake;
+    type MaxStakePerAgent = MaxStakePerAgent;
+    type UnstakeCooldown = UnstakeCooldown;
+    type BaseRegistrationFee = BaseRegistrationFee;
     type MaxRegistrationsPerBlock = MaxRegistrationsPerBlock;
-    type MaxAgents               = MaxAgents;
-    type Rank3MinCompletions     = Rank3MinCompletions;
-    type MinRank3OracleScore     = MinRank3OracleScore;
-    type Rank3SpanGate           = Rank3SpanGate;
-    type MaxVolToStakeRatio      = MaxVolToStakeRatio;
-    type HeartbeatGracePeriod    = HeartbeatGracePeriod;
-    type HeartbeatDecayPeriod    = HeartbeatDecayPeriod;
-    type OnAgentRegistered       = ();
-    type OnAgentSlashed          = (); // unit test: no emissions pallet
-    type OnStakeChanged          = (); // unit test: no emissions pallet
-    type AgentCollective         = ();
-    type OracleScoreGate          = ();
-    type GovVoteVerifier           = ();
-    type IdentityHandler         = ();
-    type OrchestratorLookup      = ();
-    type MaxUriLen               = ConstU32<256>;
-    type MaxNameLen              = ConstU32<64>;
+    type MaxAgents = MaxAgents;
+    type Rank3MinCompletions = Rank3MinCompletions;
+    type MinRank3OracleScore = MinRank3OracleScore;
+    type Rank3SpanGate = Rank3SpanGate;
+    type MaxVolToStakeRatio = MaxVolToStakeRatio;
+    type HeartbeatGracePeriod = HeartbeatGracePeriod;
+    type HeartbeatDecayPeriod = HeartbeatDecayPeriod;
+    type OnAgentRegistered = ();
+    type OnAgentSlashed = (); // unit test: no emissions pallet
+    type OnStakeChanged = (); // unit test: no emissions pallet
+    type AgentCollective = ();
+    type OracleScoreGate = ();
+    type GovVoteVerifier = ();
+    type IdentityHandler = ();
+    type OrchestratorLookup = ();
+    type MaxUriLen = ConstU32<256>;
+    type MaxNameLen = ConstU32<64>;
     type MaxCapabilitiesPerAgent = ConstU32<20>;
-    type MaxDelegationPeriod     = ConstU64<90_000>; // BlockNumber = u64 in test runtime
-    type SlashAppealWindow       = ConstU64<10>;     // BlockNumber = u64 in test runtime
-    // V4: new Config types
-    type MaxProposalsPerEra      = ConstU32<20>;
-    type SlashDestination        = ();   // test: slash burns fully (no treasury mock needed)
+    type MaxDelegationPeriod = ConstU64<90_000>; // BlockNumber = u64 in test runtime
+    type SlashAppealWindow = ConstU64<10>; // BlockNumber = u64 in test runtime
+                                           // V4: new Config types
+    type MaxProposalsPerEra = ConstU32<20>;
+    type SlashDestination = (); // test: slash burns fully (no treasury mock needed)
 }
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
@@ -144,10 +144,10 @@ fn new_test_ext() -> sp_io::TestExternalities {
         .unwrap();
     pallet_balances::GenesisConfig::<Test> {
         balances: vec![
-            (1, 100_000),  // alice
-            (2, 100_000),  // bob
-            (3, 100_000),  // charlie
-            (4, 10),       // poor_dave
+            (1, 100_000), // alice
+            (2, 100_000), // bob
+            (3, 100_000), // charlie
+            (4, 10),      // poor_dave
         ],
         // New GenesisConfig field; `None` is the SDK's Default and generates no
         // extra accounts, so the endowed set above is unchanged.
@@ -159,7 +159,7 @@ fn new_test_ext() -> sp_io::TestExternalities {
 }
 
 const ALICE: u64 = 1;
-const BOB:   u64 = 2;
+const BOB: u64 = 2;
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
@@ -344,10 +344,17 @@ fn update_metadata_stores_uri_and_name() {
     new_test_ext().execute_with(|| {
         assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
 
-        let uri  = b"https://alice-agent.example.com/rpc".to_vec().try_into().unwrap();
+        let uri = b"https://alice-agent.example.com/rpc"
+            .to_vec()
+            .try_into()
+            .unwrap();
         let name = b"Alice AI Agent".to_vec().try_into().unwrap();
 
-        assert_ok!(Agents::update_metadata(RuntimeOrigin::signed(ALICE), uri, name));
+        assert_ok!(Agents::update_metadata(
+            RuntimeOrigin::signed(ALICE),
+            uri,
+            name
+        ));
 
         let meta = AgentMetadata::<Test>::get(ALICE).expect("metadata should exist");
         assert_eq!(meta.uri.as_slice(), b"https://alice-agent.example.com/rpc");
@@ -359,7 +366,7 @@ fn update_metadata_stores_uri_and_name() {
 #[test]
 fn update_metadata_fails_for_non_agent() {
     new_test_ext().execute_with(|| {
-        let uri  = b"https://example.com".to_vec().try_into().unwrap();
+        let uri = b"https://example.com".to_vec().try_into().unwrap();
         let name = b"Nobody".to_vec().try_into().unwrap();
         assert_noop!(
             Agents::update_metadata(RuntimeOrigin::signed(ALICE), uri, name),
@@ -374,18 +381,30 @@ fn set_capability_stores_and_removes() {
         assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
 
         // Set capability 42 active
-        assert_ok!(Agents::set_capability(RuntimeOrigin::signed(ALICE), 42, true));
+        assert_ok!(Agents::set_capability(
+            RuntimeOrigin::signed(ALICE),
+            42,
+            true
+        ));
         let caps = AgentCapabilities::<Test>::get(ALICE);
         assert!(caps.contains(&42u32));
 
         // Set capability 100 active
-        assert_ok!(Agents::set_capability(RuntimeOrigin::signed(ALICE), 100, true));
+        assert_ok!(Agents::set_capability(
+            RuntimeOrigin::signed(ALICE),
+            100,
+            true
+        ));
         let caps = AgentCapabilities::<Test>::get(ALICE);
         assert!(caps.contains(&42u32));
         assert!(caps.contains(&100u32));
 
         // Deactivate capability 42
-        assert_ok!(Agents::set_capability(RuntimeOrigin::signed(ALICE), 42, false));
+        assert_ok!(Agents::set_capability(
+            RuntimeOrigin::signed(ALICE),
+            42,
+            false
+        ));
         let caps = AgentCapabilities::<Test>::get(ALICE);
         assert!(!caps.contains(&42u32));
         assert!(caps.contains(&100u32));
@@ -398,8 +417,16 @@ fn complete_unstake_clears_metadata_and_capabilities() {
         assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
         let uri = b"https://alice.ai".to_vec().try_into().unwrap();
         let name = b"Alice".to_vec().try_into().unwrap();
-        assert_ok!(Agents::update_metadata(RuntimeOrigin::signed(ALICE), uri, name));
-        assert_ok!(Agents::set_capability(RuntimeOrigin::signed(ALICE), 7, true));
+        assert_ok!(Agents::update_metadata(
+            RuntimeOrigin::signed(ALICE),
+            uri,
+            name
+        ));
+        assert_ok!(Agents::set_capability(
+            RuntimeOrigin::signed(ALICE),
+            7,
+            true
+        ));
 
         assert_ok!(Agents::request_unstake(RuntimeOrigin::signed(ALICE)));
         frame_system::Pallet::<Test>::set_block_number(101);
@@ -416,7 +443,11 @@ fn delegate_voting_stores_record() {
     new_test_ext().execute_with(|| {
         assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
         // Delegate to BOB until block 500
-        assert_ok!(Agents::delegate_voting(RuntimeOrigin::signed(ALICE), BOB, 500));
+        assert_ok!(Agents::delegate_voting(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            500
+        ));
         let record = VotingDelegations::<Test>::get(ALICE).expect("delegation should exist");
         assert_eq!(record.delegate_to, BOB);
         assert_eq!(record.expires_at, 500u64);
@@ -427,9 +458,17 @@ fn delegate_voting_stores_record() {
 fn delegate_voting_remove_with_zero_until() {
     new_test_ext().execute_with(|| {
         assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
-        assert_ok!(Agents::delegate_voting(RuntimeOrigin::signed(ALICE), BOB, 500));
+        assert_ok!(Agents::delegate_voting(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            500
+        ));
         // Pass until=0 to remove
-        assert_ok!(Agents::delegate_voting(RuntimeOrigin::signed(ALICE), BOB, 0));
+        assert_ok!(Agents::delegate_voting(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            0
+        ));
         assert!(VotingDelegations::<Test>::get(ALICE).is_none());
     });
 }
@@ -458,7 +497,11 @@ fn delegate_voting_fails_period_too_long() {
             Error::<Test>::DelegationPeriodTooLong
         );
         // Exactly at limit should work
-        assert_ok!(Agents::delegate_voting(RuntimeOrigin::signed(ALICE), BOB, 90_000));
+        assert_ok!(Agents::delegate_voting(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            90_000
+        ));
     });
 }
 
@@ -469,7 +512,9 @@ fn slash_appeal_stores_record() {
         let reason = [42u8; 32];
         // Submit appeal for era 0 while in early era
         assert_ok!(Agents::slash_appeal(
-            RuntimeOrigin::signed(ALICE), 0, reason
+            RuntimeOrigin::signed(ALICE),
+            0,
+            reason
         ));
         let rec = PendingSlashAppeals::<Test>::get(ALICE).expect("appeal should exist");
         assert_eq!(rec.slash_era, 0);
@@ -481,7 +526,11 @@ fn slash_appeal_stores_record() {
 fn slash_appeal_cleared_on_unstake() {
     new_test_ext().execute_with(|| {
         assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
-        assert_ok!(Agents::slash_appeal(RuntimeOrigin::signed(ALICE), 0, [0u8;32]));
+        assert_ok!(Agents::slash_appeal(
+            RuntimeOrigin::signed(ALICE),
+            0,
+            [0u8; 32]
+        ));
         assert!(PendingSlashAppeals::<Test>::contains_key(ALICE));
         assert_ok!(Agents::request_unstake(RuntimeOrigin::signed(ALICE)));
         // Advance past cooldown
@@ -495,10 +544,14 @@ fn slash_appeal_cleared_on_unstake() {
 fn slash_appeal_duplicate_rejected() {
     new_test_ext().execute_with(|| {
         assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
-        assert_ok!(Agents::slash_appeal(RuntimeOrigin::signed(ALICE), 0, [0u8;32]));
+        assert_ok!(Agents::slash_appeal(
+            RuntimeOrigin::signed(ALICE),
+            0,
+            [0u8; 32]
+        ));
         // Second appeal while first is pending
         assert_noop!(
-            Agents::slash_appeal(RuntimeOrigin::signed(ALICE), 0, [1u8;32]),
+            Agents::slash_appeal(RuntimeOrigin::signed(ALICE), 0, [1u8; 32]),
             Error::<Test>::AppealAlreadyPending
         );
     });
