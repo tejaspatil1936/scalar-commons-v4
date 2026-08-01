@@ -113,7 +113,13 @@ impl super::Config for Test {
     // orchestrator::Config (E0437) — it belongs to pallet_emissions::Config, where
     // this mock's sibling in pallets/emissions/src/tests.rs already sets it to the
     // same ConstU32<5_000>. Removing it drops a line that never bound anything.
-    type SupplyCap                     = ConstU64<{ 100_000_000_000_000_000_000 }>; // u64 max-safe cap
+    // Was ConstU64<100_000_000_000_000_000_000> — 1e20, which does not fit u64
+    // (max ~1.84e19), a deny-by-default overflowing_literals error. It had been
+    // masked until now by the E0437 above aborting this impl block first.
+    // u64::MAX is what the original comment ("u64 max-safe cap") intended: a
+    // non-binding cap. Nothing here depends on the value — no orchestrator test
+    // reaches the SupplyCap guard at lib.rs:291.
+    type SupplyCap                     = ConstU64<{ u64::MAX }>;
 }
 
 fn new_test_ext() -> sp_io::TestExternalities {
