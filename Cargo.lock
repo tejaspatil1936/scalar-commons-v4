@@ -8110,25 +8110,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sc-sync-state-rpc"
-version = "0.49.0"
-source = "git+https://github.com/paritytech/polkadot-sdk?tag=polkadot-stable2503#0c0d4ceba45a70f4e8dc40b1ee0cfae1fd759454"
-dependencies = [
- "jsonrpsee",
- "parity-scale-codec",
- "sc-chain-spec",
- "sc-client-api",
- "sc-consensus-babe",
- "sc-consensus-epochs",
- "sc-consensus-grandpa",
- "serde",
- "serde_json",
- "sp-blockchain",
- "sp-runtime",
- "thiserror 1.0.65",
-]
-
-[[package]]
 name = "sc-sysinfo"
 version = "42.0.0"
 source = "git+https://github.com/paritytech/polkadot-sdk?tag=polkadot-stable2503#0c0d4ceba45a70f4e8dc40b1ee0cfae1fd759454"
@@ -8373,7 +8354,6 @@ dependencies = [
  "pallet-transaction-payment-rpc",
  "pallet-transaction-payment-rpc-runtime-api",
  "sc-basic-authorship",
- "sc-chain-spec",
  "sc-cli",
  "sc-client-api",
  "sc-consensus",
@@ -8390,7 +8370,6 @@ dependencies = [
  "sc-rpc-api",
  "sc-service",
  "sc-storage-monitor",
- "sc-sync-state-rpc",
  "sc-sysinfo",
  "sc-telemetry",
  "sc-transaction-pool",
