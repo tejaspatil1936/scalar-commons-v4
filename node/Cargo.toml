@@ -33,6 +33,7 @@ serde_json  = { workspace = true }
 scalar-commons-runtime = { path = "../runtime" }
 
 # ── Substrate client (node-side, std only) ───────────────────────────────────
+sc-authority-discovery  = { workspace = true }
 sc-basic-authorship     = { workspace = true }
 sc-cli                  = { workspace = true }
 sc-client-api           = { workspace = true }

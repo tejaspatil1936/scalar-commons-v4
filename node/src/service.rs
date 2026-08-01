@@ -20,19 +20,14 @@
 //!   `sp_io::SubstrateHostFunctions`.
 //! * **Mixnet** (`sc-mixnet`) — needs `pallet-mixnet`.
 //!
-//! One further omission is *not* a missing pallet but a missing runtime API,
-//! and it is the significant one:
-//!
-//! * **Authority discovery.** `pallet_authority_discovery` IS in this runtime
-//!   (index 8) and its key IS in `SessionKeys`, but the runtime never declares
-//!   `impl sp_authority_discovery::AuthorityDiscoveryApi<Block> for Runtime`
-//!   inside `impl_runtime_apis!`. `sc_authority_discovery::new_worker_and_service`
-//!   calls that API to read the authority set, so the worker cannot be spawned
-//!   against this runtime. Fixing it means editing `runtime/src/lib.rs`, which
-//!   Round 4 is not permitted to do — see ROUND4.md "Remaining gaps".
-//!   Consequence: validators do not publish or resolve each other's addresses
-//!   over the DHT. Explicit bootnodes / `--reserved-nodes` still work, so a
-//!   local devnet is unaffected; a real multi-operator network would need it.
+//! **Authority discovery is wired** as of Round 5. It was omitted in Round 4
+//! for a reason worth keeping on the record: `pallet_authority_discovery` was
+//! already in the runtime (index 8) with its key in `SessionKeys`, but
+//! `impl_runtime_apis!` never declared `AuthorityDiscoveryApi` — the very API
+//! `sc_authority_discovery::new_worker_and_service_with_config` calls to read
+//! the authority set. Round 4 could not edit the runtime, so the worker was
+//! omitted rather than stubbed. Round 5 declared the API (spec_version
+//! 301 -> 302) and the worker below is the reference's, restored intact.
 //!
 //! Also omitted, for reasons that are ours rather than the runtime's: hardware
 //! benchmarking (`sc_sysinfo::gather_hwbench` + `SUBSTRATE_REFERENCE_HARDWARE`)
@@ -44,7 +39,7 @@ use futures::prelude::*;
 use sc_client_api::{Backend, BlockBackend};
 use sc_consensus_babe::SlotProportion;
 use sc_consensus_grandpa as grandpa;
-use sc_network::NetworkBackend;
+use sc_network::{event::Event, NetworkBackend, NetworkEventStream};
 use sc_network_sync::{strategy::warp::WarpSyncConfig, SyncingService};
 use sc_service::{config::Configuration, error::Error as ServiceError, RpcHandlers, TaskManager};
 use sc_telemetry::{Telemetry, TelemetryWorker};
@@ -290,6 +285,10 @@ pub fn new_full_base<N: NetworkBackend<Block, <Block as BlockT>::Hash>>(
     let metrics =
         N::register_notification_metrics(config.prometheus_config.as_ref().map(|cfg| &cfg.registry));
     let shared_voter_state = rpc_setup;
+    // Read before `config` is consumed by `spawn_tasks` below — the discovery
+    // worker is spawned after that point.
+    let auth_disc_publish_non_global_ips = config.network.allow_non_globals_in_dht;
+    let auth_disc_public_addresses = config.network.public_addresses.clone();
 
     let mut net_config = sc_network::config::FullNetworkConfiguration::<_, _, N>::new(
         &config.network,
@@ -397,9 +396,37 @@ pub fn new_full_base<N: NetworkBackend<Block, <Block as BlockT>::Hash>>(
         );
     }
 
-    // The reference spawns the authority-discovery worker here. See the module
-    // doc comment: this runtime does not implement `AuthorityDiscoveryApi`, so
-    // there is nothing for the worker to query. Omitted rather than stubbed.
+    // Spawn authority discovery module.
+    if role.is_authority() {
+        let authority_discovery_role =
+            sc_authority_discovery::Role::PublishAndDiscover(keystore_container.keystore());
+        let dht_event_stream =
+            network.event_stream("authority-discovery").filter_map(|e| async move {
+                match e {
+                    Event::Dht(e) => Some(e),
+                    _ => None,
+                }
+            });
+        let (authority_discovery_worker, _service) =
+            sc_authority_discovery::new_worker_and_service_with_config(
+                sc_authority_discovery::WorkerConfig {
+                    publish_non_global_ips: auth_disc_publish_non_global_ips,
+                    public_addresses: auth_disc_public_addresses,
+                    ..Default::default()
+                },
+                client.clone(),
+                Arc::new(network.clone()),
+                Box::pin(dht_event_stream),
+                authority_discovery_role,
+                prometheus_registry.clone(),
+            );
+
+        task_manager.spawn_handle().spawn(
+            "authority-discovery-worker",
+            Some("networking"),
+            authority_discovery_worker.run(),
+        );
+    }
 
     // if the node isn't actively participating in consensus then it doesn't
     // need a keystore, regardless of which protocol we use below.
