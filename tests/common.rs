@@ -253,7 +253,9 @@ impl pallet_emissions::Config for TestRuntime {
     type MaxProposalsPerEra              = ConstU32<10>;
     type UnitVolume                      = UnitVolumeInt;
     type VelocityBonusBps          = ConstU32<0>; // +30% weight bonus at full capital deployment
-    type MinQualifyingVol                = ConstU32<0>; // disabled in integration tests
+    // Balance-typed (Get<BalanceOf<Self>>), and Balance is u64 here — so ConstU64,
+    // not ConstU32. Value unchanged: 0 keeps the floor gate disabled in integration tests.
+    type MinQualifyingVol                = ConstU64<0>; // disabled in integration tests
     // V4: GenesisAgentBonusBps/Eras removed — replaced by per-agent onboarding_boost
     type MaxBatchClaimSize               = ConstU32<100>;
     type AutoParams                      = TestAutoParams;
