@@ -136,12 +136,68 @@ std = [
     "pallet-preimage/std",
     "frame-benchmarking?/std",
 ]
+# ROUND5: completed the feature graph. Previously this listed 5 of the 40
+# dependencies that expose a `runtime-benchmarks` feature, which meant enabling
+# it built a runtime whose benchmark machinery disagreed with itself — the
+# reason ROUND4.md gap 5 recorded benchmarking as "not wired end to end".
+#
+# The rule applied is the kitchensink runtime's, mechanically: every dependency
+# that declares a `runtime-benchmarks` feature gets it forwarded. (The
+# kitchensink expresses this as one line, `polkadot-sdk/runtime-benchmarks`,
+# because it consumes the SDK umbrella crate; this workspace pins individual
+# crates, so the same graph is spelled out.) Membership was determined by
+# reading each crate's own Cargo.toml, not from memory.
+#
+# Four entries are for dependencies declared in [dependencies] but NOT present
+# in construct_runtime: pallet-assets, pallet-salary, pallet-im-online and
+# pallet-election-provider-multi-phase. They are forwarded anyway so the graph
+# stays uniform and cannot silently skew if one of them is later wired in.
 runtime-benchmarks = [
+    # FRAME core
     "frame-support/runtime-benchmarks",
     "frame-system/runtime-benchmarks",
-    "pallet-balances/runtime-benchmarks",
+    "frame-benchmarking/runtime-benchmarks",
+    "frame-election-provider-support/runtime-benchmarks",
+    "sp-runtime/runtime-benchmarks",
+    "sp-staking/runtime-benchmarks",
+    # Consensus / staking
+    "pallet-babe/runtime-benchmarks",
+    "pallet-grandpa/runtime-benchmarks",
     "pallet-staking/runtime-benchmarks",
+    "pallet-offences/runtime-benchmarks",
+    "pallet-bags-list/runtime-benchmarks",
+    "pallet-im-online/runtime-benchmarks",
+    "pallet-election-provider-multi-phase/runtime-benchmarks",
+    # Tokens
+    "pallet-balances/runtime-benchmarks",
+    "pallet-transaction-payment/runtime-benchmarks",
+    "pallet-timestamp/runtime-benchmarks",
+    "pallet-vesting/runtime-benchmarks",
+    "pallet-assets/runtime-benchmarks",
+    "pallet-nomination-pools/runtime-benchmarks",
+    # Governance / admin
+    "pallet-sudo/runtime-benchmarks",
+    "pallet-scheduler/runtime-benchmarks",
+    "pallet-utility/runtime-benchmarks",
+    "pallet-multisig/runtime-benchmarks",
+    "pallet-preimage/runtime-benchmarks",
+    "pallet-referenda/runtime-benchmarks",
+    "pallet-conviction-voting/runtime-benchmarks",
+    "pallet-ranked-collective/runtime-benchmarks",
+    "pallet-salary/runtime-benchmarks",
+    "pallet-identity/runtime-benchmarks",
+    "pallet-treasury/runtime-benchmarks",
+    "pallet-whitelist/runtime-benchmarks",
+    "pallet-safe-mode/runtime-benchmarks",
+    "pallet-tx-pause/runtime-benchmarks",
+    # Scalar Commons pallets
     "pallet-agents/runtime-benchmarks",
+    "pallet-escrow/runtime-benchmarks",
+    "pallet-oracle/runtime-benchmarks",
+    "pallet-emissions/runtime-benchmarks",
+    "pallet-auto-params/runtime-benchmarks",
+    "pallet-orchestrator/runtime-benchmarks",
+    "pallet-constitution/runtime-benchmarks",
 ]
 try-runtime = [
     "frame-support/try-runtime", "frame-system/try-runtime",
