@@ -246,7 +246,7 @@ pub mod pallet {
 
             // V4: F-04 — double-settlement guard. Prevents double-mint in same era.
             ensure!(
-                LastSettledEra::<T>::get().map_or(true, |last| era > last),
+                LastSettledEra::<T>::get().is_none_or(|last| era > last),
                 Error::<T>::EraAlreadySettled
             );
             LastSettledEra::<T>::put(era);
@@ -533,6 +533,15 @@ pub mod pallet {
         }
 
         /// stake_u128: pre-converted stake value (avoids cross-pallet Balance type mismatch)
+        //
+        // The ten arguments are the emission weighting inputs themselves — stake,
+        // rank, oracle accuracy, governance participation and the velocity bonus,
+        // plus the era totals they are normalised against. Bundling them into a
+        // params struct would hide which factors feed the weight, and the factor
+        // list is exactly the thing first-principle #2 requires stay legible.
+        // Silenced rather than restructured: a signature change here is an
+        // economic-code change and belongs in its own reviewed round.
+        #[allow(clippy::too_many_arguments)]
         fn compute_weight_cached(
             who: &T::AccountId,
             stake_u128: u128,

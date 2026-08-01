@@ -177,14 +177,14 @@ impl pallet_escrow::Config for TestRuntime {
     type RuntimeEvent = RuntimeEvent;
     type MaxAgreementsPerPair = ConstU32<25>;
     type MaxAgreementSpan = ConstU64<10_000>;
-    type MinAgreementAmount = ConstU64<{ 1 * CMN }>;
+    type MinAgreementAmount = ConstU64<CMN>;
     type MinDeliveryBlocks = ConstU64<5>;
     type BuyerResponseWindow = ConstU64<100>;
     type DisputeResponseWindow = ConstU64<100>;
     type DisputeTimeoutWindow = ConstU64<500>;
     type DisputeBountyBps = ConstU32<200>;
     type DisputeBurnBps = ConstU32<0>;
-    type MinDisputeBounty = ConstU64<{ 1 * CMN }>;
+    type MinDisputeBounty = ConstU64<CMN>;
     type CompletionFeeProvider = ConstU32<0>;
     type DisputeOracle = Oracle;
     type DisputeCallback = Escrow;
@@ -195,7 +195,7 @@ impl pallet_escrow::Config for TestRuntime {
 
 impl pallet_oracle::Config for TestRuntime {
     type RuntimeEvent = RuntimeEvent;
-    type MinOracleBounty = ConstU64<{ 1 * CMN }>;
+    type MinOracleBounty = ConstU64<CMN>;
     type MaxOpenRequests = ConstU32<1000>;
     type MinConsensusThreshold = ConstU8<50>;
     type MinChallengeWindow = ConstU64<1>;
@@ -352,12 +352,12 @@ pub fn new_test_ext() -> TestExternalities {
 /// Register an agent with the given stake.
 pub fn register(who: u64, stake: u64) {
     pallet_agents::Pallet::<TestRuntime>::register(RuntimeOrigin::signed(who), stake)
-        .expect(&format!("register({who}) failed"));
+        .unwrap_or_else(|_| panic!("register({who}) failed"));
 }
 
 /// Complete a full escrow cycle: create → deliver → confirm.
 pub fn complete_escrow(buyer: u64, provider: u64, amount: u64, deliver_block: u64) -> u32 {
-    let seq = pallet_escrow::NextSeq::<TestRuntime>::get(&buyer, &provider);
+    let seq = pallet_escrow::NextSeq::<TestRuntime>::get(buyer, provider);
     advance_blocks(1);
     pallet_escrow::Pallet::<TestRuntime>::create_agreement(
         RuntimeOrigin::signed(buyer),

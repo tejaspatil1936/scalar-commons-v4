@@ -60,7 +60,7 @@ pub mod pallet {
     use crate::DisputeOracle;
     use frame_support::{
         pallet_prelude::*,
-        traits::{Currency, Imbalance, OnUnbalanced, ReservableCurrency},
+        traits::{OnUnbalanced, ReservableCurrency},
     };
     use frame_system::pallet_prelude::*;
     use pallet_agents::pallet as agents_pallet;

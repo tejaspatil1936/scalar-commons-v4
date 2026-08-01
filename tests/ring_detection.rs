@@ -2,7 +2,6 @@
 
 use super::common;
 use common::*;
-use frame_support::assert_ok;
 
 #[test]
 fn ring_detection_fires_after_sustained_self_dealing() {

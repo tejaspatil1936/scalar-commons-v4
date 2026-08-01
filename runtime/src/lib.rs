@@ -25,7 +25,7 @@ pub mod opaque {
 use frame_support::{
     parameter_types,
     traits::tokens::imbalance::ResolveTo,
-    traits::{ConstU32, ConstU64, EqualPrivilegeOnly, Everything, WithdrawReasons},
+    traits::{ConstU32, ConstU64, EqualPrivilegeOnly, WithdrawReasons},
     weights::{constants::WEIGHT_REF_TIME_PER_SECOND, IdentityFee, Weight},
     PalletId,
 };
@@ -104,8 +104,10 @@ pub const ERA_BLOCKS: BlockNumber = HOURS * 6;
 // ─── Version ─────────────────────────────────────────────────────────────────
 #[sp_version::runtime_version]
 pub const VERSION: RuntimeVersion = RuntimeVersion {
-    spec_name: ::sp_runtime::create_runtime_str!("scalar-commons"),
-    impl_name: ::sp_runtime::create_runtime_str!("scalar-commons"),
+    // `create_runtime_str!` is deprecated in favour of `Cow::Borrowed`. Same
+    // value, same encoding — the macro expanded to exactly this.
+    spec_name: ::sp_std::borrow::Cow::Borrowed("scalar-commons"),
+    impl_name: ::sp_std::borrow::Cow::Borrowed("scalar-commons"),
     authoring_version: 1,
     // 300 -> 301: added pallet-referenda Instance2 (RankedPolls) at index 41.
     // Adding a pallet changes the storage layout, which CLAUDE.md requires be
@@ -752,6 +754,12 @@ impl pallet_nomination_pools::Config for Runtime {
     type RewardCounter = sp_runtime::FixedU128;
     type BalanceToU256 = BalanceToU256;
     type U256ToBalance = U256ToBalance;
+    // Deprecated upstream in favour of `DelegateStake`. Not migrated here: the
+    // two adapters hold pool members' funds differently (transfer into the pool
+    // account vs. delegation from the member's own account), so swapping them
+    // changes where staked balances live and needs a storage migration. That is
+    // an economic change, not lint hygiene — it gets its own reviewed round.
+    #[allow(deprecated)]
     type StakeAdapter = pallet_nomination_pools::adapter::TransferStake<Self, Staking>;
     type PostUnbondingPoolsWindow = ConstU32<4>;
     type MaxMetadataLen = ConstU32<256>;
@@ -966,7 +974,7 @@ impl pallet_emissions::pallet::ValidatorCountProvider for ValidatorCountBridge {
                 pallet_staking::ErasStakersOverview::<Runtime>::iter_prefix(era.index).count()
                     as u32
             })
-            .unwrap_or_else(|| pallet_staking::Validators::<Runtime>::count())
+            .unwrap_or_else(pallet_staking::Validators::<Runtime>::count)
     }
 }
 

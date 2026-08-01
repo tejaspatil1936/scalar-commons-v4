@@ -10,12 +10,18 @@ pub mod benchmarks;
 
 #[frame_support::pallet]
 pub mod pallet {
+    // `create_oracle_request` takes the full request specification — mode,
+    // quorum, threshold, both deadlines and the capability gate — and every one
+    // is a per-request choice the caller must be able to make. The `#[pallet::call]`
+    // macro re-emits that signature on the generated `Call` variant helper, which
+    // no item-level `#[allow]` can reach, so the exemption has to sit at module
+    // scope. Not restructured: an extrinsic's argument list is its encoding, and
+    // changing it is a runtime-compatibility change, not lint hygiene.
+    #![allow(clippy::too_many_arguments)]
+
     use crate::escrow_bridge::DisputeCallback;
     use crate::CapabilityChecker;
-    use frame_support::{
-        pallet_prelude::*,
-        traits::{Currency, ReservableCurrency},
-    };
+    use frame_support::{pallet_prelude::*, traits::ReservableCurrency};
     use frame_system::pallet_prelude::*;
     use pallet_agents::pallet as agents_pallet;
     use sp_runtime::traits::Saturating;
@@ -594,6 +600,10 @@ pub mod pallet {
             )
         }
 
+        // Returns (consensus hash, agreeing agents, dissenting agents). Naming the
+        // tuple would mean a public type for a private helper's return value; the
+        // three components are already documented at both call sites.
+        #[allow(clippy::type_complexity)]
         fn compute_factual_consensus(
             responses: &[(T::AccountId, [u8; 32])],
             threshold: u8,

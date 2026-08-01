@@ -42,6 +42,12 @@ pub struct Cli {
 }
 
 /// Possible subcommands of the main binary.
+// The variants wrap upstream `sc_cli`/`frame_benchmarking_cli` command structs
+// whose sizes we do not control, and `BenchmarkCmd` is much the largest. Boxing
+// it would mean changing the clap-derived shape and every dispatch arm in
+// `command.rs` — real code, for an enum that is constructed exactly once per
+// process invocation. Not worth it here.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, clap::Subcommand)]
 pub enum Subcommand {
     /// Sub-commands concerned with benchmarking.

@@ -5,7 +5,7 @@
 //! Track 2: Root            — structural changes, runtime upgrades
 
 use crate::Runtime;
-use frame_support::traits::{EitherOf, EnsureOrigin};
+use frame_support::traits::EitherOf;
 use frame_system::{EnsureRoot, EnsureRootWithSuccess};
 
 /// Origin for Track 0: Ranked-collective members (Rank 2+).

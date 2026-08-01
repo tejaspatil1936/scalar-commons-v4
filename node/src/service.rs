@@ -76,6 +76,12 @@ pub type TransactionPool = sc_transaction_pool::TransactionPoolHandle<Block, Ful
 const GRANDPA_JUSTIFICATION_PERIOD: u32 = 512;
 
 /// Creates a new partial node.
+// The return type is `sc_service::PartialComponents` fully instantiated with this
+// chain's client, import queue and the BABE/GRANDPA link halves. It is the shape
+// the service API demands; naming the parts would add aliases used exactly once
+// and make the wiring harder to follow, not easier. Upstream node templates carry
+// the same exemption.
+#[allow(clippy::type_complexity)]
 pub fn new_partial(
     config: &Configuration,
 ) -> Result<

@@ -1,6 +1,6 @@
 //! pallet-emissions unit tests
-
-#![cfg(test)]
+//!
+//! Gated by `#[cfg(test)] mod tests;` in `lib.rs` — no inner `#![cfg(test)]`.
 
 use crate::pallet::*;
 use frame_support::{
@@ -192,7 +192,6 @@ fn new_test_ext() -> sp_io::TestExternalities {
 
 const ALICE: u64 = 1;
 const BOB: u64 = 2;
-const CAROL: u64 = 3;
 
 fn register(who: u64, stake: u64) {
     assert_ok!(Agents::register(RuntimeOrigin::signed(who), stake));
@@ -324,7 +323,7 @@ fn emission_override_replaces_formula_for_targeted_era() {
 
         // Settle era 0 first (moves to era 1)
         settle(ALICE);
-        let last_era_0 = LastEraEmission::<Test>::get();
+        let _last_era_0 = LastEraEmission::<Test>::get();
 
         // Reset debt for clean test
         AgentRewardDebt::<Test>::insert(ALICE, AccRewardPerStake::<Test>::get());

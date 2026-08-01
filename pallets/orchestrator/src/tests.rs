@@ -1,6 +1,6 @@
 //! pallet-orchestrator unit tests
-
-#![cfg(test)]
+//!
+//! Gated by `#[cfg(test)] mod tests;` in `lib.rs` — no inner `#![cfg(test)]`.
 
 use crate::pallet::*;
 use frame_support::{

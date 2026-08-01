@@ -1,7 +1,7 @@
 //! Integration test: supply cap is never exceeded
 
 use super::common::*;
-use frame_support::{assert_ok, traits::Currency};
+use frame_support::traits::Currency;
 
 // Use same supply cap as test config (fits in u64)
 const SUPPLY_CAP: u64 = 10_000_000_000_000_000_000; // ~10B CMN

@@ -1,7 +1,7 @@
 //! pallet-agents unit tests
 //! Run: cargo test -p pallet-agents -- --nocapture
-
-#![cfg(test)]
+//!
+//! Gated by `#[cfg(test)] mod tests;` in `lib.rs` — no inner `#![cfg(test)]`.
 
 use crate::*;
 use frame_support::{
