@@ -10,5 +10,6 @@
 //! eligibility floor) are currently exercised only indirectly, through the
 //! emissions mock's `AutoParamsProvider`. Direct unit tests belong here; the
 //! empty module is a marker for that work, not a substitute for it.
-
-#![cfg(test)]
+//!
+//! The module is gated by `#[cfg(test)] mod tests;` in `lib.rs`; a second
+//! inner `#![cfg(test)]` here was redundant (clippy::duplicated_attributes).

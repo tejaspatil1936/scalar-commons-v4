@@ -35,7 +35,6 @@ use frame_support::weights::Weight;
 pub mod pallet {
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
-    use sp_std::vec::Vec;
 
     // ─── Era metrics struct ────────────────────────────────────────────────────
     /// Comprehensive era metrics passed from pallet-emissions after each era drain.
