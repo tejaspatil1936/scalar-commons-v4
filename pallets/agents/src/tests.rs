@@ -55,6 +55,16 @@ impl frame_system::Config for Test {
     type SS58Prefix                 = SS58Prefix;
     type OnSetCode                  = ();
     type MaxConsumers               = ConstU32<16>;
+    // Added to frame_system::Config since this mock was written. All six are `()`
+    // in the SDK's own TestDefaultConfig (frame/system/src/lib.rs:335,354-358),
+    // i.e. no migrations and no block-phase callbacks — which is what this mock
+    // already did implicitly.
+    type ExtensionsWeightInfo       = ();
+    type SingleBlockMigrations      = ();
+    type MultiBlockMigrator         = ();
+    type PreInherents               = ();
+    type PostInherents              = ();
+    type PostTransactions           = ();
 }
 
 impl pallet_balances::Config for Test {
@@ -71,6 +81,10 @@ impl pallet_balances::Config for Test {
     type MaxFreezes        = ConstU32<0>;
     type RuntimeHoldReason = ();
     type RuntimeFreezeReason = ();
+    // Added to pallet_balances::Config since this mock was written; `()` is the
+    // SDK's own default (frame/balances/src/lib.rs:247) — no slash bookkeeping
+    // callback, matching this mock's prior behaviour.
+    type DoneSlashHandler  = ();
 }
 
 parameter_types! {
@@ -135,6 +149,9 @@ fn new_test_ext() -> sp_io::TestExternalities {
             (3, 100_000),  // charlie
             (4, 10),       // poor_dave
         ],
+        // New GenesisConfig field; `None` is the SDK's Default and generates no
+        // extra accounts, so the endowed set above is unchanged.
+        dev_accounts: None,
     }
     .assimilate_storage(&mut storage)
     .unwrap();
