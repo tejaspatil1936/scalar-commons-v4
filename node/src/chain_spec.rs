@@ -249,15 +249,20 @@ fn dev_genesis(
         .map(|a| (a.clone(), GENESIS_AGENT_STAKE, true))
         .collect();
 
-    // V4: RankedCollective seeded with genesis validators at rank 1.
-    // This forms the Technical Council from block 1.
-    // Rank 1 = inducted into the collective; TC fast-track requires rank 3+
-    // which is earned through completions + oracle accuracy over time.
-    let ranked_members: Vec<serde_json::Value> = initial_authorities
-        .iter()
-        .take(3)
-        .map(|(stash, ..)| serde_json::json!({ "who": stash, "rank": 1u32 }))
-        .collect();
+    // ROUND4: the `rankedCollective` seeding that used to be built here is gone.
+    // `pallet_ranked_collective` declares no `#[pallet::genesis_config]` at
+    // polkadot-stable2503, so `RuntimeGenesisConfig` has no such field and the
+    // key was rejected outright:
+    //
+    //     Invalid JSON blob: unknown field `rankedCollective`, expected one of
+    //     `system`, `balances`, `authorityDiscovery`, ...
+    //
+    // The collective is still non-empty at block 1, by a different route: the
+    // `agents` genesis above inducts each genesis agent and, because
+    // GENESIS_AGENT_STAKE (10,000 CMN) equals AgentsFullFloorStake, promotes it
+    // twice — so those accounts land at rank 2, not rank 1. What is genuinely
+    // lost is seeding the *stash* accounts; the inducted members are the
+    // controllers. See ROUND4.md "chain_spec adaptations".
 
     let stakers: Vec<(AccountId, AccountId, Balance, pallet_staking::StakerStatus<AccountId>)> =
         initial_authorities.iter().map(|(stash, ctrl, ..)| {
@@ -305,17 +310,17 @@ fn dev_genesis(
         "agents": { "agents": genesis_agents },
         // V4: auto-params active from block 1 — run_era_rules fires every settle_era.
         "autoParams": {},
-        // V4: RankedCollective seeded — Technical Council exists from block 1.
-        "rankedCollective": { "members": ranked_members },
-        // V4: OpenGov pallets active — agents can submit Track 0/1/2 proposals immediately.
-        "referenda":        {},
-        "convictionVoting": {},
-        // V4: Safety stack active — TC can whitelist calls, pause chain, pause extrinsics.
-        "whitelist": {},
+        // ROUND4: `rankedCollective`, `referenda`, `convictionVoting`,
+        // `whitelist` and `constitution` were listed here as empty patches.
+        // None of those five pallets declares a genesis config, so none has a
+        // field in `RuntimeGenesisConfig`, and every one of them was rejected
+        // as an unknown field before the node could build genesis at all.
+        // Dropping them changes no on-chain state: a pallet with no genesis
+        // config has nothing to initialise, and all five are wired in
+        // `construct_runtime` and active from block 1 regardless. Only
+        // `rankedCollective` carried a payload — see the note above.
         "safeMode":  {},
         "txPause":   {},
-        // V4: Constitution enforcing from block 1 — 6 invariants as BaseCallFilter.
-        "constitution": {},
         // V4: Treasury active — receives slash 50% + completion fees each era.
         "treasury": {},
         // V4: Nomination pools active — any agent with ≥100 CMN can pool-stake.
@@ -374,13 +379,11 @@ pub fn mainnet_genesis_config(
         })
     }).collect();
 
-    // V4: RankedCollective seeded with initial validators at rank 1.
-    // These are the founding Technical Council members.
-    let ranked_members: Vec<serde_json::Value> = initial_authorities
-        .iter()
-        .take(3)
-        .map(|(stash, ..)| serde_json::json!({ "who": stash, "rank": 1u32 }))
-        .collect();
+    // ROUND4: the founding-TC seeding built here is removed for the same
+    // reason as in `dev_genesis` — `pallet_ranked_collective` has no genesis
+    // config at polkadot-stable2503, so the key was rejected before genesis
+    // could be built. The `agents` genesis below still inducts and promotes
+    // the initial validators' agent accounts.
 
     // V4: Genesis agents — the 3 initial validators are also registered agents.
     // Each gets the minimum 10,000 CMN stake (FullFloorStake = floor emissions enabled).
@@ -438,17 +441,12 @@ pub fn mainnet_genesis_config(
         "agents": { "agents": genesis_agents },
         // V4: auto-params runs every era from era 1 — F-02 fixed in genesis.
         "autoParams": {},
-        // V4: Technical Council seeded from block 1 — rank 1 for all 3 genesis validators.
-        "rankedCollective": { "members": ranked_members },
-        // V4: OpenGov active — agents submit Track 0/1/2 proposals from block 1.
-        "referenda":        {},
-        "convictionVoting": {},
-        // V4: Safety stack — whitelist/safe-mode/tx-pause active from block 1.
-        "whitelist": {},
+        // ROUND4: `rankedCollective`, `referenda`, `convictionVoting`,
+        // `whitelist` and `constitution` removed — none declares a genesis
+        // config, so none is a field of `RuntimeGenesisConfig`. All five stay
+        // wired in `construct_runtime` and active from block 1.
         "safeMode":  {},
         "txPause":   {},
-        // V4: Constitution enforcing — BaseCallFilter checks invariants on every extrinsic.
-        "constitution": {},
         // V4: Treasury active from block 1.
         "treasury": {},
         // V4: Nomination pools — any agent with ≥100 CMN can pool-stake immediately.
