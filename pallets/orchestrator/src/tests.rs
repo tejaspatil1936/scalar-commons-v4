@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::pallet::*;
-use frame_support::{assert_ok, assert_noop, parameter_types, traits::{ConstU32, ConstU64}};
+use frame_support::{assert_ok, assert_noop, traits::{ConstU16, ConstU32, ConstU64}};
 use sp_core::H256;
 use sp_runtime::{BuildStorage, traits::{BlakeTwo256, IdentityLookup}};
 
@@ -26,38 +26,65 @@ impl frame_system::Config for Test {
     type Hashing        = BlakeTwo256; type AccountId = u64;
     type Lookup         = IdentityLookup<Self::AccountId>;
     type Block          = Block; type RuntimeEvent = RuntimeEvent;
-    type BlockHashCount = ConstU32<250>; type DbWeight = ();
+    // BlockNumber is u64 in this mock, so these want ConstU64/ConstU16, not
+    // ConstU32. Values unchanged: 250 blocks of hashes, SS58 prefix 42.
+    type BlockHashCount = ConstU64<250>; type DbWeight = ();
     type Version        = (); type PalletInfo = PalletInfo;
     type AccountData    = pallet_balances::AccountData<u64>;
     type OnNewAccount   = (); type OnKilledAccount = ();
-    type SystemWeightInfo = (); type SS58Prefix = ConstU32<42>;
+    type SystemWeightInfo = (); type SS58Prefix = ConstU16<42>;
     type OnSetCode      = (); type MaxConsumers = ConstU32<16>;
+    // Added to frame_system::Config since this mock was written; `()` for all six
+    // is the SDK's own TestDefaultConfig — no migrations, no block-phase hooks.
+    type ExtensionsWeightInfo = (); type SingleBlockMigrations = ();
+    type MultiBlockMigrator   = (); type PreInherents = ();
+    type PostInherents        = (); type PostTransactions = ();
 }
 impl pallet_balances::Config for Test {
     type MaxLocks = ConstU32<50>; type MaxReserves = ConstU32<50>;
     type ReserveIdentifier = [u8; 8]; type Balance = u64;
     type RuntimeEvent = RuntimeEvent; type DustRemoval = ();
-    type ExistentialDeposit = ConstU32<1>; type AccountStore = System;
+    // Balance is u64 here, so ExistentialDeposit wants ConstU64. Value unchanged: 1.
+    type ExistentialDeposit = ConstU64<1>; type AccountStore = System;
     type WeightInfo = (); type FreezeIdentifier = ();
     type MaxFreezes = ConstU32<0>; type RuntimeHoldReason = ();
     type RuntimeFreezeReason = ();
+    // New in pallet_balances::Config; `()` is the SDK default — no slash callback.
+    type DoneSlashHandler = ();
+}
+
+// pallet_agents::Config::OrchestratorLookup wants a type implementing
+// OrchestratorLookup<AccountId, Balance>; the orchestrator Pallet itself does not
+// implement that trait, so the mock cannot point straight at it. The runtime and
+// tests/common.rs both solve this with a bridge struct — this mirrors
+// runtime/src/lib.rs:960 exactly, so volume routing behaves as it does on-chain.
+pub struct TestOrchestratorBridge;
+impl pallet_agents::pallet::OrchestratorLookup<u64, u64> for TestOrchestratorBridge {
+    fn get_orchestrator(sub_agent: &u64) -> Option<u64> {
+        SubAgentToOrchestrator::<Test>::get(sub_agent)
+    }
+    fn add_orchestrator_volume(orchestrator: &u64, amount: u64) {
+        crate::Pallet::<Test>::add_orchestrator_volume(orchestrator, amount);
+    }
 }
 impl pallet_agents::Config for Test {
     type RuntimeEvent            = RuntimeEvent;
     type Currency                = Balances;
-    type MinStake                = ConstU32<1_000>;
-    type FullFloorStake          = ConstU32<10_000>;
-    type MaxStakePerAgent        = ConstU32<1_000_000>;
-    type UnstakeCooldown         = ConstU32<100>;
-    type BaseRegistrationFee     = ConstU32<50>;
+    // Balance- and BlockNumber-typed constants: ConstU64, not ConstU32, since both
+    // are u64 in this mock. Every value carried over unchanged.
+    type MinStake                = ConstU64<1_000>;
+    type FullFloorStake          = ConstU64<10_000>;
+    type MaxStakePerAgent        = ConstU64<1_000_000>;
+    type UnstakeCooldown         = ConstU64<100>;
+    type BaseRegistrationFee     = ConstU64<50>;
     type MaxRegistrationsPerBlock = ConstU32<10>;
     type MaxAgents               = ConstU32<100>;
     type Rank3MinCompletions     = ConstU32<50>;
     type MinRank3OracleScore     = ConstU32<0>;
-    type Rank3SpanGate           = ConstU32<0>;
+    type Rank3SpanGate           = ConstU64<0>;
     type MaxVolToStakeRatio      = ConstU32<0>;
-    type HeartbeatGracePeriod    = ConstU32<600>;
-    type HeartbeatDecayPeriod    = ConstU32<14400>;
+    type HeartbeatGracePeriod    = ConstU64<600>;
+    type HeartbeatDecayPeriod    = ConstU64<14400>;
     type OnAgentRegistered       = ();
     type OnAgentSlashed          = ();
     type OnStakeChanged          = ();
@@ -65,7 +92,7 @@ impl pallet_agents::Config for Test {
     type OracleScoreGate          = ();
     type GovVoteVerifier           = ();
     type IdentityHandler         = ();
-    type OrchestratorLookup      = Orchestrator;
+    type OrchestratorLookup      = TestOrchestratorBridge;
     type MaxUriLen               = ConstU32<256>;
     type MaxNameLen              = ConstU32<64>;
     type MaxCapabilitiesPerAgent = ConstU32<20>;
@@ -79,9 +106,13 @@ impl super::Config for Test {
     type RuntimeEvent                  = RuntimeEvent;
     type MaxSubAgentsPerOrchestrator   = ConstU32<50>;
     type MaxOrchestratorFeeBps         = ConstU32<500>;
-    type LinkApprovalWindow            = ConstU32<100>;
+    // BlockNumber-typed (Get<BlockNumberFor<Self>>): ConstU64. Value unchanged: 100.
+    type LinkApprovalWindow            = ConstU64<100>;
     type MaxPendingProposals           = ConstU32<20>;
-    type OrchestratorEmissionMultiplier = ConstU32<5_000>;
+    // `OrchestratorEmissionMultiplier` was set here but is not a member of
+    // orchestrator::Config (E0437) — it belongs to pallet_emissions::Config, where
+    // this mock's sibling in pallets/emissions/src/tests.rs already sets it to the
+    // same ConstU32<5_000>. Removing it drops a line that never bound anything.
     type SupplyCap                     = ConstU64<{ 100_000_000_000_000_000_000 }>; // u64 max-safe cap
 }
 
@@ -89,6 +120,7 @@ fn new_test_ext() -> sp_io::TestExternalities {
     let mut storage = frame_system::GenesisConfig::<Test>::default().build_storage().unwrap();
     pallet_balances::GenesisConfig::<Test> {
         balances: vec![(1, 200_000), (2, 200_000), (3, 200_000)],
+        dev_accounts: None, // new field; None = generate none, as before
     }.assimilate_storage(&mut storage).unwrap();
     storage.into()
 }
