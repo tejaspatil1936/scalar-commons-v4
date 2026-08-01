@@ -346,8 +346,16 @@ impl frame_support::traits::tokens::ConversionFromAssetBalance<Balance, (), Bala
 {
     type Error = sp_runtime::DispatchError;
     fn from_asset_balance(balance: Balance, _: ()) -> Result<Balance, Self::Error> { Ok(balance) }
+    // ROUND6: the trait takes the asset id BY VALUE —
+    // `fn ensure_successful(asset_id: AssetId);` in frame_support
+    // (traits/tokens/misc.rs:312), and the SDK's own blanket impl at line 328
+    // reads `fn ensure_successful(_: AssetId) {}`. This took `&()` and so never
+    // satisfied the trait. It went unnoticed because it is cfg-gated behind
+    // runtime-benchmarks, which had never successfully been enabled until
+    // Round 5 completed the feature graph. E0053, and the only thing standing
+    // between that graph and a green benchmarks build.
     #[cfg(feature = "runtime-benchmarks")]
-    fn ensure_successful(_: &()) {}
+    fn ensure_successful(_: ()) {}
 }
 
 // Treasury — V4: active. Receives 50% of slashes and completion fees.
