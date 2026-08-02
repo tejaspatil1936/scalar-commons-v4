@@ -197,6 +197,24 @@ fn register(who: u64, stake: u64) {
     assert_ok!(Agents::register(RuntimeOrigin::signed(who), stake));
 }
 
+/// Record a full era of real escrow work for `agent` through the production
+/// path (`add_era_escrow_volume`), not by poking storage directly.
+///
+/// Emission weight is zero for an agent that did no escrow work this era —
+/// `docs/VERIFIED-CONSTANTS.md` §3.1: "Weight = 0 → zero emissions, regardless
+/// of stake size or heartbeat." So any test that expects emissions to accrue
+/// must first give the agent work to be rewarded for; registering and staking
+/// is deliberately not enough (CLAUDE.md first principle #2).
+///
+/// Five distinct buyers puts `diversity_score_bps` at its 10,000 ceiling, and
+/// 5 × 20,000 = 100,000 era volume against `UnitVolume = 1,000` puts
+/// `log2_scaled` at 8,000 — i.e. an ordinarily productive agent, not an edge case.
+fn do_era_work(agent: u64) {
+    for buyer in 100u64..105 {
+        assert_ok!(Agents::add_era_escrow_volume(&agent, &buyer, 20_000));
+    }
+}
+
 /// Advance block number past EraDuration and call settle_era with a signed origin.
 /// settle_era is now permissionless (ensure_signed) but requires EraDuration elapsed.
 fn settle(caller: u64) {
@@ -232,6 +250,9 @@ fn claim_nothing_before_settlement() {
 fn accumulator_increases_on_era_settlement() {
     new_test_ext().execute_with(|| {
         register(ALICE, 10_000);
+        // Stake alone carries no weight — the accumulator only moves if some
+        // agent did verifiable work this era. See do_era_work().
+        do_era_work(ALICE);
         let acc_before = AccRewardPerStake::<Test>::get();
         settle(ALICE);
         let acc_after = AccRewardPerStake::<Test>::get();
@@ -243,6 +264,9 @@ fn accumulator_increases_on_era_settlement() {
 fn agent_can_claim_after_settlement() {
     new_test_ext().execute_with(|| {
         register(ALICE, 10_000);
+        // Emissions reward work, not stake: without this the agent settles at
+        // weight 0 and claim() correctly returns NothingToClaim.
+        do_era_work(ALICE);
         // Register before settle so debt is 0
         AgentRewardDebt::<Test>::insert(ALICE, 0u128);
         let balance_before = Balances::free_balance(ALICE);
@@ -273,6 +297,12 @@ fn higher_stake_earns_proportionally_more() {
         // Alice: 10K stake (Full rank 2), Bob: 1K stake (rank 0/1)
         register(ALICE, 10_000);
         register(BOB, 1_000);
+        // IDENTICAL era work for both, so stake is the only variable the
+        // comparison below is measuring. Without any work both weights are 0
+        // and the assertion compares 0 > 0 — which is the correct emission
+        // outcome for two idle stakers, not evidence about the stake curve.
+        do_era_work(ALICE);
+        do_era_work(BOB);
         // Zero debt for both
         AgentRewardDebt::<Test>::insert(ALICE, 0u128);
         AgentRewardDebt::<Test>::insert(BOB, 0u128);
