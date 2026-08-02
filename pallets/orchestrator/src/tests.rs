@@ -5,7 +5,7 @@
 use crate::pallet::*;
 use frame_support::{
     assert_noop, assert_ok,
-    traits::{ConstU16, ConstU32, ConstU64},
+    traits::{ConstU16, ConstU32, ConstU64, Get},
 };
 use sp_core::H256;
 use sp_runtime::{
@@ -407,5 +407,260 @@ fn volume_accumulation_works() {
 
         Orchestrator::add_orchestrator_volume(&ALICE, 3_000u64);
         assert_eq!(EraOrchestratorVolume::<Test>::get(ALICE), 8_000u64);
+    });
+}
+
+// ─── ROUND9: permissive propose + the safety kit ──────────────────────────────
+
+/// Register `who` as an orchestrator by writing the record directly, matching
+/// the pattern the tests above use to bypass the rank-2 gate (the `()`
+/// AgentCollective mock always reports rank 0, so register_orchestrator can
+/// never succeed here).
+fn orchestrator(who: u64) {
+    OrchestratorRegistration::<Test>::insert(
+        who,
+        OrchestratorRecord {
+            max_sub_agents: 50,
+            fee_bps: 100,
+            registered_at: 0,
+            active_sub_count: 0,
+        },
+    );
+}
+
+/// Make `who` pass `is_agent` without going through `register`, which would
+/// need an endowed balance. `is_agent` reads exactly this map.
+fn seed_agent(who: u64) {
+    pallet_agents::AgentStake::<Test>::insert(who, 1_000u64);
+}
+
+#[test]
+fn pending_proposal_cap_is_enforced_per_sub_agent() {
+    new_test_ext().execute_with(|| {
+        register(BOB, 1_000);
+        let cap: u32 = <Test as Config>::MaxPendingProposals::get();
+        assert_eq!(cap, 20);
+
+        // 20 distinct orchestrators each queue one offer against BOB.
+        for (i, orch) in (100..100 + cap as u64).enumerate() {
+            orchestrator(orch);
+            assert_ok!(Orchestrator::propose_sub_agent_link(
+                RuntimeOrigin::signed(orch),
+                BOB
+            ));
+            assert_eq!(PendingProposalCount::<Test>::get(BOB), i as u32 + 1);
+        }
+        assert_eq!(PendingProposalCount::<Test>::get(BOB), cap);
+
+        // The 21st is refused — this is the bound that makes permissive propose safe.
+        let extra = 100 + cap as u64;
+        orchestrator(extra);
+        assert_noop!(
+            Orchestrator::propose_sub_agent_link(RuntimeOrigin::signed(extra), BOB),
+            Error::<Test>::TooManyPendingProposals
+        );
+        assert_eq!(PendingProposalCount::<Test>::get(BOB), cap);
+
+        // BOB reclaims a slot, and the 21st now fits. A cap without this is a
+        // permanent lockout, not a fix.
+        assert_ok!(Orchestrator::decline_link_proposal(
+            RuntimeOrigin::signed(BOB),
+            100
+        ));
+        assert_eq!(PendingProposalCount::<Test>::get(BOB), cap - 1);
+        assert!(!PendingLinkProposals::<Test>::contains_key(100, BOB));
+
+        assert_ok!(Orchestrator::propose_sub_agent_link(
+            RuntimeOrigin::signed(extra),
+            BOB
+        ));
+        assert_eq!(PendingProposalCount::<Test>::get(BOB), cap);
+    });
+}
+
+#[test]
+fn reproposing_same_pair_refreshes_without_consuming_a_second_slot() {
+    new_test_ext().execute_with(|| {
+        register(BOB, 1_000);
+        orchestrator(ALICE);
+
+        assert_ok!(Orchestrator::propose_sub_agent_link(
+            RuntimeOrigin::signed(ALICE),
+            BOB
+        ));
+        assert_eq!(PendingProposalCount::<Test>::get(BOB), 1);
+        let first_expiry = PendingLinkProposals::<Test>::get(ALICE, BOB).unwrap();
+
+        // Same pair again: overwrites one key, so the count must not move.
+        frame_system::Pallet::<Test>::set_block_number(10);
+        assert_ok!(Orchestrator::propose_sub_agent_link(
+            RuntimeOrigin::signed(ALICE),
+            BOB
+        ));
+        assert_eq!(PendingProposalCount::<Test>::get(BOB), 1);
+        assert!(PendingLinkProposals::<Test>::get(ALICE, BOB).unwrap() > first_expiry);
+    });
+}
+
+#[test]
+fn decline_and_cancel_drain_expired_entries_and_decrement() {
+    new_test_ext().execute_with(|| {
+        register(BOB, 1_000);
+        orchestrator(ALICE);
+        orchestrator(CAROL);
+
+        assert_ok!(Orchestrator::propose_sub_agent_link(
+            RuntimeOrigin::signed(ALICE),
+            BOB
+        ));
+        assert_ok!(Orchestrator::propose_sub_agent_link(
+            RuntimeOrigin::signed(CAROL),
+            BOB
+        ));
+        assert_eq!(PendingProposalCount::<Test>::get(BOB), 2);
+
+        // Past LinkApprovalWindow (100): both entries are now expired. Nothing
+        // reaps them, so if the drains refused expired rows these slots would be
+        // wedged forever — which is exactly what the cap must not allow.
+        frame_system::Pallet::<Test>::set_block_number(500);
+
+        // Sub-agent declines an EXPIRED offer.
+        assert_ok!(Orchestrator::decline_link_proposal(
+            RuntimeOrigin::signed(BOB),
+            ALICE
+        ));
+        assert_eq!(PendingProposalCount::<Test>::get(BOB), 1);
+        assert!(!PendingLinkProposals::<Test>::contains_key(ALICE, BOB));
+
+        // Orchestrator cancels its own EXPIRED offer.
+        assert_ok!(Orchestrator::cancel_link_proposal(
+            RuntimeOrigin::signed(CAROL),
+            BOB
+        ));
+        assert_eq!(PendingProposalCount::<Test>::get(BOB), 0);
+        assert!(!PendingLinkProposals::<Test>::contains_key(CAROL, BOB));
+
+        // Neither drain invents work when there is nothing to remove.
+        assert_noop!(
+            Orchestrator::decline_link_proposal(RuntimeOrigin::signed(BOB), ALICE),
+            Error::<Test>::ProposalNotFound
+        );
+        assert_noop!(
+            Orchestrator::cancel_link_proposal(RuntimeOrigin::signed(CAROL), BOB),
+            Error::<Test>::ProposalNotFound
+        );
+        assert_eq!(PendingProposalCount::<Test>::get(BOB), 0);
+    });
+}
+
+#[test]
+fn succession_flow_queued_offer_taken_up_after_link_ends() {
+    new_test_ext().execute_with(|| {
+        register(BOB, 1_000);
+        orchestrator(ALICE);
+        orchestrator(CAROL);
+
+        // BOB links to ALICE.
+        assert_ok!(Orchestrator::propose_sub_agent_link(
+            RuntimeOrigin::signed(ALICE),
+            BOB
+        ));
+        assert_ok!(Orchestrator::accept_orchestrator_link(
+            RuntimeOrigin::signed(BOB),
+            ALICE
+        ));
+        assert_eq!(SubAgentToOrchestrator::<Test>::get(BOB), Some(ALICE));
+        // Accepting consumed the slot.
+        assert_eq!(PendingProposalCount::<Test>::get(BOB), 0);
+
+        // CAROL queues an offer against an ALREADY-LINKED sub-agent. This is the
+        // permissive behaviour ROUND9 shipped; before it, this call failed.
+        assert_ok!(Orchestrator::propose_sub_agent_link(
+            RuntimeOrigin::signed(CAROL),
+            BOB
+        ));
+        assert_eq!(PendingProposalCount::<Test>::get(BOB), 1);
+
+        // The offer confers nothing while the existing link stands.
+        assert_noop!(
+            Orchestrator::accept_orchestrator_link(RuntimeOrigin::signed(BOB), CAROL),
+            Error::<Test>::AlreadyLinked
+        );
+        assert_eq!(SubAgentToOrchestrator::<Test>::get(BOB), Some(ALICE));
+
+        // The link ends...
+        assert_ok!(Orchestrator::remove_sub_agent_link(
+            RuntimeOrigin::signed(BOB),
+            ALICE
+        ));
+        assert_eq!(SubAgentToOrchestrator::<Test>::get(BOB), None);
+
+        // ...and the queued offer can now be taken up. This is the whole point
+        // of permissive propose.
+        assert_ok!(Orchestrator::accept_orchestrator_link(
+            RuntimeOrigin::signed(BOB),
+            CAROL
+        ));
+        assert_eq!(SubAgentToOrchestrator::<Test>::get(BOB), Some(CAROL));
+        assert_eq!(PendingProposalCount::<Test>::get(BOB), 0);
+    });
+}
+
+#[test]
+fn deregister_drains_every_proposal_past_the_old_1000_cap() {
+    new_test_ext().execute_with(|| {
+        // 1,001 targets: one more than the old clear_prefix(.., 1000, ..) limit,
+        // which used to leave the remainder orphaned in storage forever.
+        const N: u64 = 1_001;
+        orchestrator(ALICE);
+        for sub in 10_000..10_000 + N {
+            seed_agent(sub);
+            assert_ok!(Orchestrator::propose_sub_agent_link(
+                RuntimeOrigin::signed(ALICE),
+                sub
+            ));
+        }
+
+        assert_eq!(
+            PendingLinkProposals::<Test>::iter_prefix(ALICE).count() as u64,
+            N
+        );
+        for sub in 10_000..10_000 + N {
+            assert_eq!(PendingProposalCount::<Test>::get(sub), 1);
+        }
+
+        assert_ok!(Orchestrator::deregister_orchestrator(
+            RuntimeOrigin::signed(ALICE)
+        ));
+
+        // ZERO entries left — not 1, not the 1 that used to survive.
+        assert_eq!(PendingLinkProposals::<Test>::iter_prefix(ALICE).count(), 0);
+        assert_eq!(PendingLinkProposals::<Test>::iter().count(), 0);
+        // ...and every sub-agent got their slot back.
+        for sub in 10_000..10_000 + N {
+            assert_eq!(PendingProposalCount::<Test>::get(sub), 0);
+        }
+    });
+}
+
+#[test]
+fn register_orchestrator_rejects_max_sub_agents_above_the_constant() {
+    new_test_ext().execute_with(|| {
+        register(ALICE, 10_000);
+        let cap: u32 = <Test as Config>::MaxSubAgentsPerOrchestrator::get();
+        assert_eq!(cap, 50);
+
+        assert_noop!(
+            Orchestrator::register_orchestrator(RuntimeOrigin::signed(ALICE), cap + 1, 100),
+            Error::<Test>::MaxSubAgentsTooHigh
+        );
+
+        // Exactly at the cap passes this gate — it gets as far as the rank check,
+        // which the () AgentCollective mock (rank 0) is what stops it. That the
+        // error changes proves the cap accepted `cap` and rejected `cap + 1`.
+        assert_noop!(
+            Orchestrator::register_orchestrator(RuntimeOrigin::signed(ALICE), cap, 100),
+            Error::<Test>::AgentMustBeRank2
+        );
     });
 }
