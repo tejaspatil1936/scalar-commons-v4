@@ -328,6 +328,48 @@ fn integer_sqrt_correct() {
     assert_eq!(integer_sqrt(u128::MAX), 18_446_744_073_709_551_615u128);
 }
 
+/// Regression: the Newton seed `(n + 1) / 2` overflowed at the top of the
+/// domain — panicking in debug and, worse, wrapping to a *wrong root* in the
+/// release WASM that actually computes emission weight. Pins the boundary.
+#[test]
+fn integer_sqrt_no_overflow_at_domain_boundary() {
+    // 1 CMN = 10^12 plancks; the anti-whale curve on realistic magnitudes.
+    assert_eq!(integer_sqrt(1_000_000_000_000), 1_000_000);
+
+    // (2^64 - 1)^2 = u128::MAX - 2^65 + 2: the largest exact square in u128.
+    let max_root = u64::MAX as u128;
+    assert_eq!(integer_sqrt(max_root * max_root), max_root);
+    assert_eq!(integer_sqrt(max_root * max_root - 1), max_root - 1);
+
+    // Everything above that square, up to and including u128::MAX, floors to
+    // the same root. These are the inputs the old seed could not represent.
+    assert_eq!(integer_sqrt(max_root * max_root + 1), max_root);
+    assert_eq!(integer_sqrt(u128::MAX - 1), max_root);
+    assert_eq!(integer_sqrt(u128::MAX), max_root);
+
+    // Defining property across the whole domain: s² ≤ n < (s+1)².
+    for n in [
+        0u128,
+        1,
+        2,
+        3,
+        u64::MAX as u128,
+        1u128 << 100,
+        u128::MAX / 3,
+        u128::MAX - 1,
+        u128::MAX,
+    ] {
+        let s = integer_sqrt(n);
+        assert!(s.checked_mul(s).is_some_and(|sq| sq <= n), "s² > n at {n}");
+        assert!(
+            s.checked_add(1)
+                .and_then(|t| t.checked_mul(t))
+                .is_none_or(|sq| sq > n),
+            "(s+1)² ≤ n at {n}"
+        );
+    }
+}
+
 #[test]
 fn heartbeat_multiplier_full_when_fresh() {
     new_test_ext().execute_with(|| {

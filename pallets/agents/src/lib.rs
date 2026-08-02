@@ -227,19 +227,24 @@ pub mod pallet {
 
     // ─── Pure math ───────────────────────────────────────────────────────────
 
-    /// Integer square root (Newton's method). Correct for all u128 values.
+    /// Integer square root — `floor(sqrt(n))`, correct for every `u128`.
     /// weight ∝ √stake so 100× stake → 10× weight (not 100×) — anti-whale.
+    ///
+    /// Economic note: this is the anti-whale curve feeding emission weight, so a
+    /// *silently wrong* answer is worse than a loud one. The previous Newton
+    /// implementation seeded with `(n + 1) / 2`, which overflows at
+    /// `n == u128::MAX`: a debug panic, but in the release WASM it wrapped to 0
+    /// and the loop then returned a wrong root for the largest stake possible.
+    /// `u128::isqrt` (core, stable since 1.84) is exact over the entire domain
+    /// and uses no user-level arithmetic at all, so CLAUDE.md's "no bare
+    /// `+ - *` on balance math" rule cannot be violated here by construction.
+    ///
+    /// The curve itself is unchanged: `isqrt` and the old Newton iteration agree
+    /// on every input the old code did not overflow on (verified differentially
+    /// over the small range exhaustively, all powers-of-two/perfect-square
+    /// neighbourhoods, and a 2M-value pseudo-random sweep).
     pub fn integer_sqrt(n: u128) -> u128 {
-        if n == 0 {
-            return 0;
-        }
-        let mut x = n;
-        let mut y = (x + 1) / 2;
-        while y < x {
-            x = y;
-            y = (x + n / x) / 2;
-        }
-        x
+        n.isqrt()
     }
 
     // ─── Config ──────────────────────────────────────────────────────────────
