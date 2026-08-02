@@ -345,7 +345,12 @@ fn expire_request_refunds_creator() {
             3,
             67,
             5,
-            3,
+            // challenge_window: was 3, below this mock's MinChallengeWindow = 5,
+            // so the request was rejected before expiry could ever be exercised.
+            // expire_request() reads only response_deadline (still 5) — the
+            // dispute window is incidental here, so this restores the test's
+            // subject rather than changing it.
+            5,
             None,
         ));
         frame_system::Pallet::<Test>::set_block_number(10);
