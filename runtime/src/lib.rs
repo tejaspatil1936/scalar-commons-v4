@@ -120,7 +120,17 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // bump even though no storage layout changed. No migration: the API is
     // read-only over pallet_authority_discovery's existing Keys/NextKeys
     // storage, which is already populated by pallet-session every rotation.
-    spec_version: 302,
+    //
+    // 302 -> 303: pallet-orchestrator "link kit" (ROUND9). Adds the
+    // PendingProposalCount storage map, two extrinsics (decline_link_proposal
+    // at call index 6, cancel_link_proposal at 7), and two Error variants; makes
+    // propose_sub_agent_link permissive while capping a sub-agent's proposal
+    // inbox at MaxPendingProposals. Storage layout and the call enum both
+    // change, so CLAUDE.md requires the bump. No migration is written and none
+    // is needed: this runtime has never launched on any network, so there is no
+    // live state to move. The bump lands in the first commit of the series so
+    // that no intermediate commit carries a layout change without one.
+    spec_version: 303,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,

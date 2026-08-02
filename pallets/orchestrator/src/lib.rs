@@ -164,6 +164,24 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    /// How many open proposals are currently held **against each sub-agent**.
+    ///
+    /// This is the quantity [`Config::MaxPendingProposals`] is enforced against,
+    /// and it exists because the sub-agent is the party who cannot otherwise
+    /// defend themselves: an orchestrator chooses who to propose to, but a
+    /// sub-agent cannot stop offers arriving. Capping per sub-agent bounds the
+    /// inbox; `decline_link_proposal` lets them drain it.
+    ///
+    /// Invariant: `PendingProposalCount[s]` equals the number of
+    /// [`PendingLinkProposals`] entries whose second key is `s`. Every write to
+    /// that map goes through exactly one of four paths, each of which maintains
+    /// this counter — see the module's ROUND9 notes. Decrements use
+    /// `saturating_sub` so that test fixtures which seed `PendingLinkProposals`
+    /// directly (bypassing `propose_sub_agent_link`) cannot underflow it.
+    #[pallet::storage]
+    pub type PendingProposalCount<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
+
     #[pallet::storage]
     pub type EraOrchestratorVolume<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, BalanceOf<T>, ValueQuery>;
@@ -239,6 +257,13 @@ pub mod pallet {
         NothingToClaim,
         /// An orchestrator cannot link itself as its own sub-agent.
         SelfLink,
+        /// This sub-agent already holds `MaxPendingProposals` open offers.
+        /// They must decline one (or an orchestrator must cancel one) before a
+        /// new offer can be queued. Bounds the storage a sub-agent can be made
+        /// to carry now that `propose_sub_agent_link` is permissive.
+        TooManyPendingProposals,
+        /// `max_sub_agents` exceeds `MaxSubAgentsPerOrchestrator`.
+        MaxSubAgentsTooHigh,
     }
 
     #[pallet::call]
@@ -335,9 +360,24 @@ pub mod pallet {
                 Error::<T>::SubAgentCapFull
             );
 
+            // Re-proposing an existing (orchestrator, sub_agent) pair overwrites a
+            // single key: it adds no entry, so it must neither be refused by the
+            // cap nor double-count. Only a genuinely new pair does either. This
+            // keeps "refresh my expiring offer" working even at a full inbox.
+            let is_new_pair = !PendingLinkProposals::<T>::contains_key(&orchestrator, &sub_agent);
+            if is_new_pair {
+                ensure!(
+                    PendingProposalCount::<T>::get(&sub_agent) < T::MaxPendingProposals::get(),
+                    Error::<T>::TooManyPendingProposals
+                );
+            }
+
             let now = frame_system::Pallet::<T>::block_number();
             let expires_at = now.saturating_add(T::LinkApprovalWindow::get());
             PendingLinkProposals::<T>::insert(&orchestrator, &sub_agent, expires_at);
+            if is_new_pair {
+                PendingProposalCount::<T>::mutate(&sub_agent, |c| *c = c.saturating_add(1));
+            }
 
             Self::deposit_event(Event::LinkProposed {
                 orchestrator,
@@ -374,7 +414,7 @@ pub mod pallet {
             let now = frame_system::Pallet::<T>::block_number();
             ensure!(now <= expires_at, Error::<T>::ProposalExpired);
 
-            PendingLinkProposals::<T>::remove(&orchestrator, &sub_agent);
+            Self::remove_proposal(&orchestrator, &sub_agent);
             let now2 = frame_system::Pallet::<T>::block_number();
             SubAgentLinks::<T>::insert(
                 &orchestrator,
@@ -506,6 +546,28 @@ pub mod pallet {
     {
         pub fn get_orchestrator(sub_agent: &T::AccountId) -> Option<T::AccountId> {
             SubAgentToOrchestrator::<T>::get(sub_agent)
+        }
+
+        /// Remove one pending proposal and keep [`PendingProposalCount`] in step.
+        /// Returns `true` if an entry was actually there to remove.
+        ///
+        /// **Every single-entry removal path routes through here** — accept,
+        /// decline and cancel — so the counter cannot drift by one path being
+        /// updated and another forgotten. The bulk path in
+        /// `deregister_orchestrator` is the sole exception, because
+        /// `drain_prefix` removes as it iterates; it decrements inline instead.
+        ///
+        /// `take()` makes the read-and-remove a single operation, so a decrement
+        /// can never happen for an entry that was not present. `saturating_sub`
+        /// then guarantees the counter cannot underflow even if a fixture seeded
+        /// `PendingLinkProposals` directly without incrementing.
+        fn remove_proposal(orchestrator: &T::AccountId, sub_agent: &T::AccountId) -> bool {
+            if PendingLinkProposals::<T>::take(orchestrator, sub_agent).is_some() {
+                PendingProposalCount::<T>::mutate(sub_agent, |c| *c = c.saturating_sub(1));
+                true
+            } else {
+                false
+            }
         }
 
         pub fn add_orchestrator_volume(orchestrator: &T::AccountId, amount: BalanceOf<T>) {
