@@ -252,6 +252,9 @@ pub mod pallet {
         OrchestratorDeregistered {
             who: T::AccountId,
             links_cleared: u32,
+            /// Open proposals drained. Reported so the complete-drain fix is
+            /// observable on chain rather than silent.
+            proposals_cleared: u32,
         },
         OrchestratorRewardClaimed {
             orchestrator: T::AccountId,
@@ -513,10 +516,29 @@ pub mod pallet {
                     1u32
                 })
                 .sum::<u32>();
-            let _ = PendingLinkProposals::<T>::clear_prefix(&who, 1000, None);
+            // ROUND8B: this was `clear_prefix(&who, 1000, None)` with the result
+            // discarded, while the registration below was removed regardless. An
+            // orchestrator holding more than 1,000 open proposals therefore left
+            // the remainder in storage permanently, with no record left to
+            // attribute them to and every affected sub-agent's counter still
+            // charged for a slot they could never reclaim.
+            //
+            // drain_prefix removes as it iterates and runs to completion, so no
+            // remainder survives — and it hands back each sub-agent key, which is
+            // what lets the counters be decremented correctly. This mirrors the
+            // SubAgentLinks drain directly above it.
+            let mut proposals_cleared: u32 = 0;
+            for (sub_agent, _expires_at) in PendingLinkProposals::<T>::drain_prefix(&who) {
+                PendingProposalCount::<T>::mutate(&sub_agent, |c| *c = c.saturating_sub(1));
+                proposals_cleared = proposals_cleared.saturating_add(1);
+            }
             OrchestratorRegistration::<T>::remove(&who);
 
-            Self::deposit_event(Event::OrchestratorDeregistered { who, links_cleared });
+            Self::deposit_event(Event::OrchestratorDeregistered {
+                who,
+                links_cleared,
+                proposals_cleared,
+            });
             Ok(())
         }
 

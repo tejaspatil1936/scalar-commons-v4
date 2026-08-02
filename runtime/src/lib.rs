@@ -123,7 +123,8 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //
     // 302 -> 303: pallet-orchestrator "link kit" (ROUND9). Adds the
     // PendingProposalCount storage map, two extrinsics (decline_link_proposal
-    // at call index 6, cancel_link_proposal at 7), and two Error variants; makes
+    // at call index 6, cancel_link_proposal at 7), two Error variants, two new
+    // events plus a field on OrchestratorDeregistered; makes
     // propose_sub_agent_link permissive while capping a sub-agent's proposal
     // inbox at MaxPendingProposals. Storage layout and the call enum both
     // change, so CLAUDE.md requires the bump. No migration is written and none
