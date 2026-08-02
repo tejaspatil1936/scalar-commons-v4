@@ -71,12 +71,27 @@ pub mod pallet {
     #[pallet::config]
     pub trait Config: frame_system::Config + agents_pallet::Config {
         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+        /// **NOT CURRENTLY ENFORCED.** Declared and configured (runtime: 50) but
+        /// never read by this pallet. `register_orchestrator` does not validate
+        /// the caller-supplied `max_sub_agents` against it, so an orchestrator
+        /// may register with any value up to `u32::MAX` — which also defeats the
+        /// `active_sub_count < max_sub_agents` gate in `propose_sub_agent_link`,
+        /// since that bound is self-declared. See ROUND8B.md.
         #[pallet::constant]
         type MaxSubAgentsPerOrchestrator: Get<u32>;
         #[pallet::constant]
         type MaxOrchestratorFeeBps: Get<u32>;
+        /// Blocks a proposal stays acceptable. Note that expiry is only checked
+        /// at accept time — expired entries are never reaped from
+        /// `PendingLinkProposals`, so this bounds a proposal's *usefulness*, not
+        /// its storage lifetime.
         #[pallet::constant]
         type LinkApprovalWindow: Get<BlockNumberFor<Self>>;
+        /// **NOT CURRENTLY ENFORCED.** Declared and configured (runtime: 20) but
+        /// never read anywhere in this pallet. `PendingLinkProposals` is an
+        /// uncapped `StorageDoubleMap` with no deposit and no expiry reaper.
+        /// This is the bound that must exist before `propose_sub_agent_link`
+        /// can be made permissive. See ROUND8B.md.
         #[pallet::constant]
         type MaxPendingProposals: Get<u32>;
         /// V4: Supply cap — orchestrator claims must not push total_issuance over this.
@@ -100,10 +115,44 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    /// The single orchestrator a sub-agent is currently linked to.
+    ///
+    /// # Link exclusivity rule
+    ///
+    /// **A sub-agent has at most one orchestrator at a time.** This invariant is
+    /// authoritative and is enforced in [`Pallet::accept_orchestrator_link`]:
+    /// the presence of a key here rejects any further accept with
+    /// `AlreadyLinked`. A link is cleared by `remove_sub_agent_link` (callable
+    /// by either party) or by the orchestrator deregistering.
+    ///
+    /// `propose_sub_agent_link` **also** rejects on this key today, so a
+    /// proposal cannot even be queued for an already-linked sub-agent. That
+    /// propose-stage check is deliberately stricter than the invariant requires,
+    /// and it is the point ROUND8 failure 6 turned on: the rule had never been
+    /// written down anywhere, so a unit test assumed the permissive reading and
+    /// the two disagreed silently.
+    ///
+    /// Maintainer decision (2026-08-02) is to make propose **permissive** —
+    /// queued offers / pre-negotiated succession — leaving accept as the sole
+    /// enforcement point. **That change is NOT implemented here.** It is blocked
+    /// on bounding [`PendingLinkProposals`], which today has no cap, no deposit
+    /// and no reaper; removing the propose-stage guard without one turns a
+    /// linked sub-agent's proposal inbox into an append-only structure they have
+    /// no extrinsic to clear. See ROUND8B.md for the full analysis.
     #[pallet::storage]
     pub type SubAgentToOrchestrator<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, T::AccountId, OptionQuery>;
 
+    /// Open link offers, keyed `(orchestrator, sub_agent) -> expires_at`.
+    ///
+    /// **Unbounded.** Entries are written by `propose_sub_agent_link` with no
+    /// deposit and no per-orchestrator or per-sub-agent cap
+    /// (`MaxPendingProposals` is declared but never read). They are removed only
+    /// on a successful `accept_orchestrator_link`, or in bulk — capped at 1,000
+    /// and with the result discarded — when the orchestrator deregisters. There
+    /// is no `on_idle`/`on_initialize` reaper, so an expired proposal occupies
+    /// storage permanently. Any cap added here must also give sub-agents a way
+    /// to clear their own inbox. See ROUND8B.md.
     #[pallet::storage]
     pub type PendingLinkProposals<T: Config> = StorageDoubleMap<
         _,
@@ -244,6 +293,16 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Offer a link to `sub_agent`. The offer must be accepted by the
+        /// sub-agent to take effect — proposing alone links nothing.
+        ///
+        /// Per the link exclusivity rule (see [`SubAgentToOrchestrator`]), this
+        /// currently rejects with `AlreadyLinked` if the sub-agent is already
+        /// linked to anyone, so offers cannot be queued against a committed
+        /// sub-agent. The maintainer decision of 2026-08-02 is to relax this to
+        /// permissive and let `accept_orchestrator_link` be the sole enforcement
+        /// point; that is deferred until `PendingLinkProposals` is bounded
+        /// (ROUND8B.md).
         #[pallet::call_index(1)]
         #[pallet::weight(T::DbWeight::get().reads_writes(4, 2)
             .saturating_add(Weight::from_parts(60_000_000, 0)))]
@@ -288,6 +347,15 @@ pub mod pallet {
             Ok(())
         }
 
+        /// Accept a pending offer from `orchestrator`, forming the link.
+        ///
+        /// **This is the authoritative enforcement point for link exclusivity**
+        /// (see [`SubAgentToOrchestrator`]): a sub-agent already linked to
+        /// anyone is rejected with `AlreadyLinked`, and that check runs *before*
+        /// the proposal lookup, so it fires whether or not an offer exists. To
+        /// switch orchestrators a sub-agent must first clear the existing link
+        /// via `remove_sub_agent_link`. This guard must survive any future
+        /// relaxation of `propose_sub_agent_link`.
         #[pallet::call_index(2)]
         #[pallet::weight(T::DbWeight::get().reads_writes(4, 4)
             .saturating_add(Weight::from_parts(80_000_000, 0)))]
