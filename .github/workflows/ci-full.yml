@@ -26,7 +26,55 @@ jobs:
   full:
     runs-on: ubuntu-latest
     timeout-minutes: 120
+
+    env:
+      # Run 30742971934 died with `/usr/bin/ld: final link failed: No space left
+      # on device` ~80 minutes in, during `cargo test --workspace --no-run`. The
+      # release build and the benchmarks check had both already passed, so this
+      # was never a code defect -- the job simply ran the runner out of disk.
+      #
+      # Measured on this workspace: `cargo test --no-run` links 26 test binaries
+      # and `.debug_*` sections are 90-91% of each one's bytes (pallet-oracle:
+      # 0.16 GB total, 0.14 GB debuginfo). target/debug reaches 30 GB locally
+      # against roughly 14 GB free on a standard runner.
+      #
+      # Nothing in this job reads a backtrace, opens a debugger or symbolises a
+      # core dump. It compiles, links and asks the node for `--version`. So the
+      # debuginfo is bought and never used, and dropping it is free in the only
+      # sense that matters here: no check becomes weaker, because no check was
+      # ever looking at a symbol table.
+      #
+      # Verified on the pinned toolchain rather than assumed -- cargo 1.85.0,
+      # same trivial crate built both ways: 3,997,592 -> 438,616 bytes (-89%).
+      # `[profile.test]` in Cargo.toml sets only opt-level, so it inherits this.
+      CARGO_PROFILE_DEV_DEBUG: "0"
+
     steps:
+      # ── Disk economics ────────────────────────────────────────────────────
+      # First, before checkout: the reclaim is worthless once the build has
+      # already filled the disk. None of this bloat is reachable from any step
+      # below -- this workspace is Rust and protoc, with no .NET, Android, GHC
+      # or CodeQL anywhere in its graph.
+      #
+      # Only the CodeQL subdirectory is removed from /opt/hostedtoolcache, not
+      # the tree: the runner resolves node for JavaScript actions (checkout,
+      # rust-cache) out of that directory, and deleting all of it would break
+      # every step that follows.
+      #
+      # This step must never be the reason a run goes red. It reclaims space or
+      # it does not; the gates below decide the verdict.
+      - name: Free runner disk
+        run: |
+          echo "── disk before reclaim ──"
+          df -h /
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc /usr/local/.ghcup
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          docker image prune -af || true
+          echo "── disk after reclaim ──"
+          df -h /
+
       - uses: actions/checkout@v4
 
       # litep2p -> sc-network pulls prost-build, which shells out to protoc at
@@ -92,3 +140,13 @@ jobs:
       # change required here.
       - name: Tests compile
         run: cargo test --workspace --no-run
+
+      # ── Disk headroom, recorded ───────────────────────────────────────────
+      # `if: always()` so the number survives a red run. A disk figure is only
+      # diagnostic when a gate has just failed -- reporting it exclusively on
+      # success would have told us nothing about run 30742971934, which is the
+      # run that made this step necessary. This reports; it never votes, so the
+      # job's conclusion is unchanged either way.
+      - name: Disk headroom after the build
+        if: always()
+        run: df -h /
