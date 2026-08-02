@@ -29,6 +29,8 @@ pub mod pallet {
         fn remove_sub_agent_link() -> Weight;
         fn deregister_orchestrator() -> Weight;
         fn claim_orchestrator() -> Weight;
+        fn decline_link_proposal() -> Weight;
+        fn cancel_link_proposal() -> Weight;
     }
     pub struct PlaceholderWeights;
     impl WeightInfo for PlaceholderWeights {
@@ -49,6 +51,12 @@ pub mod pallet {
         }
         fn claim_orchestrator() -> Weight {
             Weight::from_parts(80000000, 0)
+        }
+        fn decline_link_proposal() -> Weight {
+            Weight::from_parts(40000000, 0)
+        }
+        fn cancel_link_proposal() -> Weight {
+            Weight::from_parts(40000000, 0)
         }
     }
 
@@ -230,6 +238,16 @@ pub mod pallet {
             orchestrator: T::AccountId,
             sub_agent: T::AccountId,
             by: T::AccountId,
+        },
+        /// A sub-agent refused an open offer, freeing one inbox slot.
+        LinkProposalDeclined {
+            orchestrator: T::AccountId,
+            sub_agent: T::AccountId,
+        },
+        /// An orchestrator withdrew an offer they had made.
+        LinkProposalCancelled {
+            orchestrator: T::AccountId,
+            sub_agent: T::AccountId,
         },
         OrchestratorDeregistered {
             who: T::AccountId,
@@ -492,6 +510,65 @@ pub mod pallet {
             OrchestratorRegistration::<T>::remove(&who);
 
             Self::deposit_event(Event::OrchestratorDeregistered { who, links_cleared });
+            Ok(())
+        }
+
+        /// Sub-agent side drain: refuse a specific orchestrator's open offer.
+        ///
+        /// This is what makes the permissive `propose_sub_agent_link` safe. A
+        /// sub-agent's inbox is capped at `MaxPendingProposals`, and this is how
+        /// they reclaim a slot — without it a cap would merely convert storage
+        /// exhaustion into denial of service, since filling the slots would lock
+        /// out every legitimate orchestrator permanently.
+        ///
+        /// Deliberately accepts **expired** entries too. Expiry is only checked
+        /// at accept time and nothing reaps expired rows, so if this refused to
+        /// touch them an expired proposal would wedge a slot forever — exactly
+        /// the failure the cap is meant to prevent.
+        #[pallet::call_index(6)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(1, 2)
+            .saturating_add(Weight::from_parts(40_000_000, 0)))]
+        pub fn decline_link_proposal(
+            origin: OriginFor<T>,
+            orchestrator: T::AccountId,
+        ) -> DispatchResult {
+            let sub_agent = ensure_signed(origin)?;
+            ensure!(
+                Self::remove_proposal(&orchestrator, &sub_agent),
+                Error::<T>::ProposalNotFound
+            );
+            Self::deposit_event(Event::LinkProposalDeclined {
+                orchestrator,
+                sub_agent,
+            });
+            Ok(())
+        }
+
+        /// Orchestrator side drain: withdraw an offer you made.
+        ///
+        /// The mirror of `decline_link_proposal`. Lets an orchestrator free a
+        /// slot in a sub-agent's inbox voluntarily — relevant because an
+        /// orchestrator who has changed their mind would otherwise leave a row
+        /// occupying the sub-agent's cap until it is declined or the
+        /// orchestrator deregisters entirely.
+        ///
+        /// Accepts expired entries too, for the same reason as declining.
+        #[pallet::call_index(7)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(1, 2)
+            .saturating_add(Weight::from_parts(40_000_000, 0)))]
+        pub fn cancel_link_proposal(
+            origin: OriginFor<T>,
+            sub_agent: T::AccountId,
+        ) -> DispatchResult {
+            let orchestrator = ensure_signed(origin)?;
+            ensure!(
+                Self::remove_proposal(&orchestrator, &sub_agent),
+                Error::<T>::ProposalNotFound
+            );
+            Self::deposit_event(Event::LinkProposalCancelled {
+                orchestrator,
+                sub_agent,
+            });
             Ok(())
         }
 
