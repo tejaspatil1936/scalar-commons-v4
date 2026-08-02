@@ -116,3 +116,7 @@ actually implemented.
 
 Commit in small scoped steps ("indexer: add escrow event decoder"). Do not push
 and do not open a PR — the factory handles that.
+## TRIAGE HINT (2026-08-01)
+The gate runs `npm ci`, which REQUIRES indexer/package-lock.json. Run `npm
+install` once inside indexer/ to generate it, COMMIT package.json AND
+package-lock.json, then make `npm test` genuinely pass.

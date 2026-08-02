@@ -127,3 +127,9 @@ suite that hides the answer is a failure.
 
 Commit in small scoped steps ("sc-e1: add Mechanism B pool-scaled fee"). Do not
 push and do not open a PR — the factory handles that.
+## GATE TIGHTENED (2026-08-01)
+The old gate passed with zero work. The gate now also requires a NEW file
+experiments/sc-e1/tests/test_od4_pool_scaling.py containing real assertions
+proving: (a) pool-scaled gaming costs are implemented in the sim, (b) the
+wash-trader archetype's profit is strictly LOWER with OD-4 active than in the
+baseline run. Empty or assertion-free tests violate the standing rule.

@@ -90,3 +90,7 @@ finishing.
 
 Commit in small scoped steps ("explorer: add extrinsic decoding + tests"). Do
 not push and do not open a PR — the factory handles that.
+## TRIAGE HINT (2026-08-01)
+tests/app.test.tsx imports ../src/ui/App.js and ../src/chain/source.js which do
+not exist yet. Tests-first was right — now IMPLEMENT those modules to satisfy
+the tests. Keep NodeNext .js import specifiers consistent across src and tests.

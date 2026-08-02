@@ -94,3 +94,9 @@ check for exactly that.
 
 Commit in small scoped steps ("sdk: implement escrow confirm + tests"). Do not
 push and do not open a PR — the factory handles that.
+## TRIAGE HINT (2026-08-01)
+Fix in src/, never by loosening tsconfig or tests:
+1. src/client.ts:185 TS2322 — signAndSend's signer must be an IKeyringPair
+   (keypair object), not AccountId/Address. Fix that function's parameter type.
+2. src/index.ts:115 TS2345 — findMetaError lives on api.registry; pass the
+   registry, not the ApiPromise.
