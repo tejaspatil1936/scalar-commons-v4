@@ -311,6 +311,13 @@ pub mod pallet {
                 fee_bps <= T::MaxOrchestratorFeeBps::get(),
                 Error::<T>::FeeTooHigh
             );
+            // max_sub_agents is caller-supplied and, until ROUND9, was validated
+            // against nothing — an orchestrator could register with u32::MAX and
+            // the `active_sub_count < max_sub_agents` gate below became a no-op.
+            ensure!(
+                max_sub_agents <= T::MaxSubAgentsPerOrchestrator::get(),
+                Error::<T>::MaxSubAgentsTooHigh
+            );
 
             let rank = <T as agents_pallet::Config>::AgentCollective::rank_of(&who).unwrap_or(0);
             ensure!(rank >= 2u32, Error::<T>::AgentMustBeRank2);
