@@ -4,27 +4,30 @@
 
 use frame_support::{
     parameter_types,
-    traits::{ConstU8, ConstU16, ConstU32, ConstU64, Everything},
+    traits::{ConstU16, ConstU32, ConstU64, ConstU8, Everything},
 };
 use sp_core::H256;
-use sp_runtime::{BuildStorage, traits::{BlakeTwo256, IdentityLookup}};
 use sp_io::TestExternalities;
+use sp_runtime::{
+    traits::{BlakeTwo256, IdentityLookup},
+    BuildStorage,
+};
 
 // ── Test accounts ────────────────────────────────────────────────────────────
-pub const ALICE:   u64 = 1;
-pub const BOB:     u64 = 2;
-pub const CAROL:   u64 = 3;
-pub const DAVE:    u64 = 4;
-pub const EVE:     u64 = 5;
-pub const FRANK:   u64 = 6;
-pub const ROOT:    u64 = 999;
+pub const ALICE: u64 = 1;
+pub const BOB: u64 = 2;
+pub const CAROL: u64 = 3;
+pub const DAVE: u64 = 4;
+pub const EVE: u64 = 5;
+pub const FRANK: u64 = 6;
+pub const ROOT: u64 = 999;
 
 // ── Token amounts ─────────────────────────────────────────────────────────────
-pub const CMN:         u64 = 1_000_000_000_000; // 1 CMN = 10^12 raw
-pub const MIN_STAKE:   u64 = 1_000 * CMN;
-pub const FULL_STAKE:  u64 = 10_000 * CMN;
+pub const CMN: u64 = 1_000_000_000_000; // 1 CMN = 10^12 raw
+pub const MIN_STAKE: u64 = 1_000 * CMN;
+pub const FULL_STAKE: u64 = 10_000 * CMN;
 #[allow(dead_code)]
-pub const RICH_STAKE:  u64 = 100_000 * CMN;
+pub const RICH_STAKE: u64 = 100_000 * CMN;
 
 // ── Block helpers ─────────────────────────────────────────────────────────────
 pub fn advance_blocks(n: u64) {
@@ -45,11 +48,9 @@ pub fn settle_era(caller: u64) {
     let current = frame_system::Pallet::<TestRuntime>::block_number();
     // EraDuration = 100 in test runtime (ConstU64<100>)
     frame_system::Pallet::<TestRuntime>::set_block_number(current + 100);
-    frame_support::assert_ok!(
-        pallet_emissions::Pallet::<TestRuntime>::settle_era(
-            frame_system::RawOrigin::Signed(caller).into()
-        )
-    );
+    frame_support::assert_ok!(pallet_emissions::Pallet::<TestRuntime>::settle_era(
+        frame_system::RawOrigin::Signed(caller).into()
+    ));
 }
 
 // ── Test runtime ─────────────────────────────────────────────────────────────
@@ -74,89 +75,89 @@ construct_runtime!(
 // ── Config impls ──────────────────────────────────────────────────────────────
 
 impl frame_system::Config for TestRuntime {
-    type BaseCallFilter         = Everything;
-    type BlockWeights           = ();
-    type BlockLength            = ();
-    type RuntimeOrigin          = RuntimeOrigin;
-    type RuntimeCall            = RuntimeCall;
-    type RuntimeTask            = RuntimeTask;
-    type Nonce                  = u64;
-    type Hash                   = H256;
-    type Hashing                = BlakeTwo256;
-    type AccountId              = u64;
-    type Lookup                 = IdentityLookup<Self::AccountId>;
-    type Block                  = Block;
-    type RuntimeEvent           = RuntimeEvent;
-    type BlockHashCount         = ConstU64<250>;
-    type DbWeight               = ();
-    type Version                = ();
-    type PalletInfo             = PalletInfo;
-    type AccountData            = pallet_balances::AccountData<u64>;
-    type OnNewAccount           = ();
-    type OnKilledAccount        = ();
-    type SystemWeightInfo       = ();
-    type SS58Prefix              = ConstU16<42>;
-    type OnSetCode              = ();
-    type MaxConsumers           = ConstU32<16>;
-    type SingleBlockMigrations  = ();
-    type MultiBlockMigrator     = ();
-    type PreInherents           = ();
-    type PostInherents          = ();
-    type PostTransactions       = ();
-    type ExtensionsWeightInfo   = ();
+    type BaseCallFilter = Everything;
+    type BlockWeights = ();
+    type BlockLength = ();
+    type RuntimeOrigin = RuntimeOrigin;
+    type RuntimeCall = RuntimeCall;
+    type RuntimeTask = RuntimeTask;
+    type Nonce = u64;
+    type Hash = H256;
+    type Hashing = BlakeTwo256;
+    type AccountId = u64;
+    type Lookup = IdentityLookup<Self::AccountId>;
+    type Block = Block;
+    type RuntimeEvent = RuntimeEvent;
+    type BlockHashCount = ConstU64<250>;
+    type DbWeight = ();
+    type Version = ();
+    type PalletInfo = PalletInfo;
+    type AccountData = pallet_balances::AccountData<u64>;
+    type OnNewAccount = ();
+    type OnKilledAccount = ();
+    type SystemWeightInfo = ();
+    type SS58Prefix = ConstU16<42>;
+    type OnSetCode = ();
+    type MaxConsumers = ConstU32<16>;
+    type SingleBlockMigrations = ();
+    type MultiBlockMigrator = ();
+    type PreInherents = ();
+    type PostInherents = ();
+    type PostTransactions = ();
+    type ExtensionsWeightInfo = ();
 }
 
 impl pallet_balances::Config for TestRuntime {
-    type MaxLocks              = ConstU32<50>;
-    type MaxReserves           = ConstU32<50>;
-    type ReserveIdentifier     = [u8; 8];
-    type Balance               = u64;
-    type RuntimeEvent          = RuntimeEvent;
-    type DustRemoval           = ();
-    type ExistentialDeposit    = ConstU64<1>;
-    type AccountStore          = System;
-    type WeightInfo            = ();
-    type FreezeIdentifier      = ();
-    type MaxFreezes            = ConstU32<0>;
-    type RuntimeHoldReason     = ();
-    type RuntimeFreezeReason   = ();
-    type DoneSlashHandler      = ();
+    type MaxLocks = ConstU32<50>;
+    type MaxReserves = ConstU32<50>;
+    type ReserveIdentifier = [u8; 8];
+    type Balance = u64;
+    type RuntimeEvent = RuntimeEvent;
+    type DustRemoval = ();
+    type ExistentialDeposit = ConstU64<1>;
+    type AccountStore = System;
+    type WeightInfo = ();
+    type FreezeIdentifier = ();
+    type MaxFreezes = ConstU32<0>;
+    type RuntimeHoldReason = ();
+    type RuntimeFreezeReason = ();
+    type DoneSlashHandler = ();
 }
 
 // ── Agents Config ─────────────────────────────────────────────────────────────
 
 impl pallet_agents::Config for TestRuntime {
-    type RuntimeEvent                = RuntimeEvent;
-    type Currency                    = Balances;
-    type MinStake                    = ConstU64<{1_000 * CMN}>;
-    type FullFloorStake              = ConstU64<{10_000 * CMN}>;
-    type MaxStakePerAgent            = ConstU64<{1_000_000 * CMN}>;
-    type UnstakeCooldown             = ConstU64<100>;
-    type BaseRegistrationFee         = ConstU64<{50 * CMN}>;
-    type MaxRegistrationsPerBlock    = ConstU32<10>;
-    type MaxAgents                   = ConstU32<1000>;
-    type Rank3MinCompletions         = ConstU32<3>;
-    type MinRank3OracleScore         = ConstU32<0>;
-    type Rank3SpanGate               = ConstU64<0>;
-    type MaxVolToStakeRatio          = ConstU32<10>;
-    type HeartbeatGracePeriod        = ConstU64<100>;
-    type HeartbeatDecayPeriod        = ConstU64<1000>;
-    type OnAgentRegistered           = Emissions;
-    type OnAgentSlashed              = Emissions; // zeros weight snapshot on slash
-    type OnStakeChanged              = Emissions; // zeros snapshot before stake increase (MasterChef fix)
-    type AgentCollective             = ();
-    type OracleScoreGate          = ();
-    type GovVoteVerifier           = ();
-    type IdentityHandler             = ();
-    type OrchestratorLookup          = TestOrchestratorBridge;
-    type MaxUriLen                   = ConstU32<256>;
-    type MaxNameLen                  = ConstU32<64>;
-    type MaxCapabilitiesPerAgent     = ConstU32<20>;
-    type MaxDelegationPeriod         = ConstU64<100_000>;
-    type SlashAppealWindow           = ConstU64<10>;
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type MinStake = ConstU64<{ 1_000 * CMN }>;
+    type FullFloorStake = ConstU64<{ 10_000 * CMN }>;
+    type MaxStakePerAgent = ConstU64<{ 1_000_000 * CMN }>;
+    type UnstakeCooldown = ConstU64<100>;
+    type BaseRegistrationFee = ConstU64<{ 50 * CMN }>;
+    type MaxRegistrationsPerBlock = ConstU32<10>;
+    type MaxAgents = ConstU32<1000>;
+    type Rank3MinCompletions = ConstU32<3>;
+    type MinRank3OracleScore = ConstU32<0>;
+    type Rank3SpanGate = ConstU64<0>;
+    type MaxVolToStakeRatio = ConstU32<10>;
+    type HeartbeatGracePeriod = ConstU64<100>;
+    type HeartbeatDecayPeriod = ConstU64<1000>;
+    type OnAgentRegistered = Emissions;
+    type OnAgentSlashed = Emissions; // zeros weight snapshot on slash
+    type OnStakeChanged = Emissions; // zeros snapshot before stake increase (MasterChef fix)
+    type AgentCollective = ();
+    type OracleScoreGate = ();
+    type GovVoteVerifier = ();
+    type IdentityHandler = ();
+    type OrchestratorLookup = TestOrchestratorBridge;
+    type MaxUriLen = ConstU32<256>;
+    type MaxNameLen = ConstU32<64>;
+    type MaxCapabilitiesPerAgent = ConstU32<20>;
+    type MaxDelegationPeriod = ConstU64<100_000>;
+    type SlashAppealWindow = ConstU64<10>;
     // V4: new Config types
-    type MaxProposalsPerEra          = ConstU32<20>;
-    type SlashDestination            = ();  // test: slash is fully burned (no treasury in test runtime)
+    type MaxProposalsPerEra = ConstU32<20>;
+    type SlashDestination = (); // test: slash is fully burned (no treasury in test runtime)
 }
 
 // Orchestrator bridge for agents pallet
@@ -173,46 +174,56 @@ impl pallet_agents::pallet::OrchestratorLookup<u64, u64> for TestOrchestratorBri
 // ── Escrow Config ─────────────────────────────────────────────────────────────
 
 impl pallet_escrow::Config for TestRuntime {
-    type RuntimeEvent              = RuntimeEvent;
-    type MaxAgreementsPerPair      = ConstU32<25>;
-    type MaxAgreementSpan          = ConstU64<10_000>;
-    type MinAgreementAmount        = ConstU64<{1 * CMN}>;
-    type MinDeliveryBlocks         = ConstU64<5>;
-    type BuyerResponseWindow       = ConstU64<100>;
-    type DisputeResponseWindow     = ConstU64<100>;
-    type DisputeTimeoutWindow      = ConstU64<500>;
-    type DisputeBountyBps          = ConstU32<200>;
-    type DisputeBurnBps            = ConstU32<0>;
-    type MinDisputeBounty          = ConstU64<{1 * CMN}>;
-    type CompletionFeeProvider     = ConstU32<0>;
-    type DisputeOracle             = Oracle;
-    type DisputeCallback           = Escrow;
-    type FeeDestination            = (); // integration test: fee burned (no treasury mock)
+    type RuntimeEvent = RuntimeEvent;
+    type MaxAgreementsPerPair = ConstU32<25>;
+    type MaxAgreementSpan = ConstU64<10_000>;
+    type MinAgreementAmount = ConstU64<CMN>;
+    type MinDeliveryBlocks = ConstU64<5>;
+    type BuyerResponseWindow = ConstU64<100>;
+    type DisputeResponseWindow = ConstU64<100>;
+    type DisputeTimeoutWindow = ConstU64<500>;
+    type DisputeBountyBps = ConstU32<200>;
+    type DisputeBurnBps = ConstU32<0>;
+    type MinDisputeBounty = ConstU64<CMN>;
+    type CompletionFeeProvider = ConstU32<0>;
+    type DisputeOracle = Oracle;
+    type DisputeCallback = Escrow;
+    type FeeDestination = (); // integration test: fee burned (no treasury mock)
 }
 
 // ── Oracle Config ─────────────────────────────────────────────────────────────
 
 impl pallet_oracle::Config for TestRuntime {
-    type RuntimeEvent              = RuntimeEvent;
-    type MinOracleBounty           = ConstU64<{1 * CMN}>;
-    type MaxOpenRequests           = ConstU32<1000>;
-    type MinConsensusThreshold     = ConstU8<50>;
-    type MinChallengeWindow        = ConstU64<1>;
-    type MaxResponsesPerRequest    = ConstU32<100>;
-    type DisputeCallback           = Escrow;
-    type CapabilityChecker         = ();
-    type MaxBatchSubmissions       = ConstU32<20>;
+    type RuntimeEvent = RuntimeEvent;
+    type MinOracleBounty = ConstU64<CMN>;
+    type MaxOpenRequests = ConstU32<1000>;
+    type MinConsensusThreshold = ConstU8<50>;
+    type MinChallengeWindow = ConstU64<1>;
+    type MaxResponsesPerRequest = ConstU32<100>;
+    type DisputeCallback = Escrow;
+    type CapabilityChecker = ();
+    type MaxBatchSubmissions = ConstU32<20>;
 }
 
 // ── Emissions Config ──────────────────────────────────────────────────────────
 
 pub struct TestAutoParams;
 impl pallet_auto_params::pallet::AutoParamsProvider for TestAutoParams {
-    fn completion_fee_bps() -> u32 { pallet_auto_params::Pallet::<TestRuntime>::live_completion_fee_bps() }
-    fn alpha()              -> u32 { pallet_auto_params::Pallet::<TestRuntime>::live_alpha() }
-    fn beta()               -> u32 { pallet_auto_params::Pallet::<TestRuntime>::live_beta() }
-    fn floor_bps()          -> u32 { pallet_auto_params::Pallet::<TestRuntime>::live_floor_bps() }
-    fn min_score_eligible() -> u32 { pallet_auto_params::Pallet::<TestRuntime>::live_min_score_eligible() }
+    fn completion_fee_bps() -> u32 {
+        pallet_auto_params::Pallet::<TestRuntime>::live_completion_fee_bps()
+    }
+    fn alpha() -> u32 {
+        pallet_auto_params::Pallet::<TestRuntime>::live_alpha()
+    }
+    fn beta() -> u32 {
+        pallet_auto_params::Pallet::<TestRuntime>::live_beta()
+    }
+    fn floor_bps() -> u32 {
+        pallet_auto_params::Pallet::<TestRuntime>::live_floor_bps()
+    }
+    fn min_score_eligible() -> u32 {
+        pallet_auto_params::Pallet::<TestRuntime>::live_min_score_eligible()
+    }
 }
 
 pub struct TestOracleCounters;
@@ -229,7 +240,10 @@ impl pallet_emissions::pallet::OrchestratorEmissions<u64> for TestOrchestratorEm
     }
     fn settle(orch_emission: u64, orch_weight: u128) {
         if orch_weight > 0 {
-            pallet_orchestrator::Pallet::<TestRuntime>::settle_orchestrator_era(orch_emission, orch_weight);
+            pallet_orchestrator::Pallet::<TestRuntime>::settle_orchestrator_era(
+                orch_emission,
+                orch_weight,
+            );
         }
     }
 }
@@ -242,27 +256,29 @@ parameter_types! {
 }
 
 impl pallet_emissions::Config for TestRuntime {
-    type RuntimeEvent                    = RuntimeEvent;
-    type Currency                        = Balances;
-    type SupplyCap                       = SupplyCapIntTest;
-    type EraDuration                     = ConstU64<100>;
-    type InitialEmissionsPerEra          = ConstU64<1_000_000_000_000_000>;
-    type TargetEmissionPerAgent          = ConstU64<10_000_000_000_000>;
-    type FloorEmissionPerEra             = ConstU64<100_000_000_000_000>;
-    type OracleBonusBps                  = ConstU32<2_000>;
-    type MaxProposalsPerEra              = ConstU32<10>;
-    type UnitVolume                      = UnitVolumeInt;
-    type VelocityBonusBps          = ConstU32<0>; // +30% weight bonus at full capital deployment
-    type MinQualifyingVol                = ConstU32<0>; // disabled in integration tests
-    // V4: GenesisAgentBonusBps/Eras removed — replaced by per-agent onboarding_boost
-    type MaxBatchClaimSize               = ConstU32<100>;
-    type AutoParams                      = TestAutoParams;
-    type OracleScoreProvider             = ();
-    type OracleCounters                  = TestOracleCounters;
-    type ValidatorCountProvider          = ();
-    type MaxEmissionOverrideEras         = ConstU32<10>;
-    type OrchestratorEmissions           = TestOrchestratorEmissions;
-    type OrchestratorEmissionMultiplier  = ConstU32<5_000>;
+    type RuntimeEvent = RuntimeEvent;
+    type Currency = Balances;
+    type SupplyCap = SupplyCapIntTest;
+    type EraDuration = ConstU64<100>;
+    type InitialEmissionsPerEra = ConstU64<1_000_000_000_000_000>;
+    type TargetEmissionPerAgent = ConstU64<10_000_000_000_000>;
+    type FloorEmissionPerEra = ConstU64<100_000_000_000_000>;
+    type OracleBonusBps = ConstU32<2_000>;
+    type MaxProposalsPerEra = ConstU32<10>;
+    type UnitVolume = UnitVolumeInt;
+    type VelocityBonusBps = ConstU32<0>; // +30% weight bonus at full capital deployment
+                                         // Balance-typed (Get<BalanceOf<Self>>), and Balance is u64 here — so ConstU64,
+                                         // not ConstU32. Value unchanged: 0 keeps the floor gate disabled in integration tests.
+    type MinQualifyingVol = ConstU64<0>; // disabled in integration tests
+                                         // V4: GenesisAgentBonusBps/Eras removed — replaced by per-agent onboarding_boost
+    type MaxBatchClaimSize = ConstU32<100>;
+    type AutoParams = TestAutoParams;
+    type OracleScoreProvider = ();
+    type OracleCounters = TestOracleCounters;
+    type ValidatorCountProvider = ();
+    type MaxEmissionOverrideEras = ConstU32<10>;
+    type OrchestratorEmissions = TestOrchestratorEmissions;
+    type OrchestratorEmissionMultiplier = ConstU32<5_000>;
 }
 
 // ── AutoParams Config ─────────────────────────────────────────────────────────
@@ -276,31 +292,31 @@ parameter_types! {
 }
 
 impl pallet_auto_params::Config for TestRuntime {
-    type RuntimeEvent                       = RuntimeEvent;
-    type GovernanceOrigin                   = frame_system::EnsureRoot<u64>;
-    type InitialCompletionFeeBps            = InitFeeBps;
-    type InitialAlpha                       = InitAlpha;
-    type InitialBeta                        = InitBeta;
-    type InitialFloorBps                    = InitFloor;
-    type InitialMinScoreEligible            = InitMinScore;
-    type RingRatioThreshold                 = ConstU32<3_000>;
-    type OracleParticipationLowThreshold    = ConstU32<4_000>;
-    type OracleParticipationHighThreshold   = ConstU32<9_000>;
-    type ConcentrationHighThreshold         = ConstU32<7_000>;
-    type ConcentrationLowThreshold          = ConstU32<5_000>;
-    type MinQuestionsForOracleRule          = ConstU32<3>;
-    type MinAgentsForConcentrationRule      = ConstU32<5>;
+    type RuntimeEvent = RuntimeEvent;
+    type GovernanceOrigin = frame_system::EnsureRoot<u64>;
+    type InitialCompletionFeeBps = InitFeeBps;
+    type InitialAlpha = InitAlpha;
+    type InitialBeta = InitBeta;
+    type InitialFloorBps = InitFloor;
+    type InitialMinScoreEligible = InitMinScore;
+    type RingRatioThreshold = ConstU32<3_000>;
+    type OracleParticipationLowThreshold = ConstU32<4_000>;
+    type OracleParticipationHighThreshold = ConstU32<9_000>;
+    type ConcentrationHighThreshold = ConstU32<7_000>;
+    type ConcentrationLowThreshold = ConstU32<5_000>;
+    type MinQuestionsForOracleRule = ConstU32<3>;
+    type MinAgentsForConcentrationRule = ConstU32<5>;
 }
 
 // ── Orchestrator Config ───────────────────────────────────────────────────────
 
 impl pallet_orchestrator::Config for TestRuntime {
-    type RuntimeEvent                    = RuntimeEvent;
-    type MaxSubAgentsPerOrchestrator     = ConstU32<10>;
-    type MaxOrchestratorFeeBps           = ConstU32<500>;
-    type LinkApprovalWindow              = ConstU64<100>;
-    type MaxPendingProposals             = ConstU32<20>;
-    type SupplyCap                       = SupplyCapIntTest;
+    type RuntimeEvent = RuntimeEvent;
+    type MaxSubAgentsPerOrchestrator = ConstU32<10>;
+    type MaxOrchestratorFeeBps = ConstU32<500>;
+    type LinkApprovalWindow = ConstU64<100>;
+    type MaxPendingProposals = ConstU32<20>;
+    type SupplyCap = SupplyCapIntTest;
 }
 
 // ── Test genesis ──────────────────────────────────────────────────────────────
@@ -309,9 +325,12 @@ pub fn new_test_ext_with_balances(balances: Vec<(u64, u64)>) -> TestExternalitie
     let mut storage = frame_system::GenesisConfig::<TestRuntime>::default()
         .build_storage()
         .unwrap();
-    pallet_balances::GenesisConfig::<TestRuntime> { balances, dev_accounts: None }
-        .assimilate_storage(&mut storage)
-        .unwrap();
+    pallet_balances::GenesisConfig::<TestRuntime> {
+        balances,
+        dev_accounts: None,
+    }
+    .assimilate_storage(&mut storage)
+    .unwrap();
     pallet_auto_params::GenesisConfig::<TestRuntime>::default()
         .assimilate_storage(&mut storage)
         .unwrap();
@@ -321,37 +340,47 @@ pub fn new_test_ext_with_balances(balances: Vec<(u64, u64)>) -> TestExternalitie
 pub fn new_test_ext() -> TestExternalities {
     new_test_ext_with_balances(vec![
         (ALICE, 1_000_000 * CMN),
-        (BOB,   1_000_000 * CMN),
+        (BOB, 1_000_000 * CMN),
         (CAROL, 1_000_000 * CMN),
-        (DAVE,  1_000_000 * CMN),
-        (EVE,   1_000_000 * CMN),
+        (DAVE, 1_000_000 * CMN),
+        (EVE, 1_000_000 * CMN),
         (FRANK, 1_000_000 * CMN),
-        (ROOT,  1_000_000 * CMN),
+        (ROOT, 1_000_000 * CMN),
     ])
 }
 
 /// Register an agent with the given stake.
 pub fn register(who: u64, stake: u64) {
-    pallet_agents::Pallet::<TestRuntime>::register(
-        RuntimeOrigin::signed(who), stake,
-    ).expect(&format!("register({who}) failed"));
+    pallet_agents::Pallet::<TestRuntime>::register(RuntimeOrigin::signed(who), stake)
+        .unwrap_or_else(|_| panic!("register({who}) failed"));
 }
 
 /// Complete a full escrow cycle: create → deliver → confirm.
 pub fn complete_escrow(buyer: u64, provider: u64, amount: u64, deliver_block: u64) -> u32 {
-    let seq = pallet_escrow::NextSeq::<TestRuntime>::get(&buyer, &provider);
+    let seq = pallet_escrow::NextSeq::<TestRuntime>::get(buyer, provider);
     advance_blocks(1);
     pallet_escrow::Pallet::<TestRuntime>::create_agreement(
-        RuntimeOrigin::signed(buyer), provider, amount,
-        [1u8; 32], frame_system::Pallet::<TestRuntime>::block_number() + deliver_block,
+        RuntimeOrigin::signed(buyer),
+        provider,
+        amount,
+        [1u8; 32],
+        frame_system::Pallet::<TestRuntime>::block_number() + deliver_block,
         None,
-    ).expect("create_agreement failed");
+    )
+    .expect("create_agreement failed");
     go_to_block(frame_system::Pallet::<TestRuntime>::block_number() + 10);
     pallet_escrow::Pallet::<TestRuntime>::record_delivery(
-        RuntimeOrigin::signed(provider), buyer, seq, [2u8; 32],
-    ).expect("record_delivery failed");
+        RuntimeOrigin::signed(provider),
+        buyer,
+        seq,
+        [2u8; 32],
+    )
+    .expect("record_delivery failed");
     pallet_escrow::Pallet::<TestRuntime>::confirm_delivery(
-        RuntimeOrigin::signed(buyer), provider, seq,
-    ).expect("confirm_delivery failed");
+        RuntimeOrigin::signed(buyer),
+        provider,
+        seq,
+    )
+    .expect("confirm_delivery failed");
     seq
 }

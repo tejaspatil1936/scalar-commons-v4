@@ -20,41 +20,46 @@ mod tests;
 #[cfg(feature = "runtime-benchmarks")]
 pub mod benchmarks;
 
-    pub trait WeightInfo {
-        fn set_param() -> Weight;
-        fn set_bounds() -> Weight;
+pub trait WeightInfo {
+    fn set_param() -> Weight;
+    fn set_bounds() -> Weight;
+}
+pub struct PlaceholderWeights;
+impl WeightInfo for PlaceholderWeights {
+    fn set_param() -> Weight {
+        Weight::from_parts(30000000, 0)
     }
-    pub struct PlaceholderWeights;
-    impl WeightInfo for PlaceholderWeights {
-        fn set_param() -> Weight { Weight::from_parts(30000000, 0) }
-        fn set_bounds() -> Weight { Weight::from_parts(30000000, 0) }
+    fn set_bounds() -> Weight {
+        Weight::from_parts(30000000, 0)
     }
+}
 
 use frame_support::weights::Weight;
 #[frame_support::pallet]
 pub mod pallet {
     use frame_support::pallet_prelude::*;
     use frame_system::pallet_prelude::*;
-    use sp_std::vec::Vec;
 
     // ─── Era metrics struct ────────────────────────────────────────────────────
     /// Comprehensive era metrics passed from pallet-emissions after each era drain.
     #[derive(Clone, Copy, Default, Encode, Decode, TypeInfo, MaxEncodedLen)]
     pub struct EraMetrics {
-        pub active_agents:            u32,
-        pub ring_count:               u32,
-        pub era_finalized_questions:  u32,
-        pub era_total_questions:      u32,
-        pub total_weight:             u128,
-        pub top_ten_pct_weight:       u128,
-        pub active_validators:        u32,
+        pub active_agents: u32,
+        pub ring_count: u32,
+        pub era_finalized_questions: u32,
+        pub era_total_questions: u32,
+        pub total_weight: u128,
+        pub top_ten_pct_weight: u128,
+        pub active_validators: u32,
     }
 
     // ─── Parameter bounds ─────────────────────────────────────────────────────
-    #[derive(Clone, Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo, Debug, PartialEq, Eq)]
+    #[derive(
+        Clone, Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo, Debug, PartialEq, Eq,
+    )]
     pub struct ParamBounds {
-        pub min:      u32,
-        pub max:      u32,
+        pub min: u32,
+        pub max: u32,
         pub max_step: u32,
     }
 
@@ -73,8 +78,7 @@ pub mod pallet {
     // ─── Config ───────────────────────────────────────────────────────────────
     #[pallet::config]
     pub trait Config: frame_system::Config {
-        type RuntimeEvent: From<Event<Self>>
-            + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         /// Origin that can call set_param directly (bypasses auto-rules).
         /// Should be Root (sudo) or Track 2 governance.
@@ -146,13 +150,13 @@ pub mod pallet {
     #[pallet::storage]
     pub type CompletionFeeBounds<T: Config> = StorageValue<_, ParamBounds, OptionQuery>;
     #[pallet::storage]
-    pub type AlphaBounds<T: Config>         = StorageValue<_, ParamBounds, OptionQuery>;
+    pub type AlphaBounds<T: Config> = StorageValue<_, ParamBounds, OptionQuery>;
     #[pallet::storage]
-    pub type BetaBounds<T: Config>          = StorageValue<_, ParamBounds, OptionQuery>;
+    pub type BetaBounds<T: Config> = StorageValue<_, ParamBounds, OptionQuery>;
     #[pallet::storage]
-    pub type FloorBpsBounds<T: Config>      = StorageValue<_, ParamBounds, OptionQuery>;
+    pub type FloorBpsBounds<T: Config> = StorageValue<_, ParamBounds, OptionQuery>;
     #[pallet::storage]
-    pub type MinScoreBounds<T: Config>      = StorageValue<_, ParamBounds, OptionQuery>;
+    pub type MinScoreBounds<T: Config> = StorageValue<_, ParamBounds, OptionQuery>;
 
     const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
 
@@ -189,11 +193,31 @@ pub mod pallet {
             // Default bounds — governance can tighten or widen these
             // CompletionFeeBps max=2500 (25%): strong ring deterrent while allowing
             // legitimate high-frequency work. At 25% fee, ring profit margin collapses.
-            CompletionFeeBounds::<T>::put(ParamBounds { min: 0,    max: 2500, max_step: 25  });
-            AlphaBounds::<T>::put(         ParamBounds { min: 1000, max: 8000, max_step: 500 });
-            BetaBounds::<T>::put(          ParamBounds { min: 1000, max: 8000, max_step: 500 });
-            FloorBpsBounds::<T>::put(      ParamBounds { min: 100,  max: 3000, max_step: 100 });
-            MinScoreBounds::<T>::put(      ParamBounds { min: 3,    max: 20,   max_step: 1   });
+            CompletionFeeBounds::<T>::put(ParamBounds {
+                min: 0,
+                max: 2500,
+                max_step: 25,
+            });
+            AlphaBounds::<T>::put(ParamBounds {
+                min: 1000,
+                max: 8000,
+                max_step: 500,
+            });
+            BetaBounds::<T>::put(ParamBounds {
+                min: 1000,
+                max: 8000,
+                max_step: 500,
+            });
+            FloorBpsBounds::<T>::put(ParamBounds {
+                min: 100,
+                max: 3000,
+                max_step: 100,
+            });
+            MinScoreBounds::<T>::put(ParamBounds {
+                min: 3,
+                max: 20,
+                max_step: 1,
+            });
         }
     }
 
@@ -201,12 +225,34 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        ParamAutoAdjusted { param: ParamId, old_value: u32, new_value: u32, reason: AdjustReason },
-        ParamSetByGovernance { param: ParamId, value: u32 },
-        BoundsUpdated { param: ParamId, bounds: ParamBounds },
+        ParamAutoAdjusted {
+            param: ParamId,
+            old_value: u32,
+            new_value: u32,
+            reason: AdjustReason,
+        },
+        ParamSetByGovernance {
+            param: ParamId,
+            value: u32,
+        },
+        BoundsUpdated {
+            param: ParamId,
+            bounds: ParamBounds,
+        },
     }
 
-    #[derive(Clone, Copy, Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo, Debug, PartialEq, Eq)]
+    #[derive(
+        Clone,
+        Copy,
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        MaxEncodedLen,
+        TypeInfo,
+        Debug,
+        PartialEq,
+        Eq,
+    )]
     pub enum ParamId {
         CompletionFeeBps,
         Alpha,
@@ -215,7 +261,18 @@ pub mod pallet {
         MinScoreEligibleResponses,
     }
 
-    #[derive(Clone, Copy, Encode, Decode, DecodeWithMemTracking, MaxEncodedLen, TypeInfo, Debug, PartialEq, Eq)]
+    #[derive(
+        Clone,
+        Copy,
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        MaxEncodedLen,
+        TypeInfo,
+        Debug,
+        PartialEq,
+        Eq,
+    )]
     pub enum AdjustReason {
         RingFarmingDetected,
         RingFarmingSubsided,
@@ -238,11 +295,7 @@ pub mod pallet {
         #[pallet::call_index(0)]
         #[pallet::weight(T::DbWeight::get().reads_writes(2, 1)
             .saturating_add(Weight::from_parts(40_000_000, 0)))]
-        pub fn set_param(
-            origin: OriginFor<T>,
-            param: ParamId,
-            value: u32,
-        ) -> DispatchResult {
+        pub fn set_param(origin: OriginFor<T>, param: ParamId, value: u32) -> DispatchResult {
             T::GovernanceOrigin::ensure_origin(origin)?;
             Self::apply_param_checked(param, value)?;
             Self::deposit_event(Event::ParamSetByGovernance { param, value });
@@ -260,11 +313,11 @@ pub mod pallet {
         ) -> DispatchResult {
             T::GovernanceOrigin::ensure_origin(origin)?;
             match param {
-                ParamId::CompletionFeeBps             => CompletionFeeBounds::<T>::put(bounds.clone()),
-                ParamId::Alpha                         => AlphaBounds::<T>::put(bounds.clone()),
-                ParamId::Beta                          => BetaBounds::<T>::put(bounds.clone()),
-                ParamId::FloorBps                      => FloorBpsBounds::<T>::put(bounds.clone()),
-                ParamId::MinScoreEligibleResponses     => MinScoreBounds::<T>::put(bounds.clone()),
+                ParamId::CompletionFeeBps => CompletionFeeBounds::<T>::put(bounds.clone()),
+                ParamId::Alpha => AlphaBounds::<T>::put(bounds.clone()),
+                ParamId::Beta => BetaBounds::<T>::put(bounds.clone()),
+                ParamId::FloorBps => FloorBpsBounds::<T>::put(bounds.clone()),
+                ParamId::MinScoreEligibleResponses => MinScoreBounds::<T>::put(bounds.clone()),
             }
             Self::deposit_event(Event::BoundsUpdated { param, bounds });
             Ok(())
@@ -282,16 +335,28 @@ pub mod pallet {
         }
 
         /// AutoParamsProvider implementation helpers
-        pub fn live_completion_fee_bps() -> u32 { CompletionFeeBps::<T>::get() }
-        pub fn live_alpha()              -> u32 { Alpha::<T>::get() }
-        pub fn live_beta()               -> u32 { Beta::<T>::get() }
-        pub fn live_floor_bps()          -> u32 { FloorBps::<T>::get() }
-        pub fn live_min_score_eligible() -> u32 { MinScoreEligibleResponses::<T>::get() }
+        pub fn live_completion_fee_bps() -> u32 {
+            CompletionFeeBps::<T>::get()
+        }
+        pub fn live_alpha() -> u32 {
+            Alpha::<T>::get()
+        }
+        pub fn live_beta() -> u32 {
+            Beta::<T>::get()
+        }
+        pub fn live_floor_bps() -> u32 {
+            FloorBps::<T>::get()
+        }
+        pub fn live_min_score_eligible() -> u32 {
+            MinScoreEligibleResponses::<T>::get()
+        }
 
         // ── Private rules ────────────────────────────────────────────────────
 
         fn rule_ring_farming(m: &EraMetrics) {
-            if m.active_agents == 0 { return; }
+            if m.active_agents == 0 {
+                return;
+            }
             let ring_ratio = (m.ring_count as u64)
                 .saturating_mul(10_000)
                 .checked_div(m.active_agents as u64)
@@ -305,7 +370,8 @@ pub mod pallet {
                         CompletionFeeBps::<T>::put(new_val);
                         Self::deposit_event(Event::ParamAutoAdjusted {
                             param: ParamId::CompletionFeeBps,
-                            old_value: current, new_value: new_val,
+                            old_value: current,
+                            new_value: new_val,
                             reason: AdjustReason::RingFarmingDetected,
                         });
                     }
@@ -319,7 +385,8 @@ pub mod pallet {
                             CompletionFeeBps::<T>::put(new_val);
                             Self::deposit_event(Event::ParamAutoAdjusted {
                                 param: ParamId::CompletionFeeBps,
-                                old_value: current, new_value: new_val,
+                                old_value: current,
+                                new_value: new_val,
                                 reason: AdjustReason::RingFarmingSubsided,
                             });
                         }
@@ -329,7 +396,9 @@ pub mod pallet {
         }
 
         fn rule_oracle_participation(m: &EraMetrics) {
-            if m.era_total_questions < T::MinQuestionsForOracleRule::get() { return; }
+            if m.era_total_questions < T::MinQuestionsForOracleRule::get() {
+                return;
+            }
             let success_rate = (m.era_finalized_questions as u64)
                 .saturating_mul(10_000)
                 .checked_div(m.era_total_questions as u64)
@@ -342,7 +411,8 @@ pub mod pallet {
                         MinScoreEligibleResponses::<T>::put(new_val);
                         Self::deposit_event(Event::ParamAutoAdjusted {
                             param: ParamId::MinScoreEligibleResponses,
-                            old_value: current, new_value: new_val,
+                            old_value: current,
+                            new_value: new_val,
                             reason: AdjustReason::OracleParticipationLow,
                         });
                     }
@@ -354,7 +424,8 @@ pub mod pallet {
                         MinScoreEligibleResponses::<T>::put(new_val);
                         Self::deposit_event(Event::ParamAutoAdjusted {
                             param: ParamId::MinScoreEligibleResponses,
-                            old_value: current, new_value: new_val,
+                            old_value: current,
+                            new_value: new_val,
                             reason: AdjustReason::OracleParticipationHigh,
                         });
                     }
@@ -363,8 +434,12 @@ pub mod pallet {
         }
 
         fn rule_emission_concentration(m: &EraMetrics) {
-            if m.active_agents < T::MinAgentsForConcentrationRule::get() { return; }
-            if m.total_weight == 0 { return; }
+            if m.active_agents < T::MinAgentsForConcentrationRule::get() {
+                return;
+            }
+            if m.total_weight == 0 {
+                return;
+            }
             let concentration = (m.top_ten_pct_weight as u64)
                 .saturating_mul(10_000)
                 .checked_div(m.total_weight as u64)
@@ -377,7 +452,8 @@ pub mod pallet {
                         Alpha::<T>::put(new_val);
                         Self::deposit_event(Event::ParamAutoAdjusted {
                             param: ParamId::Alpha,
-                            old_value: current, new_value: new_val,
+                            old_value: current,
+                            new_value: new_val,
                             reason: AdjustReason::ConcentrationHigh,
                         });
                     }
@@ -389,7 +465,8 @@ pub mod pallet {
                         Alpha::<T>::put(new_val);
                         Self::deposit_event(Event::ParamAutoAdjusted {
                             param: ParamId::Alpha,
-                            old_value: current, new_value: new_val,
+                            old_value: current,
+                            new_value: new_val,
                             reason: AdjustReason::ConcentrationLow,
                         });
                     }
@@ -399,23 +476,28 @@ pub mod pallet {
 
         fn apply_param_checked(param: ParamId, value: u32) -> DispatchResult {
             let in_bounds = match param {
-                ParamId::CompletionFeeBps         => CompletionFeeBounds::<T>::get()
-                    .map(|b| value >= b.min && value <= b.max).unwrap_or(true),
-                ParamId::Alpha                     => AlphaBounds::<T>::get()
-                    .map(|b| value >= b.min && value <= b.max).unwrap_or(true),
-                ParamId::Beta                      => BetaBounds::<T>::get()
-                    .map(|b| value >= b.min && value <= b.max).unwrap_or(true),
-                ParamId::FloorBps                  => FloorBpsBounds::<T>::get()
-                    .map(|b| value >= b.min && value <= b.max).unwrap_or(true),
+                ParamId::CompletionFeeBps => CompletionFeeBounds::<T>::get()
+                    .map(|b| value >= b.min && value <= b.max)
+                    .unwrap_or(true),
+                ParamId::Alpha => AlphaBounds::<T>::get()
+                    .map(|b| value >= b.min && value <= b.max)
+                    .unwrap_or(true),
+                ParamId::Beta => BetaBounds::<T>::get()
+                    .map(|b| value >= b.min && value <= b.max)
+                    .unwrap_or(true),
+                ParamId::FloorBps => FloorBpsBounds::<T>::get()
+                    .map(|b| value >= b.min && value <= b.max)
+                    .unwrap_or(true),
                 ParamId::MinScoreEligibleResponses => MinScoreBounds::<T>::get()
-                    .map(|b| value >= b.min && value <= b.max).unwrap_or(true),
+                    .map(|b| value >= b.min && value <= b.max)
+                    .unwrap_or(true),
             };
             ensure!(in_bounds, Error::<T>::ValueOutOfBounds);
             match param {
-                ParamId::CompletionFeeBps         => CompletionFeeBps::<T>::put(value),
-                ParamId::Alpha                     => Alpha::<T>::put(value),
-                ParamId::Beta                      => Beta::<T>::put(value),
-                ParamId::FloorBps                  => FloorBps::<T>::put(value),
+                ParamId::CompletionFeeBps => CompletionFeeBps::<T>::put(value),
+                ParamId::Alpha => Alpha::<T>::put(value),
+                ParamId::Beta => Beta::<T>::put(value),
+                ParamId::FloorBps => FloorBps::<T>::put(value),
                 ParamId::MinScoreEligibleResponses => MinScoreEligibleResponses::<T>::put(value),
             }
             Ok(())
@@ -423,11 +505,21 @@ pub mod pallet {
     }
 
     impl<T: Config> AutoParamsProvider for Pallet<T> {
-        fn completion_fee_bps() -> u32 { CompletionFeeBps::<T>::get() }
-        fn alpha()              -> u32 { Alpha::<T>::get() }
-        fn beta()               -> u32 { Beta::<T>::get() }
-        fn floor_bps()          -> u32 { FloorBps::<T>::get() }
-        fn min_score_eligible() -> u32 { MinScoreEligibleResponses::<T>::get() }
+        fn completion_fee_bps() -> u32 {
+            CompletionFeeBps::<T>::get()
+        }
+        fn alpha() -> u32 {
+            Alpha::<T>::get()
+        }
+        fn beta() -> u32 {
+            Beta::<T>::get()
+        }
+        fn floor_bps() -> u32 {
+            FloorBps::<T>::get()
+        }
+        fn min_score_eligible() -> u32 {
+            MinScoreEligibleResponses::<T>::get()
+        }
         /// V4: F-02 — concrete dispatch to the era rules engine.
         fn run_era_rules(metrics: EraMetrics) {
             Self::run_era_rules(metrics);

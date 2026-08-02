@@ -1,23 +1,69 @@
-# Fast PR gate: every agent PR must pass this before human review.
+# Fast PR gate: every PR must pass this before human review.
+#
+# ROUND6: minimum changes only. The step list is the one that was already here
+# -- fmt, clippy, cargo check -- because those are the gates CLAUDE.md
+# mandates. Three things were wrong with how they ran:
+#
+#   1. `dtolnay/rust-toolchain@stable` overrode rust-toolchain.toml's 1.85.0
+#      pin. This SDK tag cannot be compiled by a newer rustc, so the job was
+#      destined to fail for a reason unrelated to any PR's contents.
+#   2. protoc was missing, which sc-network's build needs.
+#   3. The indexer step guarded on `indexer/package.json`, which does not
+#      exist -- indexer/ holds one Python file. A check that can never run is
+#      not a check, so it is gone. When the Node indexer lands, it gets a real
+#      step (and its own job), not a silent no-op.
+#
+# HONEST STATUS, measured on rebuild/runtime at the time of writing: fmt and
+# clippy both FAIL, and this round could not fix either -- both live in files
+# outside its scope.
+#
+#   cargo fmt --all -- --check      551 diff hunks across ~30 files. Essentially
+#                                   the whole tree; it has never been run.
+#   cargo clippy -D warnings        exactly 2 issues, both in pallets/auto-params:
+#                                     src/lib.rs:38  unused import `sp_std::vec::Vec`
+#                                     src/tests.rs:14 duplicated attribute
+#   cargo check --workspace         PASSES.
+#
+# They are left as blocking steps on purpose. Neither `continue-on-error` nor
+# deleting them would make the code any better; it would only hide the debt,
+# and hiding it is how this repository got a node that was `fn main() {}`.
+# Clearing them is a small, mechanical, self-contained commit. See ROUND6.md.
 name: ci-fast
+
 on:
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: ci-fast-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      # Single source of truth for the toolchain: rust-toolchain.toml.
+      - name: Resolve pinned toolchain
+        id: toolchain
+        run: echo "channel=$(grep -oP 'channel\s*=\s*"\K[^"]+' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
         with:
-          components: rustfmt, clippy
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          targets: wasm32v1-none
+          components: rust-src, rustfmt, clippy
+      - name: Assert the pinned toolchain is what we got
+        run: |
+          rustc --version
+          rustc --version | grep -q '${{ steps.toolchain.outputs.channel }}'
+
       - uses: Swatinem/rust-cache@v2
+
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo check --workspace
-      - name: indexer tests (if present)
-        run: |
-          if [ -f indexer/package.json ]; then
-            cd indexer && npm ci && npm test
-          fi

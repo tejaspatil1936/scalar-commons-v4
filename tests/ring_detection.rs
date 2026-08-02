@@ -1,15 +1,13 @@
 //! Integration test: ring farming detection and auto-param response
 
-
 use super::common;
 use common::*;
-use frame_support::assert_ok;
 
 #[test]
 fn ring_detection_fires_after_sustained_self_dealing() {
     new_test_ext().execute_with(|| {
         register(ALICE, FULL_STAKE);
-        register(BOB,   FULL_STAKE);
+        register(BOB, FULL_STAKE);
         register(CAROL, FULL_STAKE); // legitimate agent
 
         // Era 1: ALICE and BOB do one each escrow with each other (ring),
@@ -51,7 +49,10 @@ fn ring_detection_fires_after_sustained_self_dealing() {
         // Now bob has completions = 2 (established) and unique_buyers = 1 (only alice)
         // → bob should be detected as ring suspect
         // alice has completions = 2 and unique_buyers = 1 → also ring suspect
-        assert!(ring_snap_2 >= 1, "At least one ring suspect expected after sustained mutual trading");
+        assert!(
+            ring_snap_2 >= 1,
+            "At least one ring suspect expected after sustained mutual trading"
+        );
     });
 }
 
@@ -59,26 +60,29 @@ fn ring_detection_fires_after_sustained_self_dealing() {
 fn legitimate_agent_not_flagged_as_ring() {
     new_test_ext().execute_with(|| {
         register(ALICE, FULL_STAKE);
-        register(BOB,   FULL_STAKE);
+        register(BOB, FULL_STAKE);
         register(CAROL, FULL_STAKE);
-        register(DAVE,  FULL_STAKE);
+        register(DAVE, FULL_STAKE);
 
         // Alice provides work for 3 different buyers
-        complete_escrow(BOB,   ALICE, 3_000 * CMN, 50);
+        complete_escrow(BOB, ALICE, 3_000 * CMN, 50);
         complete_escrow(CAROL, ALICE, 3_000 * CMN, 50);
-        complete_escrow(DAVE,  ALICE, 3_000 * CMN, 50);
+        complete_escrow(DAVE, ALICE, 3_000 * CMN, 50);
 
         crate::common::settle_era(1);
         // Era 2 (need established status)
-        complete_escrow(BOB,   ALICE, 3_000 * CMN, 50);
+        complete_escrow(BOB, ALICE, 3_000 * CMN, 50);
         complete_escrow(CAROL, ALICE, 3_000 * CMN, 50);
-        complete_escrow(DAVE,  ALICE, 3_000 * CMN, 50);
+        complete_escrow(DAVE, ALICE, 3_000 * CMN, 50);
 
         crate::common::settle_era(1);
 
         let ring_snap = pallet_agents::EraRingSnapshot::<TestRuntime>::get();
         // Alice has unique_buyers = 3 — NOT a ring suspect
-        assert_eq!(ring_snap, 0, "Agent with diverse buyers should not be flagged as ring");
+        assert_eq!(
+            ring_snap, 0,
+            "Agent with diverse buyers should not be flagged as ring"
+        );
     });
 }
 
@@ -86,7 +90,7 @@ fn legitimate_agent_not_flagged_as_ring() {
 fn auto_params_ring_fee_increases() {
     new_test_ext().execute_with(|| {
         register(ALICE, FULL_STAKE);
-        register(BOB,   FULL_STAKE);
+        register(BOB, FULL_STAKE);
 
         let fee_before = pallet_auto_params::CompletionFeeBps::<TestRuntime>::get();
 
@@ -102,8 +106,10 @@ fn auto_params_ring_fee_increases() {
         let fee_after = pallet_auto_params::CompletionFeeBps::<TestRuntime>::get();
         // If ring ratio > 30%, fee should increase
         if pallet_agents::EraRingSnapshot::<TestRuntime>::get() > 0 {
-            assert!(fee_after >= fee_before,
-                "Completion fee should increase or stay same when ring suspects detected");
+            assert!(
+                fee_after >= fee_before,
+                "Completion fee should increase or stay same when ring suspects detected"
+            );
         }
     });
 }

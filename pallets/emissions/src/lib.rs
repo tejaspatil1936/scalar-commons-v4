@@ -10,33 +10,38 @@ pub mod benchmarks;
 
 #[frame_support::pallet]
 pub mod pallet {
-    use frame_support::{
-        pallet_prelude::*,
-        traits::Currency,
-    };
+    use frame_support::{pallet_prelude::*, traits::Currency};
     use frame_system::pallet_prelude::*;
     use pallet_agents::pallet::{self as agents_pallet, integer_sqrt};
     use pallet_agents::AgentCollective;
     use pallet_auto_params::pallet::AutoParamsProvider;
-    use sp_runtime::traits::{UniqueSaturatedInto, Saturating, Zero};
+    use sp_runtime::traits::{Saturating, UniqueSaturatedInto, Zero};
     use sp_std::vec::Vec;
 
     pub trait WeightInfo {
-        fn settle_era()                -> Weight;
-        fn claim()                     -> Weight;
-        fn batch_claim()               -> Weight;
+        fn settle_era() -> Weight;
+        fn claim() -> Weight;
+        fn batch_claim() -> Weight;
         fn set_era_emission_override() -> Weight;
     }
     pub struct PlaceholderWeights;
     impl WeightInfo for PlaceholderWeights {
-        fn settle_era()                -> Weight { Weight::from_parts(1000000000, 0) }
-        fn claim()                     -> Weight { Weight::from_parts(90000000, 0) }
-        fn batch_claim()               -> Weight { Weight::from_parts(90000000, 0) }
-        fn set_era_emission_override() -> Weight { Weight::from_parts(30000000, 0) }
+        fn settle_era() -> Weight {
+            Weight::from_parts(1000000000, 0)
+        }
+        fn claim() -> Weight {
+            Weight::from_parts(90000000, 0)
+        }
+        fn batch_claim() -> Weight {
+            Weight::from_parts(90000000, 0)
+        }
+        fn set_era_emission_override() -> Weight {
+            Weight::from_parts(30000000, 0)
+        }
     }
 
-    pub const ACC_SCALE:   u128 = 1u128 << 64;
-    pub const BPS_SCALE:   u128 = 10_000;
+    pub const ACC_SCALE: u128 = 1u128 << 64;
+    pub const BPS_SCALE: u128 = 10_000;
     pub const SCORE_SCALE: u128 = 10_000;
 
     pub type BalanceOf<T> =
@@ -46,21 +51,27 @@ pub mod pallet {
         fn best_score(who: &AccountId) -> u32;
     }
     impl<AccountId> OracleScoreProvider<AccountId> for () {
-        fn best_score(_: &AccountId) -> u32 { 0 }
+        fn best_score(_: &AccountId) -> u32 {
+            0
+        }
     }
 
     pub trait ValidatorCountProvider {
         fn active_validator_count() -> u32;
     }
     impl ValidatorCountProvider for () {
-        fn active_validator_count() -> u32 { 0 }
+        fn active_validator_count() -> u32 {
+            0
+        }
     }
 
     pub trait OracleCounters {
         fn drain_era_counters() -> (u32, u32);
     }
     impl OracleCounters for () {
-        fn drain_era_counters() -> (u32, u32) { (0, 0) }
+        fn drain_era_counters() -> (u32, u32) {
+            (0, 0)
+        }
     }
 
     pub trait OrchestratorEmissions<Balance: Copy> {
@@ -68,51 +79,62 @@ pub mod pallet {
         fn settle(orch_emission: Balance, orch_weight: u128);
     }
     impl<Balance: Copy + Default> OrchestratorEmissions<Balance> for () {
-        fn compute_weights(_: u32) -> (u128, u32) { (0, 0) }
+        fn compute_weights(_: u32) -> (u128, u32) {
+            (0, 0)
+        }
         fn settle(_: Balance, _: u128) {}
     }
 
     #[pallet::config]
-    pub trait Config:
-        frame_system::Config
-        + agents_pallet::Config
-    {
-        type RuntimeEvent: From<Event<Self>>
-            + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+    pub trait Config: frame_system::Config + agents_pallet::Config {
+        type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
 
         type Currency: Currency<Self::AccountId>;
 
-        #[pallet::constant] type SupplyCap:                    Get<BalanceOf<Self>>;
-        #[pallet::constant] type InitialEmissionsPerEra:       Get<BalanceOf<Self>>;
-        #[pallet::constant] type TargetEmissionPerAgent:       Get<BalanceOf<Self>>;
-        #[pallet::constant] type FloorEmissionPerEra:          Get<BalanceOf<Self>>;
-        #[pallet::constant] type EraDuration:                  Get<BlockNumberFor<Self>>;
-        #[pallet::constant] type MaxBatchClaimSize:            Get<u32>;
-        #[pallet::constant] type OracleBonusBps:               Get<u32>;
-        #[pallet::constant] type MaxProposalsPerEra:           Get<u32>;
-        #[pallet::constant] type UnitVolume:                   Get<BalanceOf<Self>>;
+        #[pallet::constant]
+        type SupplyCap: Get<BalanceOf<Self>>;
+        #[pallet::constant]
+        type InitialEmissionsPerEra: Get<BalanceOf<Self>>;
+        #[pallet::constant]
+        type TargetEmissionPerAgent: Get<BalanceOf<Self>>;
+        #[pallet::constant]
+        type FloorEmissionPerEra: Get<BalanceOf<Self>>;
+        #[pallet::constant]
+        type EraDuration: Get<BlockNumberFor<Self>>;
+        #[pallet::constant]
+        type MaxBatchClaimSize: Get<u32>;
+        #[pallet::constant]
+        type OracleBonusBps: Get<u32>;
+        #[pallet::constant]
+        type MaxProposalsPerEra: Get<u32>;
+        #[pallet::constant]
+        type UnitVolume: Get<BalanceOf<Self>>;
         /// Minimum era escrow volume required to qualify for the floor emission.
         /// Agents below this threshold earn zero — not even floor weight.
         /// Set >= UnitVolume to ensure any ring deal is also large enough to qualify.
         /// Governance can raise this to increase the cost of sybil floor farming.
         /// At launch: set to 5 × UnitVolume (5,000 CMN) to require meaningful work.
-        #[pallet::constant] type MinQualifyingVol:             Get<BalanceOf<Self>>;
+        #[pallet::constant]
+        type MinQualifyingVol: Get<BalanceOf<Self>>;
         /// Maximum additional weight an agent earns by deploying their full staked
         /// capital in escrow. At VelocityBonusBps=3000 an agent cycling their entire
         /// stake through escrow each era earns +30% weight vs an idle agent with the
         /// same stake. Velocity = era_vol / stake, scaled against MaxVolToStakeRatio.
         /// Set to 0 to disable the velocity bonus entirely.
-        #[pallet::constant] type VelocityBonusBps:            Get<u32>;
+        #[pallet::constant]
+        type VelocityBonusBps: Get<u32>;
         // V4: GenesisAgentBonusBps and GenesisAgentBonusEras removed.
         // Replaced by per-agent onboarding_boost (10,000 bps for first 10 completions).
-        #[pallet::constant] type MaxEmissionOverrideEras:      Get<u32>;
-        #[pallet::constant] type OrchestratorEmissionMultiplier: Get<u32>;
+        #[pallet::constant]
+        type MaxEmissionOverrideEras: Get<u32>;
+        #[pallet::constant]
+        type OrchestratorEmissionMultiplier: Get<u32>;
 
         type AutoParams: AutoParamsProvider;
-        type OracleScoreProvider:    OracleScoreProvider<Self::AccountId>;
-        type OracleCounters:         OracleCounters;
+        type OracleScoreProvider: OracleScoreProvider<Self::AccountId>;
+        type OracleCounters: OracleCounters;
         type ValidatorCountProvider: ValidatorCountProvider;
-        type OrchestratorEmissions:  OrchestratorEmissions<BalanceOf<Self>>;
+        type OrchestratorEmissions: OrchestratorEmissions<BalanceOf<Self>>;
     }
 
     #[pallet::storage]
@@ -152,23 +174,43 @@ pub mod pallet {
 
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-        fn on_runtime_upgrade() -> Weight { Weight::zero() }
+        fn on_runtime_upgrade() -> Weight {
+            Weight::zero()
+        }
     }
 
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
-        EraSettled          { era: u32, total_emission: BalanceOf<T>, total_weight: u128 },
-        NextEraScheduled    { block: BlockNumberFor<T>, scheduled: bool },
-        EmissionOverrideSet { era: u32, amount: BalanceOf<T> },
-        RewardClaimed       { agent: T::AccountId, amount: BalanceOf<T> },
-        CapReached          { agent: T::AccountId },
+        EraSettled {
+            era: u32,
+            total_emission: BalanceOf<T>,
+            total_weight: u128,
+        },
+        NextEraScheduled {
+            block: BlockNumberFor<T>,
+            scheduled: bool,
+        },
+        EmissionOverrideSet {
+            era: u32,
+            amount: BalanceOf<T>,
+        },
+        RewardClaimed {
+            agent: T::AccountId,
+            amount: BalanceOf<T>,
+        },
+        CapReached {
+            agent: T::AccountId,
+        },
     }
 
     #[pallet::error]
     pub enum Error<T> {
-        NotRegistered, NothingToClaim, ArithmeticOverflow,
-        OverrideTooFarInFuture, OverrideAmountExceedsCap,
+        NotRegistered,
+        NothingToClaim,
+        ArithmeticOverflow,
+        OverrideTooFarInFuture,
+        OverrideAmountExceedsCap,
         /// V4: F-04 — settle_era already called for this era. Prevents double-mint.
         EraAlreadySettled,
         /// Era duration has not yet elapsed since the last settlement.
@@ -204,7 +246,7 @@ pub mod pallet {
 
             // V4: F-04 — double-settlement guard. Prevents double-mint in same era.
             ensure!(
-                LastSettledEra::<T>::get().map_or(true, |last| era > last),
+                LastSettledEra::<T>::get().is_none_or(|last| era > last),
                 Error::<T>::EraAlreadySettled
             );
             LastSettledEra::<T>::put(era);
@@ -212,31 +254,45 @@ pub mod pallet {
             EraStartBlock::<T>::put(now);
 
             let agent_count = agents_pallet::AgentStake::<T>::count() as u128;
-            let emission: BalanceOf<T> = if let Some(override_amount) = EmissionOverrides::<T>::take(era) {
-                override_amount
-            } else {
-                let target:  u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(T::TargetEmissionPerAgent::get());
-                let floor:   u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(T::FloorEmissionPerEra::get());
-                let ceiling: u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(T::InitialEmissionsPerEra::get());
-                let scaled = target.saturating_mul(agent_count).max(floor).min(ceiling);
-                scaled.try_into().unwrap_or(T::FloorEmissionPerEra::get())
-            };
+            let emission: BalanceOf<T> =
+                if let Some(override_amount) = EmissionOverrides::<T>::take(era) {
+                    override_amount
+                } else {
+                    let target: u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(
+                        T::TargetEmissionPerAgent::get(),
+                    );
+                    let floor: u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(
+                        T::FloorEmissionPerEra::get(),
+                    );
+                    let ceiling: u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(
+                        T::InitialEmissionsPerEra::get(),
+                    );
+                    let scaled = target.saturating_mul(agent_count).max(floor).min(ceiling);
+                    scaled.try_into().unwrap_or(T::FloorEmissionPerEra::get())
+                };
 
             let (era_finalized_q, era_total_q) = T::OracleCounters::drain_era_counters();
 
-            let cached_alpha            = T::AutoParams::alpha()     as u128;
-            let cached_beta             = T::AutoParams::beta()      as u128;
-            let cached_floor            = T::AutoParams::floor_bps() as u128;
-            let cached_oracle_bonus_bps = T::OracleBonusBps::get()  as u128;
-            let cached_unit_vol: u128   = UniqueSaturatedInto::<u128>::unique_saturated_into(T::UnitVolume::get());
-            let cached_max_props        = (T::MaxProposalsPerEra::get() as u128).max(1);
-            let cached_velocity_bps     = T::VelocityBonusBps::get() as u128;
+            let cached_alpha = T::AutoParams::alpha() as u128;
+            let cached_beta = T::AutoParams::beta() as u128;
+            let cached_floor = T::AutoParams::floor_bps() as u128;
+            let cached_oracle_bonus_bps = T::OracleBonusBps::get() as u128;
+            let cached_unit_vol: u128 =
+                UniqueSaturatedInto::<u128>::unique_saturated_into(T::UnitVolume::get());
+            // Fully qualified: pallet_agents::Config (a supertrait of this
+            // pallet's Config) also declares MaxProposalsPerEra, so a bare
+            // `T::MaxProposalsPerEra` is ambiguous (E0221). This pallet's own
+            // constant is the intended one — the governance-participation
+            // denominator for the emissions weight.
+            let cached_max_props =
+                (<T as crate::pallet::Config>::MaxProposalsPerEra::get() as u128).max(1);
+            let cached_velocity_bps = T::VelocityBonusBps::get() as u128;
             // V4: Remove genesis cliff. Replace with per-agent onboarding_boost read inside loop.
             // Each agent gets 10,000 bps bonus for their first 10 completions, regardless of era.
-            let current_era             = agents_pallet::EraNumber::<T>::get();
+            let current_era = agents_pallet::EraNumber::<T>::get();
             let _ = current_era; // retained for potential future era-aware logic
 
-            let mut total_weight:   u128 = 0;
+            let mut total_weight: u128 = 0;
             let mut top_weight_sum: u128 = 0;
             let mut all_weights: Vec<u128> = sp_std::vec![];
 
@@ -253,9 +309,14 @@ pub mod pallet {
                     0u128
                 };
                 let w = Self::compute_weight_cached(
-                    &agent, stake_u128,
-                    cached_alpha, cached_beta, cached_floor,
-                    cached_oracle_bonus_bps, cached_unit_vol, cached_max_props,
+                    &agent,
+                    stake_u128,
+                    cached_alpha,
+                    cached_beta,
+                    cached_floor,
+                    cached_oracle_bonus_bps,
+                    cached_unit_vol,
+                    cached_max_props,
                     onboarding_boost,
                     cached_velocity_bps,
                 );
@@ -276,19 +337,26 @@ pub mod pallet {
             agents_pallet::Pallet::<T>::drain_era_maps(era);
 
             let orch_multiplier = T::OrchestratorEmissionMultiplier::get();
-            let (orch_total_weight, _orch_count) = T::OrchestratorEmissions::compute_weights(orch_multiplier);
+            let (orch_total_weight, _orch_count) =
+                T::OrchestratorEmissions::compute_weights(orch_multiplier);
             total_weight = total_weight.saturating_add(orch_total_weight);
 
             if total_weight > 0 {
                 let emu128: u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(emission);
-                if let Some(delta) = emu128.checked_mul(ACC_SCALE).and_then(|x| x.checked_div(total_weight)) {
+                if let Some(delta) = emu128
+                    .checked_mul(ACC_SCALE)
+                    .and_then(|x| x.checked_div(total_weight))
+                {
                     AccRewardPerStake::<T>::mutate(|acc| *acc = acc.saturating_add(delta));
                 }
             }
 
             if total_weight > 0 && orch_total_weight > 0 {
                 let emu128: u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(emission);
-                let orch_share_u128 = emu128.saturating_mul(orch_total_weight).checked_div(total_weight).unwrap_or(0);
+                let orch_share_u128 = emu128
+                    .saturating_mul(orch_total_weight)
+                    .checked_div(total_weight)
+                    .unwrap_or(0);
                 if let Ok(orch_share) = orch_share_u128.try_into() {
                     T::OrchestratorEmissions::settle(orch_share, orch_total_weight);
                 }
@@ -299,18 +367,25 @@ pub mod pallet {
             // V4: F-02 — run_era_rules is now called every era. Auto-params governs from era 1.
             // Previously: let _ = (era_finalized_q, era_total_q, top_weight_sum); // suppress
             T::AutoParams::run_era_rules(pallet_auto_params::pallet::EraMetrics {
-                active_agents:           agents_pallet::EraActiveSnapshot::<T>::get(),
-                ring_count:              agents_pallet::EraRingSnapshot::<T>::get(),
+                active_agents: agents_pallet::EraActiveSnapshot::<T>::get(),
+                ring_count: agents_pallet::EraRingSnapshot::<T>::get(),
                 era_finalized_questions: era_finalized_q,
-                era_total_questions:     era_total_q,
+                era_total_questions: era_total_q,
                 total_weight,
-                top_ten_pct_weight:      top_weight_sum,
-                active_validators:       T::ValidatorCountProvider::active_validator_count(),
+                top_ten_pct_weight: top_weight_sum,
+                active_validators: T::ValidatorCountProvider::active_validator_count(),
             });
 
             let next_era_block = now.saturating_add(T::EraDuration::get());
-            Self::deposit_event(Event::NextEraScheduled { block: next_era_block, scheduled: false });
-            Self::deposit_event(Event::EraSettled { era, total_emission: emission, total_weight });
+            Self::deposit_event(Event::NextEraScheduled {
+                block: next_era_block,
+                scheduled: false,
+            });
+            Self::deposit_event(Event::EraSettled {
+                era,
+                total_emission: emission,
+                total_weight,
+            });
             Ok(())
         }
 
@@ -342,7 +417,9 @@ pub mod pallet {
         #[pallet::weight(T::DbWeight::get().reads_writes(2, 1)
             .saturating_add(Weight::from_parts(30_000_000, 0)))]
         pub fn set_era_emission_override(
-            origin: OriginFor<T>, target_era: u32, amount: BalanceOf<T>,
+            origin: OriginFor<T>,
+            target_era: u32,
+            amount: BalanceOf<T>,
         ) -> DispatchResult {
             ensure_root(origin)?;
             let current_era = agents_pallet::EraNumber::<T>::get();
@@ -351,11 +428,18 @@ pub mod pallet {
                 target_era > current_era && target_era <= current_era.saturating_add(max_forward),
                 Error::<T>::OverrideTooFarInFuture
             );
-            let supply_cap: u128  = UniqueSaturatedInto::<u128>::unique_saturated_into(T::SupplyCap::get());
+            let supply_cap: u128 =
+                UniqueSaturatedInto::<u128>::unique_saturated_into(T::SupplyCap::get());
             let amount_u128: u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(amount);
-            ensure!(amount_u128 <= supply_cap, Error::<T>::OverrideAmountExceedsCap);
+            ensure!(
+                amount_u128 <= supply_cap,
+                Error::<T>::OverrideAmountExceedsCap
+            );
             EmissionOverrides::<T>::insert(target_era, amount);
-            Self::deposit_event(Event::EmissionOverrideSet { era: target_era, amount });
+            Self::deposit_event(Event::EmissionOverrideSet {
+                era: target_era,
+                amount,
+            });
             Ok(())
         }
     }
@@ -405,35 +489,68 @@ pub mod pallet {
         u128: TryInto<BalanceOf<T>>,
     {
         fn do_claim(who: &T::AccountId) -> Result<BalanceOf<T>, DispatchError> {
-            ensure!(agents_pallet::AgentStake::<T>::contains_key(who), Error::<T>::NotRegistered);
-            let acc  = AccRewardPerStake::<T>::get();
+            ensure!(
+                agents_pallet::AgentStake::<T>::contains_key(who),
+                Error::<T>::NotRegistered
+            );
+            let acc = AccRewardPerStake::<T>::get();
             let debt = AgentRewardDebt::<T>::get(who);
-            if acc <= debt { return Ok(Zero::zero()); }
+            if acc <= debt {
+                return Ok(Zero::zero());
+            }
             let weight = AgentWeightSnapshot::<T>::get(who);
-            if weight == 0 { return Ok(Zero::zero()); }
+            if weight == 0 {
+                return Ok(Zero::zero());
+            }
             let delta = acc.saturating_sub(debt);
-            let pending_u128 = delta.saturating_mul(weight).checked_div(ACC_SCALE).unwrap_or(0);
+            let pending_u128 = delta
+                .saturating_mul(weight)
+                .checked_div(ACC_SCALE)
+                .unwrap_or(0);
             AgentRewardDebt::<T>::insert(who, acc);
-            if pending_u128 == 0 { return Ok(Zero::zero()); }
-            let supply_cap:   u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(T::SupplyCap::get());
-            let total_issued: u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(<T as Config>::Currency::total_issuance());
+            if pending_u128 == 0 {
+                return Ok(Zero::zero());
+            }
+            let supply_cap: u128 =
+                UniqueSaturatedInto::<u128>::unique_saturated_into(T::SupplyCap::get());
+            let total_issued: u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(
+                <T as Config>::Currency::total_issuance(),
+            );
             let mintable = supply_cap.saturating_sub(total_issued).min(pending_u128);
             if mintable == 0 {
                 Self::deposit_event(Event::CapReached { agent: who.clone() });
                 return Ok(Zero::zero());
             }
-            let amount: BalanceOf<T> = mintable.try_into().map_err(|_| Error::<T>::ArithmeticOverflow)?;
+            let amount: BalanceOf<T> = mintable
+                .try_into()
+                .map_err(|_| Error::<T>::ArithmeticOverflow)?;
             let _ = <T as Config>::Currency::deposit_creating(who, amount);
-            Self::deposit_event(Event::RewardClaimed { agent: who.clone(), amount });
+            Self::deposit_event(Event::RewardClaimed {
+                agent: who.clone(),
+                amount,
+            });
             Ok(amount)
         }
 
         /// stake_u128: pre-converted stake value (avoids cross-pallet Balance type mismatch)
+        //
+        // The ten arguments are the emission weighting inputs themselves — stake,
+        // rank, oracle accuracy, governance participation and the velocity bonus,
+        // plus the era totals they are normalised against. Bundling them into a
+        // params struct would hide which factors feed the weight, and the factor
+        // list is exactly the thing first-principle #2 requires stay legible.
+        // Silenced rather than restructured: a signature change here is an
+        // economic-code change and belongs in its own reviewed round.
+        #[allow(clippy::too_many_arguments)]
         fn compute_weight_cached(
             who: &T::AccountId,
             stake_u128: u128,
-            alpha: u128, beta: u128, floor_bps: u128,
-            oracle_bonus_bps: u128, unit_u128: u128, max_props: u128,
+            alpha: u128,
+            beta: u128,
+            floor_bps: u128,
+            oracle_bonus_bps: u128,
+            unit_u128: u128,
+            max_props: u128,
             onboarding_boost_bps: u128,
             velocity_bonus_bps: u128,
         ) -> u128 {
@@ -442,21 +559,24 @@ pub mod pallet {
             let rank = <T as agents_pallet::Config>::AgentCollective::rank_of(who).unwrap_or(0);
             let rank_bps: u128 = match rank {
                 0 | 1 => 10_000,
-                2     => 12_000,
-                _     => 15_000,
+                2 => 12_000,
+                _ => 15_000,
             };
 
             let hb = agents_pallet::Pallet::<T>::heartbeat_multiplier(who);
             let has_heartbeat = hb >= 90;
 
             let vol_u128: u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(
-                agents_pallet::EraEscrowVolume::<T>::get(who)
+                agents_pallet::EraEscrowVolume::<T>::get(who),
             );
             let raw_vol = log2_scaled(vol_u128, unit_u128);
             let unique_buyers = agents_pallet::EraUniqueBuyers::<T>::get(who) as u128;
             let diversity_bps = diversity_score_bps(unique_buyers);
-            let work_score = if raw_vol == 0 || diversity_bps == 0 { 0 }
-                else { raw_vol.saturating_mul(diversity_bps) / SCORE_SCALE };
+            let work_score = if raw_vol == 0 || diversity_bps == 0 {
+                0
+            } else {
+                raw_vol.saturating_mul(diversity_bps) / SCORE_SCALE
+            };
 
             // ERA-BASED activity gate (V4 fix: was lifetime completions >= 1).
             // Floor now requires actual escrow work THIS ERA, not just any past completion.
@@ -470,9 +590,8 @@ pub mod pallet {
             // agents must do at least 5× UnitVolume (5,000 CMN) in real escrow per era
             // to earn the floor share. Pure micro-ring deals below this threshold earn
             // nothing from floor, though they may still earn small work_score rewards.
-            let min_qual: u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(
-                T::MinQualifyingVol::get()
-            );
+            let min_qual: u128 =
+                UniqueSaturatedInto::<u128>::unique_saturated_into(T::MinQualifyingVol::get());
             let qualifies_for_floor = is_active && (min_qual == 0 || vol_u128 >= min_qual);
             let effective_floor = if qualifies_for_floor { floor_bps } else { 0 };
 
@@ -494,20 +613,32 @@ pub mod pallet {
             let activity = (effective_floor
                 .saturating_add(gov_contribution)
                 .saturating_add(beta.saturating_mul(work_score) / SCORE_SCALE))
-                .min(BPS_SCALE);
+            .min(BPS_SCALE);
 
             let base_weight = sqrt_stake
-                .saturating_mul(rank_bps).checked_div(BPS_SCALE).unwrap_or(0)
-                .saturating_mul(activity).checked_div(BPS_SCALE).unwrap_or(0)
-                .saturating_mul(hb).checked_div(100).unwrap_or(0);
+                .saturating_mul(rank_bps)
+                .checked_div(BPS_SCALE)
+                .unwrap_or(0)
+                .saturating_mul(activity)
+                .checked_div(BPS_SCALE)
+                .unwrap_or(0)
+                .saturating_mul(hb)
+                .checked_div(100)
+                .unwrap_or(0);
 
             let weight_after_oracle = if oracle_bonus_bps > 0 {
                 let oracle_score = T::OracleScoreProvider::best_score(who) as u128;
                 let bonus = base_weight
-                    .saturating_mul(oracle_score).checked_div(BPS_SCALE).unwrap_or(0)
-                    .saturating_mul(oracle_bonus_bps).checked_div(BPS_SCALE).unwrap_or(0);
+                    .saturating_mul(oracle_score)
+                    .checked_div(BPS_SCALE)
+                    .unwrap_or(0)
+                    .saturating_mul(oracle_bonus_bps)
+                    .checked_div(BPS_SCALE)
+                    .unwrap_or(0);
                 base_weight.saturating_add(bonus)
-            } else { base_weight };
+            } else {
+                base_weight
+            };
 
             // Onboarding boost (first 10 completions get +100% weight).
             let after_onboarding = weight_after_oracle
@@ -528,25 +659,38 @@ pub mod pallet {
                     .min(BPS_SCALE);
                 let bonus = after_onboarding
                     .saturating_mul(velocity_ratio)
-                    .checked_div(BPS_SCALE).unwrap_or(0)
+                    .checked_div(BPS_SCALE)
+                    .unwrap_or(0)
                     .saturating_mul(velocity_bonus_bps)
-                    .checked_div(BPS_SCALE).unwrap_or(0);
+                    .checked_div(BPS_SCALE)
+                    .unwrap_or(0);
                 after_onboarding.saturating_add(bonus)
             }
         }
     }
 
     fn log2_scaled(vol: u128, unit: u128) -> u128 {
-        if vol == 0 || unit == 0 { return 0; }
+        if vol == 0 || unit == 0 {
+            return 0;
+        }
         let ratio = vol.saturating_mul(1_000_000).checked_div(unit).unwrap_or(0);
-        if ratio == 0 { return 0; }
+        if ratio == 0 {
+            return 0;
+        }
         let bits = (128u32 - ratio.leading_zeros()) as u128;
-        bits.saturating_sub(19).saturating_mul(SCORE_SCALE / 10).min(SCORE_SCALE)
+        bits.saturating_sub(19)
+            .saturating_mul(SCORE_SCALE / 10)
+            .min(SCORE_SCALE)
     }
 
     fn diversity_score_bps(unique_buyers: u128) -> u128 {
         match unique_buyers {
-            0 => 0, 1 => 1_000, 2 => 3_000, 3 => 6_000, 4 => 8_000, _ => 10_000,
+            0 => 0,
+            1 => 1_000,
+            2 => 3_000,
+            3 => 6_000,
+            4 => 8_000,
+            _ => 10_000,
         }
     }
 }
