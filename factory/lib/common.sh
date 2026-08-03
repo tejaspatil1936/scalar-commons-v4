@@ -29,7 +29,7 @@ RUN_DIR="$FACTORY_DIR/run"
 : "${DAY_MAX_PARALLEL:=1}"
 : "${NIGHT_START:=22}"
 : "${NIGHT_END:=7}"
-: "${BASE_BRANCH:=rebuild/runtime}"
+: "${BASE_BRANCH:=master}"
 : "${SHARED_CARGO_TARGET:=$HOME/shared-target}"
 : "${CARGO_LOCKFILE:=$HOME/.factory/cargo.lock}"
 

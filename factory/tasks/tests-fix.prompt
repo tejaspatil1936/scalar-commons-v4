@@ -8,5 +8,5 @@ if present. Authorized changes, nothing else:
 3. Fix any other missing-import or missing-bound errors in test mock setup code.
 FORBIDDEN: changing any #[test] function body, assertion, or expected value;
 deleting/renaming/ignoring tests; #[allow]; touching pallet lib.rs or runtime.
-Branch rebuild/runtime, commit in small steps, push.
+Branch master, commit in small steps, push.
 Gate: cargo test --workspace --no-run exits 0.
