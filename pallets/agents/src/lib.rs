@@ -1317,32 +1317,48 @@ pub mod pallet {
         ) -> DispatchResult {
             let stake = AgentStake::<T>::get(agent).ok_or(Error::<T>::NotRegistered)?;
 
-            // Accumulate era volume (single storage read via mutate)
-            let era_total = EraEscrowVolume::<T>::mutate(agent, |v| {
-                *v = v.saturating_add(amount);
-                *v
-            });
+            // Accumulate era volume. The PRE-escrow total is kept: the diversity cap below
+            // must judge the agent by the volume it had *before* this deal, not after.
+            let prior_total = EraEscrowVolume::<T>::get(agent);
+            let era_total = prior_total.saturating_add(amount);
+            EraEscrowVolume::<T>::insert(agent, era_total);
 
             // Buyer diversity via bloom filter
             let buyer_bytes = buyer.encode();
             let hash = sp_io::hashing::blake2_256(&buyer_bytes);
             let slot = u32::from_le_bytes([hash[0], hash[1], hash[2], hash[3]]) % 65_536;
             if !EraSeenBuyerSlots::<T>::get(agent, slot) {
-                EraSeenBuyerSlots::<T>::insert(agent, slot, true);
-                // Stake-weighted diversity cap: diversity credit stops above stake × ratio
+                // Stake-weighted diversity cap: diversity credit stops above stake × ratio.
+                //
+                // ROUND14 ordering fix (two changes, both honest-agent-protecting):
+                //  1. Test `prior_total`, not the post-escrow total. Charging a buyer for the
+                //     volume its own escrow just added denied credit to the counterparty that
+                //     happens to straddle the cap — the boundary buyer paid for crossing it.
+                //  2. Mark the bloom slot only when credit is actually granted. Marking first
+                //     burned the slot permanently for the era, so an honest buyer whose first
+                //     escrow landed while the agent was over the cap could never earn credit
+                //     later in that era even after the agent raised its stake (which raises
+                //     the cap). The slot is an "already credited" record, not a "seen" record.
+                //
+                // Known limitation, deliberately NOT closed here (ROUND13 §5, B1): an attacker
+                // can still front-load k minimum-size escrows from k sybil buyers while volume
+                // is low, bank full diversity credit, then push unbounded volume. Closing that
+                // requires redefining diversity as economic rather than AccountId distinctness
+                // — a design decision, not a reordering.
                 let ratio = T::MaxVolToStakeRatio::get() as u128;
                 let diversity_ok = ratio == 0 || {
-                    let era_vol_u128: u128 =
+                    let prior_vol_u128: u128 =
                         sp_runtime::traits::UniqueSaturatedInto::<u128>::unique_saturated_into(
-                            era_total,
+                            prior_total,
                         );
                     let stake_u128: u128 =
                         sp_runtime::traits::UniqueSaturatedInto::<u128>::unique_saturated_into(
                             stake,
                         );
-                    era_vol_u128 <= stake_u128.saturating_mul(ratio)
+                    prior_vol_u128 <= stake_u128.saturating_mul(ratio)
                 };
                 if diversity_ok {
+                    EraSeenBuyerSlots::<T>::insert(agent, slot, true);
                     EraUniqueBuyers::<T>::mutate(agent, |c| *c = c.saturating_add(1));
                 }
             }

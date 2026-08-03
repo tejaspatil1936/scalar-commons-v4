@@ -856,3 +856,84 @@ fn gov_dedup_map_clears_each_era() {
         assert_eq!(EraGovParticipation::<Test>::get(ALICE), 1);
     });
 }
+
+// ── ROUND14: diversity credit is order-independent for honest buyers ──────────
+
+#[test]
+fn diversity_credits_buyer_whose_escrow_crosses_the_ratio_cap() {
+    new_test_ext().execute_with(|| {
+        // stake 1,000 × MaxVolToStakeRatio 10 → diversity cap = 10,000 era volume.
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(BOB), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(CAROL), 1_000));
+
+        // Alice takes her whole cap's worth of volume from Bob.
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 10_000));
+        assert_eq!(EraUniqueBuyers::<Test>::get(ALICE), 1);
+
+        // Carol is a genuine new counterparty arriving after the cap is reached. She
+        // is judged on the volume Alice had BEFORE her deal (10,000, exactly at cap),
+        // not on the total her own escrow creates. Pre-ROUND14 the post-escrow total
+        // (10,500) was tested, so Carol was denied credit for the volume she herself
+        // brought — and her bloom slot was burned in the same breath.
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &CAROL, 500));
+        assert_eq!(EraUniqueBuyers::<Test>::get(ALICE), 2);
+        assert_eq!(EraEscrowVolume::<Test>::get(ALICE), 10_500);
+    });
+}
+
+#[test]
+fn diversity_slot_not_burned_when_credit_is_denied() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(BOB), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(CAROL), 1_000));
+
+        // Bob's first deal is comfortably under the 10,000 cap, so he is credited
+        // identically before and after this fix — that keeps this test focused on
+        // the slot-burn behaviour alone rather than on the pre/post-total change.
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 5_000));
+        assert_eq!(EraUniqueBuyers::<Test>::get(ALICE), 1);
+
+        // Alice then runs well past her cap on Bob's volume. Repeat buyers reuse the
+        // same bloom slot, so no diversity decision is taken here at all.
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 15_000));
+        assert_eq!(EraEscrowVolume::<Test>::get(ALICE), 20_000);
+
+        // Carol arrives while Alice is over cap: correctly no credit yet.
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &CAROL, 100));
+        assert_eq!(EraUniqueBuyers::<Test>::get(ALICE), 1);
+
+        // Alice raises her stake, which raises her cap to 3,000 × 10 = 30,000.
+        assert_ok!(Agents::add_stake(RuntimeOrigin::signed(ALICE), 2_000));
+
+        // Carol's next deal now clears the cap and must earn credit. Pre-ROUND14 her
+        // slot was marked "seen" on the denied deal above before the credit test ran,
+        // so this short-circuited and she could never earn credit for the rest of the
+        // era — an honest counterparty permanently written off for arriving late.
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &CAROL, 100));
+        assert_eq!(EraUniqueBuyers::<Test>::get(ALICE), 2);
+    });
+}
+
+#[test]
+fn diversity_still_denied_to_a_buyer_arriving_above_the_cap() {
+    new_test_ext().execute_with(|| {
+        // Guard-rail, not a regression test: this passes both before and after the
+        // reordering. It pins that the stake-weighted cap still binds, so a future
+        // change cannot quietly turn the diversity gate into a no-op.
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(BOB), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(CAROL), 1_000));
+
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 5_000));
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 5_100));
+        assert_eq!(EraUniqueBuyers::<Test>::get(ALICE), 1);
+        assert_eq!(EraEscrowVolume::<Test>::get(ALICE), 10_100);
+
+        // prior_total 10,100 > cap 10,000 → no credit, and none available later this
+        // era either unless Alice raises her stake.
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &CAROL, 1));
+        assert_eq!(EraUniqueBuyers::<Test>::get(ALICE), 1);
+    });
+}
