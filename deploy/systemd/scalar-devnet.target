@@ -1,11 +1,13 @@
 [Unit]
-Description=Scalar Commons 3-validator devnet (alice, bob, charlie)
+Description=Scalar Commons 5-validator devnet (alice, bob, charlie, dave, eve)
 Documentation=file:///home/dev/scalar-commons-v4/deploy/README.md
-# The three services declare PartOf=scalar-devnet.target, so
-# `systemctl --user {start,stop,restart} scalar-devnet.target` moves all three
-# together. Each is also independently startable for single-node operations.
-Wants=scalar-alice.service scalar-bob.service scalar-charlie.service
-After=scalar-alice.service scalar-bob.service scalar-charlie.service
+# The five services declare PartOf=scalar-devnet.target, so
+# `systemctl --user {start,stop,restart} scalar-devnet.target` moves all five
+# together. Each is also independently startable for single-node operations —
+# which, since ROUND15 took the authority set to five, no longer costs finality
+# for the node you take down. See README.md "Fault tolerance".
+Wants=scalar-alice.service scalar-bob.service scalar-charlie.service scalar-dave.service scalar-eve.service
+After=scalar-alice.service scalar-bob.service scalar-charlie.service scalar-dave.service scalar-eve.service
 
 [Install]
 # Pulled in by default.target, which the systemd --user instance reaches on

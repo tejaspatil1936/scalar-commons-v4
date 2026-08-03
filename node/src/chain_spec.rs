@@ -119,7 +119,36 @@ pub fn development_config() -> ChainSpec {
 
 // ─── Local testnet chain ──────────────────────────────────────────────────────
 
-/// Local multi-node testnet: the same three validators, six endowed accounts.
+/// Local multi-node testnet: five validators, six endowed accounts.
+///
+/// ROUND15: the authority set was three (Alice/Bob/Charlie) through ROUND14.
+/// GRANDPA finalizes on a supermajority: for `n` authorities the threshold is
+/// `n - (n-1)/3` voters (integer division), so the tolerated failures are
+/// `f = (n-1)/3`.
+///
+/// | `n` | threshold | tolerated down |
+/// |-----|-----------|----------------|
+/// | 3   | 3         | **0**          |
+/// | 4   | 3         | 1              |
+/// | 5   | 4         | 1              |
+/// | 7   | 5         | 2              |
+///
+/// At `n = 3` the threshold was every single authority, so stopping one froze
+/// finality outright while block production carried on — ROUND10.md §2.5
+/// measured exactly that. Five clears the threshold with four voters, so the
+/// chain keeps finalizing through one validator being down for a restart, a
+/// snapshot, or a crash.
+///
+/// Be precise about what the fifth authority buys: **nothing for fault
+/// tolerance.** Four and five both tolerate exactly one failure — 5 raises the
+/// threshold to 4 in step with the set size. Seven is the next size that
+/// survives two. Five is chosen for slot spread and to leave the set an odd
+/// size, not because it is more fault-tolerant than four.
+///
+/// Dave and Eve were already endowed accounts here — this promotes them into
+/// the authority set. Every downstream genesis field (session keys, stakers,
+/// `validatorCount`, invulnerables, validator balances) is derived from this
+/// vector by [`dev_genesis`], so no economic constant changes.
 pub fn local_testnet_config() -> ChainSpec {
     ChainSpec::builder(
         scalar_commons_runtime::WASM_BINARY.expect("WASM binary not available"),
@@ -134,6 +163,8 @@ pub fn local_testnet_config() -> ChainSpec {
             authority_keys_from_seed("Alice"),
             authority_keys_from_seed("Bob"),
             authority_keys_from_seed("Charlie"),
+            authority_keys_from_seed("Dave"),
+            authority_keys_from_seed("Eve"),
         ],
         vec![
             account_id_from_seed::<sr25519::Public>("Alice"),
