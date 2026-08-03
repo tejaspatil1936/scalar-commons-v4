@@ -147,7 +147,7 @@ impl pallet_agents::Config for TestRuntime {
     type OnStakeChanged = Emissions; // zeros snapshot before stake increase (MasterChef fix)
     type AgentCollective = ();
     type OracleScoreGate = ();
-    type GovVoteVerifier = ();
+    type GovVoteVerifier = MockGovVoteVerifier;
     type IdentityHandler = ();
     type OrchestratorLookup = TestOrchestratorBridge;
     type MaxUriLen = ConstU32<256>;
@@ -158,6 +158,57 @@ impl pallet_agents::Config for TestRuntime {
     // V4: new Config types
     type MaxProposalsPerEra = ConstU32<20>;
     type SlashDestination = (); // test: slash is fully burned (no treasury in test runtime)
+}
+
+// ── Governance-vote verifier mock (ROUND14) ──────────────────────────────────
+//
+// Replaces the `()` impl, which returned `true` for every call and was wired into all
+// six mocks — the reason the governance-participation guard reached master with no
+// behavioural coverage at all.
+//
+// The two facts the real `ConvictionVotingBridge` reads are modelled as SEPARATE state,
+// because upstream keeps them separate and that gap is the whole vector: a vote leaves
+// `pallet_conviction_voting::VotingFor` only when the voter calls `remove_vote`, so it
+// long outlives the referendum it was cast on. `conclude_poll` below reproduces that —
+// it ends the poll and deliberately leaves the vote in place.
+thread_local! {
+    /// (voter, poll_index) pairs held as `Casting` votes — mirrors `VotingFor`.
+    static HELD_VOTES: core::cell::RefCell<std::collections::BTreeSet<(u64, u32)>> =
+        const { core::cell::RefCell::new(std::collections::BTreeSet::new()) };
+    /// Polls for which `Polling::as_ongoing` would return `Some`.
+    static ONGOING_POLLS: core::cell::RefCell<std::collections::BTreeSet<u32>> =
+        const { core::cell::RefCell::new(std::collections::BTreeSet::new()) };
+}
+
+pub struct MockGovVoteVerifier;
+impl pallet_agents::pallet::GovVoteVerifier<u64> for MockGovVoteVerifier {
+    fn has_live_vote_on(who: &u64, poll_index: u32) -> bool {
+        HELD_VOTES.with(|v| v.borrow().contains(&(*who, poll_index)))
+            && ONGOING_POLLS.with(|p| p.borrow().contains(&poll_index))
+    }
+}
+
+/// `who` votes on `poll`, and `poll` is ongoing — the honest case.
+pub fn cast_live_vote(who: u64, poll: u32) {
+    HELD_VOTES.with(|v| {
+        v.borrow_mut().insert((who, poll));
+    });
+    ONGOING_POLLS.with(|p| {
+        p.borrow_mut().insert(poll);
+    });
+}
+
+/// The referendum finishes. The vote itself survives, exactly as on chain.
+pub fn conclude_poll(poll: u32) {
+    ONGOING_POLLS.with(|p| {
+        p.borrow_mut().remove(&poll);
+    });
+}
+
+/// Clear verifier state. Called from `new_test_ext` — the harness reuses threads.
+pub fn reset_gov_state() {
+    HELD_VOTES.with(|v| v.borrow_mut().clear());
+    ONGOING_POLLS.with(|p| p.borrow_mut().clear());
 }
 
 // Orchestrator bridge for agents pallet
@@ -322,6 +373,7 @@ impl pallet_orchestrator::Config for TestRuntime {
 // ── Test genesis ──────────────────────────────────────────────────────────────
 
 pub fn new_test_ext_with_balances(balances: Vec<(u64, u64)>) -> TestExternalities {
+    reset_gov_state();
     let mut storage = frame_system::GenesisConfig::<TestRuntime>::default()
         .build_storage()
         .unwrap();

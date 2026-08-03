@@ -131,7 +131,23 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // is needed: this runtime has never launched on any network, so there is no
     // live state to move. The bump lands in the first commit of the series so
     // that no intermediate commit carries a layout change without one.
-    spec_version: 303,
+    //
+    // 303 -> 304: ROUND14 governance-credit and diversity-ordering fixes. Adds the
+    // EraGovVotedPolls storage double map to pallet-agents, changes the
+    // agents::record_gov_vote call signature (now takes a poll_index) and the
+    // GovVoteRecorded event shape, and adds the PollAlreadyCredited error. Storage
+    // layout and the call enum both change, so CLAUDE.md requires the bump.
+    //
+    // No data migration is written and none is needed, on two independent grounds.
+    // First and sufficient: this runtime has never launched on any network, so there is
+    // no live state to move. Second, and the reason this fix was chosen over the
+    // alternatives: every map it touches is EPHEMERAL — EraGovVotedPolls is new and
+    // starts empty, and both it and EraGovParticipation are cleared wholesale by
+    // drain_era_maps every era, so even on a live chain there would be no per-agent data
+    // to translate; at worst one era's governance counters reset. The alpha change
+    // (4,000 -> 1,500 bps) needs no migration either: it is an auto-param, seeded at
+    // genesis and mutable through governance thereafter.
+    spec_version: 304,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1014,23 +1030,49 @@ impl pallet_agents::pallet::OrchestratorLookup<AccountId, Balance> for Orchestra
     }
 }
 
-/// Verifies an agent holds at least one active (non-empty) vote in any OpenGov
-/// referendum class. An agent that has never voted, or whose votes are all
-/// empty, fails the check. This prevents record_gov_vote() from being called
-/// without genuine participation.
+/// Verifies an agent holds a vote on one SPECIFIC referendum that is STILL ONGOING.
 ///
-/// Carried on a local bridge struct rather than on `ConvictionVoting` directly:
-/// both the trait's type parameter (`AccountId`) and the implementing type
-/// (`pallet_conviction_voting::Pallet`) are foreign to this crate, so the direct
-/// impl violates the orphan rule (E0117). Same shape as the other `*Bridge`
-/// structs above. The storage it reads — `pallet_conviction_voting::VotingFor` —
-/// is unchanged, which is the load-bearing part of this guard.
+/// ROUND14 replaced `is_actively_voting(who)` — "does this account hold any non-empty
+/// vote anywhere?" — because that predicate could never expire. `pallet_conviction_voting`
+/// removes entries from `VotingFor` only in `try_remove_vote`, reachable solely from the
+/// voter's own `remove_vote` extrinsic; poll conclusion never prunes them, and the
+/// `VotingHooks` trait has no on-completion hook that could. So one vote, cast once on any
+/// poll, satisfied the old check forever — and since the answer carried no referendum
+/// identity, pallet-agents could redeem it for a full era's worth of governance credit,
+/// every era, indefinitely.
+///
+/// Two conditions are now checked, and both are load-bearing:
+///   * `Polls::as_ongoing(poll_index).is_some()` — the referendum is live. `type Polls =
+///     Referenda` (above), so this reads `pallet_referenda::ReferendumInfoFor` and returns
+///     `None` for approved/rejected/cancelled/timed-out/killed referenda. This is what
+///     makes stale votes stop paying.
+///   * the agent's `Casting` votes contain `poll_index` — the credit is bound to a
+///     referendum the agent actually voted on, not merely to the fact that it once voted.
+///
+/// Delegated (`Voting::Delegating`) votes are intentionally NOT credited: a delegation is
+/// not a per-referendum act and carries no poll index to bind credit to, so counting it
+/// would reopen the "one action, unlimited credits" shape this fix exists to close.
+///
+/// Carried on a local bridge struct rather than on `ConvictionVoting` directly: both the
+/// trait's type parameter (`AccountId`) and the implementing type
+/// (`pallet_conviction_voting::Pallet`) are foreign to this crate, so the direct impl
+/// violates the orphan rule (E0117). Same shape as the other `*Bridge` structs above.
 pub struct ConvictionVotingBridge;
 impl pallet_agents::pallet::GovVoteVerifier<AccountId> for ConvictionVotingBridge {
-    fn is_actively_voting(who: &AccountId) -> bool {
+    fn has_live_vote_on(who: &AccountId, poll_index: u32) -> bool {
+        use frame_support::traits::Polling;
         use pallet_conviction_voting::{Voting, VotingFor};
-        VotingFor::<Runtime>::iter_prefix(who)
-            .any(|(_, voting)| matches!(&voting, Voting::Casting(c) if !c.votes.is_empty()))
+
+        // Liveness first — it is a single storage read and rejects the whole stale-vote
+        // class before we iterate the voter's classes.
+        type Polls = <Runtime as pallet_conviction_voting::Config>::Polls;
+        if Polls::as_ongoing(poll_index).is_none() {
+            return false;
+        }
+        VotingFor::<Runtime>::iter_prefix(who).any(|(_, voting)| match &voting {
+            Voting::Casting(c) => c.votes.iter().any(|(idx, _)| *idx == poll_index),
+            Voting::Delegating(_) => false,
+        })
     }
 }
 

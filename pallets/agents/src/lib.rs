@@ -159,24 +159,36 @@ pub mod pallet {
         }
     }
 
-    /// Cross-pallet: verifies that an agent is CURRENTLY casting a vote in
-    /// pallet_conviction_voting before credit is given via record_gov_vote().
+    /// Cross-pallet: verifies that an agent holds a vote on ONE SPECIFIC poll that
+    /// is STILL ONGOING, before credit is given via record_gov_vote().
     ///
-    /// Prevents governance vote spoofing: record_gov_vote previously required
-    /// only that the agent signed the extrinsic, with no proof of actual voting.
-    /// Any agent doing minimal work (1,000 CMN/era) could call record_gov_vote()
-    /// 20 times to claim full gov_score (+4,000 bps activity) for free.
+    /// ROUND14 (was `is_actively_voting(who) -> bool`): the previous shape asked only
+    /// "does this account hold any non-empty vote anywhere?". Votes leave
+    /// `pallet_conviction_voting::VotingFor` only via an explicit `remove_vote()` —
+    /// poll conclusion never prunes them — so a single vote cast once satisfied the
+    /// old predicate forever, and because the answer was a bare `bool` with no
+    /// referendum attached, the same stale vote could be redeemed for the full
+    /// `MaxProposalsPerEra` credits every era, in perpetuity, at zero capital cost
+    /// (`try_vote` enforces no minimum vote balance or conviction).
     ///
-    /// The runtime implements this by checking VotingFor storage in
-    /// pallet_conviction_voting, keeping pallet_agents free from that dependency.
-    /// The () default returns `true` so existing unit tests pass without a mock.
+    /// Binding the question to a `poll_index` is what makes governance credit
+    /// *derived* rather than *self-attested*: the caller must name the referendum,
+    /// the verifier confirms the vote exists on that poll AND that the poll is still
+    /// ongoing, and `EraGovVotedPolls` ensures each referendum pays at most once per
+    /// era. Credit therefore equals the number of distinct live referenda the agent
+    /// actually voted on this era — which is what the emissions thesis
+    /// ("reward verifiable work, not raw stake") assumed it already measured.
+    ///
+    /// The runtime implements this over `pallet_conviction_voting::VotingFor` plus
+    /// `Polling::as_ongoing` on `pallet_referenda`, keeping pallet_agents free of
+    /// both dependencies.
+    ///
+    /// Deliberately no blanket `()` impl: the old one returned `true` unconditionally
+    /// and was wired into all six test mocks, which is why this guard shipped with
+    /// zero behavioural coverage. Mocks must now state their own policy.
     pub trait GovVoteVerifier<AccountId> {
-        fn is_actively_voting(who: &AccountId) -> bool;
-    }
-    impl<AccountId> GovVoteVerifier<AccountId> for () {
-        fn is_actively_voting(_: &AccountId) -> bool {
-            true
-        }
+        /// True iff `who` holds a vote on `poll_index` AND that poll is still ongoing.
+        fn has_live_vote_on(who: &AccountId, poll_index: u32) -> bool;
     }
 
     /// Cross-pallet: writes capability registration to pallet-identity additional fields.
@@ -467,10 +479,32 @@ pub mod pallet {
         ValueQuery,
     >;
 
-    /// Governance votes recorded this era per agent.
+    /// Governance votes recorded this era per agent. Feeds `gov_score` in emissions.
+    /// Bounded above by `MaxProposalsPerEra`; equals the number of DISTINCT live
+    /// referenda credited this era (see `EraGovVotedPolls`).
     #[pallet::storage]
     pub type EraGovParticipation<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
+
+    /// ROUND14 dedup set: (agent, poll_index) → already credited this era.
+    ///
+    /// Without this, `record_gov_vote` is a self-attestation — the verifier answers a
+    /// yes/no question that one held vote satisfies indefinitely, so the same vote can
+    /// be redeemed `MaxProposalsPerEra` times per era forever. Recording *which*
+    /// referendum paid out makes each live referendum worth exactly one credit, so
+    /// `EraGovParticipation` counts distinct governance acts rather than extrinsic calls.
+    ///
+    /// Ephemeral: cleared every era by `drain_era_maps` alongside the other era maps.
+    #[pallet::storage]
+    pub type EraGovVotedPolls<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Blake2_128Concat,
+        u32,
+        bool,
+        ValueQuery,
+    >;
 
     // ── Era snapshot storage (written by drain_era_maps, read by auto-params) ─
 
@@ -607,6 +641,9 @@ pub mod pallet {
         },
         GovVoteRecorded {
             who: T::AccountId,
+            /// ROUND14: the referendum this credit was bound to. Present so indexers can
+            /// audit that credits map 1:1 onto distinct live referenda.
+            poll_index: u32,
             total_era_votes: u32,
         },
         EraVolumeAdded {
@@ -673,10 +710,14 @@ pub mod pallet {
         AppealAlreadyPending,
         /// V4: F-05 — agent has already voted MaxProposalsPerEra times this era.
         GovVoteCapReached,
-        /// Agent called record_gov_vote() but has no active vote in conviction_voting.
-        /// Prevents governance score spoofing: agents must actually be voting on a
-        /// referendum to earn governance participation credit in the weight formula.
+        /// Agent called record_gov_vote() for a poll it holds no vote on, or whose
+        /// referendum is no longer ongoing. Prevents governance score spoofing: agents
+        /// must actually be voting on a LIVE referendum to earn participation credit.
         NotActivelyVoting,
+        /// ROUND14 — this referendum has already paid governance credit to this agent
+        /// this era. One live referendum is worth exactly one credit; redeeming the
+        /// same held vote repeatedly was the governance-farming vector.
+        PollAlreadyCredited,
         /// V4: F-07 — slash amount must be > 0 bps and ≤ 10000 bps.
         InvalidSlashBps,
     }
@@ -893,25 +934,49 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Record governance participation. Called by agent after voting on a referendum.
-        /// Self-only: signer must equal agent.
+        /// Record governance participation for ONE referendum. Called by the agent after
+        /// voting on `poll_index`. Self-only: signer must equal agent.
+        ///
+        /// Economic why: `gov_score` is meant to price *participation in governing the
+        /// commons*, which is a per-referendum act. Before ROUND14 the extrinsic named no
+        /// referendum, so credit was self-attested — one vote, cast once and never removed,
+        /// satisfied the verifier forever and could be redeemed `MaxProposalsPerEra` times
+        /// an era, for ever, at zero capital cost. That paid +4,000 bps (40% of the activity
+        /// budget) for a single historical click, and it paid *most* to the agents doing
+        /// least real work, since high-volume agents are already near the `BPS_SCALE` clamp.
+        ///
+        /// Three guards now make credit derived rather than claimed:
+        ///   1. `PollAlreadyCredited` — each referendum pays this agent at most once per era.
+        ///   2. `NotActivelyVoting` — the agent must hold a vote on THIS poll and that poll
+        ///      must still be ongoing, so concluded referenda earn nothing.
+        ///   3. `GovVoteCapReached` — the pre-existing per-era ceiling (F-05).
+        /// Net effect: credit = distinct LIVE referenda actually voted on this era, capped.
         #[pallet::call_index(5)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(2, 1)
+        #[pallet::weight(T::DbWeight::get().reads_writes(3, 2)
             .saturating_add(Weight::from_parts(35_000_000, 0)))]
-        pub fn record_gov_vote(origin: OriginFor<T>, agent: T::AccountId) -> DispatchResult {
+        pub fn record_gov_vote(
+            origin: OriginFor<T>,
+            agent: T::AccountId,
+            poll_index: u32,
+        ) -> DispatchResult {
             let signer = ensure_signed(origin)?;
             ensure!(signer == agent, Error::<T>::Unauthorized);
             ensure!(
                 AgentStake::<T>::contains_key(&agent),
                 Error::<T>::NotRegistered
             );
-            // Verify the agent is CURRENTLY casting a vote in pallet_conviction_voting.
-            // Without this check, any agent can call record_gov_vote() 20×/era and claim
-            // full gov_score (+4,000 bps activity) with only the minimum 1,000 CMN escrow
-            // deal as the work gate. The GovVoteVerifier trait is implemented by the runtime
-            // using pallet_conviction_voting::VotingFor storage; () passes all calls in tests.
+            // Cheapest guard first: a referendum already redeemed this era pays nothing,
+            // regardless of whether the vote is still held.
             ensure!(
-                T::GovVoteVerifier::is_actively_voting(&agent),
+                !EraGovVotedPolls::<T>::get(&agent, poll_index),
+                Error::<T>::PollAlreadyCredited
+            );
+            // Verify the agent holds a vote on THIS poll and that the poll is still ongoing.
+            // The runtime implements this over pallet_conviction_voting::VotingFor plus
+            // Polling::as_ongoing; test mocks supply their own policy (there is deliberately
+            // no permissive default impl any more).
+            ensure!(
+                T::GovVoteVerifier::has_live_vote_on(&agent, poll_index),
                 Error::<T>::NotActivelyVoting
             );
             // V4: F-05 — cap at MaxProposalsPerEra to prevent gov_score farming by block producers
@@ -919,12 +984,14 @@ pub mod pallet {
                 EraGovParticipation::<T>::get(&agent) < T::MaxProposalsPerEra::get(),
                 Error::<T>::GovVoteCapReached
             );
+            EraGovVotedPolls::<T>::insert(&agent, poll_index, true);
             let total = EraGovParticipation::<T>::mutate(&agent, |v| {
                 *v = v.saturating_add(1);
                 *v
             });
             Self::deposit_event(Event::GovVoteRecorded {
                 who: agent,
+                poll_index,
                 total_era_votes: total,
             });
             Ok(())
@@ -1354,6 +1421,13 @@ pub mod pallet {
             let _ = EraUniqueBuyers::<T>::clear(bound, None);
             let _ = EraGovParticipation::<T>::clear(bound, None);
             let _ = EraSeenBuyerSlots::<T>::clear(bound.saturating_mul(128), None);
+            // ROUND14: the dedup set is exactly bounded — record_gov_vote refuses to add a
+            // (agent, poll) entry once EraGovParticipation hits MaxProposalsPerEra, so an
+            // agent can hold at most that many keys. Clearing the same headroom multiple
+            // keeps the guard honest across eras: a leftover entry would silently deny an
+            // agent credit for a referendum that is still live in the next era.
+            let per_agent = T::MaxProposalsPerEra::get().max(1);
+            let _ = EraGovVotedPolls::<T>::clear(bound.saturating_mul(per_agent), None);
 
             EraNumber::<T>::mutate(|n| *n = n.saturating_add(1));
             Self::deposit_event(Event::EraMapsCleared {
