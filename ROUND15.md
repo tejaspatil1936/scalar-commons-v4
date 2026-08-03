@@ -432,7 +432,16 @@ What mainnet needs that this does not have:
 | stopped node rejoins and catches up | ✅ | §3.3 — authoring within 2s, head in 1 block |
 | negative control (two down stalls) | ✅ | §5 — finality frozen at #36 for 67s |
 | lint gate clean | ✅ | `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings` |
-| CI green on PR | see PR | |
+| CI green on PR | ✅ | PR #69 — both checks pass |
+
+```
+$ gh pr checks 69
+full    pass    34m6s   .../runs/30836862042/job/91764040053
+gate    pass    38m12s  .../runs/30836862011/job/91764040095
+```
+
+`gate` is ci-fast (fmt, clippy `-D warnings`, `cargo check`); `full` is ci-full,
+which builds the release binary and runs the workspace test suite.
 
 ## 9. Current devnet state
 
