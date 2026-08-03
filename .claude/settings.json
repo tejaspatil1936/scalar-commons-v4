@@ -19,7 +19,8 @@
       {
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
-          { "type": "command", "command": "bash .claude/hooks/post-edit.sh" }
+          { "type": "command", "command": "bash .claude/hooks/post-edit.sh" },
+          { "type": "command", "command": "bash .claude/hooks-factory/reject-stubs.sh" }
         ]
       }
     ]

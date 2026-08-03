@@ -201,6 +201,17 @@ while :; do
     sleep "$(( REMAIN < 60 ? REMAIN + 1 : 60 ))"
   done
 
+  # Every attempt is a `claude -p` process, so every attempt costs. Reserve
+  # before spawning: the cap is meaningless if a loop can spend 10x its
+  # dispatch reservation.
+  if ! spend_reserve "loop:$NAME:attempt$(( ATTEMPT + 1 ))"; then
+    BLOCK_REASON="daily spawn cap reached ($(spend_count)/$DAILY_SPAWN_CAP) — stopping before attempt $(( ATTEMPT + 1 ))"
+    log "$BLOCK_REASON"
+    spend_refusal "attempt $(( ATTEMPT + 1 )) of $NAME"
+    write_blocked "$BLOCK_REASON"
+    exit 1
+  fi
+
   ATTEMPT=$(( ATTEMPT + 1 ))
   NOW=$(date -u +%s)
   REMAIN_SECS=$(( DEADLINE - NOW ))

@@ -44,6 +44,7 @@ FACTORY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$FACTORY_DIR/lib/worktree.sh"
 
 : "${ENABLE_DISPATCH:=false}"
+: "${DISPATCH_TIERS:=tier:T3}"
 
 DRY_RUN=0
 LIMIT_ISSUE=""
@@ -213,10 +214,94 @@ print(" ".join((d.get("scripts") or {}).keys()))
   return 1
 }
 
+# ---------------------------------------------------- gate from issue body ---
+# THE GATE MUST COME FROM THE ISSUE, NOT FROM THE WORKTREE.
+#
+# detect_gate() infers a gate from the files a diff touches. That is useless at
+# dispatch time, because the worktree is a pristine copy of master and the diff
+# is EMPTY: every issue fell through to the workspace cargo gate, which is
+# already green on master. loop.sh then short-circuits ("gate already passes
+# before any attempt — nothing to do. PASS") and the issue is reported done with
+# zero work performed. That was F-1 in STAGE1-SETUP.md.
+#
+# So the gate is read from the issue body, where a human wrote it deliberately:
+# the first fenced code block under a "## Gate" heading.
+gate_from_issue() {
+  local num="$1"
+  issue_body "$num" | python3 -c '
+import re, sys
+
+body = sys.stdin.read()
+lines = body.splitlines()
+
+# Find a "## Gate ..." heading, then the first fenced block after it.
+start = None
+for i, ln in enumerate(lines):
+    if re.match(r"^#{1,6}\s+gate\b", ln.strip(), re.I):
+        start = i
+        break
+if start is None:
+    sys.exit(1)
+
+fence = None
+block = []
+for ln in lines[start + 1:]:
+    stripped = ln.strip()
+    if fence is None:
+        # Another heading before any fence => no gate block under this heading.
+        if re.match(r"^#{1,6}\s", stripped):
+            sys.exit(1)
+        m = re.match(r"^(`{3,}|~{3,})", stripped)
+        if m:
+            fence = m.group(1)[0]
+        continue
+    if re.match(r"^(`{3,}|~{3,})", stripped):
+        break
+    block.append(ln)
+
+# A multi-line block is a single gate: every line must pass, so chain with &&.
+cmds = [l.strip() for l in block if l.strip() and not l.strip().startswith("#")]
+if not cmds:
+    sys.exit(1)
+gate = " && ".join(cmds)
+
+# Reject prose. A gate that is not runnable is worse than no gate: bash would
+# fail on it for the wrong reason and the agent would burn every attempt trying
+# to satisfy a sentence. Require the first word to be an actual command.
+first = gate.split()[0].lstrip("$").strip()
+RUNNABLE = ("cd", "npm", "npx", "yarn", "pnpm", "cargo", "python", "python3",
+            "pytest", "make", "just", "bash", "sh", "flock", "docker", "node")
+if not (first in RUNNABLE or first.startswith("./") or first.startswith("/")):
+    sys.exit(2)
+
+print(gate)
+'
+}
+
+# tier -> gate. The issue body wins; detect_gate is the fallback for issues that
+# predate the convention.
 gate_for_tier() {
-  local tier="$1" wt="$2"
+  local tier="$1" wt="$2" num="${3:-}" gate=""
+
+  if [ -n "$num" ]; then
+    gate="$(gate_from_issue "$num" 2>/dev/null)"
+    if [ -n "$gate" ]; then
+      printf '%s' "$gate"
+      return 0
+    fi
+  fi
+
   case "$tier" in
-    tier:T3) detect_gate "$wt" ;;
+    tier:T3)
+      # No GATE block. detect_gate may still find a real subproject gate from a
+      # non-empty diff — but if it falls through to the workspace cargo gate for
+      # a T3 task, that is the F-1 trap again: already green, so it would pass
+      # without work. Refuse instead, and say why.
+      gate="$(detect_gate "$wt")"
+      if [ "$gate" = "$(t2_gate)" ]; then
+        return 1
+      fi
+      printf '%s' "$gate" ;;
     tier:T2) t2_gate ;;
     *)       t2_gate ;;
   esac
@@ -299,9 +384,23 @@ run_worker() {
   stop_requested && { log "#$num aborting: STOP_FACTORY"; return 1; }
 
   wt="$(new_worktree "$id")" || { warn "#$num worktree failed"; return 1; }
-  gate="$(gate_for_tier "$tier" "$wt")"
+
+  if ! gate="$(gate_for_tier "$tier" "$wt" "$num")" || [ -z "$gate" ]; then
+    warn "#$num NO USABLE GATE — refusing to dispatch"
+    warn "#$num add a '## Gate' heading with a fenced, runnable command to the issue body"
+    comment_issue "$num" "Factory refused to dispatch: no usable gate. The issue body needs a \`## Gate\` heading followed by a fenced code block containing the exact command that proves the work done. Falling back to the workspace gate is not allowed for tier:T3 — it is already green on master, so it would report success without any work being performed."
+    return 1
+  fi
+
   prompt="$wt/.factory-prompt.md"
   build_prompt "$num" "$tier" "$gate" "$(issue_body "$num")" "$prompt"
+
+  # Reserve budget BEFORE the loop starts. loop.sh reserves again per attempt,
+  # so a worker that grinds through 10 attempts is charged 10, not 1.
+  if ! spend_reserve "dispatch:issue-$num"; then
+    warn "#$num $(spend_refusal "worker for issue #$num" | tr '\n' ' ')"
+    return 1   # not yet marked in-progress, so nothing to unwind
+  fi
 
   mark_in_progress "$num"
 
@@ -393,7 +492,9 @@ printf '\n=== factory dispatch %s ===\n' "$(ts)"
 printf 'mode:        %s\n' "$([ "$DRY_RUN" = 1 ] && echo 'DRY RUN (no mutations)' || echo EXECUTE)"
 printf 'window:      %s, MAX_PARALLEL=%s\n' "$WINDOW" "$MAXP"
 printf 'base branch: %s\n' "$BASE_BRANCH"
-printf 'free disk:   %sGB (min %sGB)\n\n' "$(free_disk_gb)" "$MIN_FREE_DISK_GB"
+printf 'free disk:   %sGB (min %sGB)\n' "$(free_disk_gb)" "$MIN_FREE_DISK_GB"
+printf 'spawn budget: %s/%s used today (%s remaining) — %s\n\n' \
+  "$(spend_count)" "$DAILY_SPAWN_CAP" "$(spend_remaining)" "$(spend_ledger)"
 
 if [ -z "$ROWS" ]; then
   printf 'No open issues carry the "ready" label. Nothing to dispatch.\n'
@@ -417,7 +518,16 @@ while IFS=$'\x1f' read -r num tier cluster flags title; do
   esac
 
   case "$tier" in
-    tier:T3|tier:T2) : ;;
+    tier:T3|tier:T2)
+      # Hard rule above says T3/T2 *may* be dispatched; DISPATCH_TIERS says
+      # which of them this stage actually dispatches. The allowlist can only
+      # narrow, never widen: T0/T1 fall through to the refusal below no matter
+      # what DISPATCH_TIERS contains.
+      case " $DISPATCH_TIERS " in
+        *" $tier "*) : ;;
+        *) printf 'SKIP  #%-4s %-8s not in DISPATCH_TIERS="%s" — out of scope for this stage\n' \
+             "$num" "$tier" "$DISPATCH_TIERS"; continue ;;
+      esac ;;
     tier:T0|tier:T1)
       printf 'SKIP  #%-4s %-8s TIER TOO RISKY for autonomy — never dispatched (consensus/economic code)\n' "$num" "$tier"
       continue ;;
@@ -448,7 +558,14 @@ while IFS=$'\x1f' read -r num tier cluster flags title; do
     printf 'DISPATCH #%-3s %-8s cluster=%-10s %s\n' "$num" "$tier" "${cluster:-none}" "$title"
     printf '        WOULD: create worktree ../wt-%s from origin/%s\n' "$num" "$BASE_BRANCH"
     printf '        WOULD: add label in-progress to #%s\n' "$num"
-    printf '        WOULD: gate = %s\n' "$(gate_for_tier "$tier" "$REPO_DIR")"
+    if DRY_GATE="$(gate_for_tier "$tier" "$REPO_DIR" "$num")" && [ -n "$DRY_GATE" ]; then
+      printf '        WOULD: gate = %s\n' "$DRY_GATE"
+      printf '        WOULD: gate source = %s\n' \
+        "$(gate_from_issue "$num" >/dev/null 2>&1 && echo 'issue body (## Gate block)' || echo 'detect_gate fallback')"
+    else
+      printf '        WOULD: REFUSE — no usable gate in the issue body, and the\n'
+      printf '               detect_gate fallback is the already-green workspace gate\n'
+    fi
     printf '        WOULD: run loop.sh issue-%s (caps: %s attempts / %s min)\n' "$num" "$DEFAULT_MAX_ATTEMPTS" "$DEFAULT_MAX_MINUTES"
     printf '        WOULD: on gate PASS -> push task/%s, gh pr create (Closes #%s), then review.sh\n' "$num" "$num"
     printf '        WOULD: on gate FAIL -> write BLOCKED-issue-%s.md, clear in-progress, comment on the issue\n' "$num"
