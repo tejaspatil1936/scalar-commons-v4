@@ -1285,7 +1285,20 @@ impl pallet_orchestrator::Config for Runtime {
 
 parameter_types! {
     pub const AutoInitialFeeBps:       u32 = 25;   // V4: 0.25% from genesis — treasury income + ring deterrent active
-    pub const AutoInitialAlpha:        u32 = 4_000;
+    // ROUND14: 4_000 -> 1_500 bps. Alpha is governance's share of the 10,000 bps activity
+    // budget. At 4,000 it was 40% of that budget for a term the chain cannot verify
+    // proportionally, and it was *regressive in work*: worth a 4.33x weight multiplier to a
+    // minimal-work agent versus 1.67x to an honest high-volume one, because high-volume
+    // agents are already near the BPS_SCALE clamp and capture little of it. Sizing it at
+    // 1,500 keeps governance participation a real bonus while restoring work (beta = 5,000)
+    // as the dominant term, per first principle #2.
+    //
+    // This is the GENESIS seed only — auto-params copies it into the `Alpha` storage value
+    // in its genesis_build. On a chain that has already launched, alpha moves via governance
+    // (`set_param(ParamId::Alpha, ..)`) or the era rules; no storage migration exists or is
+    // needed for a value that is already a mutable auto-param. 1,500 sits inside the
+    // AlphaBounds floor of 1,000 set at genesis, so the era rules can still adjust it.
+    pub const AutoInitialAlpha:        u32 = 1_500;
     pub const AutoInitialBeta:         u32 = 5_000;
     pub const AutoInitialFloorBps:     u32 = 1_000;
     pub const AutoInitialMinScore:     u32 = 5;

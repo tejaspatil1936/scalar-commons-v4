@@ -336,7 +336,9 @@ impl pallet_emissions::Config for TestRuntime {
 
 parameter_types! {
     pub const InitFeeBps:   u32 = 0;
-    pub const InitAlpha:    u32 = 4_000;
+    // ROUND14: mirrors the runtime's AutoInitialAlpha, 4_000 -> 1_500 bps. Kept in step
+    // with runtime/src/lib.rs deliberately — this mock exists to model the shipped chain.
+    pub const InitAlpha:    u32 = 1_500;
     pub const InitBeta:     u32 = 5_000;
     pub const InitFloor:    u32 = 1_000;
     pub const InitMinScore: u32 = 3;
