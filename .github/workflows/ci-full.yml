@@ -127,19 +127,33 @@ jobs:
         run: cargo check --workspace --features runtime-benchmarks
 
       # ── Tests ─────────────────────────────────────────────────────────────
-      # Compile-only, deliberately. The suite compiles (exit 0) but 6 of 90
-      # tests FAIL at runtime across pallet-agents, pallet-emissions,
-      # pallet-oracle and pallet-orchestrator -- including an `attempt to add
-      # with overflow` in pallet-agents' integer_sqrt. Those are real defects,
-      # itemised verbatim in ROUND6.md.
+      # This step was `--no-run` from ROUND6 until ROUND14. The reason was never
+      # cost: 6 of 90 tests FAILED at runtime across pallet-agents,
+      # pallet-emissions, pallet-oracle and pallet-orchestrator -- including an
+      # `attempt to add with overflow` in pallet-agents' integer_sqrt -- so a
+      # full run would have been red on arrival. Compile-only was chosen over
+      # `|| true` because a step that cannot fail is not a check, and the
+      # instruction left here was explicit: swap `--no-run` for a full run once
+      # those six are fixed.
       #
-      # This step is `--no-run` rather than a full run because a full run would
-      # be red on arrival, and rather than `|| true` because a step that cannot
-      # fail is not a check. Swap `--no-run` for a full `cargo test --workspace`
-      # in the same commit that fixes the six failures -- that is the whole
-      # change required here.
-      - name: Tests compile
-        run: cargo test --workspace --no-run
+      # They are fixed. As of ROUND14 the suite is 109 passed / 0 failed
+      # (`cargo test --workspace`), which is the condition that step named.
+      # Running them is now the point: ROUND14 added 12 tests whose whole value
+      # is their runtime verdict -- they pass against the fixed code and fail
+      # against the old behaviour -- and a compile-only step enforces none of
+      # that. Until this commit CI could not have told a passing suite from a
+      # failing one.
+      #
+      # Room to run it comes from the two measures already in this job: the
+      # pre-checkout disk reclaim, and CARGO_PROFILE_DEV_DEBUG=0 (see the env
+      # block, where the -89% figure is measured rather than assumed). Those
+      # were added for the LINK step, which is the expensive part and which this
+      # job already performs -- executing the binaries afterwards costs runtime,
+      # not disk. Local wall-clock for the run itself is under 2s.
+      #
+      # Blocking, deliberately. If the suite goes red this job goes red.
+      - name: Tests
+        run: cargo test --workspace
 
       # ── Disk headroom, recorded ───────────────────────────────────────────
       # `if: always()` so the number survives a red run. A disk figure is only

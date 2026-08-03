@@ -22,6 +22,7 @@
 mod common;
 mod dispute_flow;
 mod era_cycle;
+mod gov_credit;
 mod orchestrator_flow;
 mod rank_promotion;
 mod ring_detection;

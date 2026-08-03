@@ -108,7 +108,7 @@ impl pallet_agents::Config for Test {
     type OnStakeChanged = ();
     type AgentCollective = ();
     type OracleScoreGate = ();
-    type GovVoteVerifier = ();
+    type GovVoteVerifier = MockGovVoteVerifier;
     type IdentityHandler = ();
     type OrchestratorLookup = ();
     type MaxUriLen = ConstU32<128>;
@@ -432,4 +432,56 @@ fn extend_deadline_fails_after_delivery_recorded() {
             Error::<Test>::WrongStatus
         );
     });
+}
+
+// ── Governance-vote verifier mock (ROUND14) ──────────────────────────────────
+//
+// Replaces `GovVoteVerifier = ()`, whose impl returned `true` unconditionally and was
+// wired into all six mocks — which is why the governance-participation guard shipped
+// with no behavioural coverage. No test in this crate calls `record_gov_vote`, so this
+// mock starts empty and denies everything; a future test must state which (voter, poll)
+// pairs are live rather than passing by default.
+//
+// `HELD_VOTES` and `ONGOING_POLLS` are separate on purpose: on chain a vote leaves
+// `pallet_conviction_voting::VotingFor` only via the voter's own `remove_vote`, so it
+// outlives the referendum. Both must hold for credit.
+thread_local! {
+    static HELD_VOTES: core::cell::RefCell<std::collections::BTreeSet<(u64, u32)>> =
+        const { core::cell::RefCell::new(std::collections::BTreeSet::new()) };
+    static ONGOING_POLLS: core::cell::RefCell<std::collections::BTreeSet<u32>> =
+        const { core::cell::RefCell::new(std::collections::BTreeSet::new()) };
+}
+
+pub struct MockGovVoteVerifier;
+impl pallet_agents::pallet::GovVoteVerifier<u64> for MockGovVoteVerifier {
+    fn has_live_vote_on(who: &u64, poll_index: u32) -> bool {
+        HELD_VOTES.with(|v| v.borrow().contains(&(*who, poll_index)))
+            && ONGOING_POLLS.with(|p| p.borrow().contains(&poll_index))
+    }
+}
+
+/// `who` votes on `poll`, and `poll` is ongoing.
+#[allow(dead_code)]
+pub fn cast_live_vote(who: u64, poll: u32) {
+    HELD_VOTES.with(|v| {
+        v.borrow_mut().insert((who, poll));
+    });
+    ONGOING_POLLS.with(|p| {
+        p.borrow_mut().insert(poll);
+    });
+}
+
+/// The referendum ends; the vote itself survives, exactly as on chain.
+#[allow(dead_code)]
+pub fn conclude_poll(poll: u32) {
+    ONGOING_POLLS.with(|p| {
+        p.borrow_mut().remove(&poll);
+    });
+}
+
+/// Reset verifier state — the test harness reuses threads across tests.
+#[allow(dead_code)]
+pub fn reset_gov_state() {
+    HELD_VOTES.with(|v| v.borrow_mut().clear());
+    ONGOING_POLLS.with(|p| p.borrow_mut().clear());
 }

@@ -4,15 +4,17 @@
 //! Gated by `#[cfg(test)] mod tests;` in `lib.rs` — no inner `#![cfg(test)]`.
 
 use crate::*;
+use core::cell::RefCell;
 use frame_support::{
     assert_noop, assert_ok, parameter_types,
-    traits::{ConstU32, ConstU64},
+    traits::{ConstU32, ConstU64, Get},
 };
 use sp_core::H256;
 use sp_runtime::{
     traits::{BlakeTwo256, IdentityLookup},
     BuildStorage,
 };
+use std::collections::BTreeSet;
 
 // ── Mock runtime ─────────────────────────────────────────────────────────────
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -124,7 +126,7 @@ impl Config for Test {
     type OnStakeChanged = (); // unit test: no emissions pallet
     type AgentCollective = ();
     type OracleScoreGate = ();
-    type GovVoteVerifier = ();
+    type GovVoteVerifier = MockGovVoteVerifier;
     type IdentityHandler = ();
     type OrchestratorLookup = ();
     type MaxUriLen = ConstU32<256>;
@@ -137,8 +139,74 @@ impl Config for Test {
     type SlashDestination = (); // test: slash burns fully (no treasury mock needed)
 }
 
+// ── Configurable governance-vote verifier mock ───────────────────────────────
+//
+// ROUND13 §2.5 found the shipped guard had zero behavioural coverage: all six mocks
+// wired `GovVoteVerifier = ()`, whose impl returned `true` unconditionally, so no test
+// could ever observe the verifier rejecting anything. This mock models the two facts the
+// real `ConvictionVotingBridge` reads, kept as separate pieces of state precisely because
+// upstream keeps them separate — and that separation IS the vector:
+//
+//   * `HELD_VOTES`   — (voter, poll) pairs in `pallet_conviction_voting::VotingFor`.
+//                      Entries leave ONLY via the voter's own `remove_vote`.
+//   * `ONGOING_POLLS`— polls for which `Polling::as_ongoing` returns `Some`.
+//
+// `conclude_poll` therefore drops the poll from `ONGOING_POLLS` while deliberately
+// LEAVING the vote in `HELD_VOTES`, which is exactly what the real chain does when a
+// referendum finishes. A verifier that only asks "does this account hold a vote?" cannot
+// tell that state apart from a live one.
+
+thread_local! {
+    /// (voter, poll_index) pairs the account holds a `Casting` vote on.
+    /// Mirrors `pallet_conviction_voting::VotingFor`.
+    static HELD_VOTES: RefCell<BTreeSet<(u64, u32)>> = const { RefCell::new(BTreeSet::new()) };
+    /// Poll indices still ongoing. Mirrors `Polling::as_ongoing(idx).is_some()`.
+    static ONGOING_POLLS: RefCell<BTreeSet<u32>> = const { RefCell::new(BTreeSet::new()) };
+}
+
+pub struct MockGovVoteVerifier;
+impl GovVoteVerifier<u64> for MockGovVoteVerifier {
+    fn has_live_vote_on(who: &u64, poll_index: u32) -> bool {
+        HELD_VOTES.with(|v| v.borrow().contains(&(*who, poll_index)))
+            && ONGOING_POLLS.with(|p| p.borrow().contains(&poll_index))
+    }
+}
+
+/// `who` votes on `poll`, and `poll` is ongoing. The normal, honest case.
+fn cast_live_vote(who: u64, poll: u32) {
+    HELD_VOTES.with(|v| {
+        v.borrow_mut().insert((who, poll));
+    });
+    ONGOING_POLLS.with(|p| {
+        p.borrow_mut().insert(poll);
+    });
+}
+
+/// The referendum finishes. Upstream does NOT prune the vote — no hook exists that
+/// could — so the `VotingFor` entry survives. Only liveness changes.
+fn conclude_poll(poll: u32) {
+    ONGOING_POLLS.with(|p| {
+        p.borrow_mut().remove(&poll);
+    });
+}
+
+/// The voter calls `remove_vote()` — the only path that clears a `VotingFor` entry.
+fn remove_vote(who: u64, poll: u32) {
+    HELD_VOTES.with(|v| {
+        v.borrow_mut().remove(&(who, poll));
+    });
+}
+
+fn reset_gov_state() {
+    HELD_VOTES.with(|v| v.borrow_mut().clear());
+    ONGOING_POLLS.with(|p| p.borrow_mut().clear());
+}
+
 // ── Test helpers ─────────────────────────────────────────────────────────────
 fn new_test_ext() -> sp_io::TestExternalities {
+    // Verifier state is thread-local, and the test harness reuses threads across tests.
+    // Reset it here so each test starts from "nobody has voted on anything".
+    reset_gov_state();
     let mut storage = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
         .unwrap();
@@ -596,5 +664,276 @@ fn slash_appeal_duplicate_rejected() {
             Agents::slash_appeal(RuntimeOrigin::signed(ALICE), 0, [1u8; 32]),
             Error::<Test>::AppealAlreadyPending
         );
+    });
+}
+
+// ── ROUND14: governance credit is bound to a distinct LIVE referendum ─────────
+//
+// These four tests are the behavioural coverage the guard shipped without. Each one
+// fails against the pre-ROUND14 code:
+//   * `gov_credit_*_earns_nothing` — the old verifier never read poll status, so a
+//     concluded referendum still paid.
+//   * `one_live_vote_credits_exactly_once_per_era` — the old extrinsic took no poll
+//     index and had no dedup set, so this loop banked the full 20 credits.
+//   * `distinct_live_referenda_each_credit_once_up_to_cap` — passes vacuously today
+//     (any 20 calls credited 20), and pins the intended semantics going forward.
+//   * `gov_dedup_map_clears_each_era` — new map, so there is nothing to clear today.
+
+const CAROL: u64 = 3;
+
+#[test]
+fn gov_credit_on_live_referendum_works() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        cast_live_vote(ALICE, 7);
+
+        assert_ok!(Agents::record_gov_vote(
+            RuntimeOrigin::signed(ALICE),
+            ALICE,
+            7
+        ));
+
+        assert_eq!(EraGovParticipation::<Test>::get(ALICE), 1);
+        assert!(EraGovVotedPolls::<Test>::get(ALICE, 7));
+    });
+}
+
+#[test]
+fn gov_credit_on_concluded_referendum_earns_nothing() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        cast_live_vote(ALICE, 7);
+        assert_ok!(Agents::record_gov_vote(
+            RuntimeOrigin::signed(ALICE),
+            ALICE,
+            7
+        ));
+        assert_eq!(EraGovParticipation::<Test>::get(ALICE), 1);
+
+        // New era, and referendum 7 has since concluded. The vote is STILL held —
+        // upstream conviction-voting prunes nothing on poll completion — which is
+        // precisely why "does this account hold a vote?" was not a sufficient question.
+        Agents::drain_era_maps(0);
+        conclude_poll(7);
+        assert!(HELD_VOTES.with(|v| v.borrow().contains(&(ALICE, 7))));
+
+        assert_noop!(
+            Agents::record_gov_vote(RuntimeOrigin::signed(ALICE), ALICE, 7),
+            Error::<Test>::NotActivelyVoting
+        );
+        assert_eq!(EraGovParticipation::<Test>::get(ALICE), 0);
+    });
+}
+
+#[test]
+fn gov_credit_on_removed_vote_earns_nothing() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        cast_live_vote(ALICE, 7);
+        // Referendum stays live, but the agent withdrew its vote.
+        remove_vote(ALICE, 7);
+
+        assert_noop!(
+            Agents::record_gov_vote(RuntimeOrigin::signed(ALICE), ALICE, 7),
+            Error::<Test>::NotActivelyVoting
+        );
+        assert_eq!(EraGovParticipation::<Test>::get(ALICE), 0);
+    });
+}
+
+#[test]
+fn gov_credit_requires_a_vote_on_that_specific_poll() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        // Alice votes on 1; poll 2 is live but she has not voted on it.
+        cast_live_vote(ALICE, 1);
+        cast_live_vote(BOB, 2);
+
+        assert_noop!(
+            Agents::record_gov_vote(RuntimeOrigin::signed(ALICE), ALICE, 2),
+            Error::<Test>::NotActivelyVoting
+        );
+        assert_eq!(EraGovParticipation::<Test>::get(ALICE), 0);
+    });
+}
+
+#[test]
+fn one_live_vote_credits_exactly_once_per_era() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        cast_live_vote(ALICE, 3);
+
+        assert_ok!(Agents::record_gov_vote(
+            RuntimeOrigin::signed(ALICE),
+            ALICE,
+            3
+        ));
+
+        // The whole of the rest of the per-era budget, spent on the same referendum.
+        // Pre-ROUND14 every one of these succeeded and EraGovParticipation ended at 20,
+        // worth the full +alpha bps of activity for a single historical click.
+        for _ in 1..<Test as Config>::MaxProposalsPerEra::get() {
+            assert_noop!(
+                Agents::record_gov_vote(RuntimeOrigin::signed(ALICE), ALICE, 3),
+                Error::<Test>::PollAlreadyCredited
+            );
+        }
+        assert_eq!(EraGovParticipation::<Test>::get(ALICE), 1);
+    });
+}
+
+#[test]
+fn distinct_live_referenda_each_credit_once_up_to_cap() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+
+        // Three distinct live referenda → exactly three credits.
+        for poll in 0..3u32 {
+            cast_live_vote(ALICE, poll);
+            assert_ok!(Agents::record_gov_vote(
+                RuntimeOrigin::signed(ALICE),
+                ALICE,
+                poll
+            ));
+        }
+        assert_eq!(EraGovParticipation::<Test>::get(ALICE), 3);
+
+        // A second sweep over the SAME three still-live referenda adds nothing. This is
+        // the half that fails pre-ROUND14: with no poll index bound to the credit, every
+        // one of these calls succeeded and the count reached 6.
+        for poll in 0..3u32 {
+            assert_noop!(
+                Agents::record_gov_vote(RuntimeOrigin::signed(ALICE), ALICE, poll),
+                Error::<Test>::PollAlreadyCredited
+            );
+        }
+        assert_eq!(EraGovParticipation::<Test>::get(ALICE), 3);
+
+        // Take it to the per-era ceiling, then one past it.
+        let cap = <Test as Config>::MaxProposalsPerEra::get();
+        for poll in 3..cap {
+            cast_live_vote(ALICE, poll);
+            assert_ok!(Agents::record_gov_vote(
+                RuntimeOrigin::signed(ALICE),
+                ALICE,
+                poll
+            ));
+        }
+        assert_eq!(EraGovParticipation::<Test>::get(ALICE), cap);
+
+        cast_live_vote(ALICE, cap);
+        assert_noop!(
+            Agents::record_gov_vote(RuntimeOrigin::signed(ALICE), ALICE, cap),
+            Error::<Test>::GovVoteCapReached
+        );
+        assert_eq!(EraGovParticipation::<Test>::get(ALICE), cap);
+    });
+}
+
+#[test]
+fn gov_dedup_map_clears_each_era() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        cast_live_vote(ALICE, 5);
+        assert_ok!(Agents::record_gov_vote(
+            RuntimeOrigin::signed(ALICE),
+            ALICE,
+            5
+        ));
+        assert!(EraGovVotedPolls::<Test>::get(ALICE, 5));
+
+        Agents::drain_era_maps(0);
+
+        // A long-running referendum is still live next era, and should pay again —
+        // the dedup set is per-era, not permanent.
+        assert!(!EraGovVotedPolls::<Test>::get(ALICE, 5));
+        assert_eq!(EraGovParticipation::<Test>::get(ALICE), 0);
+        assert_ok!(Agents::record_gov_vote(
+            RuntimeOrigin::signed(ALICE),
+            ALICE,
+            5
+        ));
+        assert_eq!(EraGovParticipation::<Test>::get(ALICE), 1);
+    });
+}
+
+// ── ROUND14: diversity credit is order-independent for honest buyers ──────────
+
+#[test]
+fn diversity_credits_buyer_whose_escrow_crosses_the_ratio_cap() {
+    new_test_ext().execute_with(|| {
+        // stake 1,000 × MaxVolToStakeRatio 10 → diversity cap = 10,000 era volume.
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(BOB), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(CAROL), 1_000));
+
+        // Alice takes her whole cap's worth of volume from Bob.
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 10_000));
+        assert_eq!(EraUniqueBuyers::<Test>::get(ALICE), 1);
+
+        // Carol is a genuine new counterparty arriving after the cap is reached. She
+        // is judged on the volume Alice had BEFORE her deal (10,000, exactly at cap),
+        // not on the total her own escrow creates. Pre-ROUND14 the post-escrow total
+        // (10,500) was tested, so Carol was denied credit for the volume she herself
+        // brought — and her bloom slot was burned in the same breath.
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &CAROL, 500));
+        assert_eq!(EraUniqueBuyers::<Test>::get(ALICE), 2);
+        assert_eq!(EraEscrowVolume::<Test>::get(ALICE), 10_500);
+    });
+}
+
+#[test]
+fn diversity_slot_not_burned_when_credit_is_denied() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(BOB), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(CAROL), 1_000));
+
+        // Bob's first deal is comfortably under the 10,000 cap, so he is credited
+        // identically before and after this fix — that keeps this test focused on
+        // the slot-burn behaviour alone rather than on the pre/post-total change.
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 5_000));
+        assert_eq!(EraUniqueBuyers::<Test>::get(ALICE), 1);
+
+        // Alice then runs well past her cap on Bob's volume. Repeat buyers reuse the
+        // same bloom slot, so no diversity decision is taken here at all.
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 15_000));
+        assert_eq!(EraEscrowVolume::<Test>::get(ALICE), 20_000);
+
+        // Carol arrives while Alice is over cap: correctly no credit yet.
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &CAROL, 100));
+        assert_eq!(EraUniqueBuyers::<Test>::get(ALICE), 1);
+
+        // Alice raises her stake, which raises her cap to 3,000 × 10 = 30,000.
+        assert_ok!(Agents::add_stake(RuntimeOrigin::signed(ALICE), 2_000));
+
+        // Carol's next deal now clears the cap and must earn credit. Pre-ROUND14 her
+        // slot was marked "seen" on the denied deal above before the credit test ran,
+        // so this short-circuited and she could never earn credit for the rest of the
+        // era — an honest counterparty permanently written off for arriving late.
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &CAROL, 100));
+        assert_eq!(EraUniqueBuyers::<Test>::get(ALICE), 2);
+    });
+}
+
+#[test]
+fn diversity_still_denied_to_a_buyer_arriving_above_the_cap() {
+    new_test_ext().execute_with(|| {
+        // Guard-rail, not a regression test: this passes both before and after the
+        // reordering. It pins that the stake-weighted cap still binds, so a future
+        // change cannot quietly turn the diversity gate into a no-op.
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(BOB), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(CAROL), 1_000));
+
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 5_000));
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 5_100));
+        assert_eq!(EraUniqueBuyers::<Test>::get(ALICE), 1);
+        assert_eq!(EraEscrowVolume::<Test>::get(ALICE), 10_100);
+
+        // prior_total 10,100 > cap 10,000 → no credit, and none available later this
+        // era either unless Alice raises her stake.
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &CAROL, 1));
+        assert_eq!(EraUniqueBuyers::<Test>::get(ALICE), 1);
     });
 }
