@@ -1,12 +1,18 @@
-# Scalar Commons — persistent 3-validator devnet
+# Scalar Commons — persistent 5-validator devnet
 
-A 3-validator Scalar Commons network that runs 24/7 on this VPS under **user**
+A 5-validator Scalar Commons network that runs 24/7 on this VPS under **user**
 systemd (no root, no system units). `loginctl enable-linger dev` is already set,
 which is what lets the user manager start at boot with nobody logged in — that
 is the mechanism by which this survives a reboot.
 
-Everything here is ops and configuration. No pallet, runtime, or node source is
-involved.
+Everything here is ops and configuration. The only source change ROUND15 made
+was the `local` preset's authority list in `node/src/chain_spec.rs` — no pallet
+or runtime logic is involved.
+
+> **ROUND15 changed the network's identity.** Going from 3 to 5 authorities is a
+> different genesis, therefore a different chain. The chainspec was regenerated
+> and the databases wiped; any node still holding pre-ROUND15 data cannot sync
+> against this chain. See "Resetting the chain".
 
 ---
 
@@ -17,32 +23,51 @@ involved.
 | alice   | 30333 | 9944 (127.0.0.1)    | 9615 (127.0.0.1) | `~/scalar-testnet/alice`  | archive |
 | bob     | 30334 | 9945 (127.0.0.1)    | 9616 (127.0.0.1) | `~/scalar-testnet/bob`    | default |
 | charlie | 30335 | 9946 (127.0.0.1)    | 9617 (127.0.0.1) | `~/scalar-testnet/charlie`| default |
+| dave    | 30336 | 9947 (127.0.0.1)    | 9618 (127.0.0.1) | `~/scalar-testnet/dave`   | default |
+| eve     | 30337 | 9948 (127.0.0.1)    | 9619 (127.0.0.1) | `~/scalar-testnet/eve`    | default |
+
+Ports run in parallel blocks, so the Nth node is `30333+i` / `9944+i` / `9615+i`.
+`deploy/nodes.env` is the machine-readable copy of this table.
 
 - **alice is the bootnode and the query endpoint.** Her peer id is pinned by a
-  fixed node key, so the multiaddr baked into bob's and charlie's units stays
-  valid forever:
+  fixed node key, so the multiaddr baked into the other four units stays valid
+  forever:
   `/ip4/127.0.0.1/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp`
-- **bob and charlie are given only alice as a bootnode.** They find each other
-  through authority discovery over the DHT (ROUND5), never through config.
+- **bob, charlie, dave and eve are given only alice as a bootnode.** They find
+  each other through authority discovery over the DHT (ROUND5), never through
+  config — which is why adding dave and eve required no edit to the existing
+  three units.
 - alice runs `archive` pruning because she is the endpoint the indexer would
-  query and needs full history. bob and charlie use default pruning to save disk.
+  query and needs full history. The rest use default pruning to save disk.
+- Every node's RPC is bound to loopback and is reachable locally; only alice's
+  is treated as the public-facing one. `finality-check.sh` polls all five.
 
 Files:
 
 ```
 deploy/
 ├── README.md                   this file
+├── nodes.env                   topology: node list, node keys, RPC ports
 ├── scalar-local-raw.json       committed raw chainspec (the network's identity)
 ├── build-spec.sh               regenerate that chainspec
 ├── install.sh                  create base paths + node keys, install & enable units
+├── finality-check.sh           sample best + FINALIZED height on every node
 ├── snapshot.sh                 consistent state snapshot of one node
 ├── reset-chain.sh              DESTRUCTIVE wipe back to genesis
 └── systemd/
     ├── scalar-alice.service
     ├── scalar-bob.service
     ├── scalar-charlie.service
-    └── scalar-devnet.target    starts/stops all three together
+    ├── scalar-dave.service
+    ├── scalar-eve.service
+    └── scalar-devnet.target    starts/stops all five together
 ```
+
+`install.sh`, `reset-chain.sh` and `snapshot.sh` all read the node list from
+`nodes.env` rather than hardcoding it. ROUND10 had `alice bob charlie` written
+out in three separate loops; adding two nodes meant three chances to miss one,
+and a node missing from `reset-chain.sh`'s loop would silently keep a database
+belonging to the old genesis.
 
 ---
 
@@ -62,14 +87,18 @@ systemctl --user start scalar-devnet.target
 ## Status
 
 ```bash
-# all three at a glance
-systemctl --user status scalar-alice scalar-bob scalar-charlie --no-pager
+# best + FINALIZED height on every node, one line per sample — start here
+./deploy/finality-check.sh          # single sample
+./deploy/finality-check.sh 12 5     # 12 samples, 5s apart
+
+# all five at a glance
+systemctl --user status scalar-alice scalar-bob scalar-charlie scalar-dave scalar-eve --no-pager
 
 # just the up/down state
-systemctl --user is-active scalar-alice scalar-bob scalar-charlie
+systemctl --user is-active scalar-alice scalar-bob scalar-charlie scalar-dave scalar-eve
 
 # confirm they are enabled — i.e. they come back after a reboot
-systemctl --user is-enabled scalar-devnet.target scalar-alice scalar-bob scalar-charlie
+systemctl --user is-enabled scalar-devnet.target scalar-alice scalar-bob scalar-charlie scalar-dave scalar-eve
 
 # current height and finality, straight from alice's RPC
 curl -sH 'Content-Type: application/json' \
@@ -88,15 +117,16 @@ curl -sH 'Content-Type: application/json' \
 
 ## Logs
 
-All three log to journald.
+All five log to journald.
 
 ```bash
 journalctl --user -u scalar-alice -f                 # follow one node
 journalctl --user -u scalar-alice -n 100 --no-pager  # last 100 lines
 journalctl --user -u scalar-alice --since '10 min ago' --no-pager
 
-# all three interleaved
-journalctl --user -u scalar-alice -u scalar-bob -u scalar-charlie -f
+# all five interleaved
+journalctl --user -u scalar-alice -u scalar-bob -u scalar-charlie \
+                  -u scalar-dave -u scalar-eve -f
 
 # just the heartbeat lines (best / finalized height)
 journalctl --user -u scalar-alice --since '5 min ago' --no-pager | grep Idle
@@ -105,19 +135,20 @@ journalctl --user -u scalar-alice --since '5 min ago' --no-pager | grep Idle
 ## Stop / start / restart
 
 ```bash
-systemctl --user restart scalar-bob            # one node
-systemctl --user stop    scalar-devnet.target  # all three
+systemctl --user restart scalar-bob            # one node — finality survives this
+systemctl --user stop    scalar-devnet.target  # all five
 systemctl --user start   scalar-devnet.target
 systemctl --user restart scalar-devnet.target
 ```
 
 The services declare `PartOf=scalar-devnet.target`, so target-level stop and
-restart move all three together.
+restart move all five together.
 
 To stop the devnet coming back after a reboot:
 
 ```bash
-systemctl --user disable scalar-devnet.target scalar-alice scalar-bob scalar-charlie
+systemctl --user disable scalar-devnet.target scalar-alice scalar-bob \
+                         scalar-charlie scalar-dave scalar-eve
 ```
 
 ---
@@ -125,9 +156,15 @@ systemctl --user disable scalar-devnet.target scalar-alice scalar-bob scalar-cha
 ## Firewall — the commands **you** need to run as root
 
 I cannot run these; they need sudo. Nothing below is required for the devnet to
-*work* — all three nodes talk to each other over loopback, so the network
+*work* — all five nodes talk to each other over loopback, so the network
 finalizes with every port closed. These only matter if you want peers or clients
 from outside this box.
+
+**ROUND15 widened the p2p range from `30333:30335` to `30333:30337`** (dave on
+30336, eve on 30337). If you had already applied the ROUND10 rule, it does not
+cover the two new nodes — replace it rather than adding a second overlapping
+rule. Nothing breaks in the meantime: the new nodes peer over loopback either
+way, and the range only matters for external peers.
 
 **Current state: `ufw` is installed and its unit is enabled, but the service is
 inactive — there is no host packet filtering running right now.**
@@ -141,10 +178,22 @@ inactive — there is no host packet filtering running right now.**
 
 ```bash
 sudo ufw allow 22/tcp                comment 'ssh — MUST be first'
-sudo ufw allow 30333:30335/tcp       comment 'scalar commons devnet p2p'
+sudo ufw allow 30333:30337/tcp       comment 'scalar commons devnet p2p (5 nodes)'
 sudo ufw enable
 sudo ufw status verbose
 ```
+
+Replacing the old 3-node rule, if it is already in place:
+
+```bash
+sudo ufw status numbered                          # find the 30333:30335 rule
+sudo ufw delete <number>
+sudo ufw allow 30333:30337/tcp       comment 'scalar commons devnet p2p (5 nodes)'
+```
+
+The prometheus ports (9615–9619) are deliberately **not** opened. Nothing
+scrapes them yet, and an unauthenticated metrics endpoint is not something to
+put on a public IP by default.
 
 ### Public RPC (optional — read the next section first)
 
@@ -226,6 +275,11 @@ The script **stops the node, copies, and starts it again**. A tar of a running
 node's database can be torn — the DB holds an exclusive lock and buffers writes
 in memory — so a hot copy is not a supportable backup.
 
+Since ROUND15 this is no longer a maintenance window: with five authorities the
+remaining four keep finalizing while one node is stopped for the copy. **Do not
+snapshot two nodes at once** — three of five is below the threshold of 4 and
+finality stalls until one comes back.
+
 Restore:
 
 ```bash
@@ -237,34 +291,86 @@ systemctl --user start scalar-alice
 
 ---
 
-## Fault tolerance — read before you take a node down
+## Fault tolerance — one validator down is survivable, two is not
 
-**This 3-validator set tolerates zero failures for finality.** GRANDPA's
-supermajority threshold for `n` authorities is `n - (n-1)/3`, which for `n = 3`
-is `3` — every authority must vote. Stopping any one node **pauses
-finalization** until it rejoins. Block *production* continues (BABE only needs a
-slot leader), so `best` keeps climbing while `finalized` sits still.
+**This 5-validator set tolerates exactly one failure for finality.** GRANDPA's
+supermajority threshold for `n` authorities is `n - (n-1)/3` voters (integer
+division):
 
-Measured on this box — charlie stopped for 35s, alice and bob sampled:
+| `n` | threshold | tolerated down |                                          |
+|-----|-----------|----------------|------------------------------------------|
+| 3   | 3         | **0**          | what ROUND10 shipped — any stop froze it |
+| 4   | 3         | 1              |                                          |
+| 5   | 4         | 1              | **current**                              |
+| 7   | 5         | 2              | next step up                             |
+
+Be precise about what the fifth authority buys: **nothing for fault tolerance.**
+Four and five both survive exactly one failure, because the threshold rises with
+the set size. Five was chosen for slot spread and an odd set size. If the
+requirement is surviving two simultaneous failures, the answer is seven, not
+five.
+
+### Evidence — charlie stopped for 93s, all five nodes sampled
+
+Verbatim from `./deploy/finality-check.sh`. The column that matters is `final`:
 
 ```
-21:19:44Z steady     | alice 48/46 | bob 48/46
---- STOPPING CHARLIE (2 of 3 authorities remain) ---
-21:19:50Z down+10s   | alice 49/46 | bob 49/46
-21:20:00Z down+20s   | alice 50/46 | bob 50/46
-21:20:15Z down+35s   | alice 52/46 | bob 52/46     <- best +4, finalized frozen
---- STARTING CHARLIE ---
-21:20:20Z up+5s      | alice 53/46 | bob 53/46
-21:20:25Z up+10s     | alice 54/52 | bob 54/52     <- finality catches up in one step
+--- BASELINE: all 5 up ---
+[17:20:25Z]  alice best=   11 final=    8  bob best=   11 final=    8  charlie best=   11 final=    8  dave best=   11 final=    8  eve best=   11 final=    8
+[17:20:37Z]  alice best=   13 final=   11  bob best=   13 final=   11  charlie best=   13 final=   11  dave best=   13 final=   11  eve best=   13 final=   11
+
+--- STOPPING charlie at 17:20:37Z (4 of 5 authorities remain) ---
+--- charlie is-active: inactive ---
+
+[17:20:44Z]  alice best=   14 final=   12  bob best=   14 final=   12  charlie DOWN  dave best=   14 final=   12  eve best=   14 final=   12
+[17:20:56Z]  alice best=   16 final=   14  bob best=   16 final=   14  charlie DOWN  dave best=   16 final=   14  eve best=   16 final=   14
+[17:21:14Z]  alice best=   19 final=   17  bob best=   19 final=   17  charlie DOWN  dave best=   19 final=   17  eve best=   19 final=   17
+[17:21:39Z]  alice best=   22 final=   20  bob best=   22 final=   20  charlie DOWN  dave best=   22 final=   20  eve best=   22 final=   20
+[17:22:04Z]  alice best=   25 final=   23  bob best=   25 final=   23  charlie DOWN  dave best=   25 final=   23  eve best=   25 final=   23
+[17:22:10Z]  alice best=   26 final=   24  bob best=   26 final=   24  charlie DOWN  dave best=   26 final=   24  eve best=   26 final=   24
+
+--- RESTARTING charlie at 17:22:10Z ---
+
+[17:22:16Z]  alice best=   27 final=   25  bob best=   27 final=   25  charlie best=   27 final=   25  dave best=   27 final=   25  eve best=   27 final=   25
 ```
 
-Production advanced 48 → 52 while finality sat at 46 for the entire outage, then
-jumped 46 → 52 within ~10s of charlie returning. No manual intervention.
+**Finalized height advanced 11 → 24 across the 93-second outage** — 13 blocks
+finalized with a validator down, tracking `best` two behind throughout. Compare
+ROUND10's 3-validator run, where `finalized` sat frozen at 46 for the entire
+outage while `best` climbed away from it.
 
-This is inherent to a 3-authority set, not a defect, and it is why snapshots and
-restarts should be treated as maintenance windows. A network that must tolerate
-one validator being down needs **at least 4** authorities (`n = 4` → threshold
-`4 - 1 = 3`).
+The same window from alice's own log (`journalctl --user -u scalar-alice`),
+which also shows her peer count dropping 4 → 3 as charlie leaves:
+
+```
+19:20:33 💤 Idle (4 peers), best: #12 (0xece5…381e), finalized #10 (0xace6…e7f6)
+19:20:38 💤 Idle (3 peers), best: #13 (0x5b03…5fff), finalized #11 (0xd123…b272)
+19:20:43 💤 Idle (3 peers), best: #14 (0xdeab…d7f8), finalized #12 (0xece5…381e)
+19:21:03 💤 Idle (3 peers), best: #17 (0x2756…4455), finalized #15 (0x4891…846a)
+19:21:33 💤 Idle (3 peers), best: #21 (0x4b04…d6aa), finalized #19 (0xbd2d…d8c6)
+19:22:03 💤 Idle (3 peers), best: #25 (0xc30c…defe), finalized #23 (0x35e3…36ef)
+19:22:08 💤 Idle (3 peers), best: #26 (0xb82f…65cc), finalized #24 (0xbc0e…62c2)
+```
+
+Rejoin, from charlie's log — back in consensus and authoring within 2 seconds,
+no manual intervention:
+
+```
+19:20:37 Stopping scalar-charlie.service - Scalar Commons devnet validator — charlie...
+19:22:10 Starting scalar-charlie.service - Scalar Commons devnet validator — charlie...
+19:22:11 👶 Starting BABE Authorship worker
+19:22:12 🙌 Starting consensus session on top of parent 0xb82f…65cc (#26)
+19:22:12 🏆 Imported #27 (0xb82f…65cc → 0xd943…efca)
+19:22:16 💤 Idle (4 peers), best: #27 (0xd943…efca), finalized #25 (0xc30c…defe)
+```
+
+### Negative control — two down does stall, as predicted
+
+Three of five is below the threshold of 4, so finality must stop. It does; see
+ROUND15.md for the verbatim run. This matters: without it, "finality survived
+one node down" could just mean nothing was ever being tested.
+
+**Operationally:** restart or snapshot one node freely. Never two at once.
 
 ---
 
@@ -286,23 +392,46 @@ This devnet is **not a template for mainnet.** It is deliberately insecure in
 ways that are fine for a local testnet and disqualifying for anything holding
 value:
 
-- **Session keys are the well-known `//Alice`, `//Bob`, `//Charlie` seeds.**
-  Every one of those private keys is public knowledge and in every Substrate
-  test fixture on earth. Anyone can author and sign as these validators. Mainnet
-  needs keys generated per validator (`scalar-node key generate-session-keys`),
-  held in each validator's own keystore, and registered on chain via
-  `session.setKeys` — never derived from a seed that appears in a repo.
-- **Node keys are `0x00…01/02/03`.** Real ones come from
+- **Session keys are the well-known `//Alice`, `//Bob`, `//Charlie`, `//Dave`,
+  `//Eve` seeds.** Every one of those private keys is public knowledge and in
+  every Substrate test fixture on earth. Anyone can author and sign as these
+  validators. Mainnet needs keys generated per validator (`scalar-node key
+  generate-session-keys`), held in each validator's own keystore, and registered
+  on chain via `session.setKeys` — never derived from a seed in a repo.
+- **Node keys are `0x00…01` through `0x00…05`.** Real ones come from
   `scalar-node key generate-node-key --file <path>`, are 0600, and are backed up
   — losing one changes a bootnode's peer id.
 - **`sudo` is a single Alice key** (`chain_spec.rs`: "replaced by multisig in
   staging/mainnet"). Mainnet needs the multisig, and the documented day-14
   referendum handoff that removes sudo entirely.
-- **One host.** Three validators sharing a box, a kernel, a disk, and a power
-  supply is one fault domain, not three. Real validators are on separate
-  machines in separate locations.
-- **Three authorities means zero fault tolerance** for finality — see above.
-  Mainnet needs enough validators that losing several is survivable.
+- **One host — and this is the big one after ROUND15.** Five validators sharing
+  a box, a kernel, a disk, a NIC, a power supply and one `systemd --user`
+  manager is **one fault domain, not five.** ROUND15 proved the chain survives
+  one *validator process* stopping. It proved nothing whatsoever about surviving
+  the loss of this machine, because every authority dies with it — and at that
+  point the surviving voter count is zero, not four.
+
+  Read the fault-tolerance result for exactly what it is: the GRANDPA authority
+  set is now large enough that a single validator failure is not a finality
+  outage. That is a real and necessary property, and it is the *consensus*
+  half of the problem. The *infrastructure* half is untouched. What it takes:
+
+  - five (ideally seven) validators on **separate hosts**, ideally separate
+    providers and regions, so a host, rack, provider, or region failure takes
+    at most one authority with it;
+  - run by **separate operators** with separate credentials — five nodes one
+    person can `systemctl --user stop` are not five independent failure
+    probabilities, whatever the authority count says. The same applies to a
+    single bad deploy: one operator pushing one broken binary to all five is a
+    correlated failure the authority count does not model;
+  - real p2p addressing between them (public multiaddrs, several bootnodes,
+    not `/ip4/127.0.0.1`), and no single bootnode whose loss partitions the
+    network;
+  - independent key custody per operator, per the session-key point above.
+- **Five authorities tolerate exactly one failure, not two** — the threshold
+  rises to 4 of 5 with the set size. Four and five are equivalent here; **seven**
+  is the next size that survives two simultaneous failures. Mainnet should size
+  the set from the failure count it intends to survive, not from a round number.
 - **SS58 prefix is 42**, the generic Substrate default. `chain_spec.rs` already
   flags this: `// MAINNET BLOCKER: register unique SS58 prefix`.
 - **`ChainType::Local`** and a chainspec with no telemetry endpoints and no
