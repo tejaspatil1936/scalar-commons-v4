@@ -32,8 +32,10 @@ RUN_DIR="$FACTORY_DIR/run"
 : "${BASE_BRANCH:=master}"
 : "${SHARED_CARGO_TARGET:=$HOME/shared-target}"
 : "${CARGO_LOCKFILE:=$HOME/.factory/cargo.lock}"
+: "${DAILY_SPAWN_CAP:=40}"
+: "${SPEND_DIR:=$HOME/.factory}"
 
-mkdir -p "$LOG_DIR" "$BLOCKED_DIR" "$RUN_DIR" "$(dirname "$CARGO_LOCKFILE")"
+mkdir -p "$LOG_DIR" "$BLOCKED_DIR" "$RUN_DIR" "$(dirname "$CARGO_LOCKFILE")" "$SPEND_DIR"
 
 # ---- logging --------------------------------------------------------------
 ts() { date -u '+%Y-%m-%dT%H:%M:%SZ'; }
@@ -127,6 +129,60 @@ loops must bill the API key, not the interactive Max login. See factory/README.m
 }
 
 # ---- guards ---------------------------------------------------------------
+# ---- daily spawn budget ---------------------------------------------------
+# Token cost is not observable from a headless `claude -p` call, so the factory
+# bounds the thing it CAN count: how many agent processes it starts per day.
+# Every spawn appends one line to a dated ledger; the ledger IS the counter, so
+# it doubles as an audit trail of what was started and when.
+#
+# The date lives in the FILENAME, so the budget resets at 00:00 UTC with no
+# cron, no cleanup job, and no clock arithmetic that could go wrong.
+#
+# This is a local guard rail, not a billing control. The Anthropic Console
+# monthly cap remains the hard backstop; this exists so a runaway loop is
+# stopped in minutes by the machine that started it, rather than in days by a
+# billing alert.
+spend_ledger() { printf '%s/spend-%s' "$SPEND_DIR" "$(date -u +%Y%m%d)"; }
+
+# Spawns recorded so far today. Never fails; absent ledger means zero.
+spend_count() {
+  local f; f="$(spend_ledger)"
+  if [ -f "$f" ]; then grep -c '' "$f" 2>/dev/null || printf '0'; else printf '0'; fi
+}
+
+spend_remaining() {
+  local n; n="$(spend_count)"
+  printf '%s' "$(( DAILY_SPAWN_CAP > n ? DAILY_SPAWN_CAP - n : 0 ))"
+}
+
+# spend_reserve <label> -> 0 = reserved (caller may spawn), 3 = cap reached.
+#
+# Check-and-append happen together under one flock, so two dispatcher workers
+# racing at the cap boundary cannot both be told yes. Reserve BEFORE spawning,
+# never after: a crash between spawn and record would under-count, and an
+# under-counting budget is not a budget.
+spend_reserve() {
+  local label="${1:-unlabelled}"
+  mkdir -p "$SPEND_DIR"
+  (
+    flock 8 || exit 1
+    local f n
+    f="$SPEND_DIR/spend-$(date -u +%Y%m%d)"
+    n=0; [ -f "$f" ] && n="$(grep -c '' "$f" 2>/dev/null || echo 0)"
+    [ "$n" -ge "$DAILY_SPAWN_CAP" ] && exit 3
+    printf '%s\t%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$label" >> "$f"
+  ) 8>>"$SPEND_DIR/spend.lock"
+}
+
+# Standard refusal message. Every component prints the same thing so the reason
+# is unambiguous wherever it shows up in the logs.
+spend_refusal() {
+  printf 'DAILY SPAWN CAP REACHED: %s of %s spawns used today (%s).\n' \
+    "$(spend_count)" "$DAILY_SPAWN_CAP" "$(spend_ledger)"
+  printf 'Refusing to start "%s". The budget resets at 00:00 UTC.\n' "${1:-agent}"
+  printf 'To raise it deliberately: edit DAILY_SPAWN_CAP in factory/config.env.\n'
+}
+
 free_disk_gb() { df -BG --output=avail "$HOME" 2>/dev/null | tail -1 | tr -dc '0-9'; }
 
 disk_ok() {

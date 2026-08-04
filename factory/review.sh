@@ -202,6 +202,18 @@ run_lens() {  # run_lens <name> -> writes $WORK/<name>.out, echoes PASS|FAIL
     return 0
   fi
 
+  # Each lens is its own `claude -p` process, so each lens costs. A review is
+  # three spawns, not one, and is charged as three.
+  if ! spend_reserve "review:pr-$PR:lens-$name"; then
+    spend_refusal "review lens $name for PR #$PR" >&2
+    warn "lens $name not run — daily spawn cap. Counting as FAIL so the PR is"
+    warn "not labelled agent-reviewed on an incomplete review."
+    printf 'Lens not run: daily spawn cap reached (%s/%s). No verdict was formed.\n' \
+      "$(spend_count)" "$DAILY_SPAWN_CAP" > "$out"
+    echo "FAIL"
+    return 0
+  fi
+
   log "running lens: $name ($(wc -l < "$pf") line prompt)"
   # Fresh process, fresh context, run OUTSIDE the repo so no CLAUDE.md or repo
   # files leak in. --dangerously-skip-permissions keeps it non-interactive; the

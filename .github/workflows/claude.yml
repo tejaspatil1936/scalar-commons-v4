@@ -1,7 +1,18 @@
+# claude-swarm — MENTION-ONLY. A human must type @claude for this to run.
+#
+# The `issues: [opened, labeled]` trigger was removed in the Stage-1 hardening
+# pass: it started an agent with contents:write the moment an issue carried the
+# `agent-task` label, with no human in the loop and no accounting. Combined with
+# continuous-watch.yml (which re-commented "@claude ..." on any agent-task issue
+# lacking a branch) and pr-ci-feedback.yml (which re-commented "@claude ..." on
+# every red CI run), it formed a self-sustaining spawn loop — the Phase-0 burn.
+# Those two workflows are deleted; this trigger is what remains of that path.
+#
+# Autonomous work now goes through factory/dispatch.sh, which is off by default,
+# tier-gated, and charged against the daily spawn ledger. This workflow is only
+# for a human deliberately asking for help in a comment.
 name: claude-swarm
 on:
-  issues:
-    types: [opened, labeled]
   issue_comment:
     types: [created]
   pull_request_review_comment:
@@ -12,7 +23,6 @@ on:
 jobs:
   claude:
     if: |
-      (github.event_name == 'issues' && contains(github.event.issue.labels.*.name, 'agent-task') && !contains(github.event.issue.labels.*.name, 'complex-task')) ||
       (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
       (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
