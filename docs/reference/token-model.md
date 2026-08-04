@@ -1,0 +1,424 @@
+# Token model
+
+CMN is the native token of Scalar Commons. This page covers the unit, the supply cap, the
+emission schedule, and — the part that actually matters — how the weight formula pays for
+verifiable work rather than for holding tokens.
+
+Every raw value below is the value read from the live runtime. See
+[Provenance](#provenance) for which node, and for how the check is enforced.
+
+## The unit
+
+| Quantity | Value | Raw |
+|---|---|---|
+| 1 CMN | 10^12 plancks | `1000000000000` |
+| Token symbol | CMN | |
+| Token decimals | 12 | |
+
+Balances are `u128` plancks on chain. Client code should carry them as `bigint` — `2^53`
+plancks is roughly 9,007 CMN, so a JavaScript `number` loses precision far below any
+realistic stake. See [amounts and plancks](/guide/sdk#amounts-and-plancks).
+
+## Supply
+
+<!-- chain-check:constants -->
+
+| Quantity | Value | Raw |
+|---|---|---|
+| Hard supply cap (`emissions.supplyCap`) | 100,000,000,000 CMN | `100000000000000000000000` |
+| Genesis mint | 18,000,000,000 CMN | `18000000000000000000000` |
+| Emittable headroom | 82,000,000,000 CMN | |
+| Independent cap copy (`constitution.supplyCap`) | 100,000,000,000 CMN | `100000000000000000000000` |
+| Warning buffer (`constitution.capWarningBuffer`) | 1,000,000,000 CMN | `1000000000000000000000` |
+
+The cap is an absolute invariant, not a target. Three things enforce it:
+
+1. **Every mint is capped at the claim site.** `do_claim` computes
+   `mintable = (supplyCap − totalIssuance).min(pending)` before depositing, and emits
+   `CapReached` instead of minting when that is zero. A claim can be truncated; it cannot
+   overshoot.
+2. **All minting flows through pallet-emissions.** No other pallet has a mint path.
+3. **`pallet-constitution` watches independently.** It carries its own copy of the cap and
+   a 1B CMN warning buffer, emitting `SupplyCapApproaching` on entry to the buffer and
+   `SupplyCapBreachBlocked` on an attempted breach. The two copies are listed in the table
+   above and are checked against each other by the docs gate — a divergence between them is
+   a bug in one of the two pallets.
+
+Note what the truncation means in practice: as issuance nears the cap, claims are paid
+partially and then not at all. Emissions stop; the chain does not.
+
+### Genesis distribution
+
+| Recipient | Allocation | Share |
+|---|---|---|
+| Founders | 7,000,000,000 CMN | 38.9% |
+| Treasury | 5,000,000,000 CMN | 27.8% |
+| Researcher multisig | 3,000,000,000 CMN | 16.7% |
+| Bootstrap multisig | 3,000,000,000 CMN | 16.7% |
+
+A compile-time assertion in `node/src/chain_spec.rs` fails the build if these stop summing
+to the 18B genesis mint, in both the dev/testnet presets and the mainnet genesis builder.
+
+## The emission schedule
+
+Time is divided into **eras**. Settlement computes an era's pool, distributes it across
+agent weights, and opens the next era.
+
+<!-- chain-check:constants -->
+
+| Constant | Value | Raw |
+|---|---|---|
+| `emissions.eraDuration` | 3,600 blocks = 6 hours | `3600` |
+| `emissions.targetEmissionPerAgent` | 10,000 CMN | `10000000000000000` |
+| `emissions.floorEmissionPerEra` | 100,000 CMN | `100000000000000000` |
+| `emissions.initialEmissionsPerEra` | 1,000,000 CMN | `1000000000000000000` |
+
+At 6-second blocks that is **4 eras per day, 1,460 per year**.
+
+The per-era pool is not a free parameter. Unless governance has set an override for the
+era, it is:
+
+```text
+pool = clamp(targetEmissionPerAgent × registered_agents,
+             low  = floorEmissionPerEra,     # 100,000 CMN
+             high = initialEmissionsPerEra)  # 1,000,000 CMN
+```
+
+`registered_agents` is `AgentStake::count()`. So the pool is **10,000 CMN per registered
+agent, floored at 100,000 and capped at 1,000,000 CMN per era**:
+
+| Registered agents | Pool per era | Regime |
+|---|---|---|
+| 1 – 10 | 100,000 CMN | floor |
+| 10 – 100 | 10,000 CMN × agents | linear |
+| ≥ 100 | 1,000,000 CMN | ceiling |
+
+Two consequences of the ceiling that are easy to miss:
+
+- **Emission per agent falls once the set exceeds 100.** Growth past that point dilutes
+  rather than inflates. The pool is bounded; the claimants are not.
+- **The maximum issuance rate is 1,000,000 × 1,460 = 1.46B CMN/year.** Against 82B of
+  headroom that is roughly **56 years to reach the cap at the maximum rate**, or about 561
+  years if the pool sits at the floor. Both numbers assume every era settles.
+
+::: warning There is no halving schedule
+The pool is agent-count-driven and clamped — it does not decay over time. Nothing in
+pallet-emissions halves. If you have seen a halving described elsewhere, it does not
+describe this runtime.
+:::
+
+### Governance overrides
+
+`emissions.setEraEmissionOverride(targetEra, amount)` replaces one era's pool. It is root-
+gated and guarded on both sides: the target era must be in the future and no more than
+`emissions.maxEmissionOverrideEras` ahead (raw `10`), and `amount` must not exceed the
+supply cap (`OverrideAmountExceedsCap`).
+
+This is the one path that can exceed the 1,000,000 CMN ceiling. It cannot exceed the cap,
+and the per-claim cap check still applies on top.
+
+### Settlement is permissionless
+
+`emissions.settleEra` takes `ensure_signed` and nothing more. Any account may settle a due
+era. This is a deliberate first-principle of the chain: **no economically essential
+function may depend on a privileged caller.** If settlement needed root, a missing key
+would freeze every agent's income.
+
+Three guards make an open entry point safe:
+
+| Guard | Error | What it prevents |
+|---|---|---|
+| `now ≥ eraStartBlock + eraDuration` | `EraNotDue` | Settling early, repeatedly, to inflate issuance |
+| `lastSettledEra` is none or `< era` | `EraAlreadySettled` | Double-minting the same era |
+| `EraStartBlock` is rewritten to `now` | — | Era drift; the next era starts when this one settled |
+
+Claims are equally unprivileged and pull-based: `emissions.claim` pays the caller,
+`emissions.batchClaim` pays up to `emissions.maxBatchClaimSize` (raw `100`) agents on their
+behalf. Nobody can be locked out of their own rewards.
+
+## The weight formula
+
+An era's pool is distributed in proportion to per-agent **weight**. There is a single
+weight — no separate stake pool and work pool. Weight is computed once per agent during
+settlement and snapshotted, so claiming later cannot change what you earned.
+
+The thesis, in the order the runtime applies it:
+
+```text
+weight = √stake
+       × rank_bps      / 10_000        # 1.0× … 1.5×, by ranked-collective rank
+       × activity      / 10_000        # floor + governance + work, capped at 100%
+       × heartbeat     / 100           # 10% … 100%, liveness decay
+       × (1 + oracle_score × oracleBonusBps / 10_000²)   # up to +20%
+       × (1 + onboarding_boost / 10_000)                 # up to +100%, first 10 completions
+       × (1 + velocity_ratio × velocityBonusBps / 10_000²)  # up to +30%
+```
+
+Every factor is basis-point fixed-point (`BPS = 10_000` = 100%), and the accumulator scale
+is `ACC_SCALE = 2^64`.
+
+### Stake enters as a square root
+
+The base is `√stake`, not `stake`. This is the anti-whale term: **100× the stake buys 10×
+the weight.** Stake is bounded on both ends —
+
+<!-- chain-check:constants -->
+
+| Constant | Value | Raw |
+|---|---|---|
+| `agents.minStake` | 1,000 CMN | `1000000000000000` |
+| `agents.fullFloorStake` | 10,000 CMN | `10000000000000000` |
+| `agents.maxStakePerAgent` | 1,000,000 CMN | `1000000000000000000` |
+| `agents.baseRegistrationFee` | 50 CMN | `50000000000000` |
+
+— so a single account cannot hold more than 1,000,000 CMN of agent stake, and registering
+burns 50 CMN as a sybil cost.
+
+### Activity: what makes stake count at all
+
+`activity` is the term that makes stake conditional on work. It is
+`floor + governance + work`, clamped to 10,000 bps:
+
+```text
+work_score       = log2_scaled(era_volume, unitVolume) × diversity_bps(unique_buyers) / 10_000
+gov_score        = min(era_gov_votes, maxProposalsPerEra) × 10_000 / maxProposalsPerEra
+gov_contribution = work_score > 0 ? alpha × gov_score / 10_000 : 0
+activity         = min(10_000, effective_floor + gov_contribution + beta × work_score / 10_000)
+```
+
+The inputs, all live values:
+
+<!-- chain-check:constants -->
+
+| Parameter | Value | Raw | Role |
+|---|---|---|---|
+| `emissions.unitVolume` | 10 CMN | `10000000000000` | log base unit for volume |
+| `emissions.minQualifyingVol` | 50 CMN | `50000000000000` | gates the floor baseline |
+| `emissions.maxProposalsPerEra` | 20 | `20` | governance-score denominator |
+| `autoParams.initialAlpha` | 1,500 bps | `1500` | weight on governance |
+| `autoParams.initialBeta` | 5,000 bps | `5000` | weight on work |
+| `autoParams.initialFloorBps` | 1,000 bps | `1000` | activity baseline for qualifying agents |
+
+Four properties of that arithmetic are load-bearing:
+
+1. **Volume is logarithmic, not linear.** `log2_scaled` adds 1,000 bps per doubling of
+   volume above `unitVolume`, capped at 10,000. Ten times the volume is not ten times the
+   score. Wash trading is therefore expensive at the margin.
+2. **Volume is multiplied by buyer diversity.** `diversity_bps` maps unique counterparties
+   `{0 → 0, 1 → 1,000, 2 → 3,000, 3 → 6,000, 4 → 8,000, ≥5 → 10,000}`. One buyer, however
+   large, caps work score at 10% of its diversity-adjusted maximum. Zero unique buyers
+   zeroes it.
+3. **Governance cannot substitute for work.** `gov_contribution` is gated on
+   `work_score > 0`. Voting on everything while selling nothing contributes zero, by
+   construction. Votes are also verified against `convictionVoting.votingFor` rather than
+   self-asserted.
+4. **`alpha`, `beta` and `floor_bps` are read fresh every era**, not fixed at genesis —
+   pallet-auto-params adjusts them from measured conditions. The table above is the genesis
+   initializer; query the live value with
+   [`getEraMetrics`](/reference/rpc#scalarcommonsapi).
+
+### Rank, heartbeat, and the bonuses
+
+**Rank** comes from the ranked collective and is graded, not binary:
+
+| Rank | Multiplier | `rank_bps` |
+|---|---|---|
+| 0 – 1 | 1.00× | 10,000 |
+| 2 | 1.20× | 12,000 |
+| ≥ 3 | 1.50× | 15,000 |
+
+Rank 2 requires `agents.fullFloorStake`. Rank 3 additionally gates on completions, oracle
+score and account age:
+
+<!-- chain-check:constants -->
+
+| Constant | Value | Raw |
+|---|---|---|
+| `agents.rank3MinCompletions` | 50 | `50` |
+| `agents.minRank3OracleScore` | 1,000 | `1000` |
+| `agents.rank3SpanGate` | 432,000 blocks = 30 days | `432000` |
+
+**Heartbeat** multiplies the whole base weight by `hb / 100`, where `hb` holds at 100 during
+the grace period and then decays linearly to a floor of 10:
+
+<!-- chain-check:constants -->
+
+| Constant | Value | Raw |
+|---|---|---|
+| `agents.heartbeatGracePeriod` | 10,800 blocks = 18 hours | `10800` |
+| `agents.heartbeatDecayPeriod` | 1,296,000 blocks = 90 days | `1296000` |
+
+A fully-decayed agent keeps 10% of its weight. Silence is expensive but not fatal.
+
+**Three bonuses** apply on top:
+
+<!-- chain-check:constants -->
+
+| Bonus | Cap | Constant | Raw | Basis |
+|---|---|---|---|---|
+| Oracle accuracy | +20% | `emissions.oracleBonusBps` | `2000` | per-capability oracle score |
+| Onboarding | +100%, decaying | — | — | `10,000 − 1,000 × completions`, first 10 completions |
+| Velocity | +30% | `emissions.velocityBonusBps` | `3000` | `min(1, era_volume / stake)` |
+
+The velocity bonus rewards capital that *turns over*: an agent whose era volume equals its
+stake gets the full +30%, one at a tenth of that gets +3%. The onboarding boost front-loads
+new agents' first ten completions and then vanishes — it is a bootstrapping subsidy, not a
+standing entitlement.
+
+### Distribution
+
+Settlement uses a MasterChef-style accumulator, which is what lets claiming be lazy and
+permissionless:
+
+```text
+# at settlement
+accRewardPerStake += pool × ACC_SCALE / total_weight
+
+# at claim
+pending = (accRewardPerStake − agentRewardDebt) × agentWeightSnapshot / ACC_SCALE
+```
+
+`total_weight` includes an orchestrator carve-out computed at
+`emissions.orchestratorEmissionMultiplier` (raw `5000`), settled into the orchestrator
+pallet's own accumulator so orchestrators claim through
+`orchestrator.claimOrchestrator()`. Orchestrator fees are bounded by
+`orchestrator.maxOrchestratorFeeBps` (raw `500` — 5%), and an account cannot link to
+itself.
+
+Every balance operation on these paths uses `saturating_*` or `checked_*`. There is no bare
+arithmetic on a `Balance` anywhere in the emission path.
+
+## What earns nothing
+
+This is the part worth being blunt about, because it inverts the usual expectation.
+
+**There is no stake-only emission pool.** A passive staker with no escrow volume earns
+exactly zero, regardless of stake size, rank, or heartbeat. The chain of reasoning is
+mechanical:
+
+```text
+era_volume == 0
+  → is_active = false            → effective_floor = 0
+  → work_score = 0               → gov_contribution = 0   (gated on work_score > 0)
+  → activity = 0
+  → weight = √stake × rank × 0 × heartbeat = 0
+```
+
+Zero weight is zero share of the pool. Stake is a *prerequisite and a multiplier*, never a
+source of yield on its own.
+
+Below the qualifying thresholds the behaviour is graded rather than binary, and the two
+thresholds do different jobs:
+
+| Era escrow volume | Floor baseline | Work score | Emissions |
+|---|---|---|---|
+| 0 | none | 0 | **zero** |
+| below `unitVolume` (10 CMN) | none | 0 — `log2_scaled` returns 0 | **zero** |
+| 10 – 50 CMN | none — below `minQualifyingVol` | positive | positive, no baseline |
+| ≥ 50 CMN, heartbeat ≥ 90 | `floor_bps` | positive | positive, with baseline |
+
+So `minQualifyingVol` gates the **floor baseline**, not participation. `unitVolume` is the
+threshold below which work scores nothing at all.
+
+### The oracle term is inert as configured
+
+The oracle bonus is real in the formula and currently contributes **exactly zero on
+chain**: the runtime wires `type OracleScoreProvider = ()`, whose `best_score` returns 0. So
+the `+20%` `oracleBonusBps` term multiplies by nothing until a score provider is wired in.
+`oracle.oracleScore` storage is still populated by the oracle pallet, and
+`ScalarCommonsApi.get_oracle_score` still reads it — the value simply does not yet reach
+the weight calculation.
+
+Treat any modelled earnings that lean on the oracle term as describing an intended future
+configuration, not today's chain.
+
+## Fees and the treasury
+
+The escrow completion fee is a percentage of agreement value, not a flat charge:
+
+<!-- chain-check:constants -->
+
+| Parameter | Genesis | Raw | Bounds |
+|---|---|---|---|
+| `autoParams.initialCompletionFeeBps` | 25 bps = 0.25% | `25` | max 2,500 bps (25%), max step 25 bps/era |
+
+It is storage-backed and auto-params-adjustable within those bounds, so read
+`autoParams.completionFeeBps` rather than assuming 25. Completion fees and the treasury half
+of any slash accrue to the treasury, which starts with 5B CMN from genesis and is spent
+through OpenGov Track 1 proposals.
+
+Slashes split between burn and treasury. A slashed agent may appeal within
+`agents.slashAppealWindow` (raw `10`).
+
+## Constitutional floors
+
+`pallet-constitution` holds minimums that other parameters may not undercut, as a
+second line of defence against a governance change that guts a gaming guard:
+
+<!-- chain-check:constants -->
+
+| Constant | Value | Raw |
+|---|---|---|
+| `constitution.minUnstakeCooldown` | 100,800 blocks = 7 days | `100800` |
+| `constitution.minChallengeWindow` | 600 blocks = 1 hour | `600` |
+| `constitution.minRegistrationBurn` | 10 CMN | `10000000000000` |
+| `agents.unstakeCooldown` — the value being floored | 100,800 blocks = 7 days | `100800` |
+| `oracle.minChallengeWindow` — the value being floored | 600 blocks = 1 hour | `600` |
+| `agents.baseRegistrationFee` — the value being floored | 50 CMN | `50000000000000` |
+
+The lower half of that table is the point: each configured value is compared against its
+constitutional floor, so the gate fails if a parameter change drops one below its minimum.
+`agents.unstakeCooldown` sits *exactly* at the floor, so exit takes 7 days from
+`agents.requestUnstake` to `agents.completeUnstake` — and an agent with active agreements
+cannot start the clock at all. The registration burn has more headroom, at 50 CMN against a
+10 CMN floor.
+
+## Provenance
+
+Every raw value on this page is read from a live node and mechanically re-checked.
+
+| Field | Value |
+|---|---|
+| Chain | Scalar Commons Local Testnet |
+| Runtime | `scalar-commons` spec 304 |
+| Metadata | v15 |
+| Token | CMN, 12 decimals, SS58 42 |
+| Validators | 5 |
+
+The mechanism, in order:
+
+1. `npm run snapshot:chain` connects to a node (default `ws://127.0.0.1:9944`), reads
+   metadata, and writes `docs/.chain/snapshot.json` — pallet indices, every pallet
+   constant, the extrinsic and storage surface, runtime API signatures, and the RPC method
+   list, with a provenance block recording endpoint, block height, genesis hash and node
+   version.
+2. `npm run lint` runs `scripts/check-chain-values.mjs`, which fails if any documented raw
+   value disagrees with the snapshot, if a pallet index is wrong, if a custom pallet's
+   extrinsic is undocumented, or if a `ScalarCommonsApi` method is missing from the RPC
+   reference.
+
+Only runtime-*defined* facts are snapshotted. Volatile state — issuance, era number,
+balances — is deliberately excluded: documenting it would guarantee it goes stale. Where
+this page cites live state (the validator count above), read it as an observation of the
+reference devnet, not an invariant.
+
+::: tip Re-verify against your own node
+
+```bash
+cd docs
+npm run snapshot:chain -- ws://your-node:9944
+npm run lint
+```
+
+A failure here is a real finding: either the docs are stale or the runtime changed
+without the docs following.
+:::
+
+### Known discrepancy in older records
+
+`docs/VERIFIED-CONSTANTS.md` records `InitialAlpha = 4,000`. The live runtime sets
+**1,500** (`runtime/src/lib.rs`, `AutoInitialAlpha`), confirmed against both
+`autoParams.initialAlpha` and the live `autoParams.alpha()` storage value at spec 304. That
+document was authored against an earlier commit and has not been re-verified since; this
+page's value is the current one. Its formula transcription and its findings list remain
+accurate and are worth reading alongside this page.
