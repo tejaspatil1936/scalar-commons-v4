@@ -1,0 +1,20 @@
+{
+  "name": "@scalar-commons/landing",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Public landing page for Scalar Commons. Every chain figure on the page is generated from runtime metadata read off a live node (chain-facts.json) — nothing is hand-typed.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node --test",
+    "fetch:chain-facts": "node scripts/fetch-chain-facts.mjs",
+    "verify:chain": "node scripts/verify-chain.mjs"
+  },
+  "devDependencies": {
+    "@polkadot/api": "16.5.6"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
