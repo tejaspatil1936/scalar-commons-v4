@@ -32,10 +32,21 @@
 #
 # Two rules follow, and both are load-bearing:
 #   1. The prompt is fed on STDIN (`claude -p < "$pf"`), never as an argument.
-#      Prompt size can then never fail an exec.
+#      A redirect passes a file descriptor, so prompt size is irrelevant to
+#      exec and E2BIG cannot recur AT ANY DIFF SIZE. This redirect — not the
+#      size caps — is what makes the bug impossible. Do not "optimise" it into
+#      `claude -p "$(cat …)"`; factory/tests/verdict-parse.sh asserts against
+#      that exact regression and will go red.
 #   2. The exit code is captured and a non-zero exit is ERROR, never FAIL.
 #      "The reviewer could not run" and "the reviewer objects" are different
 #      facts and must never be collapsed into one.
+#
+# MAX_REVIEW_DIFF_LINES / MAX_REVIEW_DIFF_BYTES bound the diff for
+# REVIEWABILITY, not for exec safety. They are not a second E2BIG defence, and
+# raising them cannot reintroduce the bug. They have their own hazard: at 1500
+# lines the review of PR #85 had a file truncated out and the reviewer invented
+# two findings from the gap, so a too-low cap does not merely lose coverage, it
+# manufactures false findings. Truncation is therefore always disclosed.
 #
 # A second, independent bug lived here too: run_lens returned its verdict on
 # stdout while also calling log(), which writes to stdout. The caller's
@@ -77,7 +88,8 @@ FACTORY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Defaults live in config.env; these are the belt-and-braces fallbacks so the
 # script is still correct if it is ever sourced with a truncated config.
-: "${MAX_REVIEW_DIFF_LINES:=1500}"
+: "${MAX_REVIEW_DIFF_LINES:=2500}"
+: "${MAX_REVIEW_DIFF_BYTES:=200000}"
 : "${REVIEW_EXCLUDE_GLOBS:=**/package-lock.json **/pnpm-lock.yaml **/yarn.lock **/*.min.js **/*.min.css **/dist/** **/build/** **/node_modules/** **/*.map **/*snapshot.json}"
 : "${REVIEW_MANIFEST_GLOBS:=**/package.json **/Cargo.toml}"
 : "${REVIEW_LENS_TIMEOUT:=900}"
@@ -90,12 +102,108 @@ list_inline() {
   paste -sd, "$1" | sed 's/,/, /g'
 }
 
+# ---------------------------------------- the decision logic, in one place ---
+# Everything that turns raw lens output into a verdict, a status and a labelling
+# decision lives in these four functions, defined UP HERE so the self-test
+# entrypoints below can reach them before the script does any work.
+#
+# They are deliberately pure: no globals, no side effects, no network. That is
+# what makes factory/tests/verdict-parse.sh able to test THE REAL CODE instead
+# of keeping a private copy that drifts out of agreement with it (which is
+# exactly what happened before: the test stayed green while asserting rules
+# review.sh no longer had).
+
+# Robust against the ways a model actually writes the line: markdown emphasis
+# (**VERDICT: PASS**), stray whitespace, lower case. Requires the colon form, so
+# prose like "the verdict was a fail" cannot be mistaken for a verdict line.
+# The LAST match wins — a model that reconsiders mid-answer is taken at its
+# final word. Only ever run against the model's captured stdout.
+# Prints PASS, FAIL, or nothing at all when there is no parseable verdict.
+parse_verdict() {
+  local f="$1" m
+  [ -s "$f" ] || return 0
+  m="$(grep -oiE 'verdict[[:space:]]*:[[:space:]]*[*_[:space:]]{0,6}(pass|fail)' "$f" | tail -1)"
+  [ -n "$m" ] || return 0
+  case "$(printf '%s' "$m" | tr '[:upper:]' '[:lower:]')" in
+    *pass) printf 'PASS' ;;
+    *fail) printf 'FAIL' ;;
+  esac
+}
+
+# classify_lens_result <exit-code> <stdout-file> -> PASS | FAIL | ERROR
+#
+# The one rule that matters: a call that did not complete produced no
+# judgement. Recording that as FAIL would invent an objection the model never
+# made; recording it as PASS would be worse. It is ERROR.
+classify_lens_result() {
+  local rc="$1" f="$2" v
+  case "$rc" in
+    ''|*[!0-9-]*) printf 'ERROR'; return 0 ;;   # unusable exit code
+  esac
+  [ "$rc" -eq 0 ] || { printf 'ERROR'; return 0; }
+  v="$(parse_verdict "$f")"
+  [ -n "$v" ] || { printf 'ERROR'; return 0; }
+  printf '%s' "$v"
+}
+
+# overall_status <passes> <fails> <errors> -> PASS | FAIL | INCONCLUSIVE
+#
+# An incomplete review is never a pass, whatever the tally of the lenses that
+# did run.
+overall_status() {
+  local p="$1" f="$2" e="$3"
+  if   [ "$e" -gt 0 ]; then printf 'INCONCLUSIVE'
+  elif [ "$f" -gt 0 ]; then printf 'FAIL'
+  elif [ "$p" -ge 2 ]; then printf 'PASS'
+  else                      printf 'INCONCLUSIVE'
+  fi
+}
+
+# review_labels <passes> <fails> <errors> -> "<agent-reviewed> <needs-human>"
+# as two yes/no words.
+#
+# agent-reviewed requires >=2 PASS *and* that every lens actually ran: a review
+# with a dead lens must not be labelled as having cleared the bar.
+review_labels() {
+  local p="$1" f="$2" e="$3" reviewed=no human=no
+  { [ "$p" -ge 2 ] && [ "$e" -eq 0 ]; } && reviewed=yes
+  { [ "$f" -gt 0 ] || [ "$e" -gt 0 ]; } && human=yes
+  printf '%s %s' "$reviewed" "$human"
+}
+
 usage() {
   printf 'usage: review.sh [--dry-run] <pr-number>\n'
   printf '  --dry-run   run all three lenses and print exit code + verdict +\n'
   printf '              reasons, but post no comment, apply no label, merge\n'
   printf '              nothing. Lenses still cost spawns.\n'
+  printf '\n'
+  printf 'Self-test entrypoints (used by factory/tests/verdict-parse.sh so the\n'
+  printf 'test exercises this file rather than a copy of it). Each prints one\n'
+  printf 'line and exits without touching the network:\n'
+  printf '  --parse-verdict <file>        PASS | FAIL | (empty)\n'
+  printf '  --classify <rc> <file>        PASS | FAIL | ERROR\n'
+  printf '  --status <pass> <fail> <err>  PASS | FAIL | INCONCLUSIVE\n'
+  printf '  --labels <pass> <fail> <err>  "<agent-reviewed> <needs-human>"\n'
 }
+
+# ------------------------------------------------- self-test entrypoints -----
+# Placed immediately after the functions they expose and before any work is
+# done, so a test invocation can never fetch a diff, spend a spawn, or touch a
+# PR. Dispatched on $1 only.
+case "${1:-}" in
+  --parse-verdict)
+    [ $# -eq 2 ] || die "--parse-verdict needs exactly one file"
+    parse_verdict "$2"; printf '\n'; exit 0 ;;
+  --classify)
+    [ $# -eq 3 ] || die "--classify needs <rc> <file>"
+    classify_lens_result "$2" "$3"; printf '\n'; exit 0 ;;
+  --status)
+    [ $# -eq 4 ] || die "--status needs <pass> <fail> <err>"
+    overall_status "$2" "$3" "$4"; printf '\n'; exit 0 ;;
+  --labels)
+    [ $# -eq 4 ] || die "--labels needs <pass> <fail> <err>"
+    review_labels "$2" "$3" "$4"; printf '\n'; exit 0 ;;
+esac
 
 # ------------------------------------------------------------- arguments ----
 # Flags are accepted in any position: `review.sh --dry-run 85` and
@@ -186,30 +294,57 @@ RAW_LINES=$(wc -l < "$WORK/raw.diff")
 FILTERED_LINES=$(wc -l < "$WORK/filtered.diff")
 EXCLUDED_N=$(grep -c '' "$WORK/excluded.txt" 2>/dev/null || echo 0)
 
-# ---------------------------------------------------------- the line cap ----
-# Even after exclusion a diff can be enormous. Truncate at FILE BOUNDARIES so
-# the reviewer never sees half a hunk, and record exactly which files fell off
-# the end. Silent truncation would be worse than no truncation: it reads as
-# full coverage when it is not.
+# ------------------------------------------------------------- the caps -----
+# Even after exclusion a diff can be enormous. TWO ceilings apply, whichever
+# binds first:
+#
+#   MAX_REVIEW_DIFF_LINES  lines  — the ordinary size limit
+#   MAX_REVIEW_DIFF_BYTES  bytes  — the pathological-input limit
+#
+# The byte ceiling exists because lines are a bad proxy for size. A diff of
+# generated-but-not-globbed content (one-line JSON blobs, embedded base64, a
+# minified file that dodged the exclusion list) can be a handful of lines and
+# still megabytes, which would produce an unreviewably huge prompt. It is NOT
+# there to keep an argv string under a limit — the prompt goes on stdin, so
+# exec limits do not apply at any size.
+#
+# Truncation happens at FILE BOUNDARIES so the reviewer never sees half a hunk,
+# and every file that fell off the end is recorded. Silent truncation would be
+# worse than no truncation: it reads as full coverage when it is not.
 : > "$WORK/omitted.txt"
-awk -v cap="$MAX_REVIEW_DIFF_LINES" -v omit="$WORK/omitted.txt" '
-function flush(   i, lim) {
+: > "$WORK/trunc-reason.txt"
+awk -v cap="$MAX_REVIEW_DIFF_LINES" -v bcap="$MAX_REVIEW_DIFF_BYTES" \
+    -v omit="$WORK/omitted.txt" -v reason="$WORK/trunc-reason.txt" '
+function flush(   i) {
   if (nrec == 0) return
-  if (!stopped && total + nrec <= cap) {
+
+  # Already stopped: every remaining file is simply declared omitted.
+  if (stopped) { print curfile > omit; nrec = 0; rbytes = 0; return }
+
+  # Whole file fits under both ceilings.
+  if (total + nrec <= cap && bytes + rbytes <= bcap) {
     for (i = 1; i <= nrec; i++) print rec[i]
-    total += nrec; nrec = 0; return
-  }
-  # A single file larger than the whole cap: emit a prefix of it rather than
-  # nothing at all, and declare it partial.
-  if (!stopped && total == 0) {
-    lim = cap
-    for (i = 1; i <= lim; i++) print rec[i]
-    total = cap; stopped = 1; nrec = 0
-    print curfile " (cut mid-file)" > omit
+    total += nrec; bytes += rbytes; nrec = 0; rbytes = 0
     return
   }
-  stopped = 1; nrec = 0
-  print curfile > omit
+
+  # It does not fit. Record WHICH ceiling stopped us, for the disclosure.
+  if (total + nrec > cap) why = sprintf("line cap (%d lines)", cap)
+  else                    why = sprintf("byte cap (%d bytes)", bcap)
+
+  if (total == 0) {
+    # A single file bigger than an entire ceiling. Emit the prefix that does
+    # fit rather than nothing at all, and declare it cut mid-file.
+    for (i = 1; i <= nrec; i++) {
+      if (total + 1 > cap) break
+      if (bytes + length(rec[i]) + 1 > bcap) break
+      print rec[i]; total++; bytes += length(rec[i]) + 1
+    }
+    print curfile " (cut mid-file)" > omit
+  } else {
+    print curfile > omit
+  }
+  stopped = 1; nrec = 0; rbytes = 0
 }
 /^diff --git / {
   flush()
@@ -217,20 +352,25 @@ function flush(   i, lim) {
   sub(/^diff --git a\//, "", curfile)
   sub(/ b\/.*$/, "", curfile)
 }
-{ rec[++nrec] = $0 }
-END { flush() }
+{ rec[++nrec] = $0; rbytes += length($0) + 1 }
+END { flush(); if (stopped) print why > reason }
 ' "$WORK/filtered.diff" > "$WORK/review.diff"
 
 REVIEW_LINES=$(wc -l < "$WORK/review.diff")
+REVIEW_BYTES=$(wc -c < "$WORK/review.diff")
+FILTERED_BYTES=$(wc -c < "$WORK/filtered.diff")
+TRUNC_REASON="$(cat "$WORK/trunc-reason.txt" 2>/dev/null || true)"
 TRUNCATED=0
 [ -s "$WORK/omitted.txt" ] && TRUNCATED=1
 
-log "diff: raw $RAW_LINES lines -> filtered $FILTERED_LINES -> review $REVIEW_LINES (mode: $DIFF_MODE)"
+log "diff: raw $RAW_LINES lines -> filtered $FILTERED_LINES ($FILTERED_BYTES B) -> review $REVIEW_LINES lines / $REVIEW_BYTES B (mode: $DIFF_MODE)"
+log "caps: $MAX_REVIEW_DIFF_LINES lines / $MAX_REVIEW_DIFF_BYTES bytes"
 log "$EXCLUDED_N file(s) excluded as generated/vendored; names still shown to every lens"
 if [ "$TRUNCATED" = "1" ]; then
-  warn "REVIEW DIFF TRUNCATED at $MAX_REVIEW_DIFF_LINES lines — coverage is PARTIAL."
+  warn "REVIEW DIFF TRUNCATED by the ${TRUNC_REASON:-cap} — coverage is PARTIAL."
+  warn "shown: $REVIEW_LINES lines / $REVIEW_BYTES bytes of $FILTERED_LINES lines / $FILTERED_BYTES bytes"
   warn "omitted files: $(tr '\n' ' ' < "$WORK/omitted.txt")"
-  warn "raise MAX_REVIEW_DIFF_LINES in factory/config.env to widen coverage"
+  warn "raise MAX_REVIEW_DIFF_LINES / MAX_REVIEW_DIFF_BYTES in factory/config.env to widen coverage"
 fi
 
 # ------------------------------------------------------------ the issue -----
@@ -292,7 +432,9 @@ MATERIAL="$WORK/material.txt"
   fi
   if [ "$TRUNCATED" = "1" ]; then
     printf '\ndiff truncated at %s lines; omitted files: %s\n' \
-      "$MAX_REVIEW_DIFF_LINES" "$(list_inline "$WORK/omitted.txt")"
+      "$REVIEW_LINES" "$(list_inline "$WORK/omitted.txt")"
+    printf 'Ceiling that bound: %s. Shown %s lines / %s bytes of %s lines / %s bytes.\n' \
+      "$TRUNC_REASON" "$REVIEW_LINES" "$REVIEW_BYTES" "$FILTERED_LINES" "$FILTERED_BYTES"
     printf '\nCOVERAGE IS PARTIAL. Judge the material you were actually given. Partial\n'
     printf 'coverage is not by itself a reason to FAIL; base your verdict on what is\n'
     printf 'visible, and state explicitly in your reasons which files you could not\n'
@@ -414,23 +556,6 @@ the doubt. Uncertainty caused by material you were not given is not a reason to
 FAIL — say what you could not see instead.
 Before that line, give your reasons concisely, citing file:line from the diff.'
 
-# ------------------------------------------------------- verdict parsing ----
-# Robust against the ways a model actually writes the line: markdown emphasis
-# (**VERDICT: PASS**), stray whitespace, lower case. Requires the colon form, so
-# prose like "the verdict was a fail" cannot be mistaken for a verdict line.
-# The LAST match wins — a model that reconsiders mid-answer is taken at its
-# final word. Only ever run against the model's captured stdout.
-parse_verdict() {
-  local f="$1" m
-  [ -s "$f" ] || return 0
-  m="$(grep -oiE 'verdict[[:space:]]*:[[:space:]]*[*_[:space:]]{0,6}(pass|fail)' "$f" | tail -1)"
-  [ -n "$m" ] || return 0
-  case "$(printf '%s' "$m" | tr '[:upper:]' '[:lower:]')" in
-    *pass) printf 'PASS' ;;
-    *fail) printf 'FAIL' ;;
-  esac
-}
-
 # run_lens <name>
 #
 # Writes, and returns nothing on stdout:
@@ -480,8 +605,13 @@ run_lens() {
   # files leak in. --dangerously-skip-permissions keeps it non-interactive; the
   # reviewer has nothing to write anyway.
   #
-  # THE PROMPT GOES ON STDIN. Never `claude -p "$(cat "$pf")"`: a prompt over
-  # 131072 bytes makes execve() fail with E2BIG and the lens never runs.
+  # THE PROMPT IS DELIVERED ON STDIN, AS A FILE REDIRECT — never as an argv
+  # string. `claude -p "$(cat "$pf")"` would put the whole prompt in one argv
+  # element, and Linux caps a single argument at MAX_ARG_STRLEN (131072 bytes),
+  # so any large diff would fail execve() with E2BIG before claude started.
+  # A redirect passes a file descriptor, so prompt size is irrelevant to exec
+  # and E2BIG cannot recur at any diff size. The caps below exist for
+  # reviewability, NOT to keep an argv string under a limit.
   ( cd "$WORK" && timeout "$REVIEW_LENS_TIMEOUT" claude -p --dangerously-skip-permissions ) \
     < "$pf" > "$out" 2> "$err"
   rc=$?
@@ -492,35 +622,28 @@ run_lens() {
     start_backoff "$BACKOFF_MINUTES"
   fi
 
-  # A call that did not complete produced no judgement. Recording that as FAIL
-  # would invent an objection the model never made; recording it as PASS would
-  # be worse. It is ERROR, and it makes the whole review INCONCLUSIVE.
-  if [ "$rc" -ne 0 ]; then
-    warn "lens $name: claude exited $rc — recording ERROR, not FAIL"
-    printf 'ERROR\n' > "$WORK/$name.result"
-    {
-      printf 'claude -p exited %s (timeout was %ss).\n' "$rc" "$REVIEW_LENS_TIMEOUT"
-      [ "$rc" = "124" ] && printf 'Exit 124 is the timeout killing the call.\n'
-      [ "$rc" = "126" ] && printf 'Exit 126 is an exec failure — check prompt size and the claude binary.\n'
-      printf 'stdout captured: %s bytes. stderr (first 20 lines):\n' "$(wc -c < "$out")"
-      head -20 "$err"
-    } > "$WORK/$name.note"
-    return 0
-  fi
-
-  v="$(parse_verdict "$out")"
-  if [ -z "$v" ]; then
-    warn "lens $name: exit 0 but no parseable VERDICT line — recording ERROR, not FAIL"
-    printf 'ERROR\n' > "$WORK/$name.result"
-    {
-      printf 'claude -p exited 0 but produced no parseable "VERDICT: PASS|FAIL" line.\n'
-      printf 'stdout captured: %s bytes. Last 20 lines of stdout:\n' "$(wc -c < "$out")"
-      tail -20 "$out"
-    } > "$WORK/$name.note"
-    return 0
-  fi
-
+  v="$(classify_lens_result "$rc" "$out")"
   printf '%s\n' "$v" > "$WORK/$name.result"
+
+  if [ "$v" = "ERROR" ]; then
+    if [ "$rc" -ne 0 ]; then
+      warn "lens $name: claude exited $rc — recording ERROR, not FAIL"
+      {
+        printf 'claude -p exited %s (timeout was %ss).\n' "$rc" "$REVIEW_LENS_TIMEOUT"
+        [ "$rc" = "124" ] && printf 'Exit 124 is the timeout killing the call.\n'
+        [ "$rc" = "126" ] && printf 'Exit 126 is an exec failure. NOTE: the prompt goes on stdin, so this is NOT a prompt-size problem — check the claude binary.\n'
+        printf 'stdout captured: %s bytes. stderr (first 20 lines):\n' "$(wc -c < "$out")"
+        head -20 "$err"
+      } > "$WORK/$name.note"
+    else
+      warn "lens $name: exit 0 but no parseable VERDICT line — recording ERROR, not FAIL"
+      {
+        printf 'claude -p exited 0 but produced no parseable "VERDICT: PASS|FAIL" line.\n'
+        printf 'stdout captured: %s bytes. Last 20 lines of stdout:\n' "$(wc -c < "$out")"
+        tail -20 "$out"
+      } > "$WORK/$name.note"
+    fi
+  fi
   return 0
 }
 
@@ -559,12 +682,13 @@ log "review status: $STATUS ($PASSES PASS / $FAILS FAIL / $ERRORS ERROR)"
 # ------------------------------------------------------------- dry run ------
 if [ "$DRY_RUN" = "1" ]; then
   printf '\n===== DRY RUN — PR #%s — nothing posted, labelled, or merged =====\n' "$PR"
-  printf 'diff:   raw %s lines -> filtered %s -> review %s  (mode: %s)\n' \
-    "$RAW_LINES" "$FILTERED_LINES" "$REVIEW_LINES" "$DIFF_MODE"
+  printf 'diff:   raw %s lines -> filtered %s -> review %s lines / %s B  (mode: %s)\n' \
+    "$RAW_LINES" "$FILTERED_LINES" "$REVIEW_LINES" "$REVIEW_BYTES" "$DIFF_MODE"
+  printf 'caps:   %s lines / %s bytes\n' "$MAX_REVIEW_DIFF_LINES" "$MAX_REVIEW_DIFF_BYTES"
   printf 'excluded as generated/vendored: %s file(s)\n' "$EXCLUDED_N"
   if [ "$TRUNCATED" = "1" ]; then
-    printf 'TRUNCATED at %s lines; omitted: %s\n' \
-      "$MAX_REVIEW_DIFF_LINES" "$(list_inline "$WORK/omitted.txt")"
+    printf 'TRUNCATED by %s; shown %s lines / %s B; omitted: %s\n' \
+      "$TRUNC_REASON" "$REVIEW_LINES" "$REVIEW_BYTES" "$(list_inline "$WORK/omitted.txt")"
   else
     printf 'not truncated\n'
   fi
@@ -607,15 +731,16 @@ COMMENT="$WORK/comment.md"
     printf '> has NOT been reviewed. It is not labelled %sagent-reviewed%s and it is\n' "$BT" "$BT"
     printf '> labelled %sneeds-human%s. A reviewer that cannot review does not pass.\n\n' "$BT" "$BT"
   fi
-  printf '**Diff coverage:** raw %s lines -> %s after excluding generated/vendored -> %s reviewed (mode: %s).\n' \
-    "$RAW_LINES" "$FILTERED_LINES" "$REVIEW_LINES" "$DIFF_MODE"
+  printf '**Diff coverage:** raw %s lines -> %s after excluding generated/vendored -> %s reviewed (%s bytes; caps %s lines / %s bytes; mode: %s).\n' \
+    "$RAW_LINES" "$FILTERED_LINES" "$REVIEW_LINES" "$REVIEW_BYTES" \
+    "$MAX_REVIEW_DIFF_LINES" "$MAX_REVIEW_DIFF_BYTES" "$DIFF_MODE"
   if [ "$EXCLUDED_N" -gt 0 ]; then
     printf 'Excluded from the diff body (names and manifest diffs were still reviewed): %s\n' \
       "$(list_inline "$WORK/excluded.txt")"
   fi
   if [ "$TRUNCATED" = "1" ]; then
-    printf '\n> **Partial coverage:** diff truncated at %s lines; omitted files: %s\n' \
-      "$MAX_REVIEW_DIFF_LINES" "$(list_inline "$WORK/omitted.txt")"
+    printf '\n> **Partial coverage:** diff truncated at %s lines (%s); omitted files: %s\n' \
+      "$REVIEW_LINES" "$TRUNC_REASON" "$(list_inline "$WORK/omitted.txt")"
   fi
   printf '\n'
   for l in "${LENSES[@]}"; do
