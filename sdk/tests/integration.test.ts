@@ -59,6 +59,7 @@ function makeMockApi() {
         register: makeTx('agents', 'register'),
         addStake: makeTx('agents', 'addStake'),
         heartbeat: makeTx('agents', 'heartbeat'),
+        recordGovVote: makeTx('agents', 'recordGovVote'),
       },
       escrow: {
         createAgreement: makeTx('escrow', 'createAgreement'),
@@ -88,7 +89,14 @@ function makeMockApi() {
       },
       system: {
         number: async () => leaf(250),
-        account: async () => ({ data: { free: leaf(1000) } }),
+        // Real `PalletBalancesAccountData`: the agent stake lock lives *inside*
+        // `free` and is reported as `frozen` — it is not a separate pot.
+        account: async () => ({
+          data: { free: leaf(1000), reserved: leaf(0), frozen: leaf(500) },
+        }),
+      },
+      balances: {
+        totalIssuance: async () => leaf(9_000),
       },
     },
     consts: { emissions: { eraDuration: leaf(100) } },
@@ -121,6 +129,7 @@ describe('ScalarCommonsClient — write method → extrinsic mapping', () => {
     await client.completeEscrow(SIGNER, PROVIDER, 0);
     await client.submitOracle(SIGNER, HASH, HASH, 3);
     await client.vote(SIGNER, 1, { Standard: { vote: { aye: true, conviction: 'Locked1x' }, balance: 100n } });
+    await client.recordGovVote(SIGNER, 9);
     await client.settleEra(SIGNER);
     await client.claim(SIGNER);
 
@@ -133,6 +142,7 @@ describe('ScalarCommonsClient — write method → extrinsic mapping', () => {
       'escrow.confirmDelivery',
       'oracle.submitResponse',
       'convictionVoting.vote',
+      'agents.recordGovVote',
       'emissions.settleEra',
       'emissions.claim',
     ]);
@@ -141,6 +151,10 @@ describe('ScalarCommonsClient — write method → extrinsic mapping', () => {
     expect(calls[0]?.args).toEqual([1_000n]);
     expect(calls[3]?.args).toEqual([PROVIDER, 500n, HASH, 1_000n, 3]);
     expect(calls[4]?.args).toEqual([PROVIDER, 0, HASH]);
+    // record_gov_vote is self-only on chain (signer must equal agent), so the SDK
+    // derives the agent argument from the signer rather than trusting a caller-
+    // supplied address that the runtime would only reject as `Unauthorized`.
+    expect(calls[8]?.args).toEqual([SIGNER, 9]);
   });
 });
 
@@ -171,11 +185,41 @@ describe('ScalarCommonsClient — read methods', () => {
     const client = new ScalarCommonsClient(api);
     const pos = await client.netPosition(PROVIDER);
     expect(pos.free).toBe(1000n);
+    expect(pos.reserved).toBe(0n);
+    expect(pos.frozen).toBe(500n);
     expect(pos.stake).toBe(500n);
     expect(pos.eraEscrowVolume).toBe(200n);
     // pending = (acc - debt) * weight / ACC_SCALE = (3-1)*ACC_SCALE * 2 / ACC_SCALE = 4
     expect(pos.pendingEmissions).toBe(4n);
-    expect(pos.total).toBe(1000n + 500n + 4n);
+    // spendable = free - max(frozen - reserved, 0) = 1000 - 500 = 500
+    expect(pos.spendable).toBe(500n);
+    // The stake lock is already part of `free`; adding it again would invent 500
+    // plancks that no account ever held.
+    expect(pos.total).toBe(1000n + 4n);
+  });
+
+  it('totalIssuance reads balances.totalIssuance', async () => {
+    const { api } = makeMockApi();
+    const client = new ScalarCommonsClient(api);
+    expect(await client.totalIssuance()).toBe(9_000n);
+  });
+
+  it('eraInfo maps a None lastSettledEra to null, not zero', async () => {
+    const { api } = makeMockApi();
+    (api as unknown as { query: { emissions: { lastSettledEra: unknown } } }).query.emissions
+      .lastSettledEra = async () => none();
+    const client = new ScalarCommonsClient(api);
+    expect((await client.eraInfo()).lastSettledEra).toBeNull();
+  });
+
+  it('fails loudly when the runtime does not expose a queried storage item', async () => {
+    const { api } = makeMockApi();
+    delete (api as unknown as { query: { emissions: Record<string, unknown> } }).query.emissions
+      .lastSettledEra;
+    const client = new ScalarCommonsClient(api);
+    await expect(client.eraInfo()).rejects.toThrow(
+      'runtime does not expose storage item emissions.lastSettledEra',
+    );
   });
 });
 

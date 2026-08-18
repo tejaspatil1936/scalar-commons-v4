@@ -12,10 +12,17 @@ described in protocol §8.3 ("archetypes cannot exist without hands"). Built on
 
 ```bash
 cd sdk
-npm install
+npm ci
 npm run build      # tsc -> dist/
-npm test           # vitest (mock-driven, no node required)
+npm run typecheck  # tsc --noEmit
+npm test           # vitest — needs a devnet at ws://127.0.0.1:9944 (see below)
 ```
+
+`npm test` runs two kinds of test. `tests/retry.test.ts` and
+`tests/integration.test.ts` drive a mock `ApiPromise` and need no node.
+`tests/live.test.ts` reads the **real runtime metadata** off a running devnet and
+fails if the node is unreachable — an SDK that cannot be checked against the
+chain it wraps is a finding, not a pass. Point it elsewhere with `WS_ENDPOINT`.
 
 ## Design rules
 
@@ -54,15 +61,44 @@ await client.disconnect();
 | `completeEscrow(signer, provider, seq)` | `escrow.confirmDelivery(...)` |
 | `submitOracle(signer, requestId, answerHash, capability)` | `oracle.submitResponse(...)` |
 | `vote(signer, pollIndex, vote)` | `convictionVoting.vote(...)` |
+| `recordGovVote(signer, pollIndex)` | `agents.recordGovVote(signerAddress, pollIndex)` |
 | `settleEra(signer)` | `emissions.settleEra()` |
 | `claim(signer)` | `emissions.claim()` |
 | `eraInfo()` | `agents.eraNumber` + `emissions.*` + `EraDuration` const |
 | `weightOf(addr)` | `emissions.agentWeightSnapshot(addr)` |
+| `totalIssuance()` | `balances.totalIssuance` |
 | `netPosition(addr)` | `system.account` + `agents.agentStake/eraEscrowVolume` + pending calc |
+
+### Reading the chain honestly
+
+Two shapes bite anyone who assumes them instead of reading the metadata:
+
+- `emissions.lastSettledEra` is an `Option<u32>`. `EraInfo.lastSettledEra` is
+  therefore `number | null` — `null` (nothing has ever settled) is not era `0`.
+- Agent stake is a **lock** (`Currency::set_lock`), so it lives *inside*
+  `system.account.data.free` and shows up as `frozen`. `NetPosition` reports
+  `free`, `reserved`, `frozen`, a `spendable` roll-up, and a `total` of
+  `free + pendingEmissions` — adding `stake` on top would report tokens that
+  were never issued.
+
+Since `record_gov_vote` is self-only on chain, `recordGovVote` derives the
+`agent` argument from `signer`; passing any other account earns `Unauthorized`.
 
 ## Integration tests against a real node
 
-Tests run against a mock `ApiPromise` by default. To also run the live read path:
+`tests/live.test.ts` runs as part of `npm test` and asserts, against the node's
+own metadata: the runtime spec version, that `agents.recordGovVote` takes
+`(agent, pollIndex)`, that `emissions.lastSettledEra` is `Option<u32>`, that
+`balances.totalIssuance` is a `u128`, and that `netPosition` does not
+double-count the stake lock. It also submits a real `recordGovVote` and requires
+the runtime to reject it on a *guard* (`NotActivelyVoting`) — proof the call
+encoded with the right arity, which a stale signature could not manage.
+
+```bash
+WS_ENDPOINT=ws://127.0.0.1:9944 npm test
+```
+
+The mock-driven suite additionally carries an opt-in live read-path check:
 
 ```bash
 RUN_INTEGRATION=1 WS_ENDPOINT=ws://127.0.0.1:9944 npm run test:integration
