@@ -27,6 +27,37 @@ const BLOCK_HASH = /^0x[0-9a-f]{64}$/i;
 const BLOCK_NUMBER = /^\d+$/;
 
 /**
+ * The largest value a block number can take.
+ *
+ * The runtime's `BlockNumber` is a `u32`. A larger value is not a block this
+ * chain could ever have: rejecting it here is what keeps it out of polkadot-js
+ * encoding, where it would throw and be reported as "the node did not answer"
+ * — a 502 blaming the node for what is a client-side typo.
+ */
+const MAX_BLOCK_NUMBER = 0xffff_ffff;
+
+/**
+ * Percent-decodes one path segment, or returns null when it is not decodable.
+ *
+ * `decodeURIComponent` throws `URIError` on a malformed escape such as a lone
+ * "%". That is a malformed request, so it has to become a 400 here rather than
+ * escaping to the server's catch-all, which reports everything it catches as an
+ * upstream node failure.
+ */
+function decodeSegment(segment: string): string | null {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
+}
+
+/** The bad-request route for a segment that is not valid percent-encoding. */
+function undecodable(segment: string): Route {
+  return { kind: 'badRequest', message: `not a valid URL-encoded path segment: ${segment}` };
+}
+
+/**
  * Parses a block reference, or returns null.
  *
  * Deliberately strict: a partially-valid hash is a typo, and resolving it to
@@ -36,7 +67,7 @@ const BLOCK_NUMBER = /^\d+$/;
 export function parseBlockRef(raw: string): BlockRef | null {
   if (BLOCK_NUMBER.test(raw)) {
     const number = Number(raw);
-    return Number.isSafeInteger(number) ? { kind: 'number', number } : null;
+    return Number.isSafeInteger(number) && number <= MAX_BLOCK_NUMBER ? { kind: 'number', number } : null;
   }
   if (BLOCK_HASH.test(raw)) {
     return { kind: 'hash', hash: raw.toLowerCase() };
@@ -66,28 +97,40 @@ export function parseRoute(url: string): Route {
   const [head, first, second] = segments;
 
   if (head === 'block' && segments.length === 2 && first !== undefined) {
-    const ref = parseBlockRef(decodeURIComponent(first));
+    const raw = decodeSegment(first);
+    if (raw === null) {
+      return undecodable(first);
+    }
+    const ref = parseBlockRef(raw);
     return ref
       ? { kind: 'block', ref }
-      : { kind: 'badRequest', message: `not a block number or block hash: ${decodeURIComponent(first)}` };
+      : { kind: 'badRequest', message: `not a block number or block hash: ${raw}` };
   }
 
   if (head === 'extrinsic' && segments.length === 3 && first !== undefined && second !== undefined) {
-    const ref = parseBlockRef(decodeURIComponent(first));
+    const raw = decodeSegment(first);
+    if (raw === null) {
+      return undecodable(first);
+    }
+    const rawIndex = decodeSegment(second);
+    if (rawIndex === null) {
+      return undecodable(second);
+    }
+    const ref = parseBlockRef(raw);
     if (!ref) {
-      return {
-        kind: 'badRequest',
-        message: `not a block number or block hash: ${decodeURIComponent(first)}`,
-      };
+      return { kind: 'badRequest', message: `not a block number or block hash: ${raw}` };
     }
-    if (!BLOCK_NUMBER.test(second)) {
-      return { kind: 'badRequest', message: `not an extrinsic index: ${decodeURIComponent(second)}` };
+    if (!BLOCK_NUMBER.test(rawIndex)) {
+      return { kind: 'badRequest', message: `not an extrinsic index: ${rawIndex}` };
     }
-    return { kind: 'extrinsic', ref, index: Number(second) };
+    return { kind: 'extrinsic', ref, index: Number(rawIndex) };
   }
 
   if (head === 'account' && segments.length === 2 && first !== undefined) {
-    const address = decodeURIComponent(first);
+    const address = decodeSegment(first);
+    if (address === null) {
+      return undecodable(first);
+    }
     return isAddress(address)
       ? { kind: 'account', address }
       : { kind: 'badRequest', message: `not a valid SS58 account address: ${address}` };

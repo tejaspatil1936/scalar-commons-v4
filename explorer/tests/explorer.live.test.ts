@@ -261,4 +261,11 @@ describe('http surface', () => {
     expect(status).toBe(404);
     expect(body).toContain('no such page');
   });
+
+  it('400s a malformed URL rather than blaming the node for it', async () => {
+    // 502 means "the node did not answer". A lone "%" never reaches the node,
+    // and neither does a block number no u32 can hold.
+    expect((await get('/block/%')).status).toBe(400);
+    expect((await get('/block/9007199254740991')).status).toBe(400);
+  });
 });
