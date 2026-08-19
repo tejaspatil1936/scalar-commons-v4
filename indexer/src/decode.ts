@@ -40,9 +40,59 @@ export function eventId(blockNumber: number, index: number): string {
   return `${blockNumber}-${index}`;
 }
 
-/** True when a metadata type names an account, including inside a collection. */
+/** Splits `A, Vec<B>, C` on its top-level commas only. */
+function topLevelArgs(generics: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < generics.length; i += 1) {
+    const char = generics[i]!;
+    if (char === '<' || char === '(' || char === '[' || char === '{') depth += 1;
+    else if (char === '>' || char === ')' || char === ']' || char === '}') depth -= 1;
+    else if (char === ',' && depth === 0) {
+      parts.push(generics.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(generics.slice(start));
+  return parts.map((part) => part.trim());
+}
+
+/**
+ * Strips homogeneous collection wrappers down to the type they hold.
+ *
+ * `Vec<AccountId32>` and `[AccountId32;4]` are collections *of* one type, so
+ * every string inside them is that type. A tuple or a struct is not: it mixes
+ * types, and is deliberately left intact so it fails the account test below.
+ */
+function leafType(type: string): string {
+  let leaf = type.trim();
+  for (;;) {
+    const array = /^\[\s*(.+?)\s*;\s*\d+\s*\]$/.exec(leaf);
+    if (array !== null) {
+      leaf = array[1]!.trim();
+      continue;
+    }
+    // `BoundedVec<T, S>` carries its bound as a second parameter; the element
+    // type is always the first.
+    const generic = /^(?:Vec|Option|BTreeSet|BoundedVec|WeakBoundedVec)<(.+)>$/.exec(leaf);
+    if (generic !== null) {
+      leaf = topLevelArgs(generic[1]!)[0]!;
+      continue;
+    }
+    return leaf;
+  }
+}
+
+/**
+ * True when a metadata type is an account, or a collection of nothing else.
+ *
+ * Anchored on the leaf type, exactly as `ingest.ts:plain()` is. A substring
+ * match would call `(AccountId32, H256)` an account type, and the walk below
+ * would then harvest the 32-byte hash beside the address as though it were one.
+ */
 function isAccountType(type: string): boolean {
-  return /AccountId/i.test(type);
+  return /^AccountId/.test(leafType(type));
 }
 
 /** Collects every string reachable from a decoded value. */
@@ -65,8 +115,9 @@ function collectStrings(value: unknown, into: string[]): void {
  *
  * This is what makes "show me everything that touched this address" answerable
  * without re-scanning the chain: the account index is built as events are
- * ingested. Only arguments the runtime metadata types as accounts are followed,
- * so a 32-byte question hash is never mistaken for an address.
+ * ingested. Only arguments whose leaf metadata type is an account are followed,
+ * so a 32-byte question hash is never mistaken for an address — including when
+ * it sits next to a real address inside a tuple or a struct.
  */
 export function accountsFromArgs(args: readonly DecodedArg[]): string[] {
   const found: string[] = [];

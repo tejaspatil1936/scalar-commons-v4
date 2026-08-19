@@ -62,6 +62,40 @@ describe('accountsFromArgs', () => {
     expect(accountsFromArgs(args)).toEqual([alice]);
   });
 
+  it('follows an optional account', () => {
+    const args: DecodedArg[] = [{ name: 'maybe', type: 'Option<AccountId32>', value: alice }];
+    expect(accountsFromArgs(args)).toEqual([alice]);
+  });
+
+  it('follows a bounded collection of accounts', () => {
+    const args: DecodedArg[] = [
+      { name: 'members', type: 'BoundedVec<AccountId32,S>', value: [alice, bob] },
+    ];
+    expect(accountsFromArgs(args)).toEqual([alice, bob]);
+  });
+
+  it('does not harvest the hash out of a tuple that also carries an account', () => {
+    // A composite type is not an account type. Walking into one indexes the
+    // 32-byte question hash beside the address as though it were an account,
+    // which is exactly what pollutes `/v1/events?account=`. Only a leaf typed
+    // `AccountId*` — or a homogeneous collection of them — is followed.
+    const args: DecodedArg[] = [
+      { name: 'pair', type: '(AccountId32,H256)', value: [alice, `0x${'ab'.repeat(32)}`] },
+    ];
+    expect(accountsFromArgs(args)).toEqual([]);
+  });
+
+  it('does not harvest the hash out of a struct that also carries an account', () => {
+    const args: DecodedArg[] = [
+      {
+        name: 'request',
+        type: '{"asker":"AccountId32","questionHash":"H256"}',
+        value: { asker: alice, questionHash: `0x${'cd'.repeat(32)}` },
+      },
+    ];
+    expect(accountsFromArgs(args)).toEqual([]);
+  });
+
   it('ignores hashes and numbers that are not accounts', () => {
     // oracle.OracleRequestFinalised { id, winning_hash, respondents_paid }
     const args: DecodedArg[] = [
