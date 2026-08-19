@@ -8,10 +8,12 @@
  */
 
 import { connectExplorerChain } from './chain.js';
+import { readIntEnv } from './config.js';
 import { createExplorerServer } from './server.js';
 
 const rpcEndpoint = process.env.EXPLORER_RPC_ENDPOINT ?? 'ws://127.0.0.1:9944';
-const port = Number(process.env.EXPLORER_PORT ?? 8080);
+// Port 0 is meaningful (ask the OS for any free port), so the range starts there.
+const port = readIntEnv('EXPLORER_PORT', process.env.EXPLORER_PORT, 8080, 0, 65_535);
 const host = process.env.EXPLORER_HOST ?? '127.0.0.1';
 
 const chain = await connectExplorerChain({ rpcEndpoint });
