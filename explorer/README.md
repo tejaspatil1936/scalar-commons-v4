@@ -2,8 +2,8 @@
 
 Web block explorer for Scalar Commons. Three views — **block**, **extrinsic**,
 **account** — server-rendered from a live node, with every page linking to the
-next: a block reaches its extrinsics, an extrinsic reaches the accounts it
-touched, and an account reaches the extrinsics that named it.
+next: a block reaches its extrinsics, and an extrinsic reaches the accounts it
+touched.
 
 ## Where the data comes from
 
@@ -34,28 +34,27 @@ events are walked as a codec tree and an account is recognised by *being* an
 renders as an object, and why a 32-byte storage hash is not mistaken for a
 public key. A string scan would both miss accounts and invent them.
 
-## Account activity is a bounded scan, and says so
+## One page view is a bounded number of node reads
 
-Substrate keeps no account-to-extrinsic index. Activity for an account can only
-be found by walking blocks, so the explorer walks a bounded window (default 50
-blocks, `EXPLORER_ACCOUNT_SCAN_BLOCKS`) and the page states the exact range it
-scanned. It never implies it searched all history.
+No view walks the chain. The index page costs one header read; a block or
+extrinsic page costs the four reads it takes to decode exactly one block; an
+account page costs one header read and one storage read. Nothing here fans a
+single request out across a range of blocks, so a visitor cannot turn one HTTP
+request into an unbounded amount of node work.
 
 ## Read-only by construction
 
-The client exposes no signing key and no `tx` surface at all, and the server
-answers only `GET`/`HEAD` (`405` otherwise). There is no request that can change
-chain or server state.
+The client exposes no signing key and no `tx` surface at all. There is no
+request that can change chain or server state.
 
 ## Routes
 
 | Path | View |
 |---|---|
-| `/` | chain identity, head, recent blocks, search |
-| `/block/:number`, `/block/:hash`, `/block/latest` | block header + its extrinsics |
+| `/` | chain identity and where the head sits |
+| `/block/:number`, `/block/:hash` | block header + its extrinsics |
 | `/extrinsic/:block/:index` | call, arguments, events, outcome, accounts touched |
-| `/account/:address` | balances, nonce, activity within the scanned window |
-| `/search?q=` | `302` to the block or account the query names; `400` if it names neither |
+| `/account/:address` | balances and nonce, at the block they were read |
 
 A block is addressed by number or hash; an extrinsic by `(block, index)`, its
 only stable on-chain coordinate.
@@ -72,7 +71,6 @@ npm start                       # http://127.0.0.1:8080
 |---|---|---|
 | `EXPLORER_RPC_ENDPOINT` | `ws://127.0.0.1:9944` | node to read from |
 | `EXPLORER_HOST` / `EXPLORER_PORT` | `127.0.0.1` / `8080` | listen address |
-| `EXPLORER_ACCOUNT_SCAN_BLOCKS` | `50` | account activity scan window |
 
 ## Tests
 
@@ -82,6 +80,6 @@ npm test
 
 The live suite talks to the devnet RPC and is **not** skippable: it submits one
 real transfer, then asserts the explorer renders that block, that extrinsic and
-both accounts, cross-checked against direct node reads. An unreachable node
+the accounts it named, cross-checked against direct node reads. An unreachable node
 fails the suite — mocking the chain would assert nothing about the only thing
 that can really break, which is decoding what a real runtime really returns.

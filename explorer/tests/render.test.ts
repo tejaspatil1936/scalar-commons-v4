@@ -163,18 +163,6 @@ const ACCOUNT: AccountView = {
   frozen: 10_000_000_000_000_000n,
   nonce: 7,
   at: { number: 42, hash: `0x${'aa'.repeat(32)}` },
-  scanned: { from: 18, to: 42 },
-  activity: [
-    {
-      blockNumber: 41,
-      blockHash: `0x${'99'.repeat(32)}`,
-      extrinsicIndex: 1,
-      section: 'balances',
-      method: 'transferKeepAlive',
-      role: 'signer',
-      outcome: { kind: 'success' },
-    },
-  ],
 };
 
 describe('renderAccount', () => {
@@ -186,30 +174,16 @@ describe('renderAccount', () => {
     expect(html).toContain('10,000 CMN');
   });
 
-  it('links each touching extrinsic back to its block and extrinsic view', () => {
-    expect(html).toContain('href="/block/41"');
-    expect(html).toContain('href="/extrinsic/41/1"');
-  });
-
-  it('states the scanned window, because activity is a bounded backward scan', () => {
-    expect(html).toContain('18');
-    expect(html).toContain('42');
-  });
-
-  it('does not pretend an empty scan means an unused account', () => {
-    const quiet = renderAccount({ ...ACCOUNT, activity: [] }, CHAIN);
-    expect(quiet).toMatch(/no extrinsics .* scanned/i);
+  it('says which block the state was read at, so a balance is never undated', () => {
+    expect(html).toContain('href="/block/42"');
+    expect(html).toContain(ACCOUNT.at.hash);
   });
 });
 
 describe('renderHome', () => {
   const home: HomeView = {
     chain: CHAIN,
-    head: { number: 42, hash: BLOCK.hash, timestampMs: BLOCK.timestampMs, extrinsicCount: 2 },
-    recentBlocks: [
-      { number: 42, hash: BLOCK.hash, timestampMs: BLOCK.timestampMs, extrinsicCount: 2 },
-      { number: 41, hash: `0x${'99'.repeat(32)}`, timestampMs: null, extrinsicCount: 1 },
-    ],
+    head: { number: 42, hash: BLOCK.hash },
   };
   const html = renderHome(home);
 
@@ -219,14 +193,9 @@ describe('renderHome', () => {
     expect(html).toContain('CMN');
   });
 
-  it('links the recent blocks it lists', () => {
+  it('links the head block, which is the way in to every other view', () => {
     expect(html).toContain('href="/block/42"');
-    expect(html).toContain('href="/block/41"');
-  });
-
-  it('offers a search box that reaches the search route', () => {
-    expect(html).toContain('action="/search"');
-    expect(html).toContain('name="q"');
+    expect(html).toContain(`href="/block/${BLOCK.hash}"`);
   });
 });
 

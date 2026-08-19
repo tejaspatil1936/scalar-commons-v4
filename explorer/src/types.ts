@@ -89,25 +89,12 @@ export interface ExtrinsicView {
   readonly accounts: readonly string[];
 }
 
-/** One extrinsic that named an account, found by the account view's block scan. */
-export interface AccountActivity {
-  readonly blockNumber: number;
-  readonly blockHash: string;
-  readonly extrinsicIndex: number;
-  readonly section: string;
-  readonly method: string;
-  /** Whether the account signed the extrinsic or was merely named by it. */
-  readonly role: 'signer' | 'touched';
-  readonly outcome: Outcome;
-}
-
 /**
- * An account: its state now, plus the extrinsics that touched it inside a
- * bounded backward scan.
+ * An account: the state the runtime holds for it, read at one specific block.
  *
- * The scan window is part of the view model on purpose. Substrate keeps no
- * account→extrinsic index, so activity can only be found by walking blocks; the
- * page must say how far it walked rather than imply it searched all history.
+ * The block the read happened at is part of the view model on purpose. Account
+ * state is a moving target, so a page that printed a balance without saying
+ * when it was true would be asserting more than it read.
  */
 export interface AccountView {
   readonly address: string;
@@ -118,21 +105,10 @@ export interface AccountView {
   readonly nonce: number;
   /** The block the account state was read at. */
   readonly at: { readonly number: number; readonly hash: string };
-  readonly scanned: { readonly from: number; readonly to: number };
-  readonly activity: readonly AccountActivity[];
 }
 
-/** A block as listed on the index page. */
-export interface BlockSummary {
-  readonly number: number;
-  readonly hash: string;
-  readonly timestampMs: bigint | null;
-  readonly extrinsicCount: number;
-}
-
-/** The index page: chain identity plus a window onto the head of the chain. */
+/** The index page: which chain this is, and where its head currently sits. */
 export interface HomeView {
   readonly chain: ChainInfo;
-  readonly head: BlockSummary;
-  readonly recentBlocks: readonly BlockSummary[];
+  readonly head: { readonly number: number; readonly hash: string };
 }

@@ -13,15 +13,7 @@
 
 import { escapeHtml, formatBalance, formatTimestamp, shortHash } from './format.js';
 import { accountPath, blockPath, extrinsicPath } from './routes.js';
-import type {
-  AccountView,
-  BlockView,
-  ChainInfo,
-  EventView,
-  ExtrinsicView,
-  HomeView,
-  Outcome,
-} from './types.js';
+import type { AccountView, BlockView, ChainInfo, EventView, ExtrinsicView, HomeView, Outcome } from './types.js';
 
 const STYLES = `
 :root { color-scheme: dark; --bg:#0d1117; --raised:#151b23; --border:#2a3340; --text:#e8edf3;
@@ -48,11 +40,6 @@ th { color:var(--dim); font-weight:600; }
 .ok { color:var(--ok); }
 .bad { color:var(--bad); }
 .unknown { color:var(--dim); }
-form.search { display:flex; gap:.5rem; margin:1.5rem 0; }
-form.search input { flex:1; padding:.5rem .6rem; background:var(--raised); color:var(--text);
-  border:1px solid var(--border); border-radius:.25rem; font-family:ui-monospace, monospace; }
-form.search button { padding:.5rem 1rem; background:var(--accent); color:#0d1117; border:0;
-  border-radius:.25rem; font-weight:600; cursor:pointer; }
 footer { padding-top:2rem; color:var(--dim); font-size:.8125rem; }
 `;
 
@@ -83,13 +70,6 @@ ${body}
 </body>
 </html>
 `;
-}
-
-function searchForm(): string {
-  return `<form class="search" action="/search" method="get">
-  <input name="q" placeholder="block number, block hash, or account address" aria-label="search">
-  <button type="submit">Search</button>
-</form>`;
 }
 
 /** Renders a dispatch outcome, keeping "unknown" visibly distinct from "success". */
@@ -125,21 +105,9 @@ function kvTable(rows: readonly (readonly [string, string])[]): string {
   return `<table class="kv"><tbody>\n${body}\n</tbody></table>`;
 }
 
-/** The index page: what chain this is, and a live window onto the head. */
+/** The index page: which chain this is, and the way in to the block view. */
 export function renderHome(view: HomeView): string {
-  const rows = view.recentBlocks
-    .map(
-      (block) => `<tr>
-  <td>${blockLinkByNumber(block.number)}</td>
-  <td>${blockLinkByHash(block.hash)}</td>
-  <td>${escapeHtml(formatTimestamp(block.timestampMs))}</td>
-  <td>${block.extrinsicCount}</td>
-</tr>`,
-    )
-    .join('\n');
-
   const body = `<h1>Scalar Commons block explorer</h1>
-${searchForm()}
 <h2>Chain</h2>
 ${kvTable([
   ['Chain', escapeHtml(view.chain.chain)],
@@ -147,13 +115,8 @@ ${kvTable([
   ['Token', `${escapeHtml(view.chain.tokenSymbol)} (${view.chain.tokenDecimals} decimals)`],
   ['SS58 format', String(view.chain.ss58Format)],
   ['Genesis hash', `<span class="mono">${escapeHtml(view.chain.genesisHash)}</span>`],
-  ['Head', `${blockLinkByNumber(view.head.number)} at ${escapeHtml(formatTimestamp(view.head.timestampMs))}`],
-])}
-<h2>Recent blocks</h2>
-<table><thead><tr><th>Block</th><th>Hash</th><th>Time</th><th>Extrinsics</th></tr></thead>
-<tbody>
-${rows}
-</tbody></table>`;
+  ['Head', `${blockLinkByNumber(view.head.number)} ${blockLinkByHash(view.head.hash)}`],
+])}`;
 
   return layout('Scalar Commons Explorer', view.chain, body);
 }
@@ -262,29 +225,10 @@ ${eventRows(view.events)}`;
   return layout(`Extrinsic ${view.block.number}-${view.index}`, chain, body);
 }
 
-/** An account: its state, and the extrinsics a bounded backward scan found for it. */
+/** An account: the state the runtime holds for it, at the block it was read. */
 export function renderAccount(view: AccountView, chain: ChainInfo): string {
   const balance = (value: bigint): string =>
     escapeHtml(formatBalance(value, chain.tokenDecimals, chain.tokenSymbol));
-
-  const activity =
-    view.activity.length === 0
-      ? `<p class="empty">Found no extrinsics naming this account in blocks ${view.scanned.from}–${view.scanned.to} — the scanned window, not all of history.</p>`
-      : `<table><thead><tr><th>Block</th><th>Extrinsic</th><th>Call</th><th>Role</th><th>Outcome</th></tr></thead><tbody>
-${view.activity
-  .map(
-    (item) => `<tr>
-  <td>${blockLinkByNumber(item.blockNumber)}</td>
-  <td><a href="${escapeHtml(
-    extrinsicPath({ kind: 'number', number: item.blockNumber }, item.extrinsicIndex),
-  )}">${item.blockNumber}-${item.extrinsicIndex}</a></td>
-  <td>${escapeHtml(`${item.section}.${item.method}`)}</td>
-  <td>${escapeHtml(item.role)}</td>
-  <td>${outcomeCell(item.outcome)}</td>
-</tr>`,
-  )
-  .join('\n')}
-</tbody></table>`;
 
   const body = `<h1>Account</h1>
 ${kvTable([
@@ -295,10 +239,7 @@ ${kvTable([
   ['Frozen', balance(view.frozen)],
   ['Nonce', String(view.nonce)],
   ['State read at', `${blockLinkByNumber(view.at.number)} <span class="mono">${escapeHtml(view.at.hash)}</span>`],
-])}
-<h2>Activity (blocks ${view.scanned.from}–${view.scanned.to})</h2>
-<p class="chain">Substrate keeps no account-to-extrinsic index, so this list comes from walking blocks ${view.scanned.from} to ${view.scanned.to} backwards. It is a window, not a complete history.</p>
-${activity}`;
+])}`;
 
   return layout('Account', chain, body);
 }
@@ -306,7 +247,6 @@ ${activity}`;
 /** An error page. The reason is chain- or user-supplied, so it is escaped like any other value. */
 export function renderError(status: number, message: string, chain: ChainInfo | null): string {
   const body = `<h1>${status}</h1>
-<p>${escapeHtml(message)}</p>
-${searchForm()}`;
+<p>${escapeHtml(message)}</p>`;
   return layout(`${status}`, chain, body);
 }

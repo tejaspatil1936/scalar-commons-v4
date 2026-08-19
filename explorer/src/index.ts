@@ -13,9 +13,8 @@ import { createExplorerServer } from './server.js';
 const rpcEndpoint = process.env.EXPLORER_RPC_ENDPOINT ?? 'ws://127.0.0.1:9944';
 const port = Number(process.env.EXPLORER_PORT ?? 8080);
 const host = process.env.EXPLORER_HOST ?? '127.0.0.1';
-const accountScanBlocks = Number(process.env.EXPLORER_ACCOUNT_SCAN_BLOCKS ?? 50);
 
-const chain = await connectExplorerChain({ rpcEndpoint, accountScanBlocks });
+const chain = await connectExplorerChain({ rpcEndpoint });
 const info = chain.chainInfo();
 const server = createExplorerServer({ chain });
 

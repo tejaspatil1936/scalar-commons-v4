@@ -2,9 +2,8 @@
  * The HTTP surface.
  *
  * A thin adapter: parse the URL into a route, ask the chain client for the view
- * model, render it. It is read-only and method-restricted — an explorer answers
- * GETs and nothing else, so there is no request that could ever change chain or
- * server state.
+ * model, render it. It is read-only by construction — the chain client it wraps
+ * has no `tx` surface at all, so no request can change chain or server state.
  *
  * Every failure mode has a distinct status, because they mean different things
  * to a visitor: 400 for "that is not a block/address at all", 404 for "the chain
@@ -21,12 +20,10 @@ import {
   type ExplorerChain,
 } from './chain.js';
 import { renderAccount, renderBlock, renderError, renderExtrinsic, renderHome } from './render.js';
-import { accountPath, blockPath, classifySearch, parseRoute } from './routes.js';
+import { parseRoute } from './routes.js';
 
 export interface ExplorerServerOptions {
   readonly chain: ExplorerChain;
-  /** How many blocks the index page lists. */
-  readonly recentBlocks?: number;
   /** Where to report node failures. Defaults to stderr; tests can silence it. */
   readonly onError?: (error: unknown) => void;
 }
@@ -43,21 +40,15 @@ function send(response: ServerResponse, status: number, html: string): void {
 /** Builds the explorer HTTP server around an already-connected chain client. */
 export function createExplorerServer(options: ExplorerServerOptions): Server {
   const { chain } = options;
-  const recentBlocks = options.recentBlocks ?? 10;
   const onError = options.onError ?? ((error: unknown) => console.error('[explorer]', error));
   const info = chain.chainInfo();
 
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
-    if (request.method !== 'GET' && request.method !== 'HEAD') {
-      send(response, 405, renderError(405, `the explorer only answers GET, not ${request.method}`, info));
-      return;
-    }
-
     const route = parseRoute(request.url ?? '/');
 
     switch (route.kind) {
       case 'home':
-        send(response, 200, renderHome(await chain.home(recentBlocks)));
+        send(response, 200, renderHome(await chain.home()));
         return;
 
       case 'block':
@@ -71,25 +62,6 @@ export function createExplorerServer(options: ExplorerServerOptions): Server {
       case 'account':
         send(response, 200, renderAccount(await chain.account(route.address), info));
         return;
-
-      case 'search': {
-        // The search box redirects rather than rendering in place, so the
-        // resulting page has the canonical URL for whatever was found — a
-        // visitor can copy it, and a link to it survives.
-        const target = classifySearch(route.query);
-        if (target.kind === 'block') {
-          response.writeHead(302, { location: blockPath(target.ref) });
-          response.end();
-          return;
-        }
-        if (target.kind === 'account') {
-          response.writeHead(302, { location: accountPath(target.address) });
-          response.end();
-          return;
-        }
-        send(response, 400, renderError(400, target.kind === 'badRequest' ? target.message : 'unrecognised search', info));
-        return;
-      }
 
       case 'badRequest':
         send(response, 400, renderError(400, route.message, info));

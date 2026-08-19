@@ -21,9 +21,7 @@ import { decodeAddress, encodeAddress } from '@polkadot/util-crypto';
 import { collectAccounts } from './accounts.js';
 import type { BlockRef } from './routes.js';
 import type {
-  AccountActivity,
   AccountView,
-  BlockSummary,
   BlockView,
   ChainInfo,
   EventView,
@@ -62,19 +60,11 @@ export interface ConnectOptions {
   readonly rpcEndpoint: string;
   /** How long to wait for the first connection before giving up. */
   readonly connectTimeoutMs?: number;
-  /**
-   * How many blocks back the account view walks looking for activity.
-   *
-   * Substrate keeps no account-to-extrinsic index, so this is a scan, and the
-   * window bounds what one page view costs the node. The page states the window
-   * it used rather than implying it searched all history.
-   */
-  readonly accountScanBlocks?: number;
 }
 
 export interface ExplorerChain {
   chainInfo(): ChainInfo;
-  home(recentBlocks?: number): Promise<HomeView>;
+  home(): Promise<HomeView>;
   block(ref: BlockRef): Promise<BlockView>;
   extrinsic(ref: BlockRef, index: number): Promise<ExtrinsicView>;
   account(address: string): Promise<AccountView>;
@@ -82,9 +72,6 @@ export interface ExplorerChain {
 }
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
-const DEFAULT_ACCOUNT_SCAN_BLOCKS = 50;
-/** How many blocks the account scan decodes at once — enough to be quick, bounded so one page view cannot flood the node. */
-const SCAN_CONCURRENCY = 8;
 
 /**
  * Pulls a required item out of the runtime metadata.
@@ -169,7 +156,6 @@ interface DecodedBlock {
 export async function connectExplorerChain(options: ConnectOptions): Promise<ExplorerChain> {
   const provider = new WsProvider(options.rpcEndpoint);
   const timeoutMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
-  const scanBlocks = Math.max(1, options.accountScanBlocks ?? DEFAULT_ACCOUNT_SCAN_BLOCKS);
 
   let api: ApiPromise;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -223,10 +209,6 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
 
   /** Turns a URL block reference into the (number, hash) pair everything else works from. */
   async function resolveBlock(ref: BlockRef): Promise<{ number: number; hash: string }> {
-    if (ref.kind === 'latest') {
-      const header = await api.rpc.chain.getHeader();
-      return { number: header.number.toNumber(), hash: header.hash.toHex() };
-    }
     if (ref.kind === 'number') {
       const hash = await api.rpc.chain.getBlockHash(ref.number);
       // A block the chain has not authored yet answers with the zero hash
@@ -378,49 +360,20 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
     };
   }
 
-  /** Runs `task` over `items` a few at a time, keeping input order. */
-  async function mapLimited<T, R>(
-    items: readonly T[],
-    limit: number,
-    task: (item: T) => Promise<R>,
-  ): Promise<R[]> {
-    const results: R[] = [];
-    for (let start = 0; start < items.length; start += limit) {
-      results.push(...(await Promise.all(items.slice(start, start + limit).map(task))));
-    }
-    return results;
-  }
-
   return {
     chainInfo(): ChainInfo {
       return info;
     },
 
-    async home(recentBlocks = 10): Promise<HomeView> {
+    async home(): Promise<HomeView> {
+      // One header read, and no block bodies: the index page is chrome that
+      // names the chain and points at its head, so it must not cost the node
+      // more than the cheapest question there is to ask it.
       const header = await api.rpc.chain.getHeader();
-      const head = header.number.toNumber();
-      const numbers = Array.from(
-        { length: Math.min(recentBlocks, head + 1) },
-        (_unused, offset) => head - offset,
-      );
-
-      const summaries = await mapLimited(numbers, SCAN_CONCURRENCY, async (number): Promise<BlockSummary> => {
-        const { hash } = await resolveBlock({ kind: 'number', number });
-        const decoded = await decodeBlock(hash);
-        return {
-          number: decoded.number,
-          hash: decoded.hash,
-          timestampMs: decoded.timestampMs,
-          extrinsicCount: decoded.extrinsics.length,
-        };
-      });
-
-      const first = summaries[0];
-      if (first === undefined) {
-        throw new BlockNotFoundError('the chain has produced no blocks');
-      }
-
-      return { chain: info, head: first, recentBlocks: summaries };
+      return {
+        chain: info,
+        head: { number: header.number.toNumber(), hash: header.hash.toHex() },
+      };
     },
 
     async block(ref: BlockRef): Promise<BlockView> {
@@ -496,31 +449,6 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
       const balance = (name: string): bigint =>
         toBigInt(structField(balances, name, 'system.account.data')) ?? 0n;
 
-      const from = Math.max(0, headNumber - scanBlocks + 1);
-      const numbers = Array.from({ length: headNumber - from + 1 }, (_unused, offset) => headNumber - offset);
-      const scanned = await mapLimited(numbers, SCAN_CONCURRENCY, async (number) => {
-        const hash = await api.rpc.chain.getBlockHash(number);
-        return decodeBlock(hash.toHex());
-      });
-
-      const activity: AccountActivity[] = [];
-      for (const decoded of scanned) {
-        for (const extrinsic of decoded.extrinsics) {
-          if (!extrinsic.accounts.includes(normalized)) {
-            continue;
-          }
-          activity.push({
-            blockNumber: decoded.number,
-            blockHash: decoded.hash,
-            extrinsicIndex: extrinsic.index,
-            section: extrinsic.section,
-            method: extrinsic.method,
-            role: extrinsic.signer === normalized ? 'signer' : 'touched',
-            outcome: extrinsic.outcome,
-          });
-        }
-      }
-
       return {
         address: normalized,
         publicKey: u8aToHex(publicKey),
@@ -529,8 +457,6 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
         frozen: balance('frozen'),
         nonce: Number(toBigInt(structField(account, 'nonce', 'system.account')) ?? 0n),
         at: { number: headNumber, hash: headHash },
-        scanned: { from, to: headNumber },
-        activity,
       };
     },
 

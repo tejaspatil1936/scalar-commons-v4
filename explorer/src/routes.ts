@@ -2,17 +2,16 @@
  * URL parsing and link building.
  *
  * The explorer's navigation contract lives here: a block links to its
- * extrinsics, an extrinsic links to the accounts it touched, and an account
- * links back to the extrinsics that named it. Keeping both halves — parsing and
- * building — in one pure module is what lets a test prove those links actually
- * resolve, instead of proving that two hand-written strings happen to match.
+ * extrinsics, and an extrinsic links to the accounts it touched. Keeping both
+ * halves — parsing and building — in one pure module is what lets a test prove
+ * those links actually resolve, instead of proving that two hand-written
+ * strings happen to match.
  */
 
 import { decodeAddress } from '@polkadot/util-crypto';
 
-/** How a block was addressed in a URL. Numbers, hashes and the head all resolve. */
+/** How a block was addressed in a URL. A block is named by its number or its hash. */
 export type BlockRef =
-  | { readonly kind: 'latest' }
   | { readonly kind: 'number'; readonly number: number }
   | { readonly kind: 'hash'; readonly hash: string };
 
@@ -21,7 +20,6 @@ export type Route =
   | { readonly kind: 'block'; readonly ref: BlockRef }
   | { readonly kind: 'extrinsic'; readonly ref: BlockRef; readonly index: number }
   | { readonly kind: 'account'; readonly address: string }
-  | { readonly kind: 'search'; readonly query: string }
   | { readonly kind: 'badRequest'; readonly message: string }
   | { readonly kind: 'notFound' };
 
@@ -36,9 +34,6 @@ const BLOCK_NUMBER = /^\d+$/;
  * for. Refusing is the honest answer.
  */
 export function parseBlockRef(raw: string): BlockRef | null {
-  if (raw === 'latest') {
-    return { kind: 'latest' };
-  }
   if (BLOCK_NUMBER.test(raw)) {
     const number = Number(raw);
     return Number.isSafeInteger(number) ? { kind: 'number', number } : null;
@@ -70,15 +65,11 @@ export function parseRoute(url: string): Route {
 
   const [head, first, second] = segments;
 
-  if (head === 'search' && segments.length === 1) {
-    return { kind: 'search', query: parsed.searchParams.get('q') ?? '' };
-  }
-
   if (head === 'block' && segments.length === 2 && first !== undefined) {
     const ref = parseBlockRef(decodeURIComponent(first));
     return ref
       ? { kind: 'block', ref }
-      : { kind: 'badRequest', message: `not a block number, block hash, or "latest": ${decodeURIComponent(first)}` };
+      : { kind: 'badRequest', message: `not a block number or block hash: ${decodeURIComponent(first)}` };
   }
 
   if (head === 'extrinsic' && segments.length === 3 && first !== undefined && second !== undefined) {
@@ -86,7 +77,7 @@ export function parseRoute(url: string): Route {
     if (!ref) {
       return {
         kind: 'badRequest',
-        message: `not a block number, block hash, or "latest": ${decodeURIComponent(first)}`,
+        message: `not a block number or block hash: ${decodeURIComponent(first)}`,
       };
     }
     if (!BLOCK_NUMBER.test(second)) {
@@ -105,36 +96,9 @@ export function parseRoute(url: string): Route {
   return { kind: 'notFound' };
 }
 
-/**
- * Decides what a search box entry meant.
- *
- * The three things a visitor holds in hand are a block number, a hash, and an
- * address, and each has a distinguishable shape — so classification is by shape,
- * never by trying candidates against the node and taking whichever answers.
- */
-export function classifySearch(query: string): Route {
-  const trimmed = query.trim();
-  const ref = parseBlockRef(trimmed);
-  if (ref && trimmed !== 'latest') {
-    return { kind: 'block', ref };
-  }
-  if (trimmed === 'latest') {
-    return { kind: 'block', ref: { kind: 'latest' } };
-  }
-  if (isAddress(trimmed)) {
-    return { kind: 'account', address: trimmed };
-  }
-  return {
-    kind: 'badRequest',
-    message: `not a block number, block hash, or account address: ${trimmed}`,
-  };
-}
-
 /** Renders a block reference back into its URL segment. */
 export function blockRefSegment(ref: BlockRef): string {
   switch (ref.kind) {
-    case 'latest':
-      return 'latest';
     case 'number':
       return String(ref.number);
     case 'hash':
