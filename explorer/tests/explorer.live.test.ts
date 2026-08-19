@@ -5,6 +5,7 @@ import type { Server } from 'node:http';
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import { Keyring } from '@polkadot/keyring';
 import type { KeyringPair } from '@polkadot/keyring/types';
+import type { AccountInfo } from '@polkadot/types/interfaces';
 import { cryptoWaitReady, mnemonicGenerate } from '@polkadot/util-crypto';
 
 import { connectExplorerChain, type ExplorerChain } from '../src/chain.js';
@@ -44,6 +45,21 @@ interface Fixture {
 }
 let transfer: Fixture;
 
+/**
+ * Resolves something the connected runtime is expected to expose.
+ *
+ * What a runtime has is only known from its metadata, so polkadot-js types
+ * every pallet lookup as possibly-undefined. Resolving through this turns
+ * "the devnet is not the runtime these tests are written against" into one
+ * specific failure rather than a `TypeError` inside a callback.
+ */
+function required<T>(value: T | undefined, what: string): T {
+  if (value === undefined) {
+    throw new Error(`the connected runtime exposes no ${what}`);
+  }
+  return value;
+}
+
 async function get(path: string): Promise<{ status: number; body: string }> {
   const response = await fetch(`${baseUrl}${path}`);
   return { status: response.status, body: await response.text() };
@@ -51,7 +67,8 @@ async function get(path: string): Promise<{ status: number; body: string }> {
 
 /** Signs and submits one transfer, then locates it in the block it landed in. */
 async function submitTransfer(sender: KeyringPair, recipient: string): Promise<Fixture> {
-  const tx = api.tx.balances.transferKeepAlive(recipient, ONE_CMN);
+  const transferKeepAlive = required(api.tx.balances?.transferKeepAlive, 'balances.transferKeepAlive call');
+  const tx = transferKeepAlive(recipient, ONE_CMN);
   const blockHash = await new Promise<string>((resolve, reject) => {
     tx.signAndSend(sender, { nonce: -1 }, (result) => {
       if (result.isError) {
@@ -216,7 +233,8 @@ describe('account view', () => {
   it('shows balances that match a direct storage read', async () => {
     const { status, body } = await get(`/account/${transfer.recipient}`);
     expect(status).toBe(200);
-    const onChain = await api.query.system.account(transfer.recipient);
+    const systemAccount = required(api.query.system?.account, 'system.account storage');
+    const onChain = (await systemAccount(transfer.recipient)) as unknown as AccountInfo;
     // The recipient was created by this suite's transfer, so its free balance is
     // exactly the drip — a value the page must print, not approximate.
     expect(onChain.data.free.toBigInt()).toBe(ONE_CMN);
