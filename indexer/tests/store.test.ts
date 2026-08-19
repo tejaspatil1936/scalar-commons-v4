@@ -73,7 +73,18 @@ describe('IndexerStore', () => {
 
   it('starts empty', () => {
     expect(store.latestBlockNumber()).toBeNull();
+    expect(store.earliestBlockNumber()).toBeNull();
     expect(store.listBlocks({ limit: 10, offset: 0 })).toEqual({ total: 0, items: [] });
+  });
+
+  it('reports how far back its history actually reaches', () => {
+    // The window an endpoint can honestly claim to cover is the oldest block
+    // held, not the startup backfill depth: the indexer keeps accumulating for
+    // as long as it runs, so history reaches further back than the window it
+    // started with.
+    for (const n of [100, 101, 102]) store.saveBlock(sampleBlock(n));
+    expect(store.earliestBlockNumber()).toBe(100);
+    expect(store.latestBlockNumber()).toBe(102);
   });
 
   it('persists a block with its extrinsics and events', () => {

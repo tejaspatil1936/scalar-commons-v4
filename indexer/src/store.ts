@@ -356,6 +356,22 @@ export class IndexerStore {
     return value === null || value === undefined ? null : asNumber(value);
   }
 
+  /**
+   * Lowest block number held, or null when the index is empty.
+   *
+   * This is how far back the index can honestly answer. The startup backfill
+   * window is not the same figure: the follower keeps accumulating for as long
+   * as it runs, so real history reaches further back than the window it began
+   * with, and an endpoint that quotes the window understates its own coverage.
+   */
+  earliestBlockNumber(): number | null {
+    const row = this.db.prepare('SELECT MIN(number) AS n FROM blocks').get() as
+      | Record<string, unknown>
+      | undefined;
+    const value = row?.n;
+    return value === null || value === undefined ? null : asNumber(value);
+  }
+
   /** Number of blocks held. */
   blockCount(): number {
     const row = this.db.prepare('SELECT COUNT(*) AS c FROM blocks').get() as Record<string, unknown>;
