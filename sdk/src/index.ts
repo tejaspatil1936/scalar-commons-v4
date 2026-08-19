@@ -11,9 +11,6 @@
  *  - No silent retries. Every retry is logged with its attempt number and the
  *    error that caused it (see {@link ./retry}).
  *  - Balances are plancks (1 CMN = 10^12 plancks) and are handled as `bigint`.
- *  - Nothing is read off `api` without checking the runtime actually exposes it.
- *    A node on the wrong spec must fail with a named pallet/item, not with an
- *    "undefined is not a function" three frames away from the cause.
  */
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import type { SubmittableExtrinsic, AddressOrPair } from '@polkadot/api/types';
@@ -47,9 +44,10 @@ export interface EraInfo {
   /**
    * Last era that was settled, or `null` if none has settled yet.
    *
-   * `emissions.lastSettledEra` is an `Option<u32>` on chain — a fresh chain
-   * genuinely holds `None`. `null` and era `0` are different facts (the F-04
-   * double-settlement guard treats them differently), so they stay distinct here.
+   * `emissions.lastSettledEra` is an `Option<u32>` on chain and a fresh chain
+   * genuinely holds `None`. `null` and era `0` are different facts — the F-04
+   * double-settlement guard treats them differently — so they stay distinct
+   * here rather than collapsing `None` to `0`.
    */
   lastSettledEra: number | null;
   /** Amount minted at the last settlement, in plancks. */
@@ -63,20 +61,17 @@ export interface NetPosition {
   /**
    * Free balance from `system.account`, in plancks.
    *
-   * This is *not* the spendable amount: pallet-agents locks stake with
+   * This is *not* the transferable amount: pallet-agents locks stake with
    * `Currency::set_lock`, and a lock restricts `free` rather than moving tokens
-   * out of it. See {@link NetPosition.spendable}.
+   * out of it. Compare {@link NetPosition.frozen} to see how much of `free` is
+   * pinned; what a transfer can actually move also depends on the existential
+   * deposit, so the SDK does not put a number on it.
    */
   free: bigint;
   /** Reserved balance, in plancks (moved out of `free` by the balances pallet). */
   reserved: bigint;
   /** Frozen (locked) balance, in plancks — includes the agent stake lock. */
   frozen: bigint;
-  /**
-   * Balance actually transferable right now: `free - max(frozen - reserved, 0)`,
-   * floored at zero. Mirrors how the balances pallet applies locks.
-   */
-  spendable: bigint;
   /** Locked agent stake, in plancks (0 if not a registered agent). */
   stake: bigint;
   /** Escrow volume transacted this era, in plancks. */
@@ -135,7 +130,11 @@ type TxFn = (...args: unknown[]) => SubmittableExtrinsic<'promise'>;
  *
  * Throws a named error when the call is absent, so pointing the SDK at a node
  * running an older spec reports the missing extrinsic instead of crashing deep
- * inside the submit path.
+ * inside the submit path. Every call site goes through this (and through
+ * {@link queryEntry}/{@link constEntry}) because polkadot-js types `api.tx`,
+ * `api.query` and `api.consts` as index signatures: under the package's
+ * `noUncheckedIndexedAccess` a direct `api.tx.agents.register` does not
+ * typecheck, and `npm run typecheck` is part of the gate.
  */
 function txEntry(api: ApiPromise, section: string, method: string): TxFn {
   const call = api.tx[section]?.[method];
@@ -400,10 +399,6 @@ export class ScalarCommonsClient {
     const free = toBig(data.free);
     const reserved = toBig(data.reserved);
     const frozen = toBig(data.frozen);
-    // Locks bite into `free` only past whatever is already reserved — the same
-    // arithmetic pallet-balances uses to answer "can this transfer succeed?".
-    const lockedInFree = frozen > reserved ? frozen - reserved : 0n;
-    const spendable = free > lockedInFree ? free - lockedInFree : 0n;
 
     const stake = toBig(stakeCodec);
     const eraEscrowVolume = toBig(escrowVolCodec);
@@ -421,7 +416,6 @@ export class ScalarCommonsClient {
       free,
       reserved,
       frozen,
-      spendable,
       stake,
       eraEscrowVolume,
       pendingEmissions,

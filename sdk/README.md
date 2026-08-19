@@ -15,14 +15,11 @@ cd sdk
 npm ci
 npm run build      # tsc -> dist/
 npm run typecheck  # tsc --noEmit
-npm test           # vitest — needs a devnet at ws://127.0.0.1:9944 (see below)
+npm test           # vitest — mock-driven, no node required
 ```
 
-`npm test` runs two kinds of test. `tests/retry.test.ts` and
-`tests/integration.test.ts` drive a mock `ApiPromise` and need no node.
-`tests/live.test.ts` reads the **real runtime metadata** off a running devnet and
-fails if the node is unreachable — an SDK that cannot be checked against the
-chain it wraps is a finding, not a pass. Point it elsewhere with `WS_ENDPOINT`.
+`npm test` is mock-driven and needs no node. The live checks against a real
+devnet are opt-in — see [Integration tests against a real node](#integration-tests-against-a-real-node).
 
 ## Design rules
 
@@ -77,28 +74,29 @@ Two shapes bite anyone who assumes them instead of reading the metadata:
   therefore `number | null` — `null` (nothing has ever settled) is not era `0`.
 - Agent stake is a **lock** (`Currency::set_lock`), so it lives *inside*
   `system.account.data.free` and shows up as `frozen`. `NetPosition` reports
-  `free`, `reserved`, `frozen`, a `spendable` roll-up, and a `total` of
-  `free + pendingEmissions` — adding `stake` on top would report tokens that
-  were never issued.
+  `free`, `reserved`, `frozen` and a `total` of `free + pendingEmissions` —
+  adding `stake` on top would report tokens that were never issued. It reports
+  no "transferable" figure: what a transfer can move also depends on the
+  existential deposit, and an advisory number that ignores it is worse than none.
 
 Since `record_gov_vote` is self-only on chain, `recordGovVote` derives the
-`agent` argument from `signer`; passing any other account earns `Unauthorized`.
+`agent` argument from `signer`; passing any other account earns `Unauthorized`
+— which the live suite proves by submitting exactly that mismatched call.
 
 ## Integration tests against a real node
 
-`tests/live.test.ts` runs as part of `npm test` and asserts, against the node's
-own metadata: the runtime spec version, that `agents.recordGovVote` takes
-`(agent, pollIndex)`, that `emissions.lastSettledEra` is `Option<u32>`, that
-`balances.totalIssuance` is a `u128`, and that `netPosition` does not
-double-count the stake lock. It also submits a real `recordGovVote` and requires
-the runtime to reject it on a *guard* (`NotActivelyVoting`) — proof the call
-encoded with the right arity, which a stale signature could not manage.
+`tests/live.test.ts` asserts, against the node's own metadata: the runtime spec
+version, that `agents.recordGovVote` takes `(agent, pollIndex)`, that
+`emissions.lastSettledEra` is `Option<u32>`, that `balances.totalIssuance` is a
+`u128`, and that `netPosition` does not double-count the stake lock. It also
+submits two real `recordGovVote` calls — one that the runtime must reject on a
+*guard* (`NotActivelyVoting`), proof the call encoded with the right arity that
+a stale signature could not manage, and one with `agent != signer` that must be
+rejected with `Unauthorized`, proof of the self-only rule the docs claim.
 
-```bash
-WS_ENDPOINT=ws://127.0.0.1:9944 npm test
-```
-
-The mock-driven suite additionally carries an opt-in live read-path check:
+It is opt-in, so `npm test` stays node-free. When enabled it **fails rather than
+skips** if the node is unreachable — an SDK that cannot be checked against the
+chain it wraps is a finding, not a pass:
 
 ```bash
 RUN_INTEGRATION=1 WS_ENDPOINT=ws://127.0.0.1:9944 npm run test:integration

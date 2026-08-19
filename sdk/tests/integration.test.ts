@@ -191,8 +191,6 @@ describe('ScalarCommonsClient — read methods', () => {
     expect(pos.eraEscrowVolume).toBe(200n);
     // pending = (acc - debt) * weight / ACC_SCALE = (3-1)*ACC_SCALE * 2 / ACC_SCALE = 4
     expect(pos.pendingEmissions).toBe(4n);
-    // spendable = free - max(frozen - reserved, 0) = 1000 - 500 = 500
-    expect(pos.spendable).toBe(500n);
     // The stake lock is already part of `free`; adding it again would invent 500
     // plancks that no account ever held.
     expect(pos.total).toBe(1000n + 4n);
@@ -210,6 +208,19 @@ describe('ScalarCommonsClient — read methods', () => {
       .lastSettledEra = async () => none();
     const client = new ScalarCommonsClient(api);
     expect((await client.eraInfo()).lastSettledEra).toBeNull();
+  });
+
+  it('eraInfo maps a Some(0) lastSettledEra to 0, not null', async () => {
+    // The other half of the `Option<u32>` contract, and the half that makes the
+    // `None` case above mean something: "era 0 has settled" and "nothing has ever
+    // settled" are different states of the chain, and the F-04 double-settlement
+    // guard branches on the difference. A decoder that answered `null` to both
+    // would pass the `None` test and still be wrong.
+    const { api } = makeMockApi();
+    (api as unknown as { query: { emissions: { lastSettledEra: unknown } } }).query.emissions
+      .lastSettledEra = async () => some(0);
+    const client = new ScalarCommonsClient(api);
+    expect((await client.eraInfo()).lastSettledEra).toBe(0);
   });
 
   it('fails loudly when the runtime does not expose a queried storage item', async () => {

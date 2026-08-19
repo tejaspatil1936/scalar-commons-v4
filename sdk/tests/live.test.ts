@@ -4,18 +4,24 @@ import { Keyring } from '@polkadot/keyring';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 import type { KeyringPair } from '@polkadot/keyring/types';
 
-import { ScalarCommonsClient } from '../src/index.js';
+import { ScalarCommonsClient, submitAndWatch } from '../src/index.js';
 
 /**
  * Live-node conformance: every shape asserted here is read from the running
  * devnet's **real runtime metadata**, never hand-written.
  *
- * The SDK's read helpers previously decoded against hand-rolled mock shapes, so
- * mismatches with the real chain (an `Option<u32>` that is `None`, a balance
- * lock that lives *inside* `free`) only surfaced in production. This suite is
- * the guard: it fails loudly if the node is unreachable rather than mocking the
- * chain away, because "cannot reach the chain" is a finding, not a pass.
+ * The SDK's read helpers decode against the real chain (an `Option<u32>` that is
+ * `None`, a balance lock that lives *inside* `free`), and this suite is what
+ * proves it rather than trusting a hand-rolled mock.
+ *
+ * Opt-in, like the live block in `integration.test.ts`: `npm test` stays the
+ * mock-driven, node-free suite it has always been, and this file runs under
+ * `RUN_INTEGRATION=1` (`npm run test:integration`). When it *is* enabled it
+ * still fails rather than skips on an unreachable node — "cannot reach the
+ * chain" is a finding, not a pass — it simply no longer forces a devnet on
+ * every `npm test`.
  */
+const RUN_LIVE = process.env.RUN_INTEGRATION === '1';
 const ENDPOINT = process.env.WS_ENDPOINT ?? 'ws://127.0.0.1:9944';
 
 /** First spec version carrying the ROUND14 `record_gov_vote(agent, poll_index)` signature. */
@@ -28,6 +34,7 @@ let alice: KeyringPair;
 let agentAddress: string;
 
 beforeAll(async () => {
+  if (!RUN_LIVE) return;
   await cryptoWaitReady();
   // `throwOnConnect` turns an unreachable node into an immediate rejection
   // instead of an invisible reconnect loop — no silent retries, ever.
@@ -46,7 +53,7 @@ afterAll(async () => {
   if (api) await api.disconnect();
 });
 
-describe('live devnet — runtime metadata matches the SDK surface', () => {
+describe.skipIf(!RUN_LIVE)('live devnet — runtime metadata matches the SDK surface', () => {
   it('is running the spec the SDK targets', () => {
     expect(api.runtimeVersion.specName.toString()).toBe('scalar-commons');
     expect(api.runtimeVersion.specVersion.toNumber()).toBeGreaterThanOrEqual(MIN_SPEC_VERSION);
@@ -69,7 +76,7 @@ describe('live devnet — runtime metadata matches the SDK surface', () => {
   });
 });
 
-describe('live devnet — read methods decode real storage', () => {
+describe.skipIf(!RUN_LIVE)('live devnet — read methods decode real storage', () => {
   it('eraInfo decodes lastSettledEra whether it is Some or None', async () => {
     // Read the head first: block numbers only ever grow, so a head sampled before
     // the call can never claim "due" for an era the call itself saw as not-yet-due.
@@ -115,7 +122,6 @@ describe('live devnet — read methods decode real storage', () => {
     expect(pos.stake).toBeGreaterThan(0n);
     expect(pos.free).toBeGreaterThanOrEqual(pos.stake);
     expect(pos.frozen).toBeGreaterThanOrEqual(pos.stake);
-    expect(pos.spendable).toBe(pos.free - (pos.frozen > pos.reserved ? pos.frozen - pos.reserved : 0n));
     expect(pos.total).toBe(pos.free + pos.pendingEmissions);
 
     // The invariant the double-count broke: no account can hold more than exists.
@@ -123,7 +129,7 @@ describe('live devnet — read methods decode real storage', () => {
   });
 });
 
-describe('live devnet — recordGovVote encodes against real metadata', () => {
+describe.skipIf(!RUN_LIVE)('live devnet — recordGovVote encodes against real metadata', () => {
   it('is rejected by the runtime guard, not by an encoding mismatch', async () => {
     // A poll Alice provably holds no live vote on. Reaching `NotActivelyVoting`
     // proves the call encoded with the right arity and types: a stale one-argument
@@ -131,6 +137,19 @@ describe('live devnet — recordGovVote encodes against real metadata', () => {
     await expect(client.recordGovVote(alice, 4_294_967_295)).rejects.toThrow(
       /^agents\.(NotActivelyVoting|PollAlreadyCredited|GovVoteCapReached)/,
     );
+  });
+
+  it('rejects an agent argument that is not the signer with Unauthorized', async () => {
+    // The reason `recordGovVote` derives `agent` from `signer` instead of taking it
+    // from the caller. `ensure!(signer == agent, Unauthorized)` is the *first* guard
+    // in `record_gov_vote`, ahead of `NotRegistered`, so a mismatched pair reaches it
+    // whatever the accounts' registration state. Submitted raw rather than through
+    // the client because the client cannot express the mismatch — which is the point.
+    const bob = new Keyring({ type: 'sr25519' }).addFromUri('//Bob');
+    const mismatched = api.tx.agents!.recordGovVote!(bob.address, 4_294_967_295);
+    await expect(
+      submitAndWatch(api, mismatched, alice, 'recordGovVote(agent!=signer)', { maxRetries: 0 }),
+    ).rejects.toThrow(/^agents\.Unauthorized/);
   });
 });
 
