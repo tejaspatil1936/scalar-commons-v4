@@ -23,7 +23,7 @@ export interface ChainIndexerOptions {
 export class ChainIndexer {
   private unsubscribe: VoidFn | null = null;
   private queue: Promise<void> = Promise.resolve();
-  private waiters: { height: number; resolve: () => void }[] = [];
+  private waiters: { height: number; resolve: () => void; fail: (error: Error) => void }[] = [];
   private readonly logger: Pick<Console, 'log' | 'error'>;
   private running = false;
 
@@ -91,8 +91,11 @@ export class ChainIndexer {
       this.unsubscribe = null;
     }
     await this.queue.catch(() => undefined);
+    // Pending waiters are failed, not resolved. Resolving them would report
+    // "the index reached block N" for a block the follower stopped short of,
+    // and a test awaiting that block would pass on a shut-down indexer.
     for (const waiter of this.waiters.splice(0)) {
-      waiter.resolve();
+      waiter.fail(new Error(`indexer stopped before reaching block #${waiter.height}`));
     }
   }
 
@@ -109,20 +112,24 @@ export class ChainIndexer {
       return Promise.resolve();
     }
     return new Promise((resolve, reject) => {
+      const onReached = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      const onFailed = (error: Error) => {
+        clearTimeout(timer);
+        reject(error);
+      };
       const timer = setTimeout(() => {
         this.waiters = this.waiters.filter((waiter) => waiter.resolve !== onReached);
-        reject(
+        onFailed(
           new Error(
             `indexer did not reach block #${height} within ${timeoutMs}ms (at #${this.syncedHeight ?? 'none'})`,
           ),
         );
       }, timeoutMs);
 
-      const onReached = () => {
-        clearTimeout(timer);
-        resolve();
-      };
-      this.waiters.push({ height, resolve: onReached });
+      this.waiters.push({ height, resolve: onReached, fail: onFailed });
     });
   }
 
