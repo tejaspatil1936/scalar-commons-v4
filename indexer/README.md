@@ -54,6 +54,14 @@ and SQLite's `INTEGER` is 64-bit, so neither can hold a `u128` planck amount.
 All are `GET`, all under `/v1`. List endpoints take `?limit=` (default 25, max
 200) and `?offset=`, and answer `{ total, limit, offset, items }`.
 
+Lists that come from live chain state — `/v1/agents`, `/v1/agents/:address/escrows`
+and `/v1/escrows` — add `truncated` and `scanLimit`. Enumerating a storage map is
+work done by the *node*, so it is bounded (512 entries) rather than trimmed after
+the fact: `?limit=1` must not cost a sweep of every agent on chain. When the
+ceiling stops a scan the list says so instead of passing off a floor as a total.
+`/v1/escrows/stats` reports the same thing as `scanTruncated`, beside the
+pallet's own `activeAgreementCount`.
+
 | # | Endpoint | Returns |
 |---|---|---|
 | 1 | `/v1/status` | Chain identity, head position, indexer sync height |
@@ -89,6 +97,12 @@ Two shapes are worth calling out:
 - **`/v1/eras/current`** exposes `dueForSettlement`, which is `settle_era`'s
   era-duration guard and nothing else. Settlement is permissionless by design;
   this flag says the window is open, not that any particular caller may act.
+- **`/v1/eras`** gives every entry the same keys, so nothing has to branch on
+  `settled` to know what it can read; the fields that do not apply are null. The
+  emission and weight totals are the ones the pallet reported at settlement, read
+  strictly — an era whose totals cannot be found is an error, never a zero.
+  `settledHistoryFrom` is the oldest block the index holds, which grows past the
+  startup backfill window for as long as the follower runs.
 
 `/v1` is a promise about response shape. Chain events change with the runtime —
 a shape change here means a new prefix, not a quiet edit.
@@ -99,9 +113,11 @@ a shape change here means a new prefix, not a quiet edit.
 npm ci && npm test
 ```
 
-Four suites are chain-free (paging rules, identifier and account extraction,
-value translation, the SQLite store). One — `tests/live.test.ts` — is
-end-to-end against the node at `INDEXER_RPC_URL`:
+Six suites are chain-free (paging rules, identifier and account extraction,
+value translation, the SQLite store, path routing and era-event shaping, and the
+one decode guard no live chain can trigger — an `AgreementStatus` variant this
+build does not know). One — `tests/live.test.ts` — is end-to-end against the node
+at `INDEXER_RPC_URL`:
 
 1. submits real extrinsics (`agents.heartbeat`, `balances.transferKeepAlive`,
    `escrow.createAgreement`) from devnet dev accounts;
