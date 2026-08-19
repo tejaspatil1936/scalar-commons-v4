@@ -84,6 +84,25 @@ function outcomeCell(outcome: Outcome): string {
   }
 }
 
+/**
+ * Renders who signed an extrinsic.
+ *
+ * `signer` is only set when the extrinsic's address decoded to an `AccountId`,
+ * which `MultiAddress::Index`, `::Raw` and `::Address20` never do. Those are
+ * still signed extrinsics, so the decision is made on `isSigned` — the field
+ * the chain itself reports — and not on whether there happened to be an account
+ * to link to. Deciding on the link alone would print "unsigned" over a
+ * signature the node did report.
+ */
+function signerCell(isSigned: boolean, signer: string | null, unsignedLabel: string): string {
+  if (signer !== null) {
+    return accountLink(signer);
+  }
+  return isSigned
+    ? '<span class="empty">signed (its address is not an AccountId)</span>'
+    : `<span class="empty">${unsignedLabel}</span>`;
+}
+
 function accountLink(address: string): string {
   return `<a class="mono" href="${escapeHtml(accountPath(address))}">${escapeHtml(address)}</a>`;
 }
@@ -130,7 +149,7 @@ export function renderBlock(view: BlockView, chain: ChainInfo): string {
     extrinsicPath({ kind: 'number', number: view.number }, extrinsic.index),
   )}">${view.number}-${extrinsic.index}</a></td>
   <td>${escapeHtml(`${extrinsic.section}.${extrinsic.method}`)}</td>
-  <td>${extrinsic.signer ? accountLink(extrinsic.signer) : '<span class="empty">unsigned</span>'}</td>
+  <td>${signerCell(extrinsic.isSigned, extrinsic.signer, 'unsigned')}</td>
   <td>${outcomeCell(extrinsic.outcome)}</td>
 </tr>`,
     )
@@ -204,7 +223,7 @@ ${kvTable([
   ['Call', escapeHtml(`${view.section}.${view.method}`)],
   ['Block', `${blockLinkByNumber(view.block.number)} <span class="mono">${escapeHtml(view.block.hash)}</span>`],
   ['Hash', `<span class="mono">${escapeHtml(view.hash)}</span>`],
-  ['Signer', view.signer ? accountLink(view.signer) : '<span class="empty">unsigned (inherent)</span>'],
+  ['Signer', signerCell(view.isSigned, view.signer, 'unsigned (inherent)')],
   ['Nonce', view.nonce === null ? '<span class="empty">—</span>' : String(view.nonce)],
   [
     'Tip',

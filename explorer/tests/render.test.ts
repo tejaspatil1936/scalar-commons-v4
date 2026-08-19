@@ -78,6 +78,22 @@ describe('renderBlock', () => {
   it('says so plainly when a block carries no extrinsics', () => {
     expect(renderBlock({ ...BLOCK, extrinsics: [] }, CHAIN)).toContain('no extrinsics');
   });
+
+  it('never calls a signed extrinsic unsigned when its address is not an AccountId', () => {
+    // MultiAddress has Index, Raw and Address20 variants besides Id, and none of
+    // them yields an AccountId to link to. The extrinsic is still signed, and
+    // saying otherwise would be the page asserting something false about chain
+    // data it did read.
+    const indexed = renderBlock(
+      {
+        ...BLOCK,
+        extrinsics: [{ ...BLOCK.extrinsics[1]!, isSigned: true, signer: null }],
+      },
+      CHAIN,
+    );
+    expect(indexed).not.toContain('unsigned');
+    expect(indexed).toContain('signed');
+  });
 });
 
 const EXTRINSIC: ExtrinsicView = {
@@ -152,6 +168,13 @@ describe('renderExtrinsic', () => {
     );
     expect(inherent).toContain('unsigned');
     expect(inherent).not.toContain('href="/account/');
+  });
+
+  it('never calls a signed extrinsic unsigned when its address is not an AccountId', () => {
+    const indexed = renderExtrinsic({ ...EXTRINSIC, isSigned: true, signer: null }, CHAIN);
+    expect(indexed).not.toContain('unsigned');
+    expect(indexed).toContain('signed');
+    expect(indexed).toContain('not an AccountId');
   });
 });
 
