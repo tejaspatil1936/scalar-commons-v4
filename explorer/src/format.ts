@@ -61,10 +61,22 @@ export function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-/** Renders the timestamp pallet's millisecond value as ISO-8601, or says it is missing. */
+/**
+ * The widest instant a JS `Date` can hold, in milliseconds either side of the
+ * epoch. `toISOString()` throws `RangeError` beyond it, and the timestamp
+ * pallet's value is a `u64` the runtime chose — so the range has to be checked
+ * rather than assumed. A field the explorer cannot read is one unreadable
+ * field; an uncaught RangeError would be a 502 for the whole page.
+ */
+const MAX_DATE_MS = 8_640_000_000_000_000n;
+
+/** Renders the timestamp pallet's millisecond value as ISO-8601, or says why it cannot. */
 export function formatTimestamp(timestampMs: bigint | null): string {
   if (timestampMs === null) {
     return 'unknown';
+  }
+  if (timestampMs > MAX_DATE_MS || timestampMs < -MAX_DATE_MS) {
+    return `out of range (${timestampMs} ms)`;
   }
   return new Date(Number(timestampMs)).toISOString();
 }

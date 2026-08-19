@@ -53,4 +53,14 @@ describe('formatTimestamp', () => {
   it('reports nothing when a block carries no timestamp', () => {
     expect(formatTimestamp(null)).toBe('unknown');
   });
+
+  it('says a timestamp is out of range rather than throwing on it', () => {
+    // Date only spans ±8.64e15 ms; toISOString() throws RangeError past that.
+    // A timestamp that far out is not reachable on a sane runtime, but an
+    // uncaught RangeError here would 502 the whole page rather than mark one
+    // field as unreadable.
+    expect(formatTimestamp(8_640_000_000_000_000n)).toBe('+275760-09-13T00:00:00.000Z');
+    expect(formatTimestamp(8_640_000_000_000_001n)).toBe('out of range (8640000000000001 ms)');
+    expect(formatTimestamp(-8_640_000_000_000_001n)).toBe('out of range (-8640000000000001 ms)');
+  });
 });

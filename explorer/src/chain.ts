@@ -288,9 +288,16 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
     const timestampMs = apiAt.query.timestamp?.now ? toBigInt(await apiAt.query.timestamp.now()) : null;
 
     const extrinsics = signedBlock.block.extrinsics.map((extrinsic, index): DecodedExtrinsic => {
-      const mine = records.filter(
-        (record) => record.phase.isApplyExtrinsic && record.phase.asApplyExtrinsic.toNumber() === index,
-      );
+      // Each record keeps the position it holds in the block's event list, so
+      // the rendered event number is the node's own index. Looking it back up
+      // with `indexOf` would rescan every record for every event, which is
+      // quadratic in a busy block.
+      const mine = [...records.entries()]
+        .filter(
+          ([, record]) =>
+            record.phase.isApplyExtrinsic && record.phase.asApplyExtrinsic.toNumber() === index,
+        )
+        .map(([position, record]) => ({ position, record }));
 
       const argsMeta = extrinsic.method.meta.args;
       const args = extrinsic.method.args.map((value, position): ExtrinsicArg => {
@@ -315,7 +322,7 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
         [
           ...(extrinsic.isSigned ? [extrinsic.signer] : []),
           ...extrinsic.method.args,
-          ...mine.flatMap((record) => Array.from(record.event.data)),
+          ...mine.flatMap(({ record }) => Array.from(record.event.data)),
         ],
         ss58Format,
       );
@@ -331,8 +338,8 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
         tip: extrinsic.isSigned ? extrinsic.tip.toBigInt() : null,
         lengthBytes: extrinsic.encodedLength,
         args,
-        events: mine.map((record) => eventView(record, records.indexOf(record))),
-        outcome: outcomeOf(mine),
+        events: mine.map(({ position, record }) => eventView(record, position)),
+        outcome: outcomeOf(mine.map(({ record }) => record)),
         accounts,
       };
     });

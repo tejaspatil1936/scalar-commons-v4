@@ -5,7 +5,7 @@ import type { Server } from 'node:http';
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import { Keyring } from '@polkadot/keyring';
 import type { KeyringPair } from '@polkadot/keyring/types';
-import type { AccountInfo } from '@polkadot/types/interfaces';
+import type { AccountInfo, EventRecord } from '@polkadot/types/interfaces';
 import { cryptoWaitReady, mnemonicGenerate } from '@polkadot/util-crypto';
 
 import { connectExplorerChain, type ExplorerChain } from '../src/chain.js';
@@ -200,6 +200,26 @@ describe('extrinsic view', () => {
     expect(body).toContain('balances.Transfer');
     expect(body).toContain('success');
     expect(body).toContain(`href="/block/${transfer.blockNumber}"`);
+  });
+
+  it('numbers each event by its position in the block, as the node recorded it', async () => {
+    const apiAt = await api.at(transfer.blockHash);
+    const systemEvents = required(apiAt.query.system?.events, 'system.events storage');
+    const records = (await systemEvents()) as unknown as EventRecord[];
+    const positions = [...records.entries()]
+      .filter(
+        ([, record]) =>
+          record.phase.isApplyExtrinsic &&
+          record.phase.asApplyExtrinsic.toNumber() === transfer.extrinsicIndex,
+      )
+      .map(([position]) => position);
+    expect(positions.length).toBeGreaterThan(0);
+
+    const { body } = await get(`/extrinsic/${transfer.blockNumber}/${transfer.extrinsicIndex}`);
+    const shown = [...body.matchAll(/<tr><td>(\d+)<\/td><td>[a-zA-Z]+\.[a-zA-Z]+<\/td>/g)].map((match) =>
+      Number(match[1]),
+    );
+    expect(shown).toEqual(positions);
   });
 
   it('links the accounts the extrinsic touched — sender and recipient both', async () => {
