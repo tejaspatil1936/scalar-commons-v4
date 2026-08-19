@@ -22,6 +22,7 @@ import type { ChainIndexer } from './indexer.ts';
 import { InvalidQueryError, parseOptionalInteger, parsePage, type Page } from './pagination.ts';
 import type { IndexerStore, PageResult } from './store.ts';
 import {
+  MAX_LIVE_SCAN,
   fetchAccountState,
   fetchAgent,
   fetchAgents,
@@ -32,6 +33,8 @@ import {
   fetchEscrows,
   fetchEscrowStats,
   fetchSupply,
+  type EraState,
+  type LiveList,
 } from './chainState.ts';
 
 /** An error that maps onto an HTTP status rather than a 500. */
@@ -87,6 +90,29 @@ function pageArray<T>(items: T[], page: Page): Record<string, unknown> {
 }
 
 /**
+ * Envelope for a list read live off the node, whose window it already applied.
+ *
+ * Carries `truncated` beside the usual fields: live enumeration is bounded so
+ * one request cannot sweep an unbounded map on the validator, and a caller has
+ * to be able to tell a complete answer from one the ceiling cut short.
+ */
+function pagedLive<T>(list: LiveList<T>, page: Page): Record<string, unknown> {
+  return {
+    total: list.total,
+    limit: page.limit,
+    offset: page.offset,
+    items: list.items,
+    truncated: list.truncated,
+    scanLimit: MAX_LIVE_SCAN,
+  };
+}
+
+/** As {@link pagedLive}, for a live list the window still has to be cut from. */
+function pageArrayLive<T>(list: LiveList<T>, page: Page): Record<string, unknown> {
+  return { ...pageArray(list.items, page), truncated: list.truncated, scanLimit: MAX_LIVE_SCAN };
+}
+
+/**
  * Validates an SS58 address and re-encodes it in this chain's format.
  *
  * The same account written with another chain's prefix must not read as a
@@ -106,6 +132,12 @@ function optionalString(query: URLSearchParams, name: string): string | undefine
   return value === null || value === '' ? undefined : value;
 }
 
+/** Reads an optional address filter, in this chain's SS58 format. */
+function optionalAddress(context: RequestContext, name: string): string | undefined {
+  const raw = optionalString(context.query, name);
+  return raw === undefined ? undefined : normalizeAddress(raw, context.chain.ss58Format);
+}
+
 /** Resolves an agent, or 404s — used by every agent-scoped route. */
 async function requireAgent(context: RequestContext, address: string) {
   const agent = await fetchAgent(context.api, address);
@@ -113,6 +145,71 @@ async function requireAgent(context: RequestContext, address: string) {
     throw notFound(`agent ${address}`);
   }
   return agent;
+}
+
+/** One settled era, exactly as the pallet reported it at settlement. */
+export interface SettledEra {
+  era: number;
+  settled: true;
+  totalEmissionPlancks: string;
+  totalWeight: string;
+  settledAtBlock: number;
+}
+
+/**
+ * Reads one field of a decoded event, refusing to guess at a missing one.
+ *
+ * Metadata may hand a field back under either spelling, and an unnamed field
+ * arrives as `arg0`. Any of those is a decode mismatch, and a decode mismatch
+ * must surface as a failure — on a supply-capped chain "this era emitted 0" is
+ * read as a fact about issuance, not as "the field could not be found".
+ */
+function requireField(data: Record<string, unknown>, ...names: string[]): unknown {
+  for (const name of names) {
+    const value = data[name];
+    if (value !== undefined && value !== null) {
+      return value;
+    }
+  }
+  throw new HttpError(
+    500,
+    `emissions.EraSettled event carries no ${names[0]} field (saw: ${Object.keys(data).join(', ') || 'nothing'})`,
+  );
+}
+
+/** Shapes an indexed `emissions.EraSettled` event into a settled-era entry. */
+export function settledEraFromEvent(event: { blockNumber: number; data: unknown }): SettledEra {
+  const data = (event.data ?? {}) as Record<string, unknown>;
+  return {
+    era: Number(requireField(data, 'era')),
+    settled: true,
+    // Emission and weight are u128-scale, so they stay decimal strings.
+    totalEmissionPlancks: String(requireField(data, 'total_emission', 'totalEmission')),
+    totalWeight: String(requireField(data, 'total_weight', 'totalWeight')),
+    settledAtBlock: event.blockNumber,
+  };
+}
+
+/**
+ * One entry of `/v1/eras`, with the same keys whether it is settled or not.
+ *
+ * A settled era and the era in progress describe different things, but a caller
+ * paging the list should not have to branch on `settled` to know which fields
+ * exist. The fields that do not apply are present and null.
+ */
+function eraEntry(settled?: SettledEra, current?: EraState): Record<string, unknown> {
+  return {
+    era: settled?.era ?? current!.era,
+    settled: settled !== undefined,
+    totalEmissionPlancks: settled?.totalEmissionPlancks ?? null,
+    totalWeight: settled?.totalWeight ?? null,
+    settledAtBlock: settled?.settledAtBlock ?? null,
+    startBlock: current?.startBlock ?? null,
+    durationBlocks: current?.durationBlocks ?? null,
+    blocksElapsed: current?.blocksElapsed ?? null,
+    blocksRemaining: current?.blocksRemaining ?? null,
+    dueForSettlement: current?.dueForSettlement ?? null,
+  };
 }
 
 export const ROUTES: readonly RouteDefinition[] = [
@@ -181,7 +278,10 @@ export const ROUTES: readonly RouteDefinition[] = [
         context.store.listExtrinsics({
           ...context.page,
           blockNumber: parseOptionalInteger(context.query, 'blockNumber'),
-          signer: optionalString(context.query, 'signer'),
+          // Through `normalizeAddress` like every other address filter: the
+          // index holds one spelling per account, so a foreign SS58 prefix must
+          // find that history rather than answer 200 with an empty list.
+          signer: optionalAddress(context, 'signer'),
           section: optionalString(context.query, 'section'),
           method: optionalString(context.query, 'method'),
         }),
@@ -222,7 +322,7 @@ export const ROUTES: readonly RouteDefinition[] = [
           blockNumber: parseOptionalInteger(context.query, 'blockNumber'),
           section: optionalString(context.query, 'section'),
           method: optionalString(context.query, 'method'),
-          account: optionalString(context.query, 'account'),
+          account: optionalAddress(context, 'account'),
         }),
         context.page,
       ),
@@ -275,7 +375,10 @@ export const ROUTES: readonly RouteDefinition[] = [
     name: 'agents.list',
     path: '/v1/agents',
     summary: 'Registered agents with live stake and era-scoped work counters.',
-    handler: async (context) => pageArray(await fetchAgents(context.api), context.page),
+    // The window goes down to the chain reader, not applied after the fact:
+    // describing an agent costs ten storage reads, so a one-row page must not
+    // cost ten reads per agent registered.
+    handler: async (context) => pagedLive(await fetchAgents(context.api, context.page), context.page),
   },
   {
     name: 'agents.get',
@@ -303,14 +406,17 @@ export const ROUTES: readonly RouteDefinition[] = [
     handler: async (context) => {
       const address = normalizeAddress(context.params.address!, context.chain.ss58Format);
       await requireAgent(context, address);
-      const all = await fetchEscrows(context.api);
-      const involved = all
-        .filter((agreement) => agreement.buyer === address || agreement.provider === address)
-        .map((agreement) => ({
-          ...agreement,
-          role: agreement.buyer === address ? 'buyer' : 'provider',
-        }));
-      return pageArray(involved, context.page);
+      const involved = await fetchEscrows(context.api, { party: address });
+      return pageArrayLive(
+        {
+          ...involved,
+          items: involved.items.map((agreement) => ({
+            ...agreement,
+            role: agreement.buyer === address ? 'buyer' : 'provider',
+          })),
+        },
+        context.page,
+      );
     },
   },
   {
@@ -325,7 +431,7 @@ export const ROUTES: readonly RouteDefinition[] = [
         provider:
           provider === undefined ? undefined : normalizeAddress(provider, context.chain.ss58Format),
       });
-      return pageArray(agreements, context.page);
+      return pageArrayLive(agreements, context.page);
     },
   },
   {
@@ -356,46 +462,39 @@ export const ROUTES: readonly RouteDefinition[] = [
     summary: 'Eras settled within the indexed window, plus the era in progress.',
     handler: async (context) => {
       const current = await fetchCurrentEra(context.api);
-      // Settled eras are reconstructed from the `EraSettled` events the indexer
-      // has seen. The emission and weight totals are the ones the pallet itself
-      // reported at settlement — this endpoint never recomputes them.
-      const settledEvents = context.store.listEvents({
-        limit: 200,
-        offset: 0,
+      const { limit, offset } = context.page;
+
+      // The era in progress is always the newest: `settle_era` settles era N
+      // and the agents pallet advances to N+1 before `EraSettled` is emitted,
+      // so no settled entry can ever tie or outrank it. That puts it at index 0
+      // of the merged list, and the settled window shifts by one behind it.
+      const currentOnPage = offset === 0;
+      const settledPage = context.store.listEvents({
+        limit: currentOnPage ? Math.max(0, limit - 1) : limit,
+        offset: currentOnPage ? 0 : offset - 1,
         section: 'emissions',
         method: 'EraSettled',
       });
-      const settled = settledEvents.items.map((event) => {
-        const data = event.data as Record<string, unknown>;
-        return {
-          era: Number(data.era),
-          settled: true,
-          totalEmissionPlancks: String(data.total_emission ?? data.totalEmission ?? '0'),
-          totalWeight: String(data.total_weight ?? data.totalWeight ?? '0'),
-          settledAtBlock: event.blockNumber,
-        };
-      });
 
-      const items = [
-        ...settled.filter((era) => era.era !== current.era),
-        {
-          era: current.era,
-          settled: false,
-          startBlock: current.startBlock,
-          durationBlocks: current.durationBlocks,
-          blocksElapsed: current.blocksElapsed,
-          blocksRemaining: current.blocksRemaining,
-          dueForSettlement: current.dueForSettlement,
-        },
-      ].sort((a, b) => b.era - a.era);
+      // Settled eras are reconstructed from the `EraSettled` events the indexer
+      // has seen. The emission and weight totals are the ones the pallet itself
+      // reported at settlement — this endpoint never recomputes them, and never
+      // substitutes a zero for a total it could not find.
+      const settled = settledPage.items.map((event) => eraEntry(settledEraFromEvent(event)));
+      const items = currentOnPage ? [eraEntry(undefined, current), ...settled] : settled;
 
       return {
-        ...pageArray(items, context.page),
-        // The settled history is only as deep as the indexed window; say so
-        // rather than let an empty list read as "no era was ever settled".
-        settledHistoryFrom: context.store.listBlocks({ limit: 1, offset: 0 }).items[0]
-          ? Math.max(0, (context.indexer.syncedHeight ?? 0) - context.config.backfillDepth + 1)
-          : null,
+        // `total` counts every settled era the index holds, not the ones on
+        // this page, plus the one in progress.
+        total: settledPage.total + 1,
+        limit,
+        offset,
+        items,
+        // The settled history is only as deep as the index reaches; say so
+        // rather than let an empty list read as "no era was ever settled". That
+        // depth is the oldest block held, which grows past the startup backfill
+        // window for as long as the follower runs.
+        settledHistoryFrom: context.store.earliestBlockNumber(),
       };
     },
   },
@@ -428,7 +527,26 @@ const COMPILED: CompiledRoute[] = ROUTES.map((route) => ({
   segments: route.path.split('/').filter((segment) => segment.length > 0),
 }));
 
-/** Resolves a request path to a route, filling its `:params`. */
+/**
+ * Percent-decodes one path segment.
+ *
+ * `decodeURIComponent` throws `URIError` on a malformed escape — `%` on its own
+ * is enough — and that byte is entirely under an anonymous caller's control. It
+ * has to become a client error here; escaping as a raw fault kills the process.
+ */
+function decodeSegment(segment: string, name: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    throw new HttpError(400, `path parameter ${name} is not valid percent-encoding: "${segment}"`);
+  }
+}
+
+/**
+ * Resolves a request path to a route, filling its `:params`.
+ *
+ * @throws {HttpError} 400 when a parameter segment is malformed percent-encoding.
+ */
 export function matchRoute(pathname: string): { route: RouteDefinition; params: Record<string, string> } | null {
   const parts = pathname.split('/').filter((segment) => segment.length > 0);
   for (const route of COMPILED) {
@@ -439,7 +557,8 @@ export function matchRoute(pathname: string): { route: RouteDefinition; params: 
       const expected = route.segments[i]!;
       const actual = parts[i]!;
       if (expected.startsWith(':')) {
-        params[expected.slice(1)] = decodeURIComponent(actual);
+        const name = expected.slice(1);
+        params[name] = decodeSegment(actual, name);
       } else if (expected !== actual) {
         matched = false;
         break;
@@ -469,28 +588,41 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
  */
 export function createApiServer(dependencies: ApiDependencies): Server {
   return createServer((req: IncomingMessage, res: ServerResponse) => {
-    void handle(req, res, dependencies);
+    // Last resort. `handle` catches its own failures, so reaching here means
+    // the response itself could not be written — and an unhandled rejection
+    // takes the whole process down under Node's default policy, turning one
+    // malformed anonymous request into an outage.
+    handle(req, res, dependencies).catch((error) => {
+      if (!res.headersSent) {
+        sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
+      } else {
+        res.end();
+      }
+    });
   });
 }
 
 async function handle(req: IncomingMessage, res: ServerResponse, dependencies: ApiDependencies): Promise<void> {
-  const url = new URL(req.url ?? '/', 'http://indexer.local');
-
   if (req.method !== 'GET') {
     sendJson(res, 405, { error: `method ${req.method} not allowed; this API is read-only` });
     return;
   }
 
-  const matched = matchRoute(url.pathname);
-  if (matched === null) {
-    sendJson(res, 404, {
-      error: `no such endpoint: ${url.pathname}`,
-      endpoints: ROUTES.map((route) => route.path),
-    });
-    return;
-  }
-
   try {
+    // Parsing and routing sit inside the `try` with the handler: both are fed
+    // raw request bytes, and both can reject them — a URL the spec does not
+    // define, or a path segment that is not valid percent-encoding.
+    const url = new URL(req.url ?? '/', 'http://indexer.local');
+
+    const matched = matchRoute(url.pathname);
+    if (matched === null) {
+      sendJson(res, 404, {
+        error: `no such endpoint: ${url.pathname}`,
+        endpoints: ROUTES.map((route) => route.path),
+      });
+      return;
+    }
+
     const page = parsePage(url.searchParams);
     const body = await matched.route.handler({
       ...dependencies,

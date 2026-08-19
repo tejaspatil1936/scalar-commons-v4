@@ -11,6 +11,7 @@
 import type { ApiPromise } from '@polkadot/api';
 
 import type { ChainConnection } from './chain.ts';
+import type { Page } from './pagination.ts';
 
 /** Reads a codec as a decimal planck string — never as a number. */
 function plancks(value: unknown): string {
@@ -31,8 +32,15 @@ function count(value: unknown): number {
  * time the runtime changes.
  */
 type StorageEntry = ((...args: unknown[]) => Promise<unknown>) & {
-  entries: () => Promise<[{ args: { toString(): string }[] }, unknown][]>;
+  entriesPaged: (options: {
+    args: unknown[];
+    pageSize: number;
+    startKey?: string;
+  }) => Promise<StorageEntryPair[]>;
 };
+
+/** One key/value pair of a storage map, keyed by its decoded key arguments. */
+type StorageEntryPair = [{ args: { toString(): string }[]; toHex(): string }, unknown];
 
 /** Resolves a storage item, refusing to run against a runtime that lacks it. */
 function entry(api: ApiPromise, pallet: string, item: string): StorageEntry {
@@ -50,13 +58,75 @@ function read(api: ApiPromise, pallet: string, item: string, ...args: unknown[])
   return entry(api, pallet, item)(...args);
 }
 
-/** Reads every key/value pair of a storage map from the live chain. */
-function readEntries(
+/**
+ * Ceiling on how many live storage entries one request may pull off the node.
+ *
+ * The maps behind `/v1/agents` and `/v1/escrows` grow with the chain, and a
+ * request that enumerates one whole costs the validator the same work whatever
+ * `?limit=` asked for. That is amplification pointed at the node, not at this
+ * process, so it is bounded here rather than left to the paging rules. Reaching
+ * the ceiling is reported (`truncated`), never silently swallowed.
+ */
+export const MAX_LIVE_SCAN = 512;
+
+/** Entries per `state_getKeysPaged` round trip while scanning. */
+const SCAN_PAGE_SIZE = 128;
+
+/** A bounded read of a storage map, with whether the bound cut it short. */
+interface EntryScan {
+  entries: StorageEntryPair[];
+  truncated: boolean;
+}
+
+/**
+ * Reads a storage map in pages, stopping at {@link MAX_LIVE_SCAN}.
+ *
+ * `args` narrows the scan to a key prefix — for the buyer-first `agreements`
+ * double map, passing the buyer means the node never touches another buyer's
+ * agreements. One entry beyond the ceiling is requested deliberately: it is the
+ * only way to tell "the map ended here" from "the ceiling stopped us".
+ */
+async function scanEntries(
   api: ApiPromise,
   pallet: string,
   item: string,
-): Promise<[{ args: { toString(): string }[] }, unknown][]> {
-  return entry(api, pallet, item).entries();
+  options: { args?: unknown[]; limit?: number } = {},
+): Promise<EntryScan> {
+  const args = options.args ?? [];
+  const limit = options.limit ?? MAX_LIVE_SCAN;
+  const storage = entry(api, pallet, item);
+
+  const entries: StorageEntryPair[] = [];
+  let startKey: string | undefined;
+  while (entries.length <= limit) {
+    const pageSize = Math.min(SCAN_PAGE_SIZE, limit + 1 - entries.length);
+    const page = await storage.entriesPaged({ args, pageSize, startKey });
+    if (page.length === 0) {
+      break;
+    }
+    entries.push(...page);
+    startKey = page[page.length - 1]![0].toHex();
+    if (page.length < pageSize) {
+      break;
+    }
+  }
+
+  if (entries.length > limit) {
+    return { entries: entries.slice(0, limit), truncated: true };
+  }
+  return { entries, truncated: false };
+}
+
+/**
+ * A list read live from chain state, and whether the scan ceiling truncated it.
+ *
+ * `total` counts what the scan found, so a truncated list is a floor, not a
+ * count. Callers surface the flag rather than reporting the floor as a total.
+ */
+export interface LiveList<T> {
+  total: number;
+  items: T[];
+  truncated: boolean;
 }
 
 /** Reads a `#[pallet::constant]` off the runtime metadata. */
@@ -224,14 +294,52 @@ export async function fetchAgent(api: ApiPromise, address: string): Promise<Agen
   };
 }
 
-/** Every registered agent, ordered by stake descending. */
-export async function fetchAgents(api: ApiPromise): Promise<AgentState[]> {
-  const entries = await readEntries(api, 'agents', 'agentStake');
-  const addresses = entries.map(([key]) => key.args[0]!.toString());
-  const agents = await Promise.all(addresses.map((address) => fetchAgent(api, address)));
-  return agents
-    .filter((agent): agent is AgentState => agent !== null)
-    .sort((a, b) => (BigInt(b.stakePlancks) > BigInt(a.stakePlancks) ? 1 : -1));
+/**
+ * Orders agents by stake, descending, breaking ties on address.
+ *
+ * A comparator that never returns `0` is not an ordering: it claims `a` before
+ * `b` *and* `b` before `a` for two agents on equal stake, so "ordered by stake"
+ * stops being a guarantee and the same request can answer in a different order
+ * twice running. Genesis agents all hold identical stake, so ties are the
+ * normal case here, not the edge one.
+ */
+export function compareByStakeDescending(
+  a: Pick<AgentState, 'address' | 'stakePlancks'>,
+  b: Pick<AgentState, 'address' | 'stakePlancks'>,
+): number {
+  const left = BigInt(a.stakePlancks);
+  const right = BigInt(b.stakePlancks);
+  if (right > left) return 1;
+  if (right < left) return -1;
+  if (a.address < b.address) return -1;
+  if (a.address > b.address) return 1;
+  return 0;
+}
+
+/**
+ * One page of registered agents, ordered by stake descending.
+ *
+ * Describing an agent costs ten storage reads, so only the agents actually in
+ * the window are described. Ranking still needs every stake — but stakes come
+ * back with the keys in one bounded enumeration, which is a single scan rather
+ * than ten reads per agent on chain.
+ */
+export async function fetchAgents(api: ApiPromise, page: Page): Promise<LiveList<AgentState>> {
+  const { entries, truncated } = await scanEntries(api, 'agents', 'agentStake');
+  const ranked = entries
+    .map(([key, value]) => ({ address: key.args[0]!.toString(), stakePlancks: plancks(value) }))
+    .sort(compareByStakeDescending);
+
+  const window = ranked.slice(page.offset, page.offset + page.limit);
+  const agents = await Promise.all(window.map(({ address }) => fetchAgent(api, address)));
+
+  return {
+    total: ranked.length,
+    // An agent whose stake was withdrawn between the scan and the read is gone,
+    // not a null row.
+    items: agents.filter((agent): agent is AgentState => agent !== null),
+    truncated,
+  };
 }
 
 export interface EscrowAgreement {
@@ -249,7 +357,25 @@ export interface EscrowAgreement {
   disputeRequestId: string | null;
 }
 
-function toAgreement(buyer: string, provider: string, raw: Record<string, any>): EscrowAgreement {
+/** The agreement statuses this build knows how to report. */
+const AGREEMENT_STATUSES: readonly EscrowAgreement['status'][] = ['Created', 'Delivered', 'Disputed'];
+
+/**
+ * Shapes one decoded `Agreement` for the API.
+ *
+ * An unrecognised status is a hard error, not a row with an odd label: a
+ * variant this build has never heard of means the runtime moved on, and the
+ * honest answer is to say so. Counting it silently into a status split seeded
+ * with the old variants yields `undefined + 1 = NaN`, which serialises as
+ * `null` and makes the agreement vanish from the split with no error anywhere.
+ */
+export function toAgreement(buyer: string, provider: string, raw: Record<string, any>): EscrowAgreement {
+  const status = String(raw.status.type);
+  if (!AGREEMENT_STATUSES.includes(status as EscrowAgreement['status'])) {
+    throw new Error(
+      `runtime reports unknown escrow agreement status "${status}"; known statuses are ${AGREEMENT_STATUSES.join(', ')}`,
+    );
+  }
   return {
     buyer,
     provider,
@@ -258,7 +384,7 @@ function toAgreement(buyer: string, provider: string, raw: Record<string, any>):
     deliverableHash: raw.deliverableHash.toHex(),
     deliverByBlock: count(raw.deliverBy),
     createdAtBlock: count(raw.createdAt),
-    status: raw.status.type as EscrowAgreement['status'],
+    status: status as EscrowAgreement['status'],
     deliveryProof: raw.deliveryProof.isSome ? raw.deliveryProof.unwrap().toHex() : null,
     capabilityId: raw.capabilityId.isSome ? count(raw.capabilityId.unwrap()) : null,
     disputeOpenedAtBlock: raw.disputeOpenedAt.isSome ? count(raw.disputeOpenedAt.unwrap()) : null,
@@ -269,31 +395,59 @@ function toAgreement(buyer: string, provider: string, raw: Record<string, any>):
 export interface EscrowFilter {
   buyer?: string;
   provider?: string;
+  /** Agreements this address is party to, on either side of the pair. */
+  party?: string;
 }
 
 /**
- * All live agreements, newest first.
+ * Live agreements matching a filter, newest first.
  *
- * Agreements live in a double map keyed by the *pair*, so the whole map is read
- * and filtered here. Settled agreements are removed from chain storage by the
- * pallet, so this is the set of open commitments — the funds actually reserved
- * right now.
+ * Settled agreements are removed from chain storage by the pallet, so this is
+ * the set of open commitments — the funds actually reserved right now.
+ *
+ * How much of the map is read depends on how much of its key the caller gave:
+ *
+ * - **buyer and provider** — that *is* the key of the double map, so it is one
+ *   read and no enumeration at all;
+ * - **buyer** — the map is keyed buyer-first, so the scan is scoped to that
+ *   buyer's prefix and never touches another buyer's agreements;
+ * - **provider, party, or nothing** — there is no reverse index on chain, so
+ *   pairs are walked and filtered here, bounded by {@link MAX_LIVE_SCAN}.
  */
-export async function fetchEscrows(api: ApiPromise, filter: EscrowFilter = {}): Promise<EscrowAgreement[]> {
-  const entries = await readEntries(api, 'escrow', 'agreements');
+export async function fetchEscrows(
+  api: ApiPromise,
+  filter: EscrowFilter = {},
+): Promise<LiveList<EscrowAgreement>> {
   const agreements: EscrowAgreement[] = [];
+  let truncated = false;
 
-  for (const [key, value] of entries) {
-    const buyer = key.args[0]!.toString();
-    const provider = key.args[1]!.toString();
-    if (filter.buyer !== undefined && filter.buyer !== buyer) continue;
-    if (filter.provider !== undefined && filter.provider !== provider) continue;
+  if (filter.buyer !== undefined && filter.provider !== undefined) {
+    const value = await read(api, 'escrow', 'agreements', filter.buyer, filter.provider);
     for (const raw of value as unknown as Record<string, any>[]) {
-      agreements.push(toAgreement(buyer, provider, raw));
+      agreements.push(toAgreement(filter.buyer, filter.provider, raw));
+    }
+  } else {
+    const scan = await scanEntries(api, 'escrow', 'agreements', {
+      args: filter.buyer === undefined ? [] : [filter.buyer],
+    });
+    truncated = scan.truncated;
+
+    for (const [key, value] of scan.entries) {
+      const buyer = key.args[0]!.toString();
+      const provider = key.args[1]!.toString();
+      if (filter.provider !== undefined && filter.provider !== provider) continue;
+      if (filter.party !== undefined && filter.party !== buyer && filter.party !== provider) continue;
+      for (const raw of value as unknown as Record<string, any>[]) {
+        agreements.push(toAgreement(buyer, provider, raw));
+      }
     }
   }
 
-  return agreements.sort((a, b) => b.createdAtBlock - a.createdAtBlock);
+  return {
+    total: agreements.length,
+    items: agreements.sort((a, b) => b.createdAtBlock - a.createdAtBlock),
+    truncated,
+  };
 }
 
 /** One agreement by its (buyer, provider, seq) key, or null. */
@@ -317,6 +471,14 @@ export interface EscrowStats {
   activeAgreementCount: number;
   /** Agreements the indexer enumerated from storage, as a cross-check. */
   enumeratedAgreements: number;
+  /**
+   * True when the scan ceiling stopped the enumeration before the map ended.
+   *
+   * The figures below then describe the pairs that were read, not the whole
+   * map — which is why they are published beside `activeAgreementCount`, the
+   * pallet's own counter, rather than in place of it.
+   */
+  scanTruncated: boolean;
   byStatus: Record<EscrowAgreement['status'], number>;
   /** Buyer funds currently reserved across all open agreements. */
   totalLockedPlancks: string;
@@ -334,12 +496,17 @@ export async function fetchEscrowStats(api: ApiPromise): Promise<EscrowStats> {
     fetchEscrows(api),
   ]);
 
-  const byStatus: Record<EscrowAgreement['status'], number> = { Created: 0, Delivered: 0, Disputed: 0 };
+  // Seeded from the same list `toAgreement` validates against, so a variant the
+  // runtime adds can never land here as an untracked key.
+  const byStatus = Object.fromEntries(AGREEMENT_STATUSES.map((status) => [status, 0])) as Record<
+    EscrowAgreement['status'],
+    number
+  >;
   // Reserved balances are u128 plancks; summing them anywhere but in bigint
   // would silently round the total once it passes 2^53.
   let locked = 0n;
   const pairs = new Set<string>();
-  for (const agreement of agreements) {
+  for (const agreement of agreements.items) {
     byStatus[agreement.status] += 1;
     locked += BigInt(agreement.amountPlancks);
     pairs.add(`${agreement.buyer}/${agreement.provider}`);
@@ -347,7 +514,8 @@ export async function fetchEscrowStats(api: ApiPromise): Promise<EscrowStats> {
 
   return {
     activeAgreementCount: count(counter),
-    enumeratedAgreements: agreements.length,
+    enumeratedAgreements: agreements.items.length,
+    scanTruncated: agreements.truncated,
     byStatus,
     totalLockedPlancks: locked.toString(),
     distinctPairs: pairs.size,

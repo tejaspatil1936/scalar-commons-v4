@@ -4,6 +4,11 @@
  * The index grows for as long as the chain produces blocks, so no list endpoint
  * may ever answer "all of it". The cap here is what keeps one mistyped query
  * from turning a read into a denial of service against the indexer's own API.
+ *
+ * It bounds the *response*, not the work behind it. Endpoints that answer from
+ * live chain state bound their own reads separately — see `MAX_LIVE_SCAN` in
+ * `chainState.ts` — because a window applied after the fact leaves the cost of
+ * enumerating a whole storage map sitting on the node.
  */
 
 /** Raised when a query string cannot be honoured as written. */
