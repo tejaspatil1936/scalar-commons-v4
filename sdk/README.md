@@ -12,10 +12,14 @@ described in protocol §8.3 ("archetypes cannot exist without hands"). Built on
 
 ```bash
 cd sdk
-npm install
+npm ci
 npm run build      # tsc -> dist/
-npm test           # vitest (mock-driven, no node required)
+npm run typecheck  # tsc --noEmit
+npm test           # vitest — mock-driven, no node required
 ```
+
+`npm test` is mock-driven and needs no node. The live checks against a real
+devnet are opt-in — see [Integration tests against a real node](#integration-tests-against-a-real-node).
 
 ## Design rules
 
@@ -54,15 +58,45 @@ await client.disconnect();
 | `completeEscrow(signer, provider, seq)` | `escrow.confirmDelivery(...)` |
 | `submitOracle(signer, requestId, answerHash, capability)` | `oracle.submitResponse(...)` |
 | `vote(signer, pollIndex, vote)` | `convictionVoting.vote(...)` |
+| `recordGovVote(signer, pollIndex)` | `agents.recordGovVote(signerAddress, pollIndex)` |
 | `settleEra(signer)` | `emissions.settleEra()` |
 | `claim(signer)` | `emissions.claim()` |
 | `eraInfo()` | `agents.eraNumber` + `emissions.*` + `EraDuration` const |
 | `weightOf(addr)` | `emissions.agentWeightSnapshot(addr)` |
+| `totalIssuance()` | `balances.totalIssuance` |
 | `netPosition(addr)` | `system.account` + `agents.agentStake/eraEscrowVolume` + pending calc |
+
+### Reading the chain honestly
+
+Two shapes bite anyone who assumes them instead of reading the metadata:
+
+- `emissions.lastSettledEra` is an `Option<u32>`. `EraInfo.lastSettledEra` is
+  therefore `number | null` — `null` (nothing has ever settled) is not era `0`.
+- Agent stake is a **lock** (`Currency::set_lock`), so it lives *inside*
+  `system.account.data.free` and shows up as `frozen`. `NetPosition` reports
+  `free`, `reserved`, `frozen` and a `total` of `free + pendingEmissions` —
+  adding `stake` on top would report tokens that were never issued. It reports
+  no "transferable" figure: what a transfer can move also depends on the
+  existential deposit, and an advisory number that ignores it is worse than none.
+
+Since `record_gov_vote` is self-only on chain, `recordGovVote` derives the
+`agent` argument from `signer`; passing any other account earns `Unauthorized`
+— which the live suite proves by submitting exactly that mismatched call.
 
 ## Integration tests against a real node
 
-Tests run against a mock `ApiPromise` by default. To also run the live read path:
+`tests/live.test.ts` asserts, against the node's own metadata: the runtime spec
+version, that `agents.recordGovVote` takes `(agent, pollIndex)`, that
+`emissions.lastSettledEra` is `Option<u32>`, that `balances.totalIssuance` is a
+`u128`, and that `netPosition` does not double-count the stake lock. It also
+submits two real `recordGovVote` calls — one that the runtime must reject on a
+*guard* (`NotActivelyVoting`), proof the call encoded with the right arity that
+a stale signature could not manage, and one with `agent != signer` that must be
+rejected with `Unauthorized`, proof of the self-only rule the docs claim.
+
+It is opt-in, so `npm test` stays node-free. When enabled it **fails rather than
+skips** if the node is unreachable — an SDK that cannot be checked against the
+chain it wraps is a finding, not a pass:
 
 ```bash
 RUN_INTEGRATION=1 WS_ENDPOINT=ws://127.0.0.1:9944 npm run test:integration
