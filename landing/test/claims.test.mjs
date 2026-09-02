@@ -173,3 +173,17 @@ test('a component whose code is already in the repository is not still advertise
     );
   }
 });
+
+test('the committed chain snapshot comes from the long-running devnet, not the genesis window', () => {
+  // chain-facts.json is what makes the page offline-reproducible, and it is
+  // also the thing that silently rots: the first capture was taken a few
+  // thousand blocks after genesis and stayed on the page long after the devnet
+  // had run past it. This floor only ever moves up, and re-running
+  // `npm run fetch:chain-facts` against the devnet clears it.
+  const MIN_READ_AT_BLOCK = 400_000;
+  assert.ok(
+    facts.provenance.readAtBlock > MIN_READ_AT_BLOCK,
+    `chain-facts.json was read at block ${facts.provenance.readAtBlock}, at or below the stale floor of ` +
+      `${MIN_READ_AT_BLOCK} — re-run \`npm run fetch:chain-facts\` against the devnet`,
+  );
+});
