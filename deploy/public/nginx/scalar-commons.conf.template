@@ -1,0 +1,289 @@
+# ---------------------------------------------------------------------------
+# Scalar Commons — public edge (stage 2 of 2). Terminates TLS, proxies to
+# loopback services. Nothing here binds a service to a public interface: every
+# upstream stays on 127.0.0.1 and nginx is the only listener on 80/443.
+#
+# Generated from a template — DO NOT EDIT IN PLACE.
+# Edit deploy/public/domain.env, then re-run deploy/public/render-config.sh.
+#
+# Threat model note (read before changing anything):
+#   The wss endpoint is protected by TWO independent layers.
+#     1. The node itself runs with `--rpc-methods safe` (deploy/systemd/
+#        scalar-alice.service). This is what actually refuses author_insertKey,
+#        author_rotateKeys and every other unsafe method.
+#     2. nginx below adds transport-level rate and concurrent-connection
+#        limits per source IP, and TLS. That is ALL it adds.
+#   nginx does NOT filter JSON-RPC method names — it cannot see inside
+#   WebSocket frames, and $request_body is unavailable in the rewrite phase.
+#   Layer 1 is the only thing refusing unsafe methods. Do not drop
+#   `--rpc-methods safe` on the assumption the proxy is filtering; it is not.
+# ---------------------------------------------------------------------------
+
+# --- WebSocket upgrade plumbing -------------------------------------------
+# Maps a missing/empty Upgrade header to "close" so non-ws requests to the RPC
+# vhost don't get a bogus keep-alive upgrade.
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+# --- Rate limiting zones ---------------------------------------------------
+# rate=10r/s per source IP. For the wss vhost this bounds *connection
+# establishment* (one HTTP request per socket), not messages sent inside an
+# open socket; message-rate control is the node's job.
+limit_req_zone  $binary_remote_addr zone=rpc_req:10m  rate=10r/s;
+limit_conn_zone $binary_remote_addr zone=rpc_conn:10m;
+
+# Slightly looser bucket for the ordinary web/product vhosts.
+limit_req_zone  $binary_remote_addr zone=web_req:10m  rate=20r/s;
+limit_conn_zone $binary_remote_addr zone=web_conn:10m;
+
+# 429 rather than nginx's default 503 — a rate limit is a client-side signal
+# and 429 is what SDK backoff logic looks for.
+limit_req_status  429;
+limit_conn_status 429;
+
+# Shared TLS + hardening snippet, included by every server block below.
+# (Kept inline rather than in a separate file so this config is one artifact.)
+
+# ===========================================================================
+#  HTTP -> HTTPS redirect for all five names
+# ===========================================================================
+server {
+    listen 80;
+    listen [::]:80;
+    server_name <DOMAIN> rpc.<DOMAIN> api.<DOMAIN> explorer.<DOMAIN> faucet.<DOMAIN>;
+
+    # Keep the ACME path on :80 so `certbot renew` works unattended.
+    location ^~ /.well-known/acme-challenge/ {
+        root <ACME_WEBROOT>;
+        default_type "text/plain";
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+# ===========================================================================
+#  rpc.<DOMAIN>  ->  wss://127.0.0.1:9944
+# ===========================================================================
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name rpc.<DOMAIN>;
+
+    ssl_certificate     /etc/letsencrypt/live/<DOMAIN>/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/<DOMAIN>/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_timeout 1d;
+    ssl_session_cache   shared:ScalarTLS:10m;
+    ssl_stapling on;
+    ssl_stapling_verify on;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options    "nosniff" always;
+    add_header X-Frame-Options           "DENY" always;
+    add_header Referrer-Policy           "no-referrer" always;
+
+    # --- Rate limits (per source IP) --------------------------------------
+    # burst=20 absorbs a client opening a few subscriptions back to back.
+    # nodelay: burst requests are served immediately, then the 10r/s refill
+    # applies — a slow drip is never queued into a timeout.
+    limit_req  zone=rpc_req burst=20 nodelay;
+    limit_conn rpc_conn 5;          # 5 concurrent sockets per IP
+
+    # Bodies are JSON-RPC envelopes; 256k is generous and caps memory abuse.
+    client_max_body_size 256k;
+    client_body_timeout  15s;
+
+    access_log /var/log/nginx/scalar-rpc.access.log;
+    error_log  /var/log/nginx/scalar-rpc.error.log warn;
+
+    location / {
+        # ---- Why there is no method-name denylist here ---------------------
+        # Two nginx limitations, both real, neither worth pretending around:
+        #   * WebSocket frames are opaque to nginx once the socket is upgraded,
+        #     so ws JSON-RPC method names cannot be inspected at all.
+        #   * For plain HTTP POST, $request_body is empty during the rewrite
+        #     phase (the body is not read until proxy_pass runs at the content
+        #     phase), so an `if ($request_body ~ "author_insertKey")` rule
+        #     silently matches nothing and yields false confidence.
+        # `--rpc-methods safe` on the node is therefore the ONE authoritative
+        # control refusing author_insertKey / author_rotateKeys. It is verified
+        # end-to-end in VERIFY.md check (b). Never remove that flag.
+        proxy_pass http://127.0.0.1:9944;
+
+        # --- WebSocket upgrade ---------------------------------------------
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Long-lived subscriptions: don't cut an idle socket that is legitimately
+        # waiting on a new finalized head.
+        proxy_read_timeout  3600s;
+        proxy_send_timeout  3600s;
+        proxy_connect_timeout 10s;
+        proxy_buffering off;
+    }
+}
+
+# ===========================================================================
+#  <DOMAIN>  ->  landing at /, docs at /docs
+# ===========================================================================
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name <DOMAIN>;
+
+    ssl_certificate     /etc/letsencrypt/live/<DOMAIN>/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/<DOMAIN>/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+    ssl_session_timeout 1d;
+    ssl_session_cache   shared:ScalarTLS:10m;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options    "nosniff" always;
+    add_header X-Frame-Options           "SAMEORIGIN" always;
+    add_header Referrer-Policy           "strict-origin-when-cross-origin" always;
+
+    limit_req  zone=web_req burst=40 nodelay;
+    limit_conn web_conn 20;
+
+    access_log /var/log/nginx/scalar-web.access.log;
+    error_log  /var/log/nginx/scalar-web.error.log warn;
+
+    # ---- docs at /docs ---------------------------------------------------
+    # NOTE: the vitepress dist MUST be built with base '/docs/'. A default
+    # build emits absolute '/assets/...' URLs and will 404 here. INSTALL.md
+    # step 5 covers this; it is a prerequisite, not something nginx can fix.
+    location /docs/ {
+        alias <DOCS_DIST>/;
+        index index.html;
+        try_files $uri $uri/ $uri.html /docs/index.html;
+    }
+    location = /docs {
+        return 301 https://$host/docs/;
+    }
+
+    # ---- landing at / ----------------------------------------------------
+    location / {
+        root <LANDING_DIST>;
+        index index.html;
+        try_files $uri $uri/ $uri.html =404;
+    }
+}
+
+# ===========================================================================
+#  Product vhosts — faucet / explorer / api (indexer)
+# ===========================================================================
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name faucet.<DOMAIN>;
+
+    ssl_certificate     /etc/letsencrypt/live/<DOMAIN>/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/<DOMAIN>/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options    "nosniff" always;
+    add_header Referrer-Policy           "no-referrer" always;
+
+    # The faucet mints; keep it on the tighter bucket, not the web one.
+    limit_req  zone=rpc_req burst=10 nodelay;
+    limit_conn rpc_conn 5;
+    client_max_body_size 64k;
+
+    access_log /var/log/nginx/scalar-faucet.access.log;
+
+    location / {
+        proxy_pass http://127.0.0.1:8082;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout    60s;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name explorer.<DOMAIN>;
+
+    ssl_certificate     /etc/letsencrypt/live/<DOMAIN>/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/<DOMAIN>/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options    "nosniff" always;
+    add_header Referrer-Policy           "strict-origin-when-cross-origin" always;
+
+    limit_req  zone=web_req burst=40 nodelay;
+    limit_conn web_conn 20;
+
+    access_log /var/log/nginx/scalar-explorer.access.log;
+
+    location / {
+        proxy_pass http://127.0.0.1:8081;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade    $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout    120s;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name api.<DOMAIN>;
+
+    ssl_certificate     /etc/letsencrypt/live/<DOMAIN>/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/<DOMAIN>/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    add_header X-Content-Type-Options    "nosniff" always;
+    add_header Referrer-Policy           "no-referrer" always;
+
+    # Indexer is read-only over HTTP GET; web bucket is the right shape.
+    limit_req  zone=web_req burst=40 nodelay;
+    limit_conn web_conn 20;
+
+    access_log /var/log/nginx/scalar-api.access.log;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout    60s;
+    }
+}
