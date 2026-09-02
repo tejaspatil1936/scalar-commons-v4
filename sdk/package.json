@@ -23,7 +23,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:integration": "RUN_INTEGRATION=1 vitest run tests/integration.test.ts"
+    "test:integration": "RUN_INTEGRATION=1 vitest run"
   },
   "dependencies": {
     "@polkadot/api": "^15.0.0",
