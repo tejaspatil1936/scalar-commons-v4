@@ -229,7 +229,7 @@ print(" ".join((d.get("scripts") or {}).keys()))
 gate_from_issue() {
   local num="$1"
   issue_body "$num" | python3 -c '
-import re, sys
+import re, subprocess, sys
 
 body = sys.stdin.read()
 lines = body.splitlines()
@@ -259,20 +259,63 @@ for ln in lines[start + 1:]:
         break
     block.append(ln)
 
-# A multi-line block is a single gate: every line must pass, so chain with &&.
-cmds = [l.strip() for l in block if l.strip() and not l.strip().startswith("#")]
+# Physical lines in a fence are NOT independent commands.
+#
+# F-05: this used to be `" && ".join(line.strip() for line in block)`, which
+# broke any gate written with shell line-continuations:
+#
+#     cd landing && ! sed -n '...' src/content.mjs | grep -qE '...' \\
+#       && npm ci && npm test
+#
+# Two defects compounded. The trailing backslash was kept, but mid-line it
+# escapes a space instead of joining lines; and " && " was inserted before a
+# line that already opened with "&&". Result: `... \\ && && npm ci ...`, a bash
+# syntax error. The gate could never go green whatever the agent did, so
+# issues #104 and #105 burned all three attempts and blocked. Join
+# continuations FIRST, before any chaining decision.
+logical = []
+for ln in block:
+    stripped_line = ln.strip()
+    if logical and logical[-1].endswith("\\"):
+        logical[-1] = logical[-1][:-1].rstrip() + " " + stripped_line
+    else:
+        logical.append(stripped_line)
+
+cmds = [l for l in logical if l and not l.startswith("#")]
 if not cmds:
     sys.exit(1)
-gate = " && ".join(cmds)
+
+# Every remaining logical line must pass, so chain with &&. But a line that
+# already opens with a shell operator is a continuation of the command before
+# it — appending " && " there is what produced the `&& &&` above.
+gate = cmds[0]
+for c in cmds[1:]:
+    if re.match(r"^(&&|\|\||\||;|&)", c):
+        gate += " " + c
+    else:
+        gate += " && " + c
 
 # Reject prose. A gate that is not runnable is worse than no gate: bash would
 # fail on it for the wrong reason and the agent would burn every attempt trying
 # to satisfy a sentence. Require the first word to be an actual command.
+#
+# The allowlist covers the assertion commands real gates open with. `test -f`
+# (#103) and `shellcheck` (#102) were absent, so those gates were rejected
+# outright and the issue refused for a reason no worker could act on.
 first = gate.split()[0].lstrip("$").strip()
 RUNNABLE = ("cd", "npm", "npx", "yarn", "pnpm", "cargo", "python", "python3",
-            "pytest", "make", "just", "bash", "sh", "flock", "docker", "node")
+            "pytest", "make", "just", "bash", "sh", "flock", "docker", "node",
+            "test", "[", "shellcheck", "systemd-analyze", "grep", "sed", "awk",
+            "git", "curl", "jq", "diff", "find")
 if not (first in RUNNABLE or first.startswith("./") or first.startswith("/")):
     sys.exit(2)
+
+# Belt and braces: hand bash nothing bash cannot parse. `bash -n` reads syntax
+# without executing, so this is free and side-effect-free. This is what would
+# have caught F-05 at dispatch time instead of three attempts later.
+if subprocess.run(["bash", "-n", "-c", gate],
+                  capture_output=True).returncode != 0:
+    sys.exit(3)
 
 print(gate)
 '
