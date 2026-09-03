@@ -54,6 +54,11 @@ export const sourceClaims = [
     snippet: 'ensure!(orchestrator != sub_agent, Error::<T>::SelfLink);',
   },
   {
+    claim: 'The devnet faucet only moves funds that already exist — it transfers, and has no mint path.',
+    file: 'faucet/src/chain.ts',
+    snippet: 'transferKeepAlive(dest, amountPlancks)',
+  },
+  {
     claim: 'The oracle-accuracy term exists in the formula, but this runtime wires no score provider into it.',
     file: 'runtime/src/lib.rs',
     snippet: 'type OracleScoreProvider = ();',
