@@ -276,11 +276,12 @@ export const content = {
     {
       key: 'faucet',
       label: 'Testnet faucet',
-      url: 'https://github.com/tejaspatil1936/scalar-commons-v4/issues/75',
-      status: 'planned',
+      url: 'https://github.com/tejaspatil1936/scalar-commons-v4/tree/master/faucet',
+      status: 'available',
       note:
-        'Not built yet; the link goes to the issue tracking it. Devnet accounts are funded from the chain spec in the ' +
-        'meantime.',
+        'Built, and in the repository: it drips CMN from a pre-funded devnet account — never a mint path — and rate ' +
+        'limits each address and each requesting IP. No hosted instance is up yet, so you run it yourself against an ' +
+        'endpoint you can reach.',
     },
   ],
 
