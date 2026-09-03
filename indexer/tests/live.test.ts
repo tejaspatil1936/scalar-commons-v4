@@ -143,6 +143,19 @@ function submit(tx: SubmittableExtrinsic<'promise'>, signer: KeyringPair): Promi
   });
 }
 
+/** Resolves once the node's best block reaches `target`, or throws. */
+async function waitForChainBlock(target: number, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const head = await api.rpc.chain.getHeader();
+    if (head.number.toNumber() >= target) return;
+    if (Date.now() > deadline) {
+      throw new Error(`chain did not reach block ${target} within ${timeoutMs}ms`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+}
+
 /** Seeded on-chain facts the endpoint assertions are checked against. */
 const seeded = {
   heartbeatBlock: 0,
@@ -156,6 +169,8 @@ const seeded = {
 
 let alice: KeyringPair;
 let dave: KeyringPair;
+/** The seeded agreement's provider, kept so `afterAll` can settle it. */
+let providerSigner: KeyringPair | undefined;
 
 beforeAll(async () => {
   chain = await connectChain(RPC_URL);
@@ -164,6 +179,15 @@ beforeAll(async () => {
   const keyring = new Keyring({ type: 'sr25519', ss58Format: chain.ss58Format });
   alice = keyring.addFromUri('//Alice');
   dave = keyring.addFromUri('//Dave');
+
+  // Releasing the seeded agreement needs the provider's own signature —
+  // `record_delivery` is the provider's call — so the pair below is picked from
+  // the genesis agents whose well-known devnet key this suite actually holds.
+  const providerSigners = new Map<string, KeyringPair>();
+  for (const seed of ['//Bob', '//Charlie', '//Dave', '//Eve', '//Ferdie']) {
+    const candidate = keyring.addFromUri(seed);
+    providerSigners.set(candidate.address, candidate);
+  }
 
   // Index from well before the seeded activity so the suite has real history to
   // page through, not just the blocks it created itself.
@@ -193,15 +217,17 @@ beforeAll(async () => {
   let provider = '';
   for (const candidate of agentAddresses) {
     if (candidate === alice.address) continue;
+    if (!providerSigners.has(candidate)) continue;
     const existing = await chainQuery().escrow.agreements(alice.address, candidate);
     if ((existing as unknown as { length: number }).length < maxPerPair) {
       provider = candidate;
+      providerSigner = providerSigners.get(candidate);
       break;
     }
   }
   expect(
     provider,
-    `every provider pair for //Alice is at MaxAgreementsPerPair (${maxPerPair}); the devnet needs cleaning up`,
+    `every signable provider pair for //Alice is at MaxAgreementsPerPair (${maxPerPair}); the devnet needs cleaning up`,
   ).not.toBe('');
 
   const minAmount = (chainConsts().escrow.minAgreementAmount as unknown as { toString(): string }).toString();
@@ -233,10 +259,45 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
-  if (indexer) await indexer.stop();
-  if (store) store.close();
-  if (chain) await chain.disconnect();
+  try {
+    // ── Release the seeded escrow agreement ─────────────────────────────────
+    // `Agreements(buyer, provider)` is a BoundedVec capped at
+    // `MaxAgreementsPerPair`, and an open agreement also keeps the buyer's
+    // stake reserved. A suite that seeds one every run and walks away burns a
+    // pair slot permanently, so after ~10 runs per provider `beforeAll` can no
+    // longer find a pair with room and the whole suite aborts. Settling the
+    // agreement is what returns the slot: the pallet `swap_remove`s the entry
+    // on `confirm_delivery`.
+    if (seeded.provider && providerSigner) {
+      // `record_delivery` is gated on `MinDeliveryBlocks` having elapsed since
+      // the agreement was created, so wait for that block rather than assuming
+      // the suite itself ran long enough to clear it.
+      const minDeliveryBlocks = (
+        chainConsts().escrow.minDeliveryBlocks as unknown as { toNumber(): number }
+      ).toNumber();
+      await waitForChainBlock(seeded.escrowBlock + minDeliveryBlocks, 200_000);
+
+      await submit(
+        chainTx().escrow.recordDelivery(seeded.buyer, seeded.seq, `0x${'22'.repeat(32)}`),
+        providerSigner,
+      );
+      await submit(chainTx().escrow.confirmDelivery(seeded.provider, seeded.seq), alice);
+
+      const remaining = (await chainQuery().escrow.agreements(
+        seeded.buyer,
+        seeded.provider,
+      )) as unknown as { seq: { toNumber(): number } }[];
+      expect(
+        [...remaining].map((a) => a.seq.toNumber()),
+        `seeded agreement seq ${seeded.seq} must be released back to the pair`,
+      ).not.toContain(seeded.seq);
+    }
+  } finally {
+    if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (indexer) await indexer.stop();
+    if (store) store.close();
+    if (chain) await chain.disconnect();
+  }
 });
 
 describe('v1 surface', () => {
