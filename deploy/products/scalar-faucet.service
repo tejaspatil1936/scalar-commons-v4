@@ -1,0 +1,44 @@
+[Unit]
+Description=Scalar Commons devnet faucet — HTTP on 127.0.0.1:8082
+Documentation=file:///home/dev/scalar-commons-v4/deploy/products/README.md
+# The faucet signs transfers from a pre-funded devnet account. It is never a
+# mint path — it can only move CMN that already exists, and it exits at startup
+# if that account is already below its configured reserve.
+After=network-online.target scalar-alice.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+WorkingDirectory=/home/dev/scalar-commons-v4/faucet
+
+# Defaults first, EnvironmentFile second — the file wins. Port 8082 is baked
+# because the faucet's in-code default is 8080, which is the indexer's.
+#
+# FAUCET_SEED is deliberately NOT set here: the unit file is world-readable in
+# ~/.config/systemd/user, the env file is installed 0600. The in-code default
+# (//Ferdie, endowed at genesis, not a validator) is what runs if the operator
+# never sets one, which is correct for a devnet and wrong for anything else.
+Environment=FAUCET_HOST=127.0.0.1
+Environment=FAUCET_PORT=8082
+Environment=FAUCET_RPC_ENDPOINT=ws://127.0.0.1:9944
+# Loopback-only means every request arrives from 127.0.0.1, so an X-Forwarded-For
+# header would let one caller forge unlimited distinct client IPs and walk
+# straight through the per-IP rate limit. Trust it only behind a proxy that
+# overwrites it.
+Environment=FAUCET_TRUST_PROXY=false
+EnvironmentFile=-%h/.config/scalar-commons/faucet.env
+
+# Relative to WorkingDirectory. Same entrypoint and --experimental-strip-types
+# as `npm start`; the extra --disable-warning keeps the journal free of one
+# ExperimentalWarning per restart.
+ExecStart=/usr/bin/node --experimental-strip-types --disable-warning=ExperimentalWarning src/index.ts
+
+Restart=on-failure
+RestartSec=5s
+NoNewPrivileges=yes
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=scalar-faucet
+
+[Install]
+WantedBy=default.target
