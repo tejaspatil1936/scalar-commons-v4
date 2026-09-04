@@ -16,11 +16,24 @@ Verified against `scalar-commons` spec 304, metadata v15.
 Subscriptions (`*_subscribe*`) require WebSocket. `@polkadot/api` needs it for its own
 runtime-upgrade subscription, so prefer `ws://` for anything programmatic.
 
-The devnet runs with `--rpc-methods safe`, which withholds the unsafe method set —
-`author_insertKey`, `author_rotateKeys`, `system_addReservedPeer` and friends. Those are
-reachable only from a node started with `--rpc-methods unsafe`, and only ever over
-loopback. See [running a validator](/guide/run-a-node#run-as-a-validator) for the one case
-where you need them.
+The reference devnet endpoint — alice, port 9944 — runs with `--rpc-methods safe`, set
+explicitly in `deploy/systemd/scalar-alice.service`. That withholds the unsafe method set —
+`author_insertKey`, `author_rotateKeys`, `author_hasKey`, `author_hasSessionKeys`,
+`babe_epochAuthorship`, `system_addReservedPeer` and friends — which answer with
+`-32601 RPC call is unsafe to be called externally`.
+
+**A node you start yourself does not behave that way.** The flag defaults to `auto`, and
+`auto` serves the *full* method set, unsafe methods included, whenever RPC is listening on
+loopback; it falls back to the safe subset only when the listener is not local. So the
+keystore-mutating surface is exposed by default on any ordinary `127.0.0.1` node — no
+`--rpc-methods unsafe` opt-in required, and not binding `--rpc-external` does not withhold
+it. Anything that can open a loopback connection to the RPC port — another user on the box,
+a container sharing the network namespace, the far end of somebody's SSH tunnel — can call
+`author_insertKey`.
+
+To get the devnet's posture on your own node, pass `--rpc-methods safe` yourself. See
+[running a validator](/guide/run-a-node#run-as-a-validator), which does, and which covers
+the one case where you need the unsafe set back.
 
 ::: warning A node's RPC port is not a public API
 `safe` still exposes chain state and transaction submission. Put it behind a reverse proxy
@@ -227,7 +240,7 @@ because the runtime is the only authority on layout, and it changes with `spec_v
 | `author_pendingExtrinsics` | Current pool contents. |
 | `author_rotateKeys` | Generate session keys in the node's keystore. **Unsafe.** |
 | `author_insertKey` | Insert a key into the keystore. **Unsafe.** |
-| `author_hasKey`, `author_hasSessionKeys` | Check what the keystore holds. |
+| `author_hasKey`, `author_hasSessionKeys` | Check what the keystore holds. **Unsafe.** |
 | `transaction_v1_broadcast`, `transactionWatch_v1_submitAndWatch` | New JSON-RPC spec equivalents. |
 
 ### Consensus, payment, and the new JSON-RPC spec

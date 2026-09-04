@@ -222,6 +222,12 @@ That URL works directly in
 keep `--rpc-methods safe`, and terminate TLS at a reverse proxy — a node's own port is not
 a public API surface.
 
+A tunnel is not a substitute for that flag: it arrives at the node as a loopback
+connection, and `--rpc-methods auto` — the default — serves the unsafe set to anything on
+loopback. Alice's unit sets `safe` explicitly, so the tunnel above is safe against port
+9944. Tunnelling into a node that left the flag at its default hands the far end
+`author_insertKey`.
+
 ## Run as a validator
 
 Two steps: author blocks, then register the keys you author with.
@@ -236,8 +242,18 @@ Two steps: author blocks, then register the keys you author with.
   --validator \
   --node-key-file ~/scalar-data/validator/node-key \
   --port 30400 --rpc-port 9960 --prometheus-port 9630 \
+  --rpc-methods safe \
   --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
 ```
+
+`--rpc-methods safe` is not redundant. The flag's default is `auto`, and `auto` serves
+*every* method — including the keystore-mutating ones, `author_insertKey` and
+`author_rotateKeys` — whenever RPC is listening on loopback. Omit the flag and a validator
+that looks locked down because it never passed `--rpc-external` is still one reachable
+loopback connection away from having its keystore written to. Setting `safe` explicitly is
+what alice's unit does (`deploy/systemd/scalar-alice.service`), and it costs a validator
+nothing: block authoring does not go through RPC. Step 2 below is the one moment you need
+the unsafe set, and it says how to take it back off.
 
 Generate the node key once and keep it — losing it changes your peer id, which breaks any
 multiaddr others have pinned:
@@ -254,7 +270,19 @@ Session keys are a 3-tuple on this runtime: GRANDPA, BABE and authority-discover
 here.)
 
 Generate them *inside the validator's own keystore* — that is what `author_rotateKeys`
-does, and it is why the private halves never leave the machine:
+does, and it is why the private halves never leave the machine.
+
+`author_rotateKeys` is in the unsafe set, so the node you started in step 1 will refuse it:
+
+```json
+{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"RPC call is unsafe to be called externally"}}
+```
+
+That refusal is the flag working, not a fault. Restart the node with `--rpc-methods unsafe`
+in place of `--rpc-methods safe`, leaving every other argument from step 1 untouched, run
+the two calls below, then restart it back onto `safe`. Keep the window short and keep RPC
+on loopback for its duration — `unsafe` exposes `author_insertKey` and
+`system_addReservedPeer` alongside the two methods you actually want.
 
 ```bash
 curl -sH 'Content-Type: application/json' \
@@ -264,7 +292,8 @@ curl -sH 'Content-Type: application/json' \
 
 The returned hex blob is the concatenated *public* keys. Register it on chain from your
 stash account with `session.setKeys(keys, proof)`, then declare your intent to validate
-through `staking.validate`. Confirm the node holds what you registered:
+through `staking.validate`. Confirm the node holds what you registered — this one is
+unsafe too, so do it before you restart onto `safe`:
 
 ```bash
 curl -sH 'Content-Type: application/json' \
@@ -272,7 +301,9 @@ curl -sH 'Content-Type: application/json' \
      http://127.0.0.1:9960
 ```
 
-Your keys take effect at the start of a session — not immediately.
+Your keys take effect at the start of a session — not immediately. Session keys survive the
+restart back onto `safe`: they live in the keystore under `--base-path`, not in the RPC
+configuration, so you only ever need the unsafe window again when you rotate.
 
 ::: danger The devnet's validator keys are public
 The five devnet validators author with the well-known `//Alice` … `//Eve` seeds, which
