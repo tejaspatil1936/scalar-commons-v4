@@ -120,9 +120,11 @@ Dispenses devnet CMN from a pre-funded account.
   it moves no staked funds. It is a well-known dev seed: anything beyond a devnet
   sets `FAUCET_SEED` in the 0600 env file, never in the unit, which is
   world-readable in `~/.config/systemd/user`.
-- `FAUCET_RESERVE_CMN` (default 1000) is a floor, not a warning: below it the
-  process exits at startup instead of listening. That is what stops the faucet
-  draining its own account and dying mid-drip.
+- `FAUCET_RESERVE_CMN` (default 1000) is a floor, not a warning: a drip that
+  would leave the funding account below reserve + existential deposit is refused
+  with `503 INSUFFICIENT_FAUCET_FUNDS`, re-checked against the node's live
+  balance on every request. That is what stops the faucet draining its own
+  account and dying mid-drip.
 - Rate limits are in-memory counters, per address and per IP, and reset on
   restart. Devnet-grade, not public-internet-grade.
 - `FAUCET_TRUST_PROXY` stays `false`. On a loopback bind every request already

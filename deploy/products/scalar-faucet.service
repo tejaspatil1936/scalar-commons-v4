@@ -2,8 +2,8 @@
 Description=Scalar Commons devnet faucet — HTTP on 127.0.0.1:8082
 Documentation=file:///home/dev/scalar-commons-v4/deploy/products/README.md
 # The faucet signs transfers from a pre-funded devnet account. It is never a
-# mint path — it can only move CMN that already exists, and it exits at startup
-# if that account is already below its configured reserve.
+# mint path — it can only move CMN that already exists, and it refuses any drip
+# that would take that account below its configured reserve.
 After=network-online.target scalar-alice.service
 Wants=network-online.target
 

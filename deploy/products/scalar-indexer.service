@@ -2,9 +2,11 @@
 Description=Scalar Commons indexer — REST API on 127.0.0.1:8080
 Documentation=file:///home/dev/scalar-commons-v4/deploy/products/README.md
 # The indexer is a follower of a node, not a peer of one: it subscribes to
-# finalized blocks over RPC. `Wants=` rather than `Requires=` because alice
-# going down must not take the API down — the indexer reconnects, and the
-# already-indexed history stays queryable while she is away.
+# finalized blocks over RPC. Ordering only — `After=` with no `Requires=` and no
+# `Wants=` on alice — because alice going down must not take the API down: the
+# RPC client reconnects on its own and the already-indexed history stays
+# queryable while she is away. Startup is the exception: the indexer connects
+# before it binds, so it exits if alice is down at start and systemd retries it.
 After=network-online.target scalar-alice.service
 Wants=network-online.target
 
