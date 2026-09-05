@@ -19,9 +19,9 @@ Environment=EXPLORER_PORT=8081
 Environment=EXPLORER_RPC_ENDPOINT=ws://127.0.0.1:9944
 EnvironmentFile=-%h/.config/scalar-commons/explorer.env
 
-# Relative to WorkingDirectory. Unlike the indexer and the faucet the explorer
-# is compiled ahead of time (`npm run build`), so this runs dist/, not src/ —
-# install.sh refuses to install the unit until that build exists.
+# Relative to WorkingDirectory. The indexer and the faucet start from their
+# TypeScript sources, but the explorer's entrypoint is compiled output, so this
+# runs dist/, not src/ — install.sh refuses to install until that build exists.
 ExecStart=/usr/bin/node dist/index.js
 
 Restart=on-failure

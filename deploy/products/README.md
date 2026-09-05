@@ -30,7 +30,7 @@ of them means putting a reverse proxy in front of it first, not flipping the
 # the products are Node services; install their deps first
 (cd indexer  && npm ci)
 (cd faucet   && npm ci)
-(cd explorer && npm ci && npm run build)   # explorer is the one with a build step
+(cd explorer && npm ci && npm run build)   # explorer's unit runs compiled output
 
 ./deploy/products/install.sh
 systemctl --user start scalar-indexer.service scalar-explorer.service scalar-faucet.service
@@ -93,8 +93,9 @@ Tunables: `INDEXER_HOST`, `INDEXER_PORT`, `INDEXER_RPC_URL`, `INDEXER_DB`,
 
 Server-rendered block, extrinsic and account views read straight off the node.
 
-- The only product with a build step: the unit runs `explorer/dist/index.js`, so
-  `npm run build` must have run. `install.sh` refuses to install otherwise.
+- The only product whose unit runs compiled output: the entrypoint is
+  `explorer/dist/index.js`, so `npm run build` must have run first.
+  `install.sh` refuses to install otherwise.
 - Holds no state, so it is safe to restart at any time.
 - It connects to the node *before* it listens. A node that is down is therefore a
   failed start that systemd retries, not a socket serving errors.
