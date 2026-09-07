@@ -20,6 +20,7 @@ ExecStart=/home/dev/scalar-commons-v4/target/release/scalar-node \
     --node-key-file %h/scalar-testnet/bob/node-key \
     --port 30334 \
     --rpc-port 9945 \
+    --rpc-methods safe \
     --prometheus-port 9616 \
     --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
 Restart=on-failure
