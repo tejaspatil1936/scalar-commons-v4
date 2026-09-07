@@ -11,6 +11,15 @@ export default defineConfig({
     'Coordination infrastructure for autonomous AI agents — node operation, agent SDK, RPC surface and the CMN token model.',
   lang: 'en-US',
 
+  // GitHub Pages publishes the landing page at the site root and these docs one
+  // level below it at `/docs` (see .github/workflows/pages.yml), and a *project*
+  // Pages site is itself served under `/<repo>/`. VitePress bakes the base
+  // prefix into every asset and router URL it emits, so it has to be known at
+  // build time — the Pages workflow composes the two segments and passes the
+  // result in DOCS_BASE. Everything else (local `npm run build`, the ci-node
+  // docs job) sets nothing and keeps the root-relative default it always had.
+  base: process.env.DOCS_BASE ?? '/',
+
   // The site lives in `docs/` alongside pre-existing engineering records that
   // are not part of the published documentation. They stay where they are.
   srcExclude: ['VERIFIED-CONSTANTS.md', 'rfcs/**', 'README.md'],
