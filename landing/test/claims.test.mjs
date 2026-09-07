@@ -154,3 +154,36 @@ test('the rendered document is complete and fully resolved', () => {
   assert.match(html, /<title>[^<]+<\/title>/);
   assert.match(html, /<meta name="description" content="[^"]+"/);
 });
+
+test('a component whose code is already in the repository is not still advertised as planned', () => {
+  // The "Planned" badge is a promise that the thing does not exist yet. Once
+  // the component lands, that badge is a lie the page keeps telling — and the
+  // link keeps pointing at a closed tracking issue instead of the code. Each
+  // entry below pins a link key to the file that proves the component shipped.
+  const shipped = { faucet: 'faucet/package.json' };
+  for (const [key, marker] of Object.entries(shipped)) {
+    const link = content.links.find((l) => l.key === key);
+    assert.ok(link, `content must link ${key}`);
+    assert.ok(readRepoFile(marker).length > 0, `${marker} is missing — has ${key} been removed from the repo?`);
+    assert.notEqual(link.status, 'planned', `${key} has shipped (${marker}) but the page still calls it planned`);
+    assert.doesNotMatch(
+      link.url,
+      /\/issues\/\d+$/,
+      `${key} has shipped, so the page must link the component itself, not its tracking issue`,
+    );
+  }
+});
+
+test('the committed chain snapshot comes from the long-running devnet, not the genesis window', () => {
+  // chain-facts.json is what makes the page offline-reproducible, and it is
+  // also the thing that silently rots: the first capture was taken a few
+  // thousand blocks after genesis and stayed on the page long after the devnet
+  // had run past it. This floor only ever moves up, and re-running
+  // `npm run fetch:chain-facts` against the devnet clears it.
+  const MIN_READ_AT_BLOCK = 400_000;
+  assert.ok(
+    facts.provenance.readAtBlock > MIN_READ_AT_BLOCK,
+    `chain-facts.json was read at block ${facts.provenance.readAtBlock}, at or below the stale floor of ` +
+      `${MIN_READ_AT_BLOCK} — re-run \`npm run fetch:chain-facts\` against the devnet`,
+  );
+});

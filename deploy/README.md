@@ -9,6 +9,9 @@ Everything here is ops and configuration. The only source change ROUND15 made
 was the `local` preset's authority list in `node/src/chain_spec.rs` — no pallet
 or runtime logic is involved.
 
+This file covers the five validators. The indexer, explorer and faucet that read
+from them are in [`products/README.md`](products/README.md).
+
 > **ROUND15 changed the network's identity.** Going from 3 to 5 authorities is a
 > different genesis, therefore a different chain. The chainspec was regenerated
 > and the databases wiped; any node still holding pre-ROUND15 data cannot sync

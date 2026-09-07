@@ -9,9 +9,9 @@
     "metadataVersion": 15,
     "genesisHash": "0xff6882b49ad61dd3128a6e834b4f81704a3824ce358f2f69fe765ca07cf803d1",
     "ss58Format": 42,
-    "readAtBlock": 8063,
-    "readAtBlockHash": "0x9e0d7589215c19643cc3c08c969c80ff99033fa45949f9a96889eaba1eab04b7",
-    "fetchedAt": "2026-08-04T06:46:13.869Z"
+    "readAtBlock": 433638,
+    "readAtBlockHash": "0x5400148f53befa5466e24058109062ce8a37d2af9add621c9c70cc72c1556a2a",
+    "fetchedAt": "2026-09-02T20:07:42.223Z"
   },
   "token": {
     "symbol": "CMN",
@@ -122,7 +122,7 @@
   "state": {
     "validators": 5,
     "registeredAgents": 3,
-    "totalIssuancePlancks": "6010250000009891842853",
+    "totalIssuancePlancks": "6047320283354253295031",
     "eraNumber": 0,
     "lastSettledEra": null,
     "alpha": 1500,
