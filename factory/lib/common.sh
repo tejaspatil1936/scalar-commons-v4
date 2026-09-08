@@ -213,3 +213,31 @@ gh_repo_args() {
 }
 
 have_gh() { command -v gh >/dev/null 2>&1; }
+
+# ---- binding a review to a head SHA ---------------------------------------
+# `agent-reviewed` used to be a naked label: it said "some review passed", not
+# "THIS diff passed". dispatch.sh re-pushes from a reused worktree every hour,
+# so commits nobody reviewed could land on a PR that kept the label, and
+# ENDGOAL §3.6's "any FAIL from any lens blocks the merge" held by convention
+# rather than by mechanism (audit finding I-13, cause 4).
+#
+# The binding is the SHA review.sh actually read, written into its verdict
+# comment as an HTML comment — invisible in the rendered thread, durable in the
+# API body, and impossible to set by adding a label. merge.sh reads it back and
+# refuses a head that has moved on.
+#
+# Emitter and parser live together HERE, in the one file both scripts source,
+# so the format cannot drift apart the way review.sh and its old test did.
+REVIEW_HEAD_MARKER='factory-review-head:'
+
+# review_head_marker <sha> -> the marker line to embed in a verdict comment.
+review_head_marker() { printf '<!-- %s %s -->' "$REVIEW_HEAD_MARKER" "$1"; }
+
+# parse_review_head_sha  (comment bodies on stdin) -> the LAST bound SHA, or "".
+#
+# The LAST marker wins: a PR reviewed twice is bound by its most recent review,
+# which is the one that judged the state the PR is in now. The marker syntax is
+# required, so prose that merely quotes a SHA can never be read as a binding.
+parse_review_head_sha() {
+  grep -oE "$REVIEW_HEAD_MARKER [0-9a-f]{7,40}" | tail -1 | awk '{print $2}'
+}

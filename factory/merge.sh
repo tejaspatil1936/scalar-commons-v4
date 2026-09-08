@@ -13,6 +13,22 @@
 #   4. NO needs-human label                <- no unresolved objection
 #   5. `gh pr checks` all passing          <- CI is green, not merely started
 #   6. PR is OPEN and mergeable, no conflicts
+#   7. the head SHA matches the SHA review.sh recorded in its verdict comment
+#                                          <- the label alone is not authority
+#
+# ON CONDITION 7: `agent-reviewed` used to be a naked label — it said "a review
+# passed", not "THIS diff passed" — while dispatch.sh re-pushed from a reused
+# worktree every hour. Unreviewed commits could therefore land on a PR that
+# kept the label. review.sh now records the SHA it read; merge.sh refuses a head
+# that has moved. The single exception is the base merge this script performs
+# itself, and it is proved from the commit graph (lineage_ok), not assumed.
+#
+# ON BEING BEHIND: with required_status_checks.strict=true GitHub blocks every
+# out-of-date branch. merge.sh had no update step, so both open PRs were
+# refused hourly and factory/logs/merges.log never came into existence. Being
+# BEHIND is now something this script FIXES — `gh pr update-branch`, wait for
+# the new checks, re-read the state, then merge. CONFLICTING is still the hard
+# refusal, and no existing refusal was relaxed to get here.
 #
 # WHY CONDITION 1 IS ABSOLUTE: without branch protection and required checks,
 # a squash-merge to master is unreviewable and unrevertable-by-policy — nothing
@@ -21,8 +37,9 @@
 # to the trunk. So if protection is absent this script refuses to merge ANYTHING
 # and prints why, no matter how the MERGE_* flags are set.
 #
-# THIS REPO, AS OF THE BUILD: master has NO protection (the API returns 404), so
-# merge.sh currently refuses everything by design. That is the correct state.
+# THIS REPO, AS OF 2026-09-08: master HAS protection with six required contexts
+# (gate, full, landing, faucet, docs, sdk), so condition 1 is satisfied and the
+# remaining gates are the per-PR ones above.
 
 set -uo pipefail
 
@@ -34,6 +51,99 @@ FACTORY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${ENABLE_MERGE:=false}"
 : "${MERGE_T2:=false}"
 : "${MERGE_T3:=true-only-after-protection}"
+# How long to wait for the checks on a freshly updated branch before giving up
+# and leaving the PR for the next pass. Generous by design: CI here takes
+# minutes, and abandoning a correctly-updated PR just means another hour.
+: "${MERGE_UPDATE_WAIT_SECS:=1800}"
+: "${MERGE_UPDATE_POLL_SECS:=30}"
+
+# ------------------------------------------- the decision logic, in one place --
+# Pure functions: no globals, no network, no side effects. They are defined UP
+# HERE, before any work, so factory/tests/merge-binding.sh can drive THE REAL
+# CODE through the self-test entrypoints below instead of keeping a private
+# copy that quietly stops agreeing with this file.
+
+# binding_state <reviewed_sha> <head_sha> -> OK | STALE | UNBOUND
+#
+# UNBOUND is not a softer STALE: it means the PR carries `agent-reviewed` from
+# before reviews were bound at all, or that the head could not be read. Both
+# are "we do not know what was reviewed", and both must refuse. Fail closed.
+binding_state() {
+  local reviewed="${1:-}" head="${2:-}"
+  if [ -z "$reviewed" ] || [ -z "$head" ]; then printf 'UNBOUND'; return 0; fi
+  if [ "$reviewed" = "$head" ]; then printf 'OK'; else printf 'STALE'; fi
+}
+
+# state_decision <mergeable> <mergeStateStatus> -> MERGE | UPDATE_BRANCH | REFUSE:<why>
+#
+# `behind` is a condition to FIX, not to refuse. With
+# required_status_checks.strict=true GitHub blocks every out-of-date branch,
+# and merge.sh had no update step — which is why both open PRs sat refused
+# hourly and factory/logs/merges.log never came into existence (I-13, cause 3).
+#
+# Conflicts remain the one hard refusal, checked FIRST: a conflicted branch
+# must never be handed to update-branch. Everything else falls through to the
+# CI gate below, which is where "is this actually green" is decided.
+state_decision() {
+  local mergeable="${1:-}" state="${2:-}"
+  case "$mergeable" in CONFLICTING) printf 'REFUSE:has merge conflicts'; return 0 ;; esac
+  case "$state" in
+    DIRTY)  printf 'REFUSE:has merge conflicts' ;;
+    BEHIND) printf 'UPDATE_BRANCH' ;;
+    *)      printf 'MERGE' ;;
+  esac
+}
+
+# lineage_ok <reviewed_sha> <head_sha> <base_ref> -> OK | STALE   (reads git)
+#
+# The one exception to strict SHA equality, and it is narrow on purpose.
+#
+# `gh pr update-branch` moves the head, so after merge.sh updates a branch the
+# binding no longer matches by equality. Refusing there would leave the factory
+# exactly where the audit found it: unable to merge anything, forever. But
+# accepting "the reviewed SHA is somewhere in the history" would hand back the
+# hole the binding closed — an unreviewed commit followed by a base merge has
+# the reviewed SHA in its history too.
+#
+# So the accepted shape is exactly the one update-branch produces and nothing
+# else: a two-parent merge whose FIRST parent is the reviewed SHA itself, and
+# whose SECOND parent is already contained in the base branch. Such a commit
+# cannot carry a line of change that the reviewed SHA and the base branch did
+# not already carry between them. Anything else — an extra commit on top, a
+# merge of some other branch, an unreadable SHA — is STALE.
+lineage_ok() {
+  local reviewed="${1:-}" head="${2:-}" base="${3:-}"
+  [ -n "$reviewed" ] && [ -n "$head" ] || { printf 'STALE'; return 0; }
+  [ "$reviewed" != "$head" ] || { printf 'OK'; return 0; }
+
+  local parents p1 p2
+  parents="$(git -C "$REPO_DIR" rev-list --parents -n 1 "$head" 2>/dev/null)"     || { printf 'STALE'; return 0; }
+  # "<commit> <parent1> <parent2>" — exactly three fields, i.e. a 2-parent merge.
+  [ "$(printf '%s' "$parents" | wc -w)" -eq 3 ] || { printf 'STALE'; return 0; }
+  p1="$(printf '%s' "$parents" | awk '{print $2}')"
+  p2="$(printf '%s' "$parents" | awk '{print $3}')"
+  [ "$p1" = "$reviewed" ] || { printf 'STALE'; return 0; }
+  git -C "$REPO_DIR" merge-base --is-ancestor "$p2" "$base" 2>/dev/null     || { printf 'STALE'; return 0; }
+  printf 'OK'
+}
+
+# ------------------------------------------------- self-test entrypoints -----
+# Dispatched on $1 before merge.sh reads a config flag, contacts GitHub, or
+# evaluates a single PR. A test invocation can never merge anything.
+case "${1:-}" in
+  --reviewed-sha)
+    [ $# -eq 1 ] || die "--reviewed-sha reads comment bodies on stdin"
+    parse_review_head_sha; printf '\n'; exit 0 ;;
+  --binding-state)
+    [ $# -eq 3 ] || die "--binding-state needs <reviewed-sha> <head-sha>"
+    binding_state "$2" "$3"; printf '\n'; exit 0 ;;
+  --state-decision)
+    [ $# -eq 3 ] || die "--state-decision needs <mergeable> <mergeStateStatus>"
+    state_decision "$2" "$3"; printf '\n'; exit 0 ;;
+  --lineage-check)
+    [ $# -eq 4 ] || die "--lineage-check needs <reviewed-sha> <head-sha> <base-ref>"
+    lineage_ok "$2" "$3" "$4"; printf '\n'; exit 0 ;;
+esac
 
 DRY_RUN=0
 ONLY_PR=""
@@ -119,7 +229,8 @@ fi
 
 # ------------------------------------------------------------ candidate PRs ---
 PRS_JSON="$(gh pr list --state open --limit 100 \
-    --json number,title,labels,isDraft,mergeable,headRefName "${GH_ARGS[@]}" 2>/dev/null || echo '[]')"
+    --json number,title,labels,isDraft,mergeable,mergeStateStatus,headRefOid,headRefName \
+    "${GH_ARGS[@]}" 2>/dev/null || echo '[]')"
 
 ROWS="$(printf '%s' "$PRS_JSON" | python3 -c '
 import json,sys
@@ -134,6 +245,8 @@ for p in prs:
         "1" if "needs-human" in labels else "0",
         "1" if p.get("isDraft") else "0",
         str(p.get("mergeable") or ""),
+        str(p.get("mergeStateStatus") or ""),
+        str(p.get("headRefOid") or ""),
         (p.get("title") or "").replace("\t"," "),
     ]))
 ')"
@@ -145,7 +258,7 @@ fi
 MERGED=0
 REFUSED=0
 
-while IFS=$'\x1f' read -r num tier reviewed needshuman draft mergeable title; do
+while IFS=$'\x1f' read -r num tier reviewed needshuman draft mergeable mergestate headsha title; do
   [ -n "$num" ] || continue
   [ -z "$ONLY_PR" ] || [ "$num" = "$ONLY_PR" ] || continue
 
@@ -183,9 +296,104 @@ while IFS=$'\x1f' read -r num tier reviewed needshuman draft mergeable title; do
     *)  refuse "unrecognised tier '$tier'"; continue ;;
   esac
 
-  if [ "$mergeable" = "CONFLICTING" ]; then
-    refuse "has merge conflicts"; continue
-  fi
+  # ---- the review must be bound to THIS head ------------------------------
+  # `agent-reviewed` alone only says a review once passed. Before this check
+  # existed, dispatch.sh's hourly re-push from a reused worktree could land
+  # commits nobody reviewed on a PR that kept the label (I-13, cause 4). The
+  # binding is the SHA review.sh recorded in its own verdict comment, which is
+  # not settable by adding a label.
+  REVIEWED_SHA="$(gh api "repos/:owner/:repo/issues/$num/comments" --paginate \
+      --jq '.[].body' "${GH_ARGS[@]}" 2>/dev/null | parse_review_head_sha)"
+  case "$(binding_state "$REVIEWED_SHA" "$headsha")" in
+    OK) : ;;
+    UNBOUND)
+      refuse "agent-reviewed is not bound to a head SHA (re-run factory/review.sh $num)"
+      continue ;;
+    STALE)
+      # The one accepted exception is a base merge this script itself performs;
+      # lineage_ok proves that shape from the commit graph rather than trusting
+      # it. Fetch the head first — the ref may not be local yet.
+      git -C "$REPO_DIR" fetch --quiet --no-tags origin \
+          "+refs/pull/$num/head:refs/factory-merge/pr-$num" \
+          "+refs/heads/$DEFAULT_BRANCH:refs/remotes/origin/$DEFAULT_BRANCH" 2>/dev/null || true
+      if [ "$(lineage_ok "$REVIEWED_SHA" "$headsha" "refs/remotes/origin/$DEFAULT_BRANCH")" = "OK" ]; then
+        log "#$num head $headsha is a base-merge of reviewed $REVIEWED_SHA — binding carried forward"
+      else
+        refuse "head $headsha is not the reviewed SHA $REVIEWED_SHA (re-run factory/review.sh $num)"
+        git -C "$REPO_DIR" update-ref -d "refs/factory-merge/pr-$num" >/dev/null 2>&1 || true
+        continue
+      fi
+      git -C "$REPO_DIR" update-ref -d "refs/factory-merge/pr-$num" >/dev/null 2>&1 || true ;;
+  esac
+
+  # ---- conflicts refuse; being merely BEHIND gets fixed --------------------
+  DECISION="$(state_decision "$mergeable" "$mergestate")"
+  case "$DECISION" in
+    REFUSE:*) refuse "${DECISION#REFUSE:}"; continue ;;
+    UPDATE_BRANCH)
+      if [ "$DRY_RUN" = "1" ]; then
+        printf 'WOULD UPDATE #%-4s %-8s branch is BEHIND %s; then re-check CI and merge\n' \
+          "$num" "$tier" "$DEFAULT_BRANCH"
+        printf '            gh pr update-branch %s\n' "$num"
+        continue
+      fi
+      log "#$num is BEHIND $DEFAULT_BRANCH — updating the branch before merging"
+      if ! gh pr update-branch "$num" "${GH_ARGS[@]}" >/dev/null 2>&1; then
+        refuse "gh pr update-branch failed (branch cannot be brought up to date)"; continue
+      fi
+
+      # The head has moved, so the checks that matter are the ones GitHub is
+      # about to create. Wait for the new head to appear, THEN for its checks
+      # to settle. Treating "no checks reported yet" as green here would merge
+      # a commit no CI has seen, so it counts as pending for the whole window.
+      # Every read below must fail CLOSED. An API hiccup that returns an empty
+      # string is "we do not know", and "we do not know" must never resolve to
+      # a merge — so the new head is accepted only when it reads back as a real
+      # 40-hex SHA that differs from the one we started with.
+      NEW_SHA=""
+      WAIT_UNTIL=$(( $(date -u +%s) + MERGE_UPDATE_WAIT_SECS ))
+      while [ "$(date -u +%s)" -lt "$WAIT_UNTIL" ]; do
+        CUR="$(gh pr view "$num" --json headRefOid --jq .headRefOid "${GH_ARGS[@]}" 2>/dev/null || true)"
+        if printf '%s' "$CUR" | grep -qE '^[0-9a-f]{40}$' && [ "$CUR" != "$headsha" ]; then
+          NEW_SHA="$CUR"; break
+        fi
+        sleep "$MERGE_UPDATE_POLL_SECS"
+      done
+      if [ -z "$NEW_SHA" ]; then
+        refuse "update-branch returned success but no new head SHA could be read"; continue
+      fi
+      log "#$num head moved $headsha -> $NEW_SHA; waiting for fresh checks"
+
+      SETTLED=0
+      while [ "$(date -u +%s)" -lt "$WAIT_UNTIL" ]; do
+        C="$(gh pr checks "$num" "${GH_ARGS[@]}" 2>&1)"
+        if ! printf '%s' "$C" | grep -qiE 'no checks reported|no check runs|pending|queued|in_progress'; then
+          SETTLED=1; break
+        fi
+        sleep "$MERGE_UPDATE_POLL_SECS"
+      done
+      if [ "$SETTLED" != "1" ]; then
+        refuse "checks on the updated head did not settle within ${MERGE_UPDATE_WAIT_SECS}s — leaving for the next pass"
+        continue
+      fi
+
+      # Re-read the state: an update-branch can surface a conflict that the
+      # stale mergeable field did not show.
+      RE="$(gh pr view "$num" --json mergeable,mergeStateStatus \
+            --jq '.mergeable + " " + .mergeStateStatus' "${GH_ARGS[@]}" 2>/dev/null || true)"
+      RE_M="${RE%% *}"; RE_S="${RE##* }"
+      if [ -z "$RE_M" ] || [ -z "$RE_S" ] || [ "$RE_M" = "$RE_S" ]; then
+        refuse "could not re-read mergeability after update-branch (got '$RE')"; continue
+      fi
+      RE_DECISION="$(state_decision "$RE_M" "$RE_S")"
+      case "$RE_DECISION" in
+        MERGE) log "#$num updated and ready ($RE)" ;;
+        *)     refuse "after update-branch the PR is still not mergeable ($RE -> $RE_DECISION)"; continue ;;
+      esac
+      headsha="$NEW_SHA" ;;
+    MERGE) : ;;
+    *) refuse "unrecognised merge-state decision '$DECISION'"; continue ;;
+  esac
 
   # ---- CI must be GREEN, not merely present -------------------------------
   # `gh pr checks` exits non-zero when anything is failing or pending, but we
@@ -212,7 +420,7 @@ while IFS=$'\x1f' read -r num tier reviewed needshuman draft mergeable title; do
   if gh pr merge "$num" --squash --delete-branch "${GH_ARGS[@]}" >/dev/null 2>&1; then
     printf 'MERGED #%-4s %-8s %s\n' "$num" "$tier" "$title"
     MERGED=$((MERGED+1))
-    printf '%s\tmerged\t#%s\t%s\n' "$(ts)" "$num" "$title" >> "$FACTORY_DIR/logs/merges.log"
+    printf '%s\tmerged\t#%s\t%s\t%s\n' "$(ts)" "$num" "$headsha" "$title" >> "$FACTORY_DIR/logs/merges.log"
   else
     refuse "gh pr merge failed"
   fi
