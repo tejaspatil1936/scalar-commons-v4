@@ -293,7 +293,7 @@ are not what you would guess from reading declaration order.
 | `TransactionPayment` | 13 | |
 | `Vesting` | 14 | |
 | `Treasury` | 15 | Completion fees, slash share |
-| `Sudo` | 16 | Removed by referendum after launch |
+| `Sudo` | 16 | Held by operator; removal scheduled for mainnet |
 | `Utility` | 17 | |
 | `Multisig` | 18 | |
 | `Scheduler` | 19 | |
