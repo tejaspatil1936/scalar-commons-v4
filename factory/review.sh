@@ -184,6 +184,7 @@ usage() {
   printf '  --classify <rc> <file>        PASS | FAIL | ERROR\n'
   printf '  --status <pass> <fail> <err>  PASS | FAIL | INCONCLUSIVE\n'
   printf '  --labels <pass> <fail> <err>  "<agent-reviewed> <needs-human>"\n'
+  printf '  --head-marker <sha>           the reviewed-head marker line\n'
 }
 
 # ------------------------------------------------- self-test entrypoints -----
@@ -203,6 +204,9 @@ case "${1:-}" in
   --labels)
     [ $# -eq 4 ] || die "--labels needs <pass> <fail> <err>"
     review_labels "$2" "$3" "$4"; printf '\n'; exit 0 ;;
+  --head-marker)
+    [ $# -eq 2 ] || die "--head-marker needs <sha>"
+    review_head_marker "$2"; printf '\n'; exit 0 ;;
 esac
 
 # ------------------------------------------------------------- arguments ----
@@ -223,6 +227,23 @@ done
 
 stop_requested && { log "STOP_FACTORY present — not reviewing."; exit 0; }
 have_gh || die "gh CLI required"
+
+# ---- billing preflight -----------------------------------------------------
+# Every lens below is a `claude -p` process, so review.sh spends exactly like
+# lib/loop.sh does and must prove its billing source exactly like lib/loop.sh
+# does. It did not, and the cost was concrete: under systemd the reviewer
+# inherited neither ~/.factory/env's PATH nor ANTHROPIC_API_KEY, so all six
+# systemd-launched reviews — 18 of 18 lenses — exited 127, and the next one
+# would have found `claude` on PATH with no key and silently billed the
+# interactive Max login, which common.sh's preflight exists to forbid.
+#
+# Placed here deliberately: after the kill switch (a stopped factory spends
+# nothing), before the diff is fetched and long before any lens is spawned. It
+# fails closed — no key, no review — because an unbilled review is worse than
+# no review: it reports a verdict while draining the wrong account.
+#
+# factory/tests/review-billing.sh asserts both the ordering and the closure.
+load_billing_env
 
 GH_ARGS=()
 mapfile -t GH_ARGS < <(gh_repo_args)
@@ -289,6 +310,26 @@ else
 fi
 
 [ -s "$WORK/allfiles.txt" ] || die "PR #$PR has an empty diff"
+
+# ------------------------------------------------- bind the review to a SHA --
+# Record the exact commit these lenses are about to read. This is what makes
+# `agent-reviewed` mean "THIS diff passed" rather than "some review once
+# passed" — merge.sh reads the SHA back out of the verdict comment and refuses
+# a PR whose head has moved since (audit finding I-13, cause 4).
+#
+# Prefer the ref that was actually diffed above; only fall back to the API when
+# the fetch failed, because the ref is the ground truth for what the lenses see.
+# If neither can be resolved, refuse BEFORE spending a single spawn: a review
+# that cannot be bound cannot authorise a merge, so paying for it is waste.
+if REVIEWED_SHA="$(git -C "$REPO_DIR" rev-parse --verify --quiet "$PRREF^{commit}" 2>/dev/null)" \
+   && [ -n "$REVIEWED_SHA" ]; then
+  log "reviewing PR #$PR at head $REVIEWED_SHA (from $PRREF)"
+else
+  REVIEWED_SHA="$(gh pr view "$PR" --json headRefOid --jq .headRefOid "${GH_ARGS[@]}" 2>/dev/null || true)"
+  [ -n "$REVIEWED_SHA" ] || die "cannot resolve the head SHA of PR #$PR; refusing to review a diff \
+that could not be bound to a commit"
+  log "reviewing PR #$PR at head $REVIEWED_SHA (from the API; git fetch had failed)"
+fi
 
 RAW_LINES=$(wc -l < "$WORK/raw.diff")
 FILTERED_LINES=$(wc -l < "$WORK/filtered.diff")
@@ -749,7 +790,11 @@ COMMENT="$WORK/comment.md"
     tail -c 25000 "$WORK/$l.out"
     printf '\n```\n\n</details>\n\n'
   done
-  printf -- '---\n*Posted by %sfactory/review.sh%s. This tool never merges.*\n' "$BT" "$BT"
+  printf -- '---\n'
+  printf '**Reviewed head:** %s%s%s — this verdict binds to that commit only. If the\n' "$BT" "$REVIEWED_SHA" "$BT"
+  printf 'PR head moves, %sfactory/merge.sh%s refuses the PR until it is reviewed again.\n\n' "$BT" "$BT"
+  printf '%s\n' "$(review_head_marker "$REVIEWED_SHA")"
+  printf '\n*Posted by %sfactory/review.sh%s. This tool never merges.*\n' "$BT" "$BT"
 } > "$COMMENT"
 
 if gh pr comment "$PR" --body-file "$COMMENT" "${GH_ARGS[@]}" >/dev/null 2>&1; then

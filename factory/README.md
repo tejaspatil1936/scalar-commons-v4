@@ -289,6 +289,17 @@ Any FAIL → `needs-human` plus a comment with the objections. Both labels can b
 set at once (2 PASS + 1 FAIL); since merging requires `agent-reviewed` *and* no
 `needs-human`, any FAIL blocks the merge while the audit trail survives.
 
+`review.sh` also runs the same `load_billing_env` preflight `lib/loop.sh` runs,
+and fails closed without an API key: every lens is a `claude -p` process, so a
+reviewer that cannot prove its billing source does not run. Before this, all six
+systemd-launched reviews — 18 of 18 lenses — exited 127.
+
+**The verdict is bound to a head SHA.** `review.sh` records the exact commit it
+read in its verdict comment, and `merge.sh` refuses a PR whose head has moved
+since. `agent-reviewed` on its own only ever meant "a review passed"; the binding
+is what makes it mean "*this diff* passed", which matters because `dispatch.sh`
+re-pushes from a reused worktree every hour.
+
 Why fresh context: the author agent has spent hours convincing itself the work is
 good. Review inside that context inherits the rationalisation.
 
@@ -364,7 +375,7 @@ echo "exit=$?"   # want: 2, with an explanation
 | `cluster:<name>` | Cluster members run serialized, never in parallel. |
 | `blocked` | Skip. Human says not yet. |
 | `in-progress` | A worker owns it. Set at dispatch, cleared on finish. |
-| `agent-reviewed` | Cleared ≥2/3 review lenses. |
+| `agent-reviewed` | Cleared ≥2/3 review lenses, at the SHA named in the verdict comment. |
 | `needs-human` | A lens objected, or a loop blocked. |
 
 An issue with **no** `tier:` label is skipped — the dispatcher refuses to guess a
@@ -496,6 +507,17 @@ exist until you create them.
 
 **`merge.sh` refuses everything.** Expected until branch protection with a
 required check exists on `master`. It prints exactly what's missing.
+
+**`merge.sh` refuses on the reviewed SHA.** The PR head has moved since the
+review, so the review no longer speaks for it. Re-run `./factory/review.sh <N>`.
+A PR reviewed before verdicts carried a SHA reads as *not bound to a head SHA*
+and needs the same re-run.
+
+**A PR is `BEHIND` master.** `merge.sh` fixes this itself now: it runs
+`gh pr update-branch`, waits up to `MERGE_UPDATE_WAIT_SECS` (default 1800) for
+the new checks to settle, re-reads mergeability, and only then merges. If the
+checks do not settle in that window it leaves the PR for the next hourly pass
+rather than merging on stale results.
 
 **A worktree is in the way.**
 
