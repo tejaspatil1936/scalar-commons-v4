@@ -518,6 +518,29 @@ export const ROUTES: readonly RouteDefinition[] = [
   },
 ];
 
+/**
+ * The unversioned index served at `/`.
+ *
+ * Deliberately outside `ROUTES`: `/v1` is a promise about response shapes, and
+ * a greeting for whoever pastes the bare host into a browser is not part of it.
+ * Keeping it out also keeps `api.endpoints` on `/v1/status` counting the 24
+ * endpoints a client can actually call.
+ *
+ * It reads nothing — no store, no node. `/` is the first thing a human tries
+ * when they want to know whether the host is alive, so it must answer 200 even
+ * while the chain connection is down; a pointer to the entry point is true
+ * regardless of chain state. The 404 this replaces carried almost the same
+ * bytes, but its status code told every monitor the host was broken.
+ */
+export function rootIndex(): Record<string, unknown> {
+  return {
+    service: 'scalar-commons-indexer',
+    api: 'v1',
+    status: '/v1/status',
+    endpoints: ROUTES.map((route) => route.path),
+  };
+}
+
 interface CompiledRoute extends RouteDefinition {
   readonly segments: string[];
 }
@@ -613,6 +636,13 @@ async function handle(req: IncomingMessage, res: ServerResponse, dependencies: A
     // raw request bytes, and both can reject them — a URL the spec does not
     // define, or a path segment that is not valid percent-encoding.
     const url = new URL(req.url ?? '/', 'http://indexer.local');
+
+    // Answered before routing, and without touching `dependencies`: `/` names
+    // the entry point rather than refusing the request. See `rootIndex`.
+    if (url.pathname === '/') {
+      sendJson(res, 200, rootIndex());
+      return;
+    }
 
     const matched = matchRoute(url.pathname);
     if (matched === null) {
