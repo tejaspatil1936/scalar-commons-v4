@@ -223,8 +223,70 @@ curl -sI https://<DOMAIN>/ | grep -i 'strict-transport\|x-content-type\|x-frame'
 
 ---
 
+## (e) `Sudo::Key` is not the published `//Alice` dev seed
+
+**This is the single decisive launch blocker and it is not optional.**
+`runtime/src/lib.rs` exempts `RuntimeCall::Sudo(_)` from SafeMode filtering, and
+`author_submitExtrinsic` is classified *safe* — so `--rpc-methods safe`, which
+check (b) confirms, does **not** withhold it. The moment `wss://rpc.<DOMAIN>` is
+reachable, whoever holds the root key can `sudo.sudo(system.set_code)`,
+`balances.force_transfer`, `system.kill_storage` or `sudo.set_key`. TLS, nginx
+rate limits and the firewall do not mitigate it at all.
+
+`//Alice`'s public key is `0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d`
+and its seed is in every Substrate tutorial.
+
+```bash
+curl -s -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"state_getStorage","params":["0x5c0d1176a568c1f92944340dbfed9e9c530ebca703c85910e7164cb7d1c9e47b"]}' \
+  http://127.0.0.1:9944 | python3 -c 'import sys,json;print(json.load(sys.stdin).get("result"))'
+```
+
+**Pass:** anything other than
+`0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d`.
+**Fail:** that value, or `None` when you did not intend to remove sudo.
+
+One line, exit 0 = pass:
+
+```sh
+test "$(curl -s -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":1,"method":"state_getStorage","params":["0x5c0d1176a568c1f92944340dbfed9e9c530ebca703c85910e7164cb7d1c9e47b"]}' http://127.0.0.1:9944 | python3 -c 'import sys,json;print(json.load(sys.stdin).get("result"))')" != "0xd43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d"
+```
+
+### Holding root is not the same as being able to use it
+
+A root key with no balance cannot sign anything. `sudo.sudo` dispatches
+`paysFee: No`, but that is *post-dispatch* — `ChargeTransactionPayment` runs in
+`validate_transaction` first and still requires the signer to cover the
+estimated fee, so a zero-balance root account is rejected at submission with
+`1010: Inability to pay some fees`. That is not hypothetical: it is exactly what
+happened on the first attempt to apply the spec-305 runtime upgrade, after the
+key had been rotated and never funded (#119, #136).
+
+```bash
+# substitute the address the check above returned
+curl -s -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"state_getRuntimeVersion","params":[]}' \
+  http://127.0.0.1:9944 | python3 -c 'import sys,json;print("specVersion", json.load(sys.stdin)["result"]["specVersion"])'
+```
+
+**Pass:** the root account's free balance comfortably exceeds the existential
+deposit plus a transaction fee. `scripts/apply-upgrade.mjs --dry-run` prints
+exactly this comparison and refuses if it fails.
+
+**Note on the published docs.** `docs/reference/rpc.md` used to carry the table
+row `| Sudo | 16 | Removed by referendum after launch |`, which was false — the
+key existed and nothing in the runtime scheduled its removal. It now reads
+"held by operator; removal scheduled for mainnet". If you change the sudo
+arrangement, change that row in the same commit: the one page a careful stranger
+consults about root access must not describe a state the chain is not in.
+
+---
+
 ## Result
 
-Exposure is correct only when (a), (b), (c) and (d) all pass **and** the
+Exposure is correct only when (a), (b), (c), (d) and (e) all pass **and** the
 `nmap` sweep in (b) shows 9944–9948 unreachable from off-host. If any check
 fails, roll back per INSTALL.md before debugging in place.
+
+(e) is the one that cannot be deferred: (a)–(d) failing means the deployment is
+broken, but (e) failing means anyone on the internet owns the chain.

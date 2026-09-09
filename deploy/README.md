@@ -162,6 +162,63 @@ systemctl --user disable scalar-devnet.target scalar-alice scalar-bob \
 
 ---
 
+## Node RPC limits
+
+Every `deploy/systemd/scalar-*.service` carries per-connection RPC bounds. They
+are **not applied to the running nodes** until each is restarted — see the
+rolling-restart recipe below.
+
+| flag | value | why |
+|---|---|---|
+| `--rpc-rate-limit` | 300 | calls per **minute** per connection (the flag's unit; not per second). No default at all — unset means unlimited. |
+| `--rpc-max-connections` | 100 | the upstream default, stated explicitly so a future default change cannot silently widen it. |
+| `--rpc-max-subscriptions-per-connection` | 64 | down from 1024. A subscription is server-side work a client never has to ask for twice. |
+| `--rpc-max-batch-request-len` | 16 | caps how much one message can amplify into. Without it a rate limit is nominal. |
+| `--rpc-max-request-size` | 10 MB | down from 15. |
+| `--rpc-message-buffer-capacity-per-connection` | 32 | bounds queued outbound messages per socket. |
+
+Response size is deliberately **left at its 15 MB default** — lowering it would
+truncate legitimate archive queries against alice.
+
+`--rpc-rate-limit-trust-proxy-headers` is deliberately **not** set. Its help text
+is *"Trust proxy headers for disable rate limiting"* — a bypass switch, not a
+hardening one. The rate limit is per **connection**, so proxying does not
+collapse it the way it collapsed the faucet's per-IP limit; there is nothing to
+gain and a bypass to lose.
+
+The same limits are on all five nodes, not just alice. A limit only the
+public-facing node carries is a limit that disappears the moment someone fronts
+a different one.
+
+**Why the node and not nginx:** on websockets `limit_req` bounds *connection
+establishment* only, never the JSON-RPC messages inside an already-open socket.
+Before this, one client past nginx's 10 r/s handshake budget could call at an
+unbounded rate in unbounded batches. TESTNETAUDIT.md §6 I-23, issue #139.
+
+### Rolling restart — one node at a time
+
+A restart is not free. Roll them one at a time, waiting for finality between
+each, and do **alice last** (bootnode and query endpoint):
+
+```bash
+for n in eve dave charlie bob alice; do
+    systemctl --user restart "scalar-$n"
+    sleep 30
+    ./deploy/finality-check.sh
+done
+```
+
+Never restart two at once: two down of five leaves three, below GRANDPA's
+threshold of four, and finality stalls until one returns.
+
+Confirm afterwards that the flags actually took:
+
+```bash
+tr '\0' ' ' < /proc/$(systemctl --user show -p MainPID --value scalar-alice)/cmdline | tr ' ' '\n' | grep rpc
+```
+
+---
+
 ## Host hardening — sshd and fail2ban
 
 Neither of the two controls below was recorded anywhere in this repository until
