@@ -124,7 +124,9 @@ before continuing.
 
 ## (c) Rate limiting triggers
 
-Config: 10 r/s with `burst=20`, and 5 concurrent connections per IP.
+Config as installed: rpc 10 r/s `burst=20` and **20** concurrent connections per
+IP; faucet **10 r/m** `burst=5` on its own `faucet_req` zone; web/api 20 r/s
+`burst=40`.
 
 ```bash
 for i in $(seq 1 60); do
@@ -136,17 +138,33 @@ done | sort | uniq -c
 `limit_req` is not applying — check the zone is defined and the vhost is the one
 actually serving.
 
-Concurrent-connection cap (6 sockets, limit is 5):
+Concurrent-connection cap (limit is 20, so open 26):
+
+Open them **slowly** — about 3/s. A burst of 26 trips `limit_req` first and you
+learn nothing about `limit_conn`; staggering below 10 r/s isolates it.
 
 ```bash
-for i in $(seq 1 6); do
-  wscat -c wss://rpc.<DOMAIN> --wait 20 &
+for i in $(seq 1 26); do
+  wscat -c wss://rpc.<DOMAIN> --wait 30 &
+  sleep 0.3
 done
 wait
 ```
 
-**Pass:** at least one socket is rejected with HTTP 429 during the upgrade
-handshake while the others stay open.
+**Pass:** exactly the first 20 upgrade (101) and the rest are refused with 429.
+Measured 2026-09-09: `#1–#20 → 101 Switching Protocols`, `#21–#26 → 429`.
+
+The faucet's own bucket, which is 60× tighter than the rpc one because it
+dispenses balance:
+
+```bash
+for i in $(seq 1 15); do
+  curl -s -o /dev/null -w '%{http_code}\n' https://faucet.<DOMAIN>/health &
+done | sort | uniq -c
+```
+
+**Pass:** 6 × `200` (burst 5 plus one refill) and 9 × `429`. All-200 means the
+faucet vhost is on the wrong zone — check it uses `faucet_req`, not `rpc_req`.
 
 Confirm from the log side:
 
@@ -175,10 +193,17 @@ curl -sI https://explorer.<DOMAIN>/  | head -1   # 127.0.0.1:8081
 curl -sI https://api.<DOMAIN>/       | head -1   # 127.0.0.1:8080
 ```
 
-**Pass:** each returns `200` (a product may legitimately return `302` to its own
-entry path). `502` means the loopback service behind that vhost is down — an
-issue #102 problem, not an nginx one. `404` on `/docs/` is the `base` blocker in
-INSTALL.md step 5.
+**Pass:** landing, `/docs/` and explorer return `200`. `api.` and `faucet.`
+return **`404` at `/`** and that is currently expected — neither product defines
+a root route, so the check for them is the real endpoint below, not `/`. `502`
+means the loopback service behind that vhost is down — an issue #102 problem,
+not an nginx one, and note the indexer takes ~3.5 minutes after a restart to
+bind :8080 (it serves only once its backfill completes), during which `api.`
+502s legitimately.
+
+`404` on `/docs/` would mean the docs were published without
+`DOCS_BASE=/docs/`; rebuild with `deploy/public/redeploy-site.sh`, which fails
+rather than publishing such a build.
 
 Landing serves real content, not an empty directory index:
 
@@ -198,11 +223,18 @@ curl -s https://<DOMAIN>/docs/ | grep -oE '(src|href)="/[^"]*"' | head
 `/assets/...`, the docs were built without `base: '/docs/'` and the site will
 render unstyled — go back to INSTALL.md step 5.
 
-API returns real indexer JSON:
+API returns real indexer JSON. **The indexer has no `/health` route** — that
+path 404s with a list of the 24 endpoints. The status endpoint is:
 
 ```bash
-curl -s https://api.<DOMAIN>/health
+curl -s https://api.<DOMAIN>/v1/status
 ```
+
+**Pass:** JSON carrying `chain.specVersion`, `chain.bestBlock` and
+`indexer.syncedHeight`, with `syncedHeight` within a few blocks of `bestBlock`.
+A `syncedHeight` that does not advance between two runs means the indexer's
+websocket to the node has dropped — it stays "running" and returns 500 on every
+chain-backed route until restarted.
 
 ---
 
@@ -220,6 +252,47 @@ curl -sI https://<DOMAIN>/ | grep -i 'strict-transport\|x-content-type\|x-frame'
 
 **Pass:** `Strict-Transport-Security`, `X-Content-Type-Options: nosniff`, and
 `X-Frame-Options` all present.
+
+---
+
+## (f) A caller cannot forge its own IP to the faucet
+
+The faucet's per-IP drip limit is only worth anything if the IP it reads is one
+the caller cannot choose. Two halves, both required:
+
+1. the vhost sets `proxy_set_header X-Forwarded-For $remote_addr;` — **overwrite**,
+   never nginx's stock appending `$proxy_add_x_forwarded_for`; and
+2. `faucet/src/server.ts` reads the **right-most** entry, so even an appending
+   proxy could not be talked into trusting a caller-supplied hop.
+
+Confirm half 1 is present on every faucet location:
+
+```bash
+sudo awk '/server_name faucet\./,/^}/' /etc/nginx/sites-available/scalar-commons.conf | grep -c 'X-Forwarded-For   \$remote_addr'
+sudo grep -c 'proxy_add_x_forwarded_for' /etc/nginx/sites-available/scalar-commons.conf
+```
+
+**Pass:** the first count equals the number of `location` blocks on the faucet
+vhost (one, as shipped); the second is `0` outside comments.
+
+Then confirm it end to end. **The faucet logs no client IP**, so a forged
+request cannot be checked from its journal — point a copy of the config at any
+echo server that prints the headers it receives, and send:
+
+```bash
+curl -s https://faucet.<DOMAIN>/health -H 'X-Forwarded-For: 1.2.3.4'
+curl -s https://faucet.<DOMAIN>/health -H 'X-Forwarded-For: 1.2.3.4, 9.9.9.9'
+```
+
+**Pass:** the upstream receives `X-Forwarded-For: <your real IP>` in both cases.
+**Fail:** it receives `1.2.3.4`, or a list with `1.2.3.4` in it — every forged
+value is a fresh rate-limit bucket and the drip limit is decorative.
+Measured 2026-09-09: both forgeries arrived at the upstream as the real peer.
+
+> Until the faucet logs the IP it charged (see the "products" issue), this
+> check cannot be run against the live faucet — only against an echo upstream
+> with the same config. Do not record it as verified end to end on the real
+> service.
 
 ---
 
@@ -284,9 +357,17 @@ consults about root access must not describe a state the chain is not in.
 
 ## Result
 
-Exposure is correct only when (a), (b), (c), (d) and (e) all pass **and** the
-`nmap` sweep in (b) shows 9944–9948 unreachable from off-host. If any check
+Exposure is correct only when (a), (b), (c), (d), (e) and (f) all pass **and**
+the `nmap` sweep in (b) shows 9944–9948 unreachable from off-host. If any check
 fails, roll back per INSTALL.md before debugging in place.
 
 (e) is the one that cannot be deferred: (a)–(d) failing means the deployment is
 broken, but (e) failing means anyone on the internet owns the chain.
+
+### Last full run
+
+scalarnet.io, 2026-09-09. All checks pass; the complete PASS/FAIL table with raw
+evidence is in `PUBLIC-LAUNCH.md` at the repo root. The off-host sweep, which
+cannot be run from the server itself, was confirmed from an external host at
+14:40 CEST: **9944/9945/9948/8080/8082 unreachable, port 80 answers, ws upgrade
+101, `author_rotateKeys` refused.**
