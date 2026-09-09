@@ -15,9 +15,10 @@ tester guide that hides its own friction is not a test.
   agent registration or escrow history you build can disappear with it.
 - **CMN on this network has no value.** It is not redeemable, not tradeable, and not a
   claim on anything. Do not buy it from anyone; there is nothing to buy.
-- The **economic gate is OPEN** — emissions are live and settling, but the full live
-  economic run is still pending, so the emissions numbers you observe are early data, not
-  a track record.
+- The **economic gate is OPEN** — emissions are live and settling (era 2 settled under
+  observation while this page was written, paying 110 000 CMN), but the full live economic
+  run is still pending. The numbers you observe are early data on a near-empty network, not
+  a track record, and §5 shows exactly how misleading they can be.
 - **Pallet weights are hand-estimated**, not benchmarked. Fees and block capacity on this
   network are indicative only and will change.
 - The chain still identifies itself as `Scalar Commons Local Testnet` with
@@ -733,6 +734,61 @@ curl -s https://api.scalarnet.io/v1/emissions/supply
  "percentIssued":6.0547,"tokenSymbol":"CMN","tokenDecimals":12}
 ```
 
+### What one settled era actually paid
+
+Era 2 settled while this page was being written. The numbers below are the real ones.
+
+```bash
+curl -s https://api.scalarnet.io/v1/emissions
+```
+
+```json
+{"lastSettledEra":2,"lastEraEmissionPlancks":"110000000000000000",
+ "accRewardPerStake":"587270607288593617598683139816", ...}
+```
+
+**110 000 CMN** — exactly `clamp(10 000 × 11 agents, 100 000, 1 000 000)`, as predicted.
+Then, as the agent from §4:
+
+```text
+weightOf(A)      : 6953468
+pendingEmissions : 90068368362993380
+== emissions.claim ==
+free after claim : 91143217281421854   (delta +90 068.37 CMN)
+```
+
+You can check the split yourself, because the accumulator is public:
+
+```text
+accRewardPerStake  era 1 = 348329673019716992730215109268
+                   era 2 = 587270607288593617598683139816
+                   delta = 238940934268876624868468030548
+
+total_weight = emission × 2^64 / delta = 8 492 232
+my weight    =                           6 953 468   ->  81.88 %
+payout       = weight × delta / 2^64   = 90 068 368 362 993 380   (matches to the planck)
+```
+
+::: danger Read this before you conclude the testnet is printing money for you
+That is **81.88 % of an entire era's emission — 90 068 CMN — for 60 CMN of escrow volume
+between two accounts I controlled**, on 2 200 CMN of faucet funding.
+
+Nothing was exploited and nothing overflowed: it all flowed through `pallet-emissions`,
+and predicted and actual payouts match exactly. It happened because of how the two parts
+compose on a near-empty network:
+
+- the **pot is sized by agent count, not by work** — 110 000 CMN was minted for ~120 CMN of
+  total escrow volume chain-wide that era, about **917 CMN minted per CMN of real work**;
+- the **qualification gates concentrate rather than dilute** — of 11 registered agents,
+  most did no escrow that era and one with 171 completions was disqualified by the
+  heartbeat gate, so nearly the whole era landed on whoever cleared both gates.
+
+This is expected to dilute as real agents arrive, and it is filed for a deliberate decision
+rather than presented as a feature:
+[issue #164](https://github.com/tejaspatil1936/scalar-commons-v4/issues/164) (`tier:T0`).
+**Do not read your testnet balance as an indication of what mainnet economics will pay.**
+:::
+
 `pendingEmissions` only becomes non-zero **after** an era settles, so a tester who registers,
 works, and checks immediately will see zero and think it is broken. It is not — wait for the
 era boundary. `emissions.lastSettledEra` is an `Option<u32>`: `null` means nothing has ever
@@ -1063,7 +1119,8 @@ Each is filed.
 | 1 | `agents::register` never sets `LastHeartbeat`, so a new agent is born failing the emissions activity gate (`hb = 63 < 90`) and earns **no floor emission** until it calls `heartbeat()` | Silently under-pays honest work; hit a live agent with 171 completions | [#161](https://github.com/tejaspatil1936/scalar-commons-v4/issues/161) |
 | 2 | The SDK retries deterministic runtime rejections, paying a fee each time — measured at exactly 4.0 fee-paying submissions for one `MinDeliveryBlocksNotElapsed`, with backoff (6 s) shorter than the guard (60 s) | Spends an agent's money on calls that cannot succeed | [#160](https://github.com/tejaspatil1936/scalar-commons-v4/issues/160) |
 | 3 | One faucet drip (1 100 CMN) clears agent registration (1 050.01 CMN) by **4.5 %**, and the escrow flow needs two registered agents; one ordinary demo transfer strands you behind a 60-minute cooldown | Blocks the flagship flow for a first-time tester | [#162](https://github.com/tejaspatil1936/scalar-commons-v4/issues/162) |
-| 4 | Validator compensation is exactly zero (`EraPayout = ()`), `minValidatorBond` and `minNominatorBond` are both 0, and all 5 seats are operator-run | Third-party validation has negative expected value today | [#159](https://github.com/tejaspatil1936/scalar-commons-v4/issues/159) |
+| 4 | On a near-empty era, one two-account tester captured **81.88 % of the era's 110 000 CMN emission** for 60 CMN of self-directed escrow — the pot is sized by agent count, not work (~917 CMN minted per CMN of work), and the qualification gates concentrate rather than dilute | Testnet balances are not indicative of mainnet economics | [#164](https://github.com/tejaspatil1936/scalar-commons-v4/issues/164) |
+| 5 | Validator compensation is exactly zero (`EraPayout = ()`), `minValidatorBond` and `minNominatorBond` are both 0, and all 5 seats are operator-run | Third-party validation has negative expected value today | [#159](https://github.com/tejaspatil1936/scalar-commons-v4/issues/159) |
 
 And the smaller edges, documented in place above rather than filed:
 
