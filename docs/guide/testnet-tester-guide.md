@@ -784,8 +784,9 @@ compose on a near-empty network:
 - the **pot is sized by agent count, not by work** — 110 000 CMN was minted for ~120 CMN of
   total escrow volume chain-wide that era, about **917 CMN minted per CMN of real work**;
 - the **qualification gates concentrate rather than dilute** — of 11 registered agents,
-  most did no escrow that era and one with 171 completions was disqualified by the
-  heartbeat gate, so nearly the whole era landed on whoever cleared both gates.
+  most did no escrow at all that era, and the one other agent that did (171 lifetime
+  completions, 10 000 CMN staked) was denied the **floor share** by the heartbeat gate, so
+  it took 3.79 % of the weight against my 81.88 %.
 
 This is expected to dilute as real agents arrive, and it is filed for a deliberate decision
 rather than presented as a feature:
