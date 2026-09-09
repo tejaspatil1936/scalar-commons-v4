@@ -188,14 +188,19 @@ sudo tail -5 /var/log/nginx/scalar-rpc.error.log
 ```bash
 curl -sI https://<DOMAIN>/           | head -1   # landing
 curl -sI https://<DOMAIN>/docs/      | head -1   # docs
-curl -sI https://faucet.<DOMAIN>/    | head -1   # 127.0.0.1:8082
 curl -sI https://explorer.<DOMAIN>/  | head -1   # 127.0.0.1:8081
-curl -sI https://api.<DOMAIN>/       | head -1   # 127.0.0.1:8080
+curl -s -o /dev/null -w '%{http_code}\n' https://faucet.<DOMAIN>/  # 127.0.0.1:8082
+curl -s -o /dev/null -w '%{http_code}\n' https://api.<DOMAIN>/     # 127.0.0.1:8080
 ```
 
-**Pass:** landing, `/docs/` and explorer return `200`. `api.` and `faucet.`
-return **`404` at `/`** and that is currently expected — neither product defines
-a root route, so the check for them is the real endpoint below, not `/`. `502`
+`api.` and `faucet.` are probed with **GET, not `-sI`**: both services answer
+`GET` only, so a HEAD gets `405`/`404` from every path they have, `/health` and
+`/v1/status` included. That is not a proxy fault and never was.
+
+**Pass:** all five return `200`. `api.` and `faucet.` answer `/` with a one-line
+JSON index naming `/v1/status` and `/health` respectively; a **`404` at `/`**
+means the deployed build predates issue #156, and the endpoint checks below are
+what prove those two services actually work either way. `502`
 means the loopback service behind that vhost is down — an issue #102 problem,
 not an nginx one, and note the indexer takes ~3.5 minutes after a restart to
 bind :8080 (it serves only once its backfill completes), during which `api.`
