@@ -60,7 +60,9 @@ deploy/
 ├── hardening/
 │   ├── sshd.conf               no passwords, no keyboard-interactive, no root login
 │   ├── apply.sh                install it to /etc/ssh/sshd_config.d/, validate, reload
-│   └── test-apply.sh           proves apply.sh refuses to lock you out
+│   ├── sshd.gate               issue #138's gate: is sshd EFFECTIVELY hardened?
+│   ├── test-apply.sh           proves apply.sh refuses to lock you out
+│   └── test-gate.sh            proves the gate reads the effective config, not one file
 └── systemd/
     ├── scalar-alice.service
     ├── scalar-bob.service
@@ -212,6 +214,33 @@ installing a file is not the same as changing a setting.
 `deploy/hardening/test-apply.sh` covers the refusal paths (missing, empty,
 whitespace-only and comments-only `authorized_keys`) by running the real script
 with `--dry-run`. It writes nothing.
+
+### Checking whether sshd is actually hardened
+
+```bash
+bash deploy/hardening/sshd.gate && echo hardened || echo NOT hardened
+```
+
+That is issue #138's gate, and it asks **sshd** what it will do rather than
+reading a file:
+
+```sh
+test "$(/usr/sbin/sshd -G 2>/dev/null | grep -cE '^(passwordauthentication|permitrootlogin|kbdinteractiveauthentication) no$')" = 3
+```
+
+`sshd -G` prints the merged configuration — main file plus every drop-in, in
+precedence order — and needs no root, so this is safe to run unprivileged.
+
+**Do not replace this with a grep of `/etc/ssh/sshd_config`.** That is what the
+gate originally did, and it is wrong in both directions. The hardening is a
+drop-in, and the correct fix deliberately leaves `PasswordAuthentication yes`
+and `PermitRootLogin yes` in place at the end of `sshd_config` — so a file grep
+reports a hardened host as unhardened. Worse, a host whose `sshd_config` says
+`no` while a drop-in included above it says `yes` is **wide open**, and a file
+grep reports it as hardened. `deploy/hardening/test-gate.sh` holds both cases,
+along with `prohibit-password` (which is still root login), an unparseable
+config and a missing `sshd` binary — the last two must fail closed, because
+"could not tell" is not "secure".
 
 ### fail2ban — active, and the only thing in front of sshd today
 
