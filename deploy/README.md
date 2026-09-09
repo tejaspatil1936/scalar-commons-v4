@@ -57,6 +57,10 @@ deploy/
 ├── finality-check.sh           sample best + FINALIZED height on every node
 ├── snapshot.sh                 consistent state snapshot of one node
 ├── reset-chain.sh              DESTRUCTIVE wipe back to genesis
+├── hardening/
+│   ├── sshd.conf               no passwords, no keyboard-interactive, no root login
+│   ├── apply.sh                install it to /etc/ssh/sshd_config.d/, validate, reload
+│   └── test-apply.sh           proves apply.sh refuses to lock you out
 └── systemd/
     ├── scalar-alice.service
     ├── scalar-bob.service
@@ -156,6 +160,86 @@ systemctl --user disable scalar-devnet.target scalar-alice scalar-bob \
 
 ---
 
+## Host hardening — sshd and fail2ban
+
+Neither of the two controls below was recorded anywhere in this repository until
+now: `git grep -il 'fail2ban|PermitRootLogin|PasswordAuthentication'` over the
+whole tracked tree returned nothing. A clean-machine rebuild following this
+directory therefore reproduced neither of them, and an operator had no way to
+know either existed. That is issue #138 (TESTNETAUDIT.md §6 I-24).
+
+### sshd — currently accepts password AND root login from the internet
+
+`/etc/ssh/sshd_config` ends with two appended lines:
+
+```
+124:PasswordAuthentication yes
+125:PermitRootLogin yes
+```
+
+sshd listens on `0.0.0.0:22` and `[::]:22`, so the box accepts **password-based
+root login from the internet**, with `fail2ban` as the only brute-force control
+in front of it. This sits directly beneath the chain's root key: anyone who gets
+a shell here gets the operator's sudo key (#119), the faucet's signing key, and
+every validator's session keys, without touching the chain at all.
+
+The fix ships in this directory:
+
+```bash
+./deploy/hardening/apply.sh --dry-run     # no sudo needed; changes nothing
+sudo ./deploy/hardening/apply.sh          # install, validate, reload
+```
+
+It installs `deploy/hardening/sshd.conf` to
+`/etc/ssh/sshd_config.d/10-scalar-hardening.conf` — `PasswordAuthentication no`,
+`KbdInteractiveAuthentication no`, `PermitRootLogin no`.
+
+A drop-in rather than an edit, because the two bad lines are at the **end** of
+`sshd_config` and sshd takes the **first** value it obtains for a keyword, not
+the last. `Include /etc/ssh/sshd_config.d/*.conf` is at line 12, before them, so
+the drop-in wins. The script verifies that Include is present rather than
+assuming it, and re-reads the effective config with `sshd -G` afterwards, because
+installing a file is not the same as changing a setting.
+
+> [!WARNING]
+> This removes every password-based way into this host. The script refuses to
+> run unless `~/.ssh/authorized_keys` exists and holds at least one usable key
+> line, and refuses if `PubkeyAuthentication` is not enabled — but the check is
+> only as good as the key being *yours and working*. **Keep your current session
+> open and confirm a second one succeeds before closing it.** To undo:
+> `sudo rm /etc/ssh/sshd_config.d/10-scalar-hardening.conf && sudo systemctl reload ssh`
+
+`deploy/hardening/test-apply.sh` covers the refusal paths (missing, empty,
+whitespace-only and comments-only `authorized_keys`) by running the real script
+with `--dry-run`. It writes nothing.
+
+### fail2ban — active, and the only thing in front of sshd today
+
+Undocumented here until now, and load-bearing:
+
+| | |
+|---|---|
+| unit | `fail2ban.service`, **active since 2026-07-28 11:04:12 CEST** |
+| ban action | `nftables` — `/etc/fail2ban/jail.d/defaults-debian.conf:2` |
+| sshd jail | `enabled = true`, `backend = systemd`, same file |
+
+The `banaction = nftables` line in `jail.d/` **overrides** `jail.conf:208`'s
+stock `iptables-multiport`, because `jail.d/` is read after `jail.conf`. Quoting
+the stock value is a mistake worth avoiding — check `jail.d/` first.
+
+```bash
+sudo fail2ban-client status          # jails
+sudo fail2ban-client status sshd     # bans on the ssh jail
+```
+
+Reading jail state needs root: the client talks to
+`/var/run/fail2ban/fail2ban.sock`, which is root-only.
+
+**fail2ban is not a substitute for key-only authentication.** It rate-limits
+guessing; it does not stop a correct guess, a leaked password, or a credential
+reused from elsewhere. Once `apply.sh` has run it becomes defence in depth
+rather than the only defence.
+
 ## Firewall — the commands **you** need to run as root
 
 I cannot run these; they need sudo. Nothing below is required for the devnet to
@@ -169,8 +253,42 @@ cover the two new nodes — replace it rather than adding a second overlapping
 rule. Nothing breaks in the meantime: the new nodes peer over loopback either
 way, and the range only matters for external peers.
 
-**Current state: `ufw` is installed and its unit is enabled, but the service is
-inactive — there is no host packet filtering running right now.**
+**Current state: there IS host packet filtering running. The previous sentence
+here said the opposite, and it was wrong.**
+
+`ufw.service` reads `inactive` and has never gone active this boot
+(`ActiveEnterTimestamp` is empty), which is what the old sentence was inferred
+from. That inference does not hold: `ufw enable` installs its rules through
+`ufw-init` without the unit ever entering the active state, so an inactive unit
+says nothing about whether rules are loaded. What settles it is
+`/proc/modules`, which is world-readable:
+
+```bash
+grep -cE '^(nf_|nft_|xt_|x_tables|ip6?table)' /proc/modules      # 20
+grep -oE '^(nf_tables|nft_compat|xt_addrtype|xt_conntrack|xt_limit|xt_LOG|xt_recent)' /proc/modules
+```
+
+Twenty netfilter modules are loaded, including `xt_addrtype`, `xt_recent`,
+`xt_LOG`, `xt_limit` and `xt_conntrack` — the set `ufw`'s own `before.rules`
+pulls in, and not ones `fail2ban`'s nftables action would explain by itself.
+Rules are in the kernel.
+
+Their *contents* cannot be read without root, so this is where the evidence
+stops:
+
+```
+$ /usr/sbin/nft list ruleset
+Operation not permitted (you must be root)
+$ /usr/sbin/iptables -L -n
+Permission denied (you must be root)
+$ /usr/sbin/ufw status
+ERROR: You need to be root to run this script
+```
+
+Run those three as root to find out what the policy actually is before changing
+it. **Do not assume the box is unfiltered and start from `ufw enable`** — that
+was the mistake this paragraph used to invite, and a default-deny applied on
+top of an unknown existing policy is how a remote host stops answering.
 
 > [!WARNING]
 > `ufw enable` applies a **default-deny on incoming** policy. If you enable it
