@@ -168,3 +168,36 @@ Like `deploy/systemd/*.service`, these units hardcode the deployment checkout in
 `WorkingDirectory=`. `install.sh` warns if you run it from a different checkout
 (a git worktree, say), because the installed units would run the other tree's
 code, not the one you installed from.
+
+## The emissions keeper
+
+`settle_era` is **permissionless by design** — CLAUDE.md first principle #3 says no economically
+essential function may depend on a privileged caller. The cost of that design is that if nobody calls
+it, it never happens, and nobody did: for ~512 000 blocks (about 142 elapsed six-hour eras)
+`LastSettledEra` was null, `agents::EraNumber` was 0, and **no CMN had ever been emitted by the
+mechanism this project is about**. TESTNETAUDIT.md §6 I-8, issue #125.
+
+```bash
+systemctl --user enable --now scalar-keeper.timer
+journalctl --user -u scalar-keeper.service -f
+```
+
+| | |
+|---|---|
+| unit | `scalar-keeper.service` (Type=oneshot) + `scalar-keeper.timer` |
+| cadence | every 15 min, `Persistent=true` |
+| key | `~/.config/scalar-commons/keeper.key`, mode 0600, **not** in the repository |
+| script | `scripts/keeper-settle-era.mjs` |
+
+**The keeper holds no privilege.** It is an ordinary signed account calling an extrinsic any agent
+could call. If it stops, settlement is not blocked — anyone can still call `settle_era`. That
+property is the point of the design; do not "fix" a keeper outage by giving it a privileged origin.
+
+**Why it polls 24x per era.** The script re-reads the runtime's own guards (`EraNotDue`,
+`EraAlreadySettled`) every run and exits 0 without submitting when settlement is not due, so an extra
+tick costs one RPC round trip and no fee, while a missed tick self-corrects within 15 minutes instead
+of delaying settlement by a whole era. The runtime's F-04 double-settlement guard remains the real
+backstop.
+
+There is no in-code default seed and the script refuses to start without a key file — a keeper that
+silently fell back to a published dev seed would be the `//Ferdie` faucet defect over again.
