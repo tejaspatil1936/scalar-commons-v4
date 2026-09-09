@@ -147,7 +147,19 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // to translate; at worst one era's governance counters reset. The alpha change
     // (4,000 -> 1,500 bps) needs no migration either: it is an auto-param, seeded at
     // genesis and mutable through governance thereafter.
-    spec_version: 304,
+    //
+    // 304 -> 305: `type EraPayout` on pallet_staking::Config moves from
+    // ConvertCurve<RewardCurve> to (), ending staking inflation. This is the
+    // first upgrade applied to a LIVE chain rather than compiled into a fresh
+    // genesis, so the bump is what makes the node accept the new code at all.
+    //
+    // No storage layout change and no migration. EraPayout is a Config type
+    // consulted by pallet-staking's era rotation, not a storage item; nothing
+    // in state is added, removed or re-shaped. Existing ErasValidatorReward
+    // entries are untouched and stay claimable — see the note at the EraPayout
+    // definition. The only behavioural difference is that the next era
+    // rotation books a payout of zero.
+    spec_version: 305,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -844,7 +856,53 @@ impl pallet_staking::Config for Runtime {
     type SlashDeferDuration = SlashDeferDuration;
     type AdminOrigin = EnsureRoot<AccountId>;
     type SessionInterface = Self;
-    type EraPayout = pallet_staking::ConvertCurve<RewardCurve>;
+    // ZERO STAKING INFLATION, from spec 305.
+    //
+    // This was `ConvertCurve<RewardCurve>` — 2.5%–10% annual inflation, minted
+    // by pallet-staking at every era rotation and routed to the treasury via
+    // RewardRemainder. It violated CLAUDE.md first principle #1 ("No code path
+    // may mint beyond the cap. All minting flows through the emissions pallet
+    // only"), and it was not theoretical: TotalIssuance grew from 6 010 250 000.01
+    // CMN at genesis to 6 053 831 090.07 CMN — +43 581 090 CMN, 100% of it from
+    // staking — while pallet-emissions minted exactly zero. Passive stake earned
+    // 43.6M CMN in 35 days on a chain whose thesis is that stake alone earns
+    // nothing. See TESTNETAUDIT.md §6 I-2 and issue #120.
+    //
+    // `()` implements EraPayout returning (Zero, Zero): no validator payout, no
+    // remainder to the treasury. pallet-emissions becomes the only mint path,
+    // which is what every published document already claims.
+    //
+    // The REWARD_CURVE above is retained deliberately and is now unused by this
+    // Config. It is the record of what the inflation schedule WAS, which the
+    // ~14.6M CMN of already-booked ErasValidatorReward still refers to; deleting
+    // it would erase the provenance of a liability that is still claimable.
+    //
+    // NOT retroactive. This stops future minting only. The 43.58M CMN already
+    // minted stays in the treasury, and the 47 entries in ErasValidatorReward
+    // summing ~14 623 530.33 CMN remain claimable by `payout_stakers`, which is
+    // permissionless. Zeroing EraPayout does not and cannot unbook those.
+    //
+    // TWO CONSEQUENCES, both deliberate, both recorded here so the next reader
+    // does not have to rediscover them:
+    //
+    // 1. `payout_stakers` is now the ONLY live staking mint path, and it has no
+    //    cap check at its own call site — pallet_constitution's gate is post-hoc
+    //    and only fires once issuance already exceeds the cap. With ~94B CMN of
+    //    headroom the ~14.6M cannot breach it, but "every mint is cap-checked"
+    //    is not true of that path. Deliberately NOT fixed here: a migration
+    //    clearing ErasValidatorReward is a storage change, and this upgrade is
+    //    scoped to the Config type. Tracked on issue #120, which stays open.
+    //
+    // 2. Validator compensation is now exactly zero. Era payout is (0, 0) and
+    //    transaction fees are burned (OnChargeTransaction = FungibleAdapter with
+    //    a `()` handler), while Slash still routes to the treasury and
+    //    BondingDuration is 28 eras. A third-party validator therefore has
+    //    negative expected value: no revenue, real slash risk, 28-era exit.
+    //    Acceptable for an operator-run testnet where all five authorities are
+    //    ours; NOT acceptable for a public validator set. Decide before opening
+    //    validation to outsiders — either subsidise off-chain and say so, or
+    //    route a validator share through pallet-emissions where the cap gate is.
+    type EraPayout = ();
     type NextNewSession = Session;
     type HistoryDepth = ConstU32<84>;
     type MaxExposurePageSize = MaxExposurePageSize;
@@ -1689,4 +1747,110 @@ pub const BABE_GENESIS_EPOCH_CONFIG: sp_consensus_babe::BabeEpochConfiguration =
 impl pallet_authorship::Config for Runtime {
     type FindAuthor = pallet_session::FindAccountFromAuthorIndex<Self, Babe>;
     type EventHandler = (Staking,); // ImOnline removed M1
+}
+
+// ─── Runtime tests ────────────────────────────────────────────────────────────
+//
+// The runtime crate had no tests at all before this — no `[dev-dependencies]`,
+// no `#[cfg(test)]` module — which is part of TESTNETAUDIT.md §6 I-22. That
+// mattered here specifically: `type EraPayout` is a Config type, so a
+// regression that restored inflation would be a one-line edit with nothing
+// asserting against it, on the exact code path that minted 43.58M CMN outside
+// the supply cap.
+//
+// These assert against the REAL `Runtime`, not a mock, so they exercise the
+// concrete Balance width (u128) and the concrete Config wiring — the two things
+// the integration harness in tests/common.rs cannot, because it substitutes
+// `Balance = u64` and a cap 10 000x smaller.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pallet_staking::EraPayout as EraPayoutT;
+
+    /// The type actually wired into `pallet_staking::Config` for this runtime.
+    type WiredEraPayout = <Runtime as pallet_staking::Config>::EraPayout;
+
+    /// `(0, 0)` at the runtime's real `Balance` width. A bare `(0, 0)` literal
+    /// would let inference pick `i32` and quietly test nothing.
+    fn expected_zero() -> (Balance, Balance) {
+        (0, 0)
+    }
+
+    /// From spec 305, era rotation must mint nothing.
+    ///
+    /// Both halves of the tuple matter and they fail differently. `.0` is the
+    /// validator payout: non-zero means new CMN is minted for stake, which is
+    /// the supply-cap violation. `.1` is the remainder: non-zero means new CMN
+    /// is minted to the treasury, which is how the 43.58M actually arrived —
+    /// `RewardRemainder = ResolveTo<TreasuryAccount, Balances>`. A fix that
+    /// zeroed only the payout would leave the larger leak open.
+    ///
+    /// Every value here is explicitly typed. Written as bare `0` literals the
+    /// arguments infer as `i32` against `()`, which type-checks and passes
+    /// while testing nothing about this runtime's actual `Balance` — and the
+    /// regression it is meant to catch would not even compile, so the failure
+    /// would look like a build break rather than a mint.
+    #[test]
+    fn era_payout_is_zero() {
+        let zero: Balance = 0;
+        let expected: (Balance, Balance) = (0, 0);
+        assert_eq!(
+            WiredEraPayout::era_payout(zero, zero, 0u64),
+            expected,
+            "zero inputs must mint nothing"
+        );
+    }
+
+    /// Zero at the real operating point, not just at zero.
+    ///
+    /// These are the live figures at the time of the upgrade: ~6.05 B CMN total
+    /// issuance, ~30 000 CMN staked across the genesis validators, and a
+    /// six-hour era in milliseconds. `ConvertCurve<RewardCurve>` returns a
+    /// non-zero payout for exactly these inputs — that is how the leak was
+    /// found — so this is the assertion that would go red if the old wiring
+    /// came back.
+    #[test]
+    fn era_payout_is_zero_at_live_values() {
+        const CMN: Balance = 1_000_000_000_000;
+        // A STAKING era, which is not the six-hour emissions era. SessionsPerEra
+        // is 6 and EpochDuration is ERA_BLOCKS/2 = 3h, so a staking era is 18h.
+        // Getting this wrong understates the old payout by 3x.
+        const STAKING_ERA_MS: u64 = 18 * 60 * 60 * 1000;
+
+        let total_staked: Balance = CMN.saturating_mul(30_000);
+        let total_issuance: Balance = CMN.saturating_mul(6_053_831_090);
+
+        assert_eq!(
+            WiredEraPayout::era_payout(total_staked, total_issuance, STAKING_ERA_MS),
+            expected_zero(),
+            "staking must mint nothing at the live staked/issuance figures"
+        );
+    }
+
+    /// No input produces a payout: sweep the stake ratio across its whole range,
+    /// including the ideal-stake point where the old curve paid the most.
+    #[test]
+    fn era_payout_is_zero_across_the_stake_curve() {
+        const CMN: Balance = 1_000_000_000_000;
+        const STAKING_ERA_MS: u64 = 18 * 60 * 60 * 1000;
+        let issuance: Balance = CMN.saturating_mul(6_000_000_000);
+
+        // 0%, 25%, 50% (ideal_stake), 75%, 100% staked. CLAUDE.md forbids bare
+        // + - * on Balance, in tests as much as anywhere else.
+        for pct in [0u128, 25, 50, 75, 100] {
+            let staked = issuance.saturating_div(100).saturating_mul(pct);
+            assert_eq!(
+                WiredEraPayout::era_payout(staked, issuance, STAKING_ERA_MS),
+                expected_zero(),
+                "staking minted at {pct}% of issuance staked"
+            );
+        }
+    }
+
+    /// The version the upgrade is applied as. If this and `VERSION.spec_version`
+    /// ever disagree the node will refuse the blob, so pin it.
+    #[test]
+    fn spec_version_is_305() {
+        assert_eq!(VERSION.spec_version, 305);
+    }
 }
