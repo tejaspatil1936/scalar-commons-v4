@@ -56,26 +56,30 @@ The cap is an absolute invariant, not a target. Three things enforce it:
    `ConvertCurve<RewardCurve>` (2.5 %–10 % annual inflation) with
    `RewardRemainder = ResolveTo<TreasuryAccount>`, so era rotation minted outside the
    emissions pallet and outside any cap check. It was not theoretical: `TotalIssuance`
-   grew from **6 010 250 000.01 CMN at genesis to 6 053 831 090.07 CMN** — **+43 581 090
-   CMN, 100 % of it from staking** — while pallet-emissions minted exactly zero over the
-   same 35 days. Spec 305 sets `type EraPayout = ()`, which returns `(0, 0)`: no validator
-   payout, no treasury remainder.
+   grew from **6 010 250 000.01 CMN at genesis to 6 054 761 778.23 CMN** (measured
+   2026-09-09) — **+44 511 778 CMN, 100 % of it from staking** — while pallet-emissions
+   minted exactly zero over the same 36 days. Spec 305 sets `type EraPayout = ()`, which
+   returns `(0, 0)`: no validator payout, no treasury remainder.
+
+   **Spec 305 went live at block #527277 on 2026-09-09**, applied as a forkless upgrade
+   without restarting a node (issue #136). Every figure in this section is measured as of
+   that block; they were frozen by the upgrade and no longer grow.
 
    **Two consequences of that history survive the fix, and both are real balances, not
-   accounting notes.** The **43 581 090 CMN already minted** is in the treasury and stays
-   there; zeroing future payouts does not unmint it. And **`ErasValidatorReward` holds 47
-   entries summing ~14 623 530.33 CMN** that are *booked but not yet minted* — no validator
-   has ever called `payout_stakers`, `ClaimedRewards` is empty, and that call is
-   permissionless, so **the first caller still mints up to ~14.6 M CMN**. Spec 305 stops
-   new bookings; it cannot and does not cancel the ones already made.
+   accounting notes.** The **44 511 778 CMN already minted** is in the treasury and stays
+   there; zeroing future payouts does not unmint it. And **`ErasValidatorReward` holds 48
+   entries summing 14 935 812.93 CMN** that are *booked but not yet minted* — no validator
+   has ever called `payout_stakers`, `ClaimedRewards` holds zero keys, and that call is
+   permissionless, so **a caller can still mint up to ~14.9 M CMN in aggregate**. Spec 305
+   stops new bookings; it cannot and does not cancel the ones already made.
 
-   Total historical and pending issuance from the staking path: **~58.2 M CMN**.
+   Total historical and pending issuance from the staking path: **~59.4 M CMN**.
 
    **The pending half expires.** `HistoryDepth` is 84 eras and a *staking* era is 18 hours
    (`SessionsPerEra` 6 x `EpochDuration` 3 h — not the six-hour *emissions* era), so each
    `ErasValidatorReward` entry is pruned once `CurrentEra` passes `era + 84`, about **63
-   days**. `CurrentEra` is 47, so era 0 lapses in roughly four weeks and the whole booking
-   lapses by around day 98 of chain life. There is a fixed window in which to decide
+   days**. `CurrentEra` was 48 at the upgrade, so era 0 lapses in roughly four weeks and the
+   whole booking lapses by around day 98 of chain life. There is a fixed window in which to decide
    whether to migrate the entries away, claim them, or let them expire.
 
    The 14.6 M is an **aggregate upper bound** across all 47 eras and all validators, not
@@ -429,7 +433,7 @@ Every raw value on this page is read from a live node and mechanically re-checke
 | Field | Value |
 |---|---|
 | Chain | Scalar Commons Local Testnet |
-| Runtime | `scalar-commons` spec 304 |
+| Runtime | `scalar-commons` spec 305 |
 | Metadata | v15 |
 | Token | CMN, 12 decimals, SS58 42 |
 | Validators | 5 |
@@ -467,7 +471,7 @@ without the docs following.
 
 `docs/VERIFIED-CONSTANTS.md` records `InitialAlpha = 4,000`. The live runtime sets
 **1,500** (`runtime/src/lib.rs`, `AutoInitialAlpha`), confirmed against both
-`autoParams.initialAlpha` and the live `autoParams.alpha()` storage value at spec 304. That
+`autoParams.initialAlpha` and the live `autoParams.alpha()` storage value at spec 305. That
 document was authored against an earlier commit and has not been re-verified since; this
 page's value is the current one. Its formula transcription and its findings list remain
 accurate and are worth reading alongside this page.
