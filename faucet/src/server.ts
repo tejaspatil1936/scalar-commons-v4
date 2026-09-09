@@ -9,12 +9,19 @@
  *   - `POST /drip`            `{ "address": "5..." }` → dispenses one drip
  *   - `GET  /balance/:address`                        → live free balance
  *   - `GET  /health`                                  → chain + faucet state
+ *
+ * A route that needs the node answers **503** while the node socket is down, not
+ * 500. The distinction is the whole of issue #155: `500` tells every monitor and
+ * load balancer that the faucet itself is broken, and for 74 minutes on
+ * 2026-09-09 that is what `/health` said while the chain was healthy and the
+ * only thing wrong was a socket the client had not yet re-opened.
  */
 
 import { createServer as createHttpServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
 import { InvalidAddressError } from './address.js';
-import type { DripFailureCode, FaucetService } from './faucet.js';
+import type { DripFailureCode, FaucetIdentity, FaucetService } from './faucet.js';
+import { unavailableReason, type ConnectionStatus } from './reconnect.js';
 
 export interface FaucetServerOptions {
   readonly faucet: FaucetService;
@@ -40,6 +47,15 @@ const STATUS_BY_CODE: Record<DripFailureCode, number> = {
 };
 
 const DEFAULT_MAX_BODY_BYTES = 4096;
+
+/**
+ * `Retry-After` on a 503, in seconds.
+ *
+ * Short on purpose: the reconnect backoff caps at 30s, so a caller that waits
+ * this long and retries will usually find the faucet back before it has asked a
+ * third time.
+ */
+const RETRY_AFTER_SECONDS = 5;
 
 function sendJson(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
   const payload = JSON.stringify(body);
@@ -107,6 +123,34 @@ async function readJsonBody(req: IncomingMessage, maxBodyBytes: number): Promise
 }
 
 /**
+ * The `/health` body, in one shape whether the node is there or not.
+ *
+ * `faucetFreePlancks` is null while the socket is down rather than absent or
+ * stale: a balance read off a dead socket does not exist, and reporting the last
+ * one seen would be a number a caller could act on.
+ */
+function healthBody(
+  identity: FaucetIdentity,
+  connection: ConnectionStatus,
+  faucetFreePlancks: bigint | null,
+): Record<string, unknown> {
+  return {
+    chain: identity.chain,
+    specName: identity.specName,
+    specVersion: identity.specVersion,
+    tokenSymbol: identity.tokenSymbol,
+    tokenDecimals: identity.tokenDecimals,
+    faucetAddress: identity.faucetAddress,
+    // Planck values cross the wire as strings: JSON numbers are doubles and
+    // would round a real balance.
+    faucetFreePlancks: faucetFreePlancks === null ? null : faucetFreePlancks.toString(),
+    dripAmountPlancks: identity.dripAmountPlancks.toString(),
+    reservePlancks: identity.reservePlancks.toString(),
+    connection,
+  };
+}
+
+/**
  * Builds the faucet HTTP server. The caller owns `listen`/`close` so tests can
  * bind an ephemeral port.
  */
@@ -117,6 +161,14 @@ export function createFaucetServer(options: FaucetServerOptions): Server {
 
   return createHttpServer((req, res) => {
     handle(req, res).catch((error: unknown) => {
+      // A request that raced the socket closing gets the same 503 as one that
+      // arrived after it: the failure is the same failure, and which side of
+      // the drop the request landed on is not the caller's problem.
+      const connection = faucet.connection();
+      if (!connection.connected) {
+        sendUnavailable(res, connection);
+        return;
+      }
       sendJson(res, 500, {
         ok: false,
         code: 'INTERNAL_ERROR',
@@ -124,6 +176,25 @@ export function createFaucetServer(options: FaucetServerOptions): Server {
       });
     });
   });
+
+  /** 503 with the reason in the body, and `Retry-After` so a client comes back. */
+  function sendUnavailable(
+    res: ServerResponse,
+    connection: ConnectionStatus,
+    extra: Record<string, unknown> = {},
+  ): void {
+    sendJson(
+      res,
+      503,
+      {
+        ok: false,
+        code: 'CHAIN_DISCONNECTED',
+        error: unavailableReason(connection),
+        ...extra,
+      },
+      { 'retry-after': String(RETRY_AFTER_SECONDS) },
+    );
+  }
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', 'http://localhost');
@@ -140,20 +211,18 @@ export function createFaucetServer(options: FaucetServerOptions): Server {
     }
 
     if (path === '/health' && method === 'GET') {
+      // Asked before the chain read, not after it fails: while the socket is
+      // down the balance cannot be read at all, and the honest answer is "not
+      // available yet", with the chain this faucet is waiting for named.
+      const connection = faucet.connection();
+      if (!connection.connected) {
+        sendUnavailable(res, connection, healthBody(faucet.identity(), connection, null));
+        return;
+      }
       const status = await faucet.status();
       sendJson(res, 200, {
         ok: true,
-        chain: status.chain,
-        specName: status.specName,
-        specVersion: status.specVersion,
-        tokenSymbol: status.tokenSymbol,
-        tokenDecimals: status.tokenDecimals,
-        faucetAddress: status.faucetAddress,
-        // Planck values cross the wire as strings: JSON numbers are doubles and
-        // would round a real balance.
-        faucetFreePlancks: status.faucetFreePlancks.toString(),
-        dripAmountPlancks: status.dripAmountPlancks.toString(),
-        reservePlancks: status.reservePlancks.toString(),
+        ...healthBody(status, connection, status.faucetFreePlancks),
       });
       return;
     }
