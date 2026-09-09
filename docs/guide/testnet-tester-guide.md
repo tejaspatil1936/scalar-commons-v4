@@ -559,13 +559,24 @@ The provider received **9.975 CMN of a 10 CMN job**, not 10:
 | completion fee | 25 bps = **0.25 %** = 0.025 CMN → Treasury |
 | **provider receives** | **9.975 CMN** |
 
-The rate is not a constant — it is governed, read live from `autoParams.completionFeeBps`:
+The rate is not a constant — it is read live from `autoParams.completionFeeBps`, and
+auto-params moves it at era settlement within `completionFeeBounds`:
 
-```bash
-# completionFeeBps = 25, bounded {"min":0,"max":2500,"maxStep":25}
+```text
+completionFeeBps    = 25       (when the job above settled)
+completionFeeBounds = {"min":0,"max":2500,"maxStep":25}
 ```
 
-So it can move, within bounds, by governance. Check it before you reason about margins.
+**It moved while this page was being written.** At the era-2 settlement it went from 25 to
+50 bps — exactly one `maxStep` — so the same 10 CMN job that returned 9.975 CMN above would
+now return 9.95 CMN. Nothing was governed by hand; that is `run_era_rules` doing its job.
+
+Read it before you reason about margins, and do not hard-code it:
+
+```bash
+# via the SDK's api, or any polkadot-js client:
+#   await api.query.autoParams.completionFeeBps()
+```
 
 Two more things the flow revealed, both worth knowing:
 
