@@ -16,22 +16,36 @@ WorkingDirectory=/home/dev/scalar-commons-v4/faucet
 #
 # FAUCET_SEED is deliberately NOT set here: the unit file is world-readable in
 # ~/.config/systemd/user, the env file is installed 0600. The in-code default
-# (//Ferdie, endowed at genesis, not a validator) is what runs if the operator
-# never sets one, which is correct for a devnet and wrong for anything else.
+# is //Ferdie, a PUBLISHED dev seed — the account held ~1e9 CMN and anyone
+# could have drained it the moment RPC went public, which made every rate limit
+# and the reserve protect nothing. Set a real FAUCET_SEED in the 0600 env file
+# before exposing this. TESTNETAUDIT.md §6 I-6, issue #123.
 Environment=FAUCET_HOST=127.0.0.1
 Environment=FAUCET_PORT=8082
 Environment=FAUCET_RPC_ENDPOINT=ws://127.0.0.1:9944
-# Loopback-only means every request arrives from 127.0.0.1, so an X-Forwarded-For
-# header would let one caller forge unlimited distinct client IPs and walk
-# straight through the per-IP rate limit. Trust it only behind a proxy that
-# overwrites it.
+# Loopback-only means every request arrives from 127.0.0.1, which collapses the
+# per-IP limit into ONE GLOBAL BUCKET for the whole internet once a proxy is in
+# front. Set FAUCET_TRUST_PROXY=true in the 0600 env file when, and only when,
+# the vhost overwrites X-Forwarded-For — deploy/public/nginx/'s template now
+# does, and clientIp() reads the right-most hop, so neither half depends on the
+# other being right. Default stays false so an operator who deploys the unit
+# without the matching vhost gets a useless limit rather than a forgeable one.
 Environment=FAUCET_TRUST_PROXY=false
 EnvironmentFile=-%h/.config/scalar-commons/faucet.env
 
-# Relative to WorkingDirectory. Same entrypoint and --experimental-strip-types
-# as `npm start`; the extra --disable-warning keeps the journal free of one
-# ExperimentalWarning per restart.
-ExecStart=/usr/bin/node --experimental-strip-types --disable-warning=ExperimentalWarning src/index.ts
+# Runs the BUILT entrypoint, not src/index.ts under --experimental-strip-types.
+#
+# Type-stripping does not rewrite `./x.js` specifiers to `./x.ts`, so the old
+# ExecStart failed immediately with
+#   ERR_MODULE_NOT_FOUND: Cannot find module '.../faucet/src/amount.js'
+# and the journal shows the restart counter reaching 71 on 2026-09-07 before a
+# LOCAL-ONLY drop-in was applied by hand. That drop-in existed nowhere in the
+# repo, so a clean-machine rebuild reproduced the crash loop. Issues #115 and
+# #127 (I-10).
+#
+# Relative to WorkingDirectory. `npm run build` must have run first; install.sh
+# does it, and dist/ is gitignored precisely so the build is never stale.
+ExecStart=/usr/bin/node dist/index.js
 
 Restart=on-failure
 RestartSec=5s

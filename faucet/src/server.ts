@@ -52,14 +52,30 @@ function sendJson(res: ServerResponse, status: number, body: unknown, headers: R
 }
 
 /** Resolves the requester's IP — the key the per-IP budget is spent against. */
-function clientIp(req: IncomingMessage, trustProxy: boolean): string {
+export function clientIp(req: IncomingMessage, trustProxy: boolean): string {
   if (trustProxy) {
     const header = req.headers['x-forwarded-for'];
     const raw = Array.isArray(header) ? header[0] : header;
-    // Left-most entry is the original client; the rest are proxies.
-    const first = raw?.split(',')[0]?.trim();
-    if (first) {
-      return first;
+    // RIGHT-most entry, not left-most. This is the security-relevant half of
+    // the per-IP limit and it used to be wrong.
+    //
+    // X-Forwarded-For is client-supplied. Whatever the caller sends arrives
+    // intact; a trusted proxy only APPENDS the peer it actually saw. So the
+    // left-most entry is fully attacker-controlled — with nginx's stock
+    // `$proxy_add_x_forwarded_for`, `X-Forwarded-For: 1.2.3.4` becomes
+    // "1.2.3.4, <real ip>" and reading the left-most gave the attacker a fresh
+    // rate-limit bucket per forged value. Four forged headers all returned 200
+    // in testing. TESTNETAUDIT.md §6 I-6, issue #123.
+    //
+    // The right-most entry is the one OUR proxy appended, so it is the only one
+    // a remote caller cannot choose. The faucet vhost additionally overwrites
+    // the header with `$remote_addr`, which makes the list one entry long — but
+    // this code does not depend on that, because a config change elsewhere must
+    // not silently re-open a rate-limit bypass.
+    const entries = raw?.split(',').map((e) => e.trim()).filter((e) => e.length > 0);
+    const last = entries?.[entries.length - 1];
+    if (last) {
+      return last;
     }
   }
   return req.socket.remoteAddress ?? 'unknown';
