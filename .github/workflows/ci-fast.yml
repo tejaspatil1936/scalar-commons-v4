@@ -39,6 +39,80 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Secret scan. Runs as its own job so a leaked credential fails within
+  # seconds instead of behind a 45-minute Rust build, and so that a red
+  # secret scan is legible on the PR as its own check.
+  #
+  # fetch-depth: 0 is load-bearing -- the scan is `--log-opts="--all"`, so it
+  # reads every commit on every ref. With the default shallow checkout it
+  # would scan one commit and pass vacuously, which is the worst kind of
+  # green. The gitleaks version is pinned: .gitleaks.toml relies on the
+  # documented merge behaviour of a stub [[rules]] block, and an unpinned
+  # upgrade could silently change whether the SS58 allowlist binds at all.
+  #
+  # The negative control is not decoration. It writes a fake private key to a
+  # scratch file and asserts the scan goes red, which proves the config still
+  # detects secrets rather than having been quietly neutered into a rubber
+  # stamp. The scratch file is removed before the real scan runs.
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: 8.28.0
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks (pinned)
+        run: |
+          set -euo pipefail
+          curl -sSfL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Control -- prove the allowlist is narrow, not a rubber stamp
+        run: |
+          set -euo pipefail
+          scratch="$(mktemp -d)"
+          trap 'rm -rf "$scratch"' EXIT
+
+          # (1) generic-api-key must STILL fire on a non-SS58 secret. If this
+          #     stops failing, .gitleaks.toml has neutered the rule we amended
+          #     and the whole gate is decorative.
+          # Assembled from halves on purpose. A complete high-entropy token
+          # written literally here would be a real finding in this very file,
+          # and the full-history scan below would (correctly) go red on it.
+          # Neither half matches the rule on its own; the assembled file does.
+          p1='Zt7Qp2Lm9Xc4Vb8N'
+          p2='r3Wd6Ys1Hj5Kf0Ga'
+          printf 'api_key = "%s%s"\n' "$p1" "$p2" > "$scratch/planted.txt"
+          if gitleaks dir "$scratch/planted.txt" --config .gitleaks.toml \
+               --no-banner --redact >/dev/null 2>&1; then
+            echo "::error::gitleaks did NOT flag a planted generic-api-key secret -- the allowlist is too broad"
+            exit 1
+          fi
+
+          # (2) an SS58 public address must be allowlisted. If this starts
+          #     failing, the carve-out has stopped working and the real scan
+          #     below is about to go red on public on-chain data.
+          printf 'sudoKey: "5DFASjqmCBrMfRsHDzQyXGodfWL4Bj1uK6X2U3jBEEoPh8ZN"\n' > "$scratch/ss58.txt"
+          if ! gitleaks dir "$scratch/ss58.txt" --config .gitleaks.toml \
+                 --no-banner --redact >/dev/null 2>&1; then
+            echo "::error::SS58 public address was flagged -- the allowlist regex no longer matches"
+            exit 1
+          fi
+
+          echo "control OK: real secrets still caught, SS58 addresses exempt"
+
+      - name: gitleaks (full history)
+        run: |
+          set -euo pipefail
+          gitleaks detect --source . --config .gitleaks.toml \
+            --log-opts="--all" --redact --no-banner
+
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 45
