@@ -370,8 +370,13 @@ fn dev_genesis(
         },
         "babe":   { "authorities": [], "epochConfig": BABE_GENESIS_EPOCH_CONFIG },
         "grandpa": { "authorities": [] },
-        // V4: sudo is a single Alice key in dev/local — replaced by multisig in staging/mainnet.
-        // Removed on day 14 via referendum. api.query.sudo.key() = None after handoff.
+        // V4: the dev/local preset mints sudo to a genesis dev account, which is why
+        // a freshly built chain starts with root on a published seed. THE LIVE DEVNET
+        // NO LONGER DOES: root was rotated off //Alice on 2026-09-09 via sudo.set_key
+        // (see scripts/sudo-set-key.mjs and issue #119), and is now held by the
+        // operator. Sudo is NOT removed and nothing in this tree schedules its
+        // removal — that is planned for mainnet, and until it happens no comment or
+        // doc here may describe it as done.
         "sudo": { "key": Some(root_key) },
         // V4: Agents pre-registered at genesis with 10,000 CMN stake each.
         "agents": { "agents": genesis_agents },
@@ -419,9 +424,11 @@ pub fn mainnet_genesis_config(
     founder_accounts: Vec<(AccountId, Balance)>,
     researcher_multisig: AccountId,
     bootstrap_multisig: AccountId,
-    // V4: root_key is a 3-of-5 multisig account.
-    // It is removed on day 14 via sudo.set_key(None) referendum.
-    // After removal: api.query.sudo.key() returns None permanently.
+    // V4: root_key is a 3-of-5 multisig account, held by the operators.
+    // Removal via sudo.set_key(None) is SCHEDULED FOR MAINNET and is not implemented
+    // here: nothing in this crate or in runtime/ schedules it, so it will not happen
+    // on its own. Stated as a plan, not as a fact — an earlier version of this comment
+    // asserted it as done and the published docs repeated the claim.
     root_key: AccountId,
 ) -> ChainSpec {
     let founder_total: Balance = founder_accounts.iter().map(|(_, b)| b).sum();
@@ -497,7 +504,8 @@ pub fn mainnet_genesis_config(
             (researcher_multisig.clone(), RESEARCHERS_ALLOC),
             (bootstrap_multisig.clone(), BOOTSTRAP_ALLOC),
             // V4: Treasury pre-funded at genesis — 5B CMN for early governance operations.
-            // Accessed only via Track 1 spend proposals after sudo removal on day 14.
+            // Intended to be accessed only via Track 1 spend proposals once sudo is
+            // removed at mainnet. Until then root can still reach it.
             (
                 scalar_commons_runtime::treasury_account_id(),
                 TREASURY_ALLOC,
@@ -537,7 +545,8 @@ pub fn mainnet_genesis_config(
         },
         "babe":   { "authorities": [], "epochConfig": BABE_GENESIS_EPOCH_CONFIG },
         "grandpa": { "authorities": [] },
-        // V4: sudo is a 3-of-5 bootstrap multisig. Removed day 14 via referendum.
+        // V4: sudo is a 3-of-5 bootstrap multisig, held by the operators.
+        // Removal is scheduled for mainnet and is not yet implemented anywhere.
         "sudo": { "key": Some(root_key) },
         // V4: agents pre-registered — 3 genesis validators are also founding agents.
         "agents": { "agents": genesis_agents },
