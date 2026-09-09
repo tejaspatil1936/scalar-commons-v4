@@ -30,6 +30,12 @@ ExecStart=/home/dev/scalar-commons-v4/target/release/scalar-node \
     --prometheus-port 9615 \
     --rpc-cors all \
     --rpc-methods safe \
+    --rpc-rate-limit 300 \
+    --rpc-max-connections 100 \
+    --rpc-max-subscriptions-per-connection 64 \
+    --rpc-max-batch-request-len 16 \
+    --rpc-max-request-size 10 \
+    --rpc-message-buffer-capacity-per-connection 32 \
     --state-pruning archive \
     --blocks-pruning archive
 Restart=on-failure
