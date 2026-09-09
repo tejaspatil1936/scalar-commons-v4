@@ -32,6 +32,7 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: 'Run a node', link: '/guide/run-a-node' },
+      { text: 'Tester guide', link: '/guide/testnet-tester-guide' },
       { text: 'SDK', link: '/guide/sdk' },
       { text: 'RPC', link: '/reference/rpc' },
       { text: 'Token model', link: '/reference/token-model' },
@@ -51,6 +52,7 @@ export default defineConfig({
         text: 'Guide',
         items: [
           { text: 'Run a node', link: '/guide/run-a-node' },
+          { text: 'Testnet tester guide', link: '/guide/testnet-tester-guide' },
           { text: 'SDK usage', link: '/guide/sdk' },
         ],
       },
