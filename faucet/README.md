@@ -36,6 +36,7 @@ is refunded if the drip does not actually land.
 
 | Method | Path | Result |
 |---|---|---|
+| `GET` | `/` | index: one line of JSON naming `/health` and the two working routes |
 | `POST` | `/drip` | `{"address":"5..."}` → `200` with `blockHash`/`txHash`, or `400` / `429` / `503` / `502` |
 | `GET` | `/balance/:address` | live free balance in plancks |
 | `GET` | `/health` | chain name, spec version, funding-account balance |
