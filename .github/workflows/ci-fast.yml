@@ -113,6 +113,25 @@ jobs:
           gitleaks detect --source . --config .gitleaks.toml \
             --log-opts="--all" --redact --no-banner
 
+  # The chain spec testers actually download. Runs unconditionally and without
+  # network access: it compares docs/public/chainspec.json against the operator
+  # spec in deploy/, so it cannot flake on a validator reboot, and it cannot be
+  # skipped by a path filter that happens not to list deploy/.
+  #
+  # Why it is a gate and not a note: this file is the only way an outsider
+  # learns the bootnode peer ids, and a stale genesis here means a tester syncs
+  # a different chain and gets no error pointing at the cause.
+  chainspec:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Published chain spec matches the operator spec
+        run: node scripts/check-published-chainspec.mjs
+
   gate:
     runs-on: ubuntu-latest
     timeout-minutes: 45
