@@ -881,6 +881,27 @@ impl pallet_staking::Config for Runtime {
     // minted stays in the treasury, and the 47 entries in ErasValidatorReward
     // summing ~14 623 530.33 CMN remain claimable by `payout_stakers`, which is
     // permissionless. Zeroing EraPayout does not and cannot unbook those.
+    //
+    // TWO CONSEQUENCES, both deliberate, both recorded here so the next reader
+    // does not have to rediscover them:
+    //
+    // 1. `payout_stakers` is now the ONLY live staking mint path, and it has no
+    //    cap check at its own call site — pallet_constitution's gate is post-hoc
+    //    and only fires once issuance already exceeds the cap. With ~94B CMN of
+    //    headroom the ~14.6M cannot breach it, but "every mint is cap-checked"
+    //    is not true of that path. Deliberately NOT fixed here: a migration
+    //    clearing ErasValidatorReward is a storage change, and this upgrade is
+    //    scoped to the Config type. Tracked on issue #120, which stays open.
+    //
+    // 2. Validator compensation is now exactly zero. Era payout is (0, 0) and
+    //    transaction fees are burned (OnChargeTransaction = FungibleAdapter with
+    //    a `()` handler), while Slash still routes to the treasury and
+    //    BondingDuration is 28 eras. A third-party validator therefore has
+    //    negative expected value: no revenue, real slash risk, 28-era exit.
+    //    Acceptable for an operator-run testnet where all five authorities are
+    //    ours; NOT acceptable for a public validator set. Decide before opening
+    //    validation to outsiders — either subsidise off-chain and say so, or
+    //    route a validator share through pallet-emissions where the cap gate is.
     type EraPayout = ();
     type NextNewSession = Session;
     type HistoryDepth = ConstU32<84>;
@@ -1749,6 +1770,12 @@ mod tests {
     /// The type actually wired into `pallet_staking::Config` for this runtime.
     type WiredEraPayout = <Runtime as pallet_staking::Config>::EraPayout;
 
+    /// `(0, 0)` at the runtime's real `Balance` width. A bare `(0, 0)` literal
+    /// would let inference pick `i32` and quietly test nothing.
+    fn expected_zero() -> (Balance, Balance) {
+        (0, 0)
+    }
+
     /// From spec 305, era rotation must mint nothing.
     ///
     /// Both halves of the tuple matter and they fail differently. `.0` is the
@@ -1785,14 +1812,17 @@ mod tests {
     #[test]
     fn era_payout_is_zero_at_live_values() {
         const CMN: Balance = 1_000_000_000_000;
-        const SIX_HOURS_MS: u64 = 6 * 60 * 60 * 1000;
+        // A STAKING era, which is not the six-hour emissions era. SessionsPerEra
+        // is 6 and EpochDuration is ERA_BLOCKS/2 = 3h, so a staking era is 18h.
+        // Getting this wrong understates the old payout by 3x.
+        const STAKING_ERA_MS: u64 = 18 * 60 * 60 * 1000;
 
-        let total_staked: Balance = 30_000 * CMN;
-        let total_issuance: Balance = 6_053_831_090 * CMN;
+        let total_staked: Balance = CMN.saturating_mul(30_000);
+        let total_issuance: Balance = CMN.saturating_mul(6_053_831_090);
 
         assert_eq!(
-            WiredEraPayout::era_payout(total_staked, total_issuance, SIX_HOURS_MS),
-            (0 as Balance, 0 as Balance),
+            WiredEraPayout::era_payout(total_staked, total_issuance, STAKING_ERA_MS),
+            expected_zero(),
             "staking must mint nothing at the live staked/issuance figures"
         );
     }
@@ -1802,15 +1832,16 @@ mod tests {
     #[test]
     fn era_payout_is_zero_across_the_stake_curve() {
         const CMN: Balance = 1_000_000_000_000;
-        const SIX_HOURS_MS: u64 = 6 * 60 * 60 * 1000;
-        let issuance: Balance = 6_000_000_000 * CMN;
+        const STAKING_ERA_MS: u64 = 18 * 60 * 60 * 1000;
+        let issuance: Balance = CMN.saturating_mul(6_000_000_000);
 
-        // 0%, 25%, 50% (ideal_stake), 75%, 100% staked.
+        // 0%, 25%, 50% (ideal_stake), 75%, 100% staked. CLAUDE.md forbids bare
+        // + - * on Balance, in tests as much as anywhere else.
         for pct in [0u128, 25, 50, 75, 100] {
-            let staked = issuance / 100 * pct;
+            let staked = issuance.saturating_div(100).saturating_mul(pct);
             assert_eq!(
-                WiredEraPayout::era_payout(staked, issuance, SIX_HOURS_MS),
-                (0 as Balance, 0 as Balance),
+                WiredEraPayout::era_payout(staked, issuance, STAKING_ERA_MS),
+                expected_zero(),
                 "staking minted at {pct}% of issuance staked"
             );
         }

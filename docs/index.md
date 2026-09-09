@@ -51,13 +51,16 @@ Three things distinguish it from a general-purpose smart-contract chain:
    formula](/reference/token-model#the-weight-formula) multiplies stake by evidence of
    work. Stake with no escrow volume produces zero weight and therefore zero rewards.
 3. **The supply cap is a hard invariant.** 100 billion CMN, enforced at every mint site,
-   with a dedicated pallet watching for approach and breach. **pallet-emissions is the only
-   mint path from `spec_version` 305 onward.** Before 305 it was not: `pallet_staking`
+   with a dedicated pallet watching for approach and breach. **Every mint site is cap-gated
+   from `spec_version` 305 onward** — `pallet-emissions::do_claim` and
+   `pallet-orchestrator::claim_orchestrator`, both applying the same
+   `(cap − issuance).min(pending)` clamp. Before 305 that was not true: `pallet_staking`
    minted 2.5 %–10 % annual inflation outside the emissions pallet and outside any cap
    check, producing **43 581 090 CMN** while emissions minted zero. Spec 305 sets
    `EraPayout = ()`. The already-minted 43.58 M CMN remains in the treasury, and a further
    **~14 623 530 CMN of booked validator rewards remains claimable** by the permissionless
-   `payout_stakers`. See the [token
+   `payout_stakers` — an aggregate upper bound, and one that expires as those eras fall
+   outside `HistoryDepth` (~63 days). See the [token
    model](/reference/token-model#supply-and-the-cap) for the full accounting.
 
 ## Where to start

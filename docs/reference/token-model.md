@@ -37,8 +37,20 @@ The cap is an absolute invariant, not a target. Three things enforce it:
    `mintable = (supplyCap − totalIssuance).min(pending)` before depositing, and emits
    `CapReached` instead of minting when that is zero. A claim can be truncated; it cannot
    overshoot.
-2. **All minting flows through pallet-emissions.** No other pallet has a mint path —
-   **true from `spec_version` 305 onward, and not before.**
+2. **Every mint site is cap-gated.** There are two, and from `spec_version` 305 there is
+   one bounded exception that is not gated at its own call site. Stated precisely, because
+   the shorter version of this sentence was wrong for 35 days:
+
+   | mint site | cap-gated? |
+   |---|---|
+   | `pallet-emissions::do_claim` | yes — `mintable = (cap − issuance).min(pending)` |
+   | `pallet-orchestrator::claim_orchestrator` | yes — same clamp, `pallets/orchestrator/src/lib.rs:642-659` |
+   | `pallet_staking::payout_stakers` over pre-305 bookings | **no gate at the call site** — bounded, see below |
+
+   This page previously said "All minting flows through pallet-emissions. No other pallet
+   has a mint path." That was false on two counts, and both are now stated rather than
+   glossed: `pallet-orchestrator` has always minted directly (it is cap-gated, so the cap
+   held), and until spec 305 `pallet_staking` minted with no gate at all.
 
    Until spec 305 this claim was false. `pallet_staking`'s `EraPayout` was wired to
    `ConvertCurve<RewardCurve>` (2.5 %–10 % annual inflation) with
@@ -57,8 +69,24 @@ The cap is an absolute invariant, not a target. Three things enforce it:
    permissionless, so **the first caller still mints up to ~14.6 M CMN**. Spec 305 stops
    new bookings; it cannot and does not cancel the ones already made.
 
-   Total historical and pending issuance from the staking path: **~58.2 M CMN**. See
-   TESTNETAUDIT.md §6 I-2 and issue #120.
+   Total historical and pending issuance from the staking path: **~58.2 M CMN**.
+
+   **The pending half expires.** `HistoryDepth` is 84 eras and a *staking* era is 18 hours
+   (`SessionsPerEra` 6 x `EpochDuration` 3 h — not the six-hour *emissions* era), so each
+   `ErasValidatorReward` entry is pruned once `CurrentEra` passes `era + 84`, about **63
+   days**. `CurrentEra` is 47, so era 0 lapses in roughly four weeks and the whole booking
+   lapses by around day 98 of chain life. There is a fixed window in which to decide
+   whether to migrate the entries away, claim them, or let them expire.
+
+   The 14.6 M is an **aggregate upper bound** across all 47 eras and all validators, not
+   what one call mints: `payout_stakers` pays one validator, one page, one era, scaled by
+   that validator's `ErasRewardPoints` share, and mints nothing for a stash with
+   `RewardDestination::None`.
+
+   See TESTNETAUDIT.md §6 I-2 and issue #120, which stays open until this residue is
+   resolved. The genesis-mint and headroom figures in the table above are **separately
+   wrong** and tracked as issue #121 (I-3) — they describe the unreachable
+   `mainnet_genesis_config` allocation, not this chain.
 3. **`pallet-constitution` watches independently.** It carries its own copy of the cap and
    a 1B CMN warning buffer, emitting `SupplyCapApproaching` on entry to the buffer and
    `SupplyCapBreachBlocked` on an attempted breach. The two copies are listed in the table
