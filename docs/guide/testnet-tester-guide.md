@@ -225,11 +225,15 @@ retry-after: 3588
  "scope":"address","retryAfterMs":3587320}
 ```
 
-| Limit | Value | Verified |
+| Limit | Value | How I know |
 |---|---|---|
-| per address | **1 drip / 60 min** | `429`, `scope: "address"`, `retryAfterMs: 3587320` |
-| per IP | 5 drips / 60 min | `scope: "ip"` on the sixth request |
-| reserve floor | 1 000 CMN | funding account cannot be emptied |
+| per address | **1 drip / 60 min** | **Observed.** `429`, `scope: "address"`, `retryAfterMs: 3587320` |
+| per IP | 5 drips / 60 min | Read from `faucet/src/config.ts` — *not* exercised here; a sixth request should return `429` with `scope: "ip"` |
+| reserve floor | 1 000 CMN | Read from `/health` (`reservePlancks: "1000000000000000"`) — *not* exercised |
+
+I deliberately did not hammer the per-IP budget to prove it. It is a drain protection on a
+shared faucet, and exhausting it would have locked every other tester on this IP out for an
+hour to confirm a number the source already states.
 
 A malformed address is rejected before anything moves: `{"address":"not-an-address"}` → `400`.
 
