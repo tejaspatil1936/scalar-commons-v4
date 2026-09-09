@@ -107,16 +107,25 @@ Two shapes are worth calling out:
 `/v1` is a promise about response shape. Chain events change with the runtime —
 a shape change here means a new prefix, not a quiet edit.
 
+While the websocket to the node is down, routes that need the node answer
+**`503`** with `degraded: true`, a `Retry-After` header and a `connection` object
+naming the endpoint, the downtime and the reconnect attempt count; routes served
+from the index keep answering `200`, because history already captured does not
+need a live node. `503` and not `500`: the indexer is not broken, it is waiting
+for its node. The socket is reconnected on its own with capped backoff, so a node
+restart no longer needs an indexer restart (issue #155).
+
 ## Tests
 
 ```bash
 npm ci && npm test
 ```
 
-Six suites are chain-free (paging rules, identifier and account extraction,
-value translation, the SQLite store, path routing and era-event shaping, and the
-one decode guard no live chain can trigger — an `AgreementStatus` variant this
-build does not know). One — `tests/live.test.ts` — is end-to-end against the node
+Seven suites are chain-free (paging rules, identifier and account extraction,
+value translation, the SQLite store, path routing and era-event shaping, the one
+decode guard no live chain can trigger — an `AgreementStatus` variant this build
+does not know — and socket recovery, which drops a real websocket under a real
+`WsProvider` and asserts both the reconnect and the `503`). One — `tests/live.test.ts` — is end-to-end against the node
 at `INDEXER_RPC_URL`:
 
 1. submits real extrinsics (`agents.heartbeat`, `balances.transferKeepAlive`,

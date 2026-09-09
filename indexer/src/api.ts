@@ -9,6 +9,13 @@
  * The path prefix is a promise: `/v1` responses keep their shape. Chain events
  * change with the runtime, so a shape change here means a new prefix, not a
  * quiet edit — the SDK and the landing page read these responses.
+ *
+ * One status code is load-bearing: a route that needs the node answers **503**
+ * while the node socket is down, never 500. `500` says the indexer is broken,
+ * which is what `api.scalarnet.io` told every monitor for 74 minutes on
+ * 2026-09-09 while the chain was healthy and the only fault was a socket nobody
+ * had re-opened (issue #155). Routes served purely from the index keep answering
+ * 200 — history already captured does not need a live node.
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -20,6 +27,7 @@ import type { IndexerConfig } from './config.ts';
 import type { ChainConnection } from './chain.ts';
 import type { ChainIndexer } from './indexer.ts';
 import { InvalidQueryError, parseOptionalInteger, parsePage, type Page } from './pagination.ts';
+import { unavailableReason } from './reconnect.ts';
 import type { IndexerStore, PageResult } from './store.ts';
 import {
   MAX_LIVE_SCAN,
@@ -40,15 +48,64 @@ import {
 /** An error that maps onto an HTTP status rather than a 500. */
 class HttpError extends Error {
   readonly status: number;
+  /**
+   * Extra fields merged into the error body.
+   *
+   * A 503 has to say more than "unavailable": how long the node has been away
+   * and how far the index got are the two things an operator reads next.
+   */
+  readonly details: Record<string, unknown>;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, details: Record<string, unknown> = {}) {
     super(message);
     this.name = 'HttpError';
     this.status = status;
+    this.details = details;
   }
 }
 
 const notFound = (what: string) => new HttpError(404, `${what} not found`);
+
+/**
+ * `Retry-After` on a 503, in seconds.
+ *
+ * Short on purpose: the reconnect backoff caps at 30s, so a caller that waits
+ * this long will usually find the node back before it has asked a third time.
+ */
+const RETRY_AFTER_SECONDS = 5;
+
+/** How far the index has followed the chain — answerable with no node at all. */
+function indexerProgress(context: {
+  readonly indexer: ChainIndexer;
+  readonly config: IndexerConfig;
+}): Record<string, unknown> {
+  return {
+    syncedHeight: context.indexer.syncedHeight,
+    indexedBlocks: context.indexer.indexedBlocks,
+    backfillDepth: context.config.backfillDepth,
+  };
+}
+
+/**
+ * The 503 a chain-backed route answers while the node socket is down.
+ *
+ * Carries the index's own progress, because that is still true and still
+ * useful: "the node is away, and here is how much history I already hold" is an
+ * answer a caller can act on, where a bare 500 was not.
+ */
+function chainUnavailable(context: {
+  readonly chain: ChainConnection;
+  readonly indexer: ChainIndexer;
+  readonly config: IndexerConfig;
+}): HttpError {
+  const connection = context.chain.connection();
+  return new HttpError(503, unavailableReason(connection), {
+    degraded: true,
+    connection,
+    indexer: indexerProgress(context),
+    api: { version: 'v1', endpoints: ROUTES.length },
+  });
+}
 
 export interface ApiDependencies {
   readonly store: IndexerStore;
@@ -217,15 +274,19 @@ export const ROUTES: readonly RouteDefinition[] = [
     name: 'status',
     path: '/v1/status',
     summary: 'Chain identity, head position, and how far the indexer has followed it.',
-    handler: async (context) => ({
-      chain: await fetchChainStatus(context.api, context.chain),
-      indexer: {
-        syncedHeight: context.indexer.syncedHeight,
-        indexedBlocks: context.indexer.indexedBlocks,
-        backfillDepth: context.config.backfillDepth,
-      },
-      api: { version: 'v1', endpoints: ROUTES.length },
-    }),
+    handler: async (context) => {
+      // Checked before the chain read rather than after it throws: while the
+      // socket is down there is no head to report, and the useful answer is
+      // "degraded, here is how long, here is how far the index got".
+      if (!context.chain.connection().connected) {
+        throw chainUnavailable(context);
+      }
+      return {
+        chain: await fetchChainStatus(context.api, context.chain),
+        indexer: indexerProgress(context),
+        api: { version: 'v1', endpoints: ROUTES.length },
+      };
+    },
   },
   {
     name: 'blocks.list',
@@ -571,13 +632,32 @@ export function matchRoute(pathname: string): { route: RouteDefinition; params: 
   return null;
 }
 
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
+function sendJson(
+  res: ServerResponse,
+  status: number,
+  body: unknown,
+  headers: Record<string, string> = {},
+): void {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
     'content-length': Buffer.byteLength(payload),
+    ...headers,
   });
   res.end(payload);
+}
+
+/**
+ * Writes an {@link HttpError}, with `Retry-After` when it is a 503.
+ *
+ * `Retry-After` belongs on a 503 and nowhere else in this API: telling a caller
+ * to retry a 404 would be wrong, and a 503 without it leaves every client to
+ * invent its own interval.
+ */
+function sendHttpError(res: ServerResponse, error: HttpError): void {
+  const headers: Record<string, string> =
+    error.status === 503 ? { 'retry-after': String(RETRY_AFTER_SECONDS) } : {};
+  sendJson(res, error.status, { error: error.message, ...error.details }, headers);
 }
 
 /**
@@ -633,15 +713,23 @@ async function handle(req: IncomingMessage, res: ServerResponse, dependencies: A
     sendJson(res, 200, body);
   } catch (error) {
     if (error instanceof HttpError) {
-      sendJson(res, error.status, { error: error.message });
+      sendHttpError(res, error);
       return;
     }
     if (error instanceof InvalidQueryError) {
       sendJson(res, 400, { error: error.message });
       return;
     }
-    // Anything else is a genuine fault — an unreachable node, a decode failure
-    // against unexpected metadata. Report it rather than answering with a
+    // A request that raced the socket closing lands here with polkadot-js's
+    // "WebSocket is not connected". It is the same failure as one that arrived
+    // after the drop, so it gets the same 503 — which side of the drop a
+    // request fell on is not the caller's problem.
+    if (!dependencies.chain.connection().connected) {
+      sendHttpError(res, chainUnavailable(dependencies));
+      return;
+    }
+    // Anything else is a genuine fault — a decode failure against unexpected
+    // metadata, a bug here. Report it rather than answering with a
     // plausible-looking empty result.
     sendJson(res, 500, { error: error instanceof Error ? error.message : String(error) });
   }
