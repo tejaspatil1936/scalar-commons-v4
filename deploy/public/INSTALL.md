@@ -32,6 +32,41 @@ grep -n 'rpc-methods' deploy/systemd/scalar-*.service
 # every validator must show:  --rpc-methods safe
 ```
 
+### The faucet must not be signing with a dev seed
+
+**`FAUCET_SEED` is required before exposure and there is no safe default.** The
+faucet's in-code fallback is `//Ferdie`, a published Substrate dev seed. Its
+account held ~1e9 CMN, so once RPC is reachable anyone can empty it with a plain
+`balances.transfer` — and then every rate limit and the 1 000 CMN reserve
+protect nothing, because the attacker never touches the faucet at all.
+TESTNETAUDIT.md §6 I-6, issue #123.
+
+```bash
+# generate a key; print the phrase ONCE and put it in the 0600 env file
+./target/release/scalar-node key generate --scheme sr25519 --output-type json
+
+# ~/.config/scalar-commons/faucet.env, mode 0600, never in git
+grep -q '^FAUCET_SEED=' ~/.config/scalar-commons/faucet.env \
+  || echo 'MISSING: FAUCET_SEED — the faucet is signing with //Ferdie'
+```
+
+Fund the resulting address, then confirm the running faucet is actually using
+it — `/health` reports the address it signs with, so this catches an env file
+that was written but never loaded:
+
+```bash
+curl -s http://127.0.0.1:8082/health | python3 -m json.tool
+# faucetAddress must be YOUR address, not //Ferdie's
+# 5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL
+```
+
+Set `FAUCET_TRUST_PROXY=true` in the same file **only** with the vhost from
+`deploy/public/nginx/`, which overwrites `X-Forwarded-For`. With
+`TRUST_PROXY=false` behind a proxy the per-IP limit degrades to one global
+bucket for the whole internet; with it true behind a proxy that *appends*, it
+was forgeable. Both halves are fixed in this repo, but a hand-rolled vhost can
+undo one of them.
+
 ---
 
 ## 1. Firewall first

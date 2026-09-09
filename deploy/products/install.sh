@@ -29,7 +29,11 @@ PRODUCTS=(indexer explorer faucet)
 declare -A ENTRYPOINTS=(
     [indexer]=src/index.ts
     [explorer]=dist/index.js
-    [faucet]=src/index.ts
+    # The faucet runs its BUILT entrypoint. src/index.ts under
+    # --experimental-strip-types fails outright — type-stripping does not
+    # rewrite './x.js' specifiers to './x.ts' — which is what put the unit in a
+    # 71-restart crash loop on 2026-09-07. Issues #115 and #127.
+    [faucet]=dist/index.js
 )
 
 echo "==> repo:     ${REPO}"
@@ -44,8 +48,8 @@ for product in "${PRODUCTS[@]}"; do
     entry="${REPO}/${product}/${ENTRYPOINTS[$product]}"
     if [[ ! -f "${entry}" ]]; then
         echo "ERROR: ${entry} missing."
-        if [[ "${product}" == "explorer" ]]; then
-            echo "       The explorer is compiled ahead of time. Run: (cd ${REPO}/explorer && npm ci && npm run build)"
+        if [[ "${product}" == "explorer" || "${product}" == "faucet" ]]; then
+            echo "       ${product} is compiled ahead of time. Run: (cd ${REPO}/${product} && npm ci && npm run build)"
         else
             echo "       Run: (cd ${REPO}/${product} && npm ci)"
         fi
