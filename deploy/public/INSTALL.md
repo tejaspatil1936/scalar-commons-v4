@@ -8,11 +8,12 @@ Do the steps in the order given. The ordering is not cosmetic: the firewall
 closes before nginx listens, and certificates exist before the config that
 references them is installed.
 
-> **Not verified in CI.** The nginx config in this PR has never been parsed by
-> nginx — the authoring host had neither nginx nor a container runtime, and
-> installing it would have started a listener on the live devnet box. `nginx -t`
-> in step 7 is the first real syntax check. Treat a failure there as expected
-> work, not as a surprise.
+> **Status: installed and serving.** This config is live on scalarnet.io as of
+> 2026-09-09. It has been parsed by `nginx -t`, reloaded, and verified end to
+> end from an external host — see `PUBLIC-LAUNCH.md` in the repo root for the
+> full PASS/FAIL table. The template in `nginx/` is now the exact source of the
+> installed file: `render-config.sh` with `DOMAIN=scalarnet.io` reproduces
+> `/etc/nginx/sites-available/scalarnet` byte for byte (§4a below).
 
 ---
 
@@ -136,28 +137,70 @@ ls deploy/public/rendered/
 The script refuses to run while `DOMAIN` is still `example.com`, and fails if
 any placeholder survives substitution.
 
+**Environment beats `domain.env`.** Any of the four variables may be exported
+instead of edited into the file, so a host can render without dirtying a
+tracked file and a real domain never has to be committed:
+
+```bash
+DOMAIN=example.org LANDING_DIST=/var/www/site/landing DOCS_DIST=/var/www/site/docs ACME_WEBROOT=/var/www/acme ./deploy/public/render-config.sh
+```
+
+### 4a. The template is the installed file
+
+The scalarnet.io deployment is reproducible from this repo alone. On that host:
+
+```bash
+DOMAIN=scalarnet.io LANDING_DIST=/var/www/scalarnet/landing DOCS_DIST=/var/www/scalarnet/docs ACME_WEBROOT=/var/www/acme ./deploy/public/render-config.sh
+sha256sum deploy/public/rendered/scalar-commons.conf /etc/nginx/sites-available/scalarnet
+```
+
+Both lines must print the same digest. Measured 2026-09-09:
+
+```
+9e5a834a6a6b9e7515d28407533da088ccebeee29aff2b738e2cdc4d9a1126b6  deploy/public/rendered/scalar-commons.conf
+9e5a834a6a6b9e7515d28407533da088ccebeee29aff2b738e2cdc4d9a1126b6  /etc/nginx/sites-available/scalarnet
+```
+
+If they ever diverge, someone edited `/etc/nginx` by hand and the repo is no
+longer the source of truth — reconcile before changing anything else.
+
+The template's header comment describes the file as "derived from the template
+and corrected"; that sentence is a historical note from the launch round, kept
+verbatim because rewording it would change the rendered bytes and break the
+digest above. Reword it in the next change that reinstalls the config.
+
 ---
 
 ## 5. Build the static output
 
 ```bash
-mkdir -p /var/www/acme
-sudo chown "$USER" /var/www/acme
+sudo mkdir -p /var/www/acme
+sudo mkdir -p /var/www/scalarnet/landing /var/www/scalarnet/docs
+sudo chown "$USER" /var/www/scalarnet/landing /var/www/scalarnet/docs
 
-cd landing && npm ci && npm run build && cd ..
-cd docs    && npm ci && npm run build && cd ..
+./deploy/public/redeploy-site.sh
 ```
 
-> **Blocker for `/docs`.** `docs/.vitepress/config.mts` sets no `base`, so the
-> build emits absolute `/assets/...` URLs and root-relative links like
-> `/guide/run-a-node`. Served under `/docs/` those 404 — the pages render
-> unstyled and internal links break.
->
-> Fix before step 7, by setting `base: '/docs/'` in `docs/.vitepress/config.mts`
-> and rebuilding. **That edit is intentionally not in this PR** — it is a source
-> change, this round is config-only, and it overlaps issue #103, which serves
-> docs at the same path via Pages. Land it there or in a small follow-up, but
-> `/docs` will not work until it exists.
+`redeploy-site.sh` is the only supported way to build these two sites. It runs
+as an ordinary user, builds landing with `LANDING_OUT_DIR` pointing at the
+webroot and docs with `DOCS_BASE=/docs/`, publishes the vitepress output, and
+then **fails loudly** if either `index.html` is missing or if any emitted asset
+URL still points at `/assets/` instead of `/docs/assets/`.
+
+> **Run it after every merge that touches `landing/` or `docs/`.** CI does not
+> build into the webroot and nginx serves files, not a repo, so until this runs
+> the site is still serving the previous merge. That is precisely how the
+> landing page came to advertise spec 304 while the chain was running 305.
+
+Destinations default to `/var/www/scalarnet/{landing,docs}` and can be pointed
+elsewhere with `LANDING_DEST` / `DOCS_DEST`.
+
+> **The `/docs` base blocker is closed.** `docs/.vitepress/config.mts` now
+> honours `DOCS_BASE` (`base: process.env.DOCS_BASE ?? '/'`), and
+> `redeploy-site.sh` always sets it. The guard in the script exists so a future
+> build that loses the setting fails the deploy instead of quietly publishing an
+> unstyled site — the failure mode is a 200, not a crash, so nothing else would
+> catch it.
 
 ---
 
