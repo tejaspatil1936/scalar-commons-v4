@@ -93,12 +93,24 @@ const main = async () => {
   if (!existsSync(wasmPath)) usage(`wasm not found: ${wasmPath}`);
   const wasm = readFileSync(wasmPath);
   if (wasm.length === 0) usage('wasm file is empty');
-  // Every Substrate runtime blob starts with the WebAssembly magic number.
-  // Catching a text file or a truncated copy here is far cheaper than having
-  // the chain reject it, or worse, accept something unexpected.
+  // A runtime blob is one of two shapes and BOTH are valid to submit:
+  //
+  //   - raw wasm, starting with the WebAssembly magic 0x0061736d
+  //   - Substrate's zstd-wrapped form, starting with the 8-byte marker
+  //     0x52bc537646db8e05 — this is what `*.compact.compressed.wasm` is, what
+  //     genesis stores, and what comes back out of on-chain `:code`
+  //
+  // An earlier version of this check accepted only the first, which would have
+  // refused the exact file the runbook tells you to submit. Caught by
+  // dry-running against the blob pulled from `:code`. Anything that is neither
+  // shape is a text file, a truncated copy, or the wrong file entirely.
   const magic = wasm.subarray(0, 4);
-  if (!(magic[0] === 0x00 && magic[1] === 0x61 && magic[2] === 0x73 && magic[3] === 0x6d)) {
-    usage(`${wasmPath} does not start with the wasm magic number (got ${u8aToHex(magic)})`);
+  const isRawWasm = magic[0] === 0x00 && magic[1] === 0x61 && magic[2] === 0x73 && magic[3] === 0x6d;
+  const ZSTD_PREFIX = Buffer.from([0x52, 0xbc, 0x53, 0x76, 0x46, 0xdb, 0x8e, 0x05]);
+  const isCompressed = Buffer.from(wasm.subarray(0, 8)).equals(ZSTD_PREFIX);
+  if (!isRawWasm && !isCompressed) {
+    usage(`${wasmPath} is neither raw wasm nor a Substrate-compressed runtime `
+      + `(first bytes ${u8aToHex(wasm.subarray(0, 8))})`);
   }
   const wasmHash = blake2AsHex(wasm, 256);
 
@@ -130,6 +142,7 @@ const main = async () => {
   console.log('  endpoint            : ' + ws);
   console.log('  wasm                : ' + wasmPath);
   console.log('  wasm bytes          : ' + wasm.length);
+  console.log('  wasm form           : ' + (isCompressed ? 'zstd-compressed (the form to submit)' : 'raw wasm'));
   console.log('  wasm blake2-256     : ' + wasmHash);
   console.log('');
   console.log('  spec_version before : ' + before);
