@@ -37,7 +37,28 @@ The cap is an absolute invariant, not a target. Three things enforce it:
    `mintable = (supplyCap − totalIssuance).min(pending)` before depositing, and emits
    `CapReached` instead of minting when that is zero. A claim can be truncated; it cannot
    overshoot.
-2. **All minting flows through pallet-emissions.** No other pallet has a mint path.
+2. **All minting flows through pallet-emissions.** No other pallet has a mint path —
+   **true from `spec_version` 305 onward, and not before.**
+
+   Until spec 305 this claim was false. `pallet_staking`'s `EraPayout` was wired to
+   `ConvertCurve<RewardCurve>` (2.5 %–10 % annual inflation) with
+   `RewardRemainder = ResolveTo<TreasuryAccount>`, so era rotation minted outside the
+   emissions pallet and outside any cap check. It was not theoretical: `TotalIssuance`
+   grew from **6 010 250 000.01 CMN at genesis to 6 053 831 090.07 CMN** — **+43 581 090
+   CMN, 100 % of it from staking** — while pallet-emissions minted exactly zero over the
+   same 35 days. Spec 305 sets `type EraPayout = ()`, which returns `(0, 0)`: no validator
+   payout, no treasury remainder.
+
+   **Two consequences of that history survive the fix, and both are real balances, not
+   accounting notes.** The **43 581 090 CMN already minted** is in the treasury and stays
+   there; zeroing future payouts does not unmint it. And **`ErasValidatorReward` holds 47
+   entries summing ~14 623 530.33 CMN** that are *booked but not yet minted* — no validator
+   has ever called `payout_stakers`, `ClaimedRewards` is empty, and that call is
+   permissionless, so **the first caller still mints up to ~14.6 M CMN**. Spec 305 stops
+   new bookings; it cannot and does not cancel the ones already made.
+
+   Total historical and pending issuance from the staking path: **~58.2 M CMN**. See
+   TESTNETAUDIT.md §6 I-2 and issue #120.
 3. **`pallet-constitution` watches independently.** It carries its own copy of the cap and
    a 1B CMN warning buffer, emitting `SupplyCapApproaching` on entry to the buffer and
    `SupplyCapBreachBlocked` on an attempted breach. The two copies are listed in the table
