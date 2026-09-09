@@ -163,6 +163,62 @@ const main = async () => {
     process.exit(1);
   }
 
+  // ---- can the signer actually PAY for this? ------------------------------
+  //
+  // This check exists because its absence cost a full upgrade attempt. The
+  // rotated root key (#119) was never funded, so the first real root call was
+  // rejected with "1010: Invalid Transaction: Inability to pay some fees" —
+  // AFTER a six-minute release build, and with a dry run that had reported
+  // "signer is root: YES" and no hint of a problem.
+  //
+  // The trap is that `sudo.sudo` dispatches with `paysFee: No`, so it is easy
+  // to assume no balance is needed. That flag is POST-dispatch. The
+  // ChargeTransactionPayment signed extension runs inside validate_transaction,
+  // BEFORE the call is dispatched, and it requires the signer to cover the
+  // estimated fee — so a zero-balance account cannot even get the extrinsic
+  // into the pool.
+  //
+  // A dry run cannot discover this by submitting, because it deliberately does
+  // not submit. So the check is an explicit balance-vs-fee comparison, and it
+  // runs in dry-run mode too — that is the mode where you want to find out.
+  const acct = await api.query.system.account(signer.address);
+  const free = acct.data.free.toBigInt();
+  const ed = api.consts.balances.existentialDeposit.toBigInt();
+  let fee = 0n;
+  let feeNote = '';
+  try {
+    const info = await call.paymentInfo(signer);
+    fee = info.partialFee.toBigInt();
+  } catch (e) {
+    // A non-existent account makes paymentInfo fail outright. That is itself
+    // the answer, so treat it as a zero estimate and let the comparison below
+    // refuse — never as "no fee required".
+    feeNote = ' (estimate unavailable: ' + e.message + ')';
+  }
+  const required = fee + ed;
+  const cmn = (b) => (Number(b) / 1e12).toFixed(4) + ' CMN';
+
+  console.log('  signer free balance : ' + cmn(free));
+  console.log('  estimated fee       : ' + cmn(fee) + feeNote);
+  console.log('  existential deposit : ' + cmn(ed));
+  console.log('  required (fee + ED) : ' + cmn(required));
+  console.log('  can pay             : ' + (free >= required && free > 0n ? 'YES' : 'NO'));
+  console.log('');
+
+  if (free === 0n || free < required) {
+    console.error('FATAL: signer cannot pay for this transaction.');
+    console.error(`  free ${cmn(free)} < required ${cmn(required)} (estimated fee + existential deposit)`);
+    console.error('');
+    console.error('  sudo.sudo dispatches paysFee:No, but that is post-dispatch. The pre-dispatch');
+    console.error('  validity check still requires the signer to cover the estimated fee, so this');
+    console.error('  would be rejected at submission with:');
+    console.error('    1010: Invalid Transaction: Inability to pay some fees');
+    console.error('');
+    console.error('  Fund ' + signer.address + ' and re-run.');
+    await api.disconnect();
+    process.exit(1);
+  }
+
   if (dryRun) {
     console.log('  DRY RUN — nothing submitted. The chain is unchanged.');
     console.log('');
