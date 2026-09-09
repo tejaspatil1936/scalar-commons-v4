@@ -19,6 +19,7 @@ import { u8aToHex } from '@polkadot/util';
 import { decodeAddress, encodeAddress } from '@polkadot/util-crypto';
 
 import { collectAccounts } from './accounts.js';
+import { ConnectionSupervisor, type ConnectionStatus, type ReconnectPolicy } from './reconnect.js';
 import type { BlockRef } from './routes.js';
 import type {
   AccountView,
@@ -60,10 +61,22 @@ export interface ConnectOptions {
   readonly rpcEndpoint: string;
   /** How long to wait for the first connection before giving up. */
   readonly connectTimeoutMs?: number;
+  /** Overrides the reconnect backoff; the defaults are what production runs. */
+  readonly reconnectPolicy?: Partial<ReconnectPolicy>;
+  /** Where connection loss and recovery are reported. Defaults to the console. */
+  readonly logger?: Pick<Console, 'log' | 'error'>;
 }
 
 export interface ExplorerChain {
   chainInfo(): ChainInfo;
+  /**
+   * State of the node socket.
+   *
+   * Read before every page that needs the chain: while the socket is down the
+   * explorer serves a degraded page saying so, instead of a bare 502 that reads
+   * as "this site is broken".
+   */
+  connection(): ConnectionStatus;
   home(): Promise<HomeView>;
   block(ref: BlockRef): Promise<BlockView>;
   extrinsic(ref: BlockRef, index: number): Promise<ExtrinsicView>;
@@ -149,17 +162,26 @@ interface DecodedBlock {
 /**
  * Connects to a node and returns the explorer's reader.
  *
- * Rejects loudly when the endpoint is unreachable. An explorer that starts
- * anyway would serve pages that look like chain state and are not — which is
- * worse than serving nothing, because a visitor cannot tell the difference.
+ * Rejects loudly when the endpoint is *unreachable at startup*. An explorer that
+ * starts anyway would serve pages that look like chain state and are not — which
+ * is worse than serving nothing, because a visitor cannot tell the difference.
+ *
+ * A socket lost later is not fatal: it is handed to a
+ * {@link ConnectionSupervisor} which reconnects on a capped backoff, and until
+ * it does the server serves a degraded page. Before that, one node restart left
+ * `explorer.scalarnet.io` answering 502 on every page for 74 minutes with the
+ * chain healthy the whole time (2026-09-09, issue #155).
  */
 export async function connectExplorerChain(options: ConnectOptions): Promise<ExplorerChain> {
-  const provider = new WsProvider(options.rpcEndpoint);
+  // `false` disables the provider's own retry loop: reconnection is the
+  // supervisor's job, and two loops on one socket race each other.
+  const provider = new WsProvider(options.rpcEndpoint, false);
   const timeoutMs = options.connectTimeoutMs ?? DEFAULT_CONNECT_TIMEOUT_MS;
 
   let api: ApiPromise;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
+    await provider.connect();
     api = await Promise.race([
       ApiPromise.create({ provider, noInitWarn: true, throwOnConnect: true }),
       new Promise<never>((_resolve, reject) => {
@@ -367,10 +389,23 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
     };
   }
 
+  // Attached only once the API is ready, so a failed startup connect stays a
+  // startup failure instead of becoming a retry loop behind a process that is
+  // already exiting.
+  const supervisor = new ConnectionSupervisor({
+    provider,
+    endpoint: options.rpcEndpoint,
+    ...(options.reconnectPolicy === undefined ? {} : { policy: options.reconnectPolicy }),
+    ...(options.logger === undefined ? {} : { logger: options.logger }),
+    label: '[explorer]',
+  });
+
   return {
     chainInfo(): ChainInfo {
       return info;
     },
+
+    connection: () => supervisor.status(),
 
     async home(): Promise<HomeView> {
       // One header read, and no block bodies: the index page is chrome that
@@ -468,6 +503,9 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
     },
 
     async disconnect(): Promise<void> {
+      // Stop supervising first: a deliberate close must not be met with a
+      // reconnect, which is what would happen if the order were reversed.
+      supervisor.stop();
       await api.disconnect();
     },
   };

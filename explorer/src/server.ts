@@ -7,8 +7,14 @@
  *
  * Every failure mode has a distinct status, because they mean different things
  * to a visitor: 400 for "that is not a block/address at all", 404 for "the chain
- * does not have it", 502 for "the node did not answer". Collapsing them would
- * make an unreachable node look like an empty chain.
+ * does not have it", 503 for "the node socket is down and we are reconnecting",
+ * 502 for "the node answered, but not with something we could use". Collapsing
+ * them would make an unreachable node look like an empty chain.
+ *
+ * The 503 is issue #155: after a node restart on 2026-09-09 every page here
+ * answered a bare 502 for 74 minutes, with no indication that the site was
+ * waiting for a chain rather than broken. A page that says what it is waiting
+ * for, and a client that reconnects on its own, replace that.
  */
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
@@ -19,6 +25,7 @@ import {
   InvalidAddressError,
   type ExplorerChain,
 } from './chain.js';
+import { unavailableReason, type ConnectionStatus } from './reconnect.js';
 import { renderAccount, renderBlock, renderError, renderExtrinsic, renderHome } from './render.js';
 import { parseRoute } from './routes.js';
 
@@ -28,11 +35,25 @@ export interface ExplorerServerOptions {
   readonly onError?: (error: unknown) => void;
 }
 
-function send(response: ServerResponse, status: number, html: string): void {
+/**
+ * `Retry-After` on a 503, in seconds.
+ *
+ * Short on purpose: the reconnect backoff caps at 30s, so a visitor who reloads
+ * after this long will usually get a real page.
+ */
+const RETRY_AFTER_SECONDS = 5;
+
+function send(
+  response: ServerResponse,
+  status: number,
+  html: string,
+  headers: Record<string, string> = {},
+): void {
   response.writeHead(status, {
     'content-type': 'text/html; charset=utf-8',
     'cache-control': 'no-store',
     'content-length': Buffer.byteLength(html),
+    ...headers,
   });
   response.end(html);
 }
@@ -43,8 +64,36 @@ export function createExplorerServer(options: ExplorerServerOptions): Server {
   const onError = options.onError ?? ((error: unknown) => console.error('[explorer]', error));
   const info = chain.chainInfo();
 
+  /**
+   * The degraded page: 503, naming the node it is waiting for.
+   *
+   * Rendered in the normal layout rather than as a bare error string, so the
+   * chain the explorer belongs to and its navigation are still on the page. A
+   * visitor who lands here should be able to tell that the site is up and the
+   * chain connection is not.
+   */
+  function sendDegraded(response: ServerResponse, connection: ConnectionStatus): void {
+    send(
+      response,
+      503,
+      renderError(503, `waiting to reconnect to the node — ${unavailableReason(connection)}`, info),
+      { 'retry-after': String(RETRY_AFTER_SECONDS) },
+    );
+  }
+
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const route = parseRoute(request.url ?? '/');
+
+    // Only the pages that read chain state are gated. A 400 for a malformed
+    // address and a 404 for an unknown path are still the right answers with no
+    // node at all, and answering them keeps the site navigable while degraded.
+    if (route.kind === 'home' || route.kind === 'block' || route.kind === 'extrinsic' || route.kind === 'account') {
+      const connection = chain.connection();
+      if (!connection.connected) {
+        sendDegraded(response, connection);
+        return;
+      }
+    }
 
     switch (route.kind) {
       case 'home':
@@ -81,6 +130,15 @@ export function createExplorerServer(options: ExplorerServerOptions): Server {
       }
       if (error instanceof InvalidAddressError) {
         send(response, 400, renderError(400, error.message, info));
+        return;
+      }
+      // A request that raced the socket closing gets the same degraded page as
+      // one that arrived after it: the failure is the same failure, and which
+      // side of the drop the request landed on is not the visitor's problem.
+      const connection = chain.connection();
+      if (!connection.connected) {
+        onError(error);
+        sendDegraded(response, connection);
         return;
       }
       // Anything else is the node failing or the runtime not matching what the

@@ -9,8 +9,12 @@ touched.
 
 The node, at request time. There is no database, no cache and no committed
 snapshot: a page is rendered from what the node answered while it was being
-rendered, and if the node cannot answer, the page says so (`502`) rather than
-serving a plausible-looking empty view.
+rendered, and if the node cannot answer, the page says so rather than serving a
+plausible-looking empty view: `502` when the node answered with something
+unusable, and `503` — a degraded page naming the endpoint and the downtime —
+while the websocket is down and being reconnected. The connection is reopened on
+its own with capped backoff, so a node restart does not need an explorer restart
+(issue #155).
 
 Every type shape is decoded from the runtime metadata the node serves:
 
