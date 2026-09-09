@@ -232,9 +232,16 @@ curl -s https://api.<DOMAIN>/v1/status
 
 **Pass:** JSON carrying `chain.specVersion`, `chain.bestBlock` and
 `indexer.syncedHeight`, with `syncedHeight` within a few blocks of `bestBlock`.
-A `syncedHeight` that does not advance between two runs means the indexer's
-websocket to the node has dropped — it stays "running" and returns 500 on every
-chain-backed route until restarted.
+
+If the indexer's websocket to the node has dropped, this endpoint answers
+**`503`** (not 500) with `degraded: true` and a `connection` object giving the
+endpoint, the downtime and the reconnect attempt count, while routes served from
+the index itself keep answering `200`. It reconnects on its own with capped
+backoff, so the fix is to wait, not to restart — a `503` here that persists past
+a minute or two means the node itself is down, which `systemctl --user status
+'scalar-*'` will confirm. The same is true of `faucet.<DOMAIN>/health`, and the
+explorer serves a `503` degraded page. Before issue #155 all three stayed
+`active (running)` and returned `500` indefinitely after any node restart.
 
 ---
 
