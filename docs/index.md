@@ -56,11 +56,11 @@ Three things distinguish it from a general-purpose smart-contract chain:
    `pallet-orchestrator::claim_orchestrator`, both applying the same
    `(cap − issuance).min(pending)` clamp. Before 305 that was not true: `pallet_staking`
    minted 2.5 %–10 % annual inflation outside the emissions pallet and outside any cap
-   check, producing **43 581 090 CMN** while emissions minted zero. Spec 305 sets
-   `EraPayout = ()`. The already-minted 43.58 M CMN remains in the treasury, and a further
-   **~14 623 530 CMN of booked validator rewards remains claimable** by the permissionless
-   `payout_stakers` — an aggregate upper bound, and one that expires as those eras fall
-   outside `HistoryDepth` (~63 days). See the [token
+   check, producing **44 511 778 CMN** while emissions minted zero. Spec 305 went live at
+   block #527277 on 2026-09-09 and sets `EraPayout = ()`. The already-minted 44.51 M CMN
+   remains in the treasury, and a further **14 935 812 CMN of booked validator rewards
+   remains claimable** by the permissionless `payout_stakers` — an aggregate upper bound,
+   and one that expires as those eras fall outside `HistoryDepth` (~63 days). See the [token
    model](/reference/token-model#supply-and-the-cap) for the full accounting.
 
 ## Where to start
