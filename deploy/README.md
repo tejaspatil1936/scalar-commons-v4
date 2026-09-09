@@ -58,9 +58,9 @@ deploy/
 ├── snapshot.sh                 consistent state snapshot of one node
 ├── reset-chain.sh              DESTRUCTIVE wipe back to genesis
 ├── hardening/
-│   ├── sshd-hardening.conf     no passwords, no keyboard-interactive, no root login
-│   ├── apply-sshd.sh           install it to /etc/ssh/sshd_config.d/, validate, reload
-│   └── test-apply-sshd.sh      proves apply-sshd.sh refuses to lock you out
+│   ├── sshd.conf               no passwords, no keyboard-interactive, no root login
+│   ├── apply.sh                install it to /etc/ssh/sshd_config.d/, validate, reload
+│   └── test-apply.sh           proves apply.sh refuses to lock you out
 └── systemd/
     ├── scalar-alice.service
     ├── scalar-bob.service
@@ -186,11 +186,11 @@ every validator's session keys, without touching the chain at all.
 The fix ships in this directory:
 
 ```bash
-./deploy/hardening/apply-sshd.sh --dry-run     # no sudo needed; changes nothing
-sudo ./deploy/hardening/apply-sshd.sh          # install, validate, reload
+./deploy/hardening/apply.sh --dry-run     # no sudo needed; changes nothing
+sudo ./deploy/hardening/apply.sh          # install, validate, reload
 ```
 
-It installs `deploy/hardening/sshd-hardening.conf` to
+It installs `deploy/hardening/sshd.conf` to
 `/etc/ssh/sshd_config.d/10-scalar-hardening.conf` — `PasswordAuthentication no`,
 `KbdInteractiveAuthentication no`, `PermitRootLogin no`.
 
@@ -209,7 +209,7 @@ installing a file is not the same as changing a setting.
 > open and confirm a second one succeeds before closing it.** To undo:
 > `sudo rm /etc/ssh/sshd_config.d/10-scalar-hardening.conf && sudo systemctl reload ssh`
 
-`deploy/hardening/test-apply-sshd.sh` covers the refusal paths (missing, empty,
+`deploy/hardening/test-apply.sh` covers the refusal paths (missing, empty,
 whitespace-only and comments-only `authorized_keys`) by running the real script
 with `--dry-run`. It writes nothing.
 
@@ -237,7 +237,7 @@ Reading jail state needs root: the client talks to
 
 **fail2ban is not a substitute for key-only authentication.** It rate-limits
 guessing; it does not stop a correct guess, a leaked password, or a credential
-reused from elsewhere. Once `apply-sshd.sh` has run it becomes defence in depth
+reused from elsewhere. Once `apply.sh` has run it becomes defence in depth
 rather than the only defence.
 
 ## Firewall — the commands **you** need to run as root

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# deploy/hardening/test-apply-sshd.sh — prove apply-sshd.sh refuses to lock you out.
+# deploy/hardening/test-apply.sh — prove apply.sh refuses to lock you out.
 #
-# apply-sshd.sh turns off every password-based way into this host. If its
+# apply.sh turns off every password-based way into this host. If its
 # authorized_keys precondition is wrong in the permissive direction, the result
 # is not a failed test — it is a machine nobody can log into, which on a rented
 # host means a rescue console or a rebuild. So the refusal gets a test.
@@ -21,7 +21,7 @@
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APPLY="$HERE/apply-sshd.sh"
+APPLY="$HERE/apply.sh"
 [ -x "$APPLY" ] || { printf 'FATAL: %s not found or not executable\n' "$APPLY" >&2; exit 1; }
 
 PASS=0; FAIL=0
@@ -55,7 +55,7 @@ expect_refusal() {  # expect_refusal <desc> <ak-path> <expected-substring>
   fi
 }
 
-printf '\n\033[1m=== apply-sshd.sh refuses without a usable authorized_keys ===\033[0m\n'
+printf '\n\033[1m=== apply.sh refuses without a usable authorized_keys ===\033[0m\n'
 
 # 1. no file at all
 expect_refusal 'authorized_keys missing' "$T/nope/.ssh/authorized_keys" 'exists'
@@ -95,5 +95,5 @@ else
   bad 'the passing case did not confirm it wrote nothing'
 fi
 
-printf '\n\033[1m===== APPLY-SSHD SUMMARY: %d passed, %d failed =====\033[0m\n' "$PASS" "$FAIL"
+printf '\n\033[1m===== APPLY.SH SUMMARY: %d passed, %d failed =====\033[0m\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

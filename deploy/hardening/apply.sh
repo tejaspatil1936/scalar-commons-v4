@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# deploy/hardening/apply-sshd.sh — install the sshd hardening drop-in.
+# deploy/hardening/apply.sh — install the sshd hardening drop-in.
 #
-#   sudo ./deploy/hardening/apply-sshd.sh --dry-run   # show everything, change nothing
-#   sudo ./deploy/hardening/apply-sshd.sh             # install, validate, reload
+#   sudo ./deploy/hardening/apply.sh --dry-run   # show everything, change nothing
+#   sudo ./deploy/hardening/apply.sh             # install, validate, reload
 #
 # Turns off password authentication, keyboard-interactive authentication and
-# root login on this host. See sshd-hardening.conf for why, and
+# root login on this host. See sshd.conf for why, and
 # TESTNETAUDIT.md §6 I-24 / issue #138 for how it was found.
 #
 # THE FAILURE MODE THIS SCRIPT EXISTS TO PREVENT
@@ -25,7 +25,7 @@
 set -uo pipefail
 
 SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SRC="$SRC_DIR/sshd-hardening.conf"
+SRC="$SRC_DIR/sshd.conf"
 DEST_DIR="/etc/ssh/sshd_config.d"
 DEST="$DEST_DIR/10-scalar-hardening.conf"
 MAIN="/etc/ssh/sshd_config"
@@ -70,7 +70,7 @@ check "drop-in source present: $SRC" 0
 # whoever is running sudo, so resolve its home directly.
 TARGET_USER="${SUDO_USER:-$(id -un)}"
 TARGET_HOME="$(getent passwd "$TARGET_USER" | cut -d: -f6)"
-# Overridable ONLY so deploy/hardening/test-apply-sshd.sh can drive the missing
+# Overridable ONLY so deploy/hardening/test-apply.sh can drive the missing
 # / empty / comments-only cases against this script instead of a copy of it.
 AK="${SSHD_HARDENING_AUTHORIZED_KEYS:-$TARGET_HOME/.ssh/authorized_keys}"
 
