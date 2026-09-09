@@ -54,6 +54,11 @@ and SQLite's `INTEGER` is 64-bit, so neither can hold a `u128` planck amount.
 All are `GET`, all under `/v1`. List endpoints take `?limit=` (default 25, max
 200) and `?offset=`, and answer `{ total, limit, offset, items }`.
 
+`/` is not one of the 24 and is not versioned: it answers `200` with a one-line
+index naming `/v1/status` and listing these paths, reading nothing off the chain.
+It exists so the bare host greets a browser with an entry point instead of the
+`404` error object it used to return (issue #156).
+
 Lists that come from live chain state — `/v1/agents`, `/v1/agents/:address/escrows`
 and `/v1/escrows` — add `truncated` and `scanLimit`. Enumerating a storage map is
 work done by the *node*, so it is bounded (512 entries) rather than trimmed after

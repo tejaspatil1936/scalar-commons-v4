@@ -6,6 +6,7 @@
  * having.
  *
  * Routes:
+ *   - `GET  /`                                        → index; names `/health`
  *   - `POST /drip`            `{ "address": "5..." }` → dispenses one drip
  *   - `GET  /balance/:address`                        → live free balance
  *   - `GET  /health`                                  → chain + faucet state
@@ -129,6 +130,23 @@ export function createFaucetServer(options: FaucetServerOptions): Server {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const path = url.pathname.replace(/\/+$/, '') || '/';
     const method = req.method ?? 'GET';
+
+    // The index. `https://faucet.scalarnet.io` is a URL that gets pasted to
+    // people, and it used to greet them with a 404 error object because the
+    // faucet only knew its three working routes. It reads no chain state and
+    // never calls the faucet service: the answer is a pointer, so it must stay
+    // 200 while the node is unreachable — which is exactly when someone opens
+    // the bare host to check whether the faucet is up.
+    if (path === '/' && method === 'GET') {
+      sendJson(res, 200, {
+        ok: true,
+        service: 'scalar-commons-faucet',
+        health: '/health',
+        drip: 'POST /drip',
+        balance: '/balance/:address',
+      });
+      return;
+    }
 
     if (path === '/drip') {
       if (method !== 'POST') {
