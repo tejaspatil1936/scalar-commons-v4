@@ -229,10 +229,17 @@ EOF
   chmod +x "$STUB/gh"
 }
 
+# MERGE_LOG is redirected to a scratch file. Without it these cases append
+# fabricated rows to the REAL factory/logs/merges.log — which is evidence, not
+# scratch: the audit's finding that merge.sh has never merged a pull request
+# rests on that ledger. A test that writes to it corrupts what it is testing.
+# Section 7 asserts the real ledger stayed untouched.
+TEST_MERGE_LOG="$T/merges.log"
 run_loop() {  # stdout of a real ENABLE_MERGE=true, non-dry-run pass
   rm -f "$MERGE_ATTEMPTED" "$UPDATED_FLAG"
   PATH="$STUB:$PATH" REPO_DIR="$R" ENABLE_MERGE=true MERGE_T3=true \
     MERGE_UPDATE_WAIT_SECS="${W:-4}" MERGE_UPDATE_POLL_SECS=1 \
+    MERGE_LOG="$TEST_MERGE_LOG" \
     "$MERGE" 2>&1
 }
 
@@ -312,6 +319,28 @@ if [ -e "$MERGE_ATTEMPTED" ]; then
   bad 'merge.sh merged after an update-branch it could not verify'
 else
   ok 'no merge was attempted after an unverifiable update-branch'
+fi
+
+# ---------------------------------------------------------------------------
+# 7. The suite must not have written to the real merge ledger.
+#
+# An earlier version of this file did exactly that: nine fabricated "merged
+# #900 stub" rows landed in factory/logs/merges.log, in a file whose emptiness
+# is the audit's evidence that merge.sh has never merged anything. Caught by
+# reading the ledger, not by any assertion — hence this one.
+# ---------------------------------------------------------------------------
+printf '\n\033[1m=== the real merge ledger was not touched ===\033[0m\n'
+
+REAL_LOG="$FACTORY_DIR/logs/merges.log"
+if [ -s "$TEST_MERGE_LOG" ]; then
+  ok "merges were recorded to the scratch ledger ($(grep -c '' "$TEST_MERGE_LOG") row(s))"
+else
+  bad 'no merge reached any ledger — section 6 case (e) should have recorded one'
+fi
+if grep -q 'stub' "$REAL_LOG" 2>/dev/null; then
+  bad "this suite wrote a stub row into the REAL ledger $REAL_LOG"
+else
+  ok 'the real factory/logs/merges.log carries no row from this test run'
 fi
 
 printf '\n\033[1m===== MERGE-BINDING SUMMARY: %d passed, %d failed =====\033[0m\n' "$PASS" "$FAIL"

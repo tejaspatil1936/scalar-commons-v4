@@ -56,6 +56,13 @@ FACTORY_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # minutes, and abandoning a correctly-updated PR just means another hour.
 : "${MERGE_UPDATE_WAIT_SECS:=1800}"
 : "${MERGE_UPDATE_POLL_SECS:=30}"
+# Where a completed merge is recorded. Overridable ONLY so the test suite can
+# point it at a scratch file: factory/tests/merge-binding.sh drives merge.sh's
+# real loop against a stub `gh`, and without this every one of those cases
+# appended a fabricated row to the real ledger. That ledger is evidence — the
+# audit's finding that "merge.sh has never merged a pull request" rests on it —
+# so a test that writes to it corrupts the thing it is meant to protect.
+: "${MERGE_LOG:=$FACTORY_DIR/logs/merges.log}"
 
 # ------------------------------------------- the decision logic, in one place --
 # Pure functions: no globals, no network, no side effects. They are defined UP
@@ -420,7 +427,7 @@ while IFS=$'\x1f' read -r num tier reviewed needshuman draft mergeable mergestat
   if gh pr merge "$num" --squash --delete-branch "${GH_ARGS[@]}" >/dev/null 2>&1; then
     printf 'MERGED #%-4s %-8s %s\n' "$num" "$tier" "$title"
     MERGED=$((MERGED+1))
-    printf '%s\tmerged\t#%s\t%s\t%s\n' "$(ts)" "$num" "$headsha" "$title" >> "$FACTORY_DIR/logs/merges.log"
+    printf '%s\tmerged\t#%s\t%s\t%s\n' "$(ts)" "$num" "$headsha" "$title" >> "$MERGE_LOG"
   else
     refuse "gh pr merge failed"
   fi
