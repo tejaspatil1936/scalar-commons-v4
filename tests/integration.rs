@@ -16,11 +16,13 @@
 //! 4. `rank_promotion_chain` — full rank progression 0→1→2→3
 //! 5. `supply_cap_enforcement` — emissions stop exactly at 100B CMN
 //! 6. `orchestrator_aggregation` — sub-agents → orchestrator volume → claim
+//! 7. `emission_volume_cap` — governance alpha → settle_era → the D7 emission bound
 
 #![cfg(test)]
 
 mod common;
 mod dispute_flow;
+mod emission_volume_cap;
 mod era_cycle;
 mod gov_credit;
 mod orchestrator_flow;

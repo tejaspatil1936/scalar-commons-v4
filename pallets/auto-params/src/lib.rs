@@ -70,6 +70,20 @@ pub mod pallet {
         fn beta() -> u32;
         fn floor_bps() -> u32;
         fn min_score_eligible() -> u32;
+        /// Alpha for the D7 emission-volume rule, in basis points. 10 000 = 1.0, meaning an
+        /// era may not mint more than the qualifying escrow volume it settled.
+        ///
+        /// REQUIRED, with no default, and that is deliberate. The first version of this
+        /// trait method carried `fn emission_volume_alpha_bps() -> u32 { 10_000 }` so the
+        /// mocks would keep compiling — and the runtime's own `AutoParamsImpl` then
+        /// silently inherited it. `EmissionVolumeAlphaBps`, its genesis seeding, its
+        /// migration, its bounds and `set_param(EmissionVolumeAlphaBps, ..)` were all live
+        /// and all dead: governance could set alpha to 0, watch `ParamSetByGovernance` fire,
+        /// read the new value back out of storage, and `settle_era` would go on using 1.0.
+        /// The emergency stop would have reported success and done nothing. A default on a
+        /// provider trait hides exactly this class of wiring omission, so this one has none
+        /// — a missing impl is now a compile error, which is what caught it.
+        fn emission_volume_alpha_bps() -> u32;
         /// V4: F-02 — called by pallet-emissions at the end of every settle_era.
         /// Default is a no-op so mock impls in tests don't need to implement it.
         fn run_era_rules(_metrics: EraMetrics) {}
@@ -99,6 +113,10 @@ pub mod pallet {
         /// Initial MinScoreEligibleResponses.
         #[pallet::constant]
         type InitialMinScoreEligible: Get<u32>;
+        /// Initial alpha for the D7 emission-volume rule, in basis points.
+        /// 10 000 = 1.0 = an era may mint at most the qualifying volume it settled.
+        #[pallet::constant]
+        type InitialEmissionVolumeAlphaBps: Get<u32>;
 
         // ── Rule thresholds ───────────────────────────────────────────────────
         /// Ring ratio (BPS) above which fee is raised. Default 3000 = 30%.
@@ -146,6 +164,19 @@ pub mod pallet {
     #[pallet::storage]
     pub type MinScoreEligibleResponses<T: Config> = StorageValue<_, u32, ValueQuery>;
 
+    /// Alpha for the D7 emission-volume rule, in basis points (10 000 = 1.0).
+    ///
+    /// `pallet-emissions::settle_era` bounds the era emission at
+    /// `alpha x qualifying_escrow_volume`. At 10 000 the chain cannot mint more CMN in an
+    /// era than the qualifying escrow volume that era settled — the direct answer to #164,
+    /// where 110 000 CMN was minted against ~120 CMN of gross escrow because the pot was
+    /// sized by agent COUNT and never looked at work at all.
+    ///
+    /// Stored rather than compiled in, so sudo or Track 2 governance can move it with
+    /// `set_param` and no runtime upgrade, within `EmissionVolumeAlphaBounds`.
+    #[pallet::storage]
+    pub type EmissionVolumeAlphaBps<T: Config> = StorageValue<_, u32, ValueQuery>;
+
     // ── Parameter bounds (set by governance, enforced on every write) ─────────
     #[pallet::storage]
     pub type CompletionFeeBounds<T: Config> = StorageValue<_, ParamBounds, OptionQuery>;
@@ -157,8 +188,12 @@ pub mod pallet {
     pub type FloorBpsBounds<T: Config> = StorageValue<_, ParamBounds, OptionQuery>;
     #[pallet::storage]
     pub type MinScoreBounds<T: Config> = StorageValue<_, ParamBounds, OptionQuery>;
+    #[pallet::storage]
+    pub type EmissionVolumeAlphaBounds<T: Config> = StorageValue<_, ParamBounds, OptionQuery>;
 
-    const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+    /// Bumped 1 -> 2 for spec 306: `EmissionVolumeAlphaBps` and its bounds are new, and
+    /// genesis does not re-run on a forkless upgrade — so the v2 migration seeds them.
+    const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]
@@ -168,9 +203,22 @@ pub mod pallet {
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn on_runtime_upgrade() -> Weight {
-            // Placeholder migration — add versioned migration arms when STORAGE_VERSION increments.
-            // Pattern: if StorageVersion::get::<Pallet<T>>() == N { migrate(); StorageVersion::new(N+1).put::<Pallet<T>>(); }
-            Weight::zero()
+            let on_chain = StorageVersion::get::<Pallet<T>>();
+            if on_chain >= 2 {
+                return T::DbWeight::get().reads(1);
+            }
+            // v1 -> v2 (spec 306). `EmissionVolumeAlphaBps` is ValueQuery, so without this
+            // it would read 0 on the upgraded chain and bound every era's emission at
+            // 0 x volume = 0. Seeding it is not cosmetic: it is the difference between the
+            // D7 rule being "at most the work you did" and "nothing, ever".
+            EmissionVolumeAlphaBps::<T>::put(T::InitialEmissionVolumeAlphaBps::get());
+            EmissionVolumeAlphaBounds::<T>::put(ParamBounds {
+                min: 0,
+                max: 100_000,
+                max_step: 1_000,
+            });
+            StorageVersion::new(2).put::<Pallet<T>>();
+            T::DbWeight::get().reads_writes(1, 3)
         }
     }
 
@@ -189,6 +237,7 @@ pub mod pallet {
             Beta::<T>::put(T::InitialBeta::get());
             FloorBps::<T>::put(T::InitialFloorBps::get());
             MinScoreEligibleResponses::<T>::put(T::InitialMinScoreEligible::get());
+            EmissionVolumeAlphaBps::<T>::put(T::InitialEmissionVolumeAlphaBps::get());
 
             // Default bounds — governance can tighten or widen these
             // CompletionFeeBps max=2500 (25%): strong ring deterrent while allowing
@@ -217,6 +266,16 @@ pub mod pallet {
                 min: 3,
                 max: 20,
                 max_step: 1,
+            });
+            // Emission-volume alpha. min 0 lets governance stop emission entirely without
+            // a runtime upgrade — the lever whose absence forced spec 305's stopgap to
+            // walk `set_era_emission_override` ten eras at a time. max 100 000 = 10x caps
+            // how far a bootstrap subsidy can outrun measured work; max_step 1 000 (0.1x)
+            // keeps any future auto-rule from moving it in one jump.
+            EmissionVolumeAlphaBounds::<T>::put(ParamBounds {
+                min: 0,
+                max: 100_000,
+                max_step: 1_000,
             });
         }
     }
@@ -259,6 +318,10 @@ pub mod pallet {
         Beta,
         FloorBps,
         MinScoreEligibleResponses,
+        /// spec 306. APPENDED LAST on purpose: `ParamId` is a call argument, so its SCALE
+        /// discriminants are wire format. Inserting anywhere but the end would silently
+        /// repoint every already-encoded `set_param` call.
+        EmissionVolumeAlphaBps,
     }
 
     #[derive(
@@ -318,6 +381,9 @@ pub mod pallet {
                 ParamId::Beta => BetaBounds::<T>::put(bounds.clone()),
                 ParamId::FloorBps => FloorBpsBounds::<T>::put(bounds.clone()),
                 ParamId::MinScoreEligibleResponses => MinScoreBounds::<T>::put(bounds.clone()),
+                ParamId::EmissionVolumeAlphaBps => {
+                    EmissionVolumeAlphaBounds::<T>::put(bounds.clone())
+                }
             }
             Self::deposit_event(Event::BoundsUpdated { param, bounds });
             Ok(())
@@ -349,6 +415,9 @@ pub mod pallet {
         }
         pub fn live_min_score_eligible() -> u32 {
             MinScoreEligibleResponses::<T>::get()
+        }
+        pub fn live_emission_volume_alpha_bps() -> u32 {
+            EmissionVolumeAlphaBps::<T>::get()
         }
 
         // ── Private rules ────────────────────────────────────────────────────
@@ -491,6 +560,9 @@ pub mod pallet {
                 ParamId::MinScoreEligibleResponses => MinScoreBounds::<T>::get()
                     .map(|b| value >= b.min && value <= b.max)
                     .unwrap_or(true),
+                ParamId::EmissionVolumeAlphaBps => EmissionVolumeAlphaBounds::<T>::get()
+                    .map(|b| value >= b.min && value <= b.max)
+                    .unwrap_or(true),
             };
             ensure!(in_bounds, Error::<T>::ValueOutOfBounds);
             match param {
@@ -499,6 +571,7 @@ pub mod pallet {
                 ParamId::Beta => Beta::<T>::put(value),
                 ParamId::FloorBps => FloorBps::<T>::put(value),
                 ParamId::MinScoreEligibleResponses => MinScoreEligibleResponses::<T>::put(value),
+                ParamId::EmissionVolumeAlphaBps => EmissionVolumeAlphaBps::<T>::put(value),
             }
             Ok(())
         }
@@ -519,6 +592,9 @@ pub mod pallet {
         }
         fn min_score_eligible() -> u32 {
             MinScoreEligibleResponses::<T>::get()
+        }
+        fn emission_volume_alpha_bps() -> u32 {
+            EmissionVolumeAlphaBps::<T>::get()
         }
         /// V4: F-02 — concrete dispatch to the era rules engine.
         fn run_era_rules(metrics: EraMetrics) {

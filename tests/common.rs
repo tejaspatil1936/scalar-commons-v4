@@ -275,6 +275,13 @@ impl pallet_auto_params::pallet::AutoParamsProvider for TestAutoParams {
     fn min_score_eligible() -> u32 {
         pallet_auto_params::Pallet::<TestRuntime>::live_min_score_eligible()
     }
+    /// Reads storage, exactly as the runtime's AutoParamsImpl does. If this mock hardcoded
+    /// the value instead, an integration test could set alpha through `set_param` and see
+    /// no effect — which is the shape of the defect that shipped in this method's first
+    /// version and is why the trait method has no default.
+    fn emission_volume_alpha_bps() -> u32 {
+        pallet_auto_params::Pallet::<TestRuntime>::live_emission_volume_alpha_bps()
+    }
 }
 
 pub struct TestOracleCounters;
@@ -342,6 +349,10 @@ parameter_types! {
     pub const InitBeta:     u32 = 5_000;
     pub const InitFloor:    u32 = 1_000;
     pub const InitMinScore: u32 = 3;
+    /// spec 306, D7. Mirrors the runtime's AutoInitialEmissionVolumeAlphaBps deliberately —
+    /// this mock exists to model the shipped chain, so 1.0x here means the integration
+    /// tests exercise the same bound the live chain enforces.
+    pub const InitEmissionVolumeAlphaBps: u32 = 10_000;
 }
 
 impl pallet_auto_params::Config for TestRuntime {
@@ -352,6 +363,7 @@ impl pallet_auto_params::Config for TestRuntime {
     type InitialBeta = InitBeta;
     type InitialFloorBps = InitFloor;
     type InitialMinScoreEligible = InitMinScore;
+    type InitialEmissionVolumeAlphaBps = InitEmissionVolumeAlphaBps;
     type RingRatioThreshold = ConstU32<3_000>;
     type OracleParticipationLowThreshold = ConstU32<4_000>;
     type OracleParticipationHighThreshold = ConstU32<9_000>;

@@ -12,6 +12,12 @@ sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkad
 sp-std = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503", default-features = false }
 frame-benchmarking = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503", default-features = false, optional = true }
 
+[dev-dependencies]
+# sp_core::H256 — frame_system::Config::Hash in the tests.rs mock.
+sp-core = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+# sp_io::TestExternalities — new_test_ext() return type.
+sp-io = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+
 [features]
 default = ["std"]
 std = ["parity-scale-codec/std","scale-info/std","frame-support/std","frame-system/std","sp-runtime/std","sp-std/std","frame-benchmarking?/std"]

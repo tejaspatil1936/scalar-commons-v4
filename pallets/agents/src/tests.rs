@@ -7,7 +7,7 @@ use crate::*;
 use core::cell::RefCell;
 use frame_support::{
     assert_noop, assert_ok, parameter_types,
-    traits::{ConstU32, ConstU64, Get},
+    traits::{ConstU32, ConstU64, Get, Hooks, StorageVersion},
 };
 use sp_core::H256;
 use sp_runtime::{
@@ -935,5 +935,410 @@ fn diversity_still_denied_to_a_buyer_arriving_above_the_cap() {
         // era either unless Alice raises her stake.
         assert_ok!(Agents::add_era_escrow_volume(&ALICE, &CAROL, 1));
         assert_eq!(EraUniqueBuyers::<Test>::get(ALICE), 1);
+    });
+}
+
+// ── spec 306: D8 heartbeat initialisation (#161) ─────────────────────────────
+
+#[test]
+fn register_initialises_last_heartbeat_to_the_current_block() {
+    new_test_ext().execute_with(|| {
+        // A live chain is not at block 0. #161 was measured at block ~534 500, far past
+        // HeartbeatGracePeriod, and that is the only condition under which the bug bites:
+        // at block 0 a missing LastHeartbeat and a correct one are indistinguishable.
+        System::set_block_number(534_527);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+
+        assert_eq!(
+            LastHeartbeat::<Test>::get(ALICE),
+            534_527,
+            "register must start the heartbeat clock at the current block"
+        );
+    });
+}
+
+#[test]
+fn freshly_registered_agent_is_not_below_the_heartbeat_floor() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(534_527);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+
+        // pallets/emissions/src/lib.rs gates the floor share on `hb >= 90`. Before D8 the
+        // multiplier computed from a gap of the whole chain history — #161 measured 63 —
+        // so a brand-new agent was excluded on its first era for a liveness failure it had
+        // no opportunity to avoid.
+        assert_eq!(
+            Agents::heartbeat_multiplier(&ALICE),
+            100,
+            "a freshly registered agent must sit at the full multiplier, not the decayed floor"
+        );
+    });
+}
+
+#[test]
+fn heartbeat_still_decays_after_the_grace_period() {
+    new_test_ext().execute_with(|| {
+        // D8 must not turn the heartbeat into a formality: registering starts the clock,
+        // it does not stop it. Grace is 600 and decay 14_400 in this mock.
+        System::set_block_number(1_000);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_eq!(Agents::heartbeat_multiplier(&ALICE), 100);
+
+        System::set_block_number(1_000 + 600 + 7_200); // half a decay period past grace
+        let hb = Agents::heartbeat_multiplier(&ALICE);
+        assert!(
+            hb < 90,
+            "an agent silent for half a decay period must fall below the activity gate, got {hb}"
+        );
+
+        // And a real heartbeat restores it.
+        assert_ok!(Agents::heartbeat(RuntimeOrigin::signed(ALICE)));
+        assert_eq!(Agents::heartbeat_multiplier(&ALICE), 100);
+    });
+}
+
+// ── spec 306: qualifying volume (D7, #164) ───────────────────────────────────
+
+#[test]
+fn era_pair_volume_records_who_paid_whom() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &50, 400));
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &51, 600));
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &50, 100));
+
+        // Value is (era, volume) — the era stamp is what makes a residue from an
+        // incomplete clear inert rather than inflationary. See EraPairVolume's docs.
+        assert_eq!(EraPairVolume::<Test>::get(ALICE, 50), (0, 500));
+        assert_eq!(EraPairVolume::<Test>::get(ALICE, 51), (0, 600));
+        assert_eq!(EraEscrowVolume::<Test>::get(ALICE), 1_100);
+    });
+}
+
+#[test]
+fn honest_provider_with_diverse_buyers_qualifies_in_full() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        // Three outside buyers, none of them a provider to ALICE. Nothing to exclude.
+        for buyer in 50u64..53 {
+            assert_ok!(Agents::add_era_escrow_volume(&ALICE, &buyer, 300));
+        }
+        assert_eq!(Agents::qualifying_volume_of(&ALICE), 900);
+        assert_eq!(Agents::qualifying_era_volume(), 900);
+    });
+}
+
+#[test]
+fn ring_flagged_provider_contributes_no_qualifying_volume() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        // This is #164's shape: every completion in the era from ONE buyer. Two
+        // completions makes ALICE established (CompletedAgreements > 1), which together
+        // with EraUniqueBuyers <= 1 is exactly the flag drain_era_maps already raises.
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 10));
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 50));
+
+        assert_eq!(CompletedAgreements::<Test>::get(ALICE), 2);
+        assert_eq!(EraUniqueBuyers::<Test>::get(ALICE), 1);
+        assert_eq!(EraEscrowVolume::<Test>::get(ALICE), 60);
+        assert_eq!(
+            Agents::qualifying_volume_of(&ALICE),
+            0,
+            "a ring-flagged provider must contribute nothing to the emission pot"
+        );
+    });
+}
+
+#[test]
+fn first_era_single_buyer_still_qualifies_but_only_for_its_own_volume() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        // One completion — not yet "established", so the ring flag deliberately holds
+        // fire. That is the honest-onboarding case. The alpha rule still bounds it: 60
+        // units of volume can size at most 60 units of emission at alpha = 1.0.
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 60));
+        assert_eq!(Agents::qualifying_volume_of(&ALICE), 60);
+    });
+}
+
+#[test]
+fn reciprocal_pair_volume_does_not_qualify() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(BOB), 1_000));
+        // A payer<->worker cycle inside one era: ALICE sells to BOB and BOB sells to
+        // ALICE. Money in a circle is not demand, in either direction.
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 500));
+        assert_ok!(Agents::add_era_escrow_volume(&BOB, &ALICE, 500));
+        // Give each a second, genuinely outside buyer so neither is ring-flagged and the
+        // exclusion under test is the cycle itself, not the diversity gate.
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &60, 200));
+        assert_ok!(Agents::add_era_escrow_volume(&BOB, &61, 300));
+
+        assert_eq!(Agents::qualifying_volume_of(&ALICE), 200);
+        assert_eq!(Agents::qualifying_volume_of(&BOB), 300);
+        assert_eq!(Agents::qualifying_era_volume(), 500);
+    });
+}
+
+#[test]
+fn declared_funding_lineage_excludes_the_pair() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 500));
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &60, 400));
+        assert_eq!(Agents::qualifying_volume_of(&ALICE), 900);
+
+        // The operator records what the chain cannot see: ALICE and BOB came out of the
+        // same faucet drip. pallet_balances exposes no transfer hook, so this is declared.
+        assert_ok!(Agents::link_funding_lineage(
+            RuntimeOrigin::root(),
+            ALICE,
+            BOB
+        ));
+        assert!(Agents::same_funding_lineage(&ALICE, &BOB));
+        assert_eq!(
+            Agents::qualifying_volume_of(&ALICE),
+            400,
+            "only the independent buyer's volume may size the pot"
+        );
+    });
+}
+
+#[test]
+fn funding_lineage_is_transitive_and_rejects_a_redundant_link() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::link_funding_lineage(RuntimeOrigin::root(), 1, 2));
+        assert_ok!(Agents::link_funding_lineage(RuntimeOrigin::root(), 2, 3));
+        // 1 and 3 were never linked directly.
+        assert!(Agents::same_funding_lineage(&1, &3));
+        assert!(!Agents::same_funding_lineage(&1, &99));
+        assert_noop!(
+            Agents::link_funding_lineage(RuntimeOrigin::root(), 1, 3),
+            Error::<Test>::LineageAlreadyLinked
+        );
+    });
+}
+
+#[test]
+fn link_funding_lineage_is_root_only() {
+    new_test_ext().execute_with(|| {
+        assert_noop!(
+            Agents::link_funding_lineage(RuntimeOrigin::signed(ALICE), ALICE, BOB),
+            sp_runtime::DispatchError::BadOrigin
+        );
+    });
+}
+
+#[test]
+fn drain_era_maps_clears_pair_volume_but_not_lineage() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 500));
+        assert_ok!(Agents::link_funding_lineage(
+            RuntimeOrigin::root(),
+            ALICE,
+            BOB
+        ));
+
+        Agents::drain_era_maps(0);
+
+        assert_eq!(
+            EraPairVolume::<Test>::get(ALICE, BOB),
+            (0, 0),
+            "pair volume is per-era"
+        );
+        assert!(
+            Agents::same_funding_lineage(&ALICE, &BOB),
+            "lineage is a persistent fact, not an era counter"
+        );
+    });
+}
+
+// ── spec 306: v1 -> v2 migration ─────────────────────────────────────────────
+
+#[test]
+fn v2_migration_backfills_last_heartbeat_for_pre_306_agents() {
+    new_test_ext().execute_with(|| {
+        // Reconstruct the spec-305 shape: agents exist, nothing ever wrote LastHeartbeat,
+        // and the pallet is at storage version 1.
+        System::set_block_number(1);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(BOB), 1_000));
+        LastHeartbeat::<Test>::remove(ALICE);
+        LastHeartbeat::<Test>::remove(BOB);
+        StorageVersion::new(1).put::<Pallet<Test>>();
+
+        // ...and let the chain age past the grace period, which is the only condition
+        // under which the missing key does any damage.
+        System::set_block_number(534_527);
+        assert!(
+            Agents::heartbeat_multiplier(&ALICE) < 90,
+            "precondition: a pre-306 agent is under the activity gate"
+        );
+
+        // The mock sets `DbWeight = ()`, so the returned Weight is structurally zero here
+        // and asserting on it would test the mock rather than the migration. What the
+        // migration must be judged on is the state it leaves behind.
+        let _ = <Pallet<Test> as Hooks<u64>>::on_runtime_upgrade();
+
+        assert_eq!(StorageVersion::get::<Pallet<Test>>(), 2);
+        assert_eq!(LastHeartbeat::<Test>::get(ALICE), 534_527);
+        assert_eq!(LastHeartbeat::<Test>::get(BOB), 534_527);
+        assert_eq!(Agents::heartbeat_multiplier(&ALICE), 100);
+    });
+}
+
+#[test]
+fn v2_migration_never_moves_a_real_heartbeat_forward() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        System::set_block_number(400_000);
+        assert_ok!(Agents::heartbeat(RuntimeOrigin::signed(ALICE)));
+        StorageVersion::new(1).put::<Pallet<Test>>();
+
+        System::set_block_number(534_527);
+        let _ = <Pallet<Test> as Hooks<u64>>::on_runtime_upgrade();
+
+        assert_eq!(
+            LastHeartbeat::<Test>::get(ALICE),
+            400_000,
+            "an agent that DID heartbeat keeps its own timestamp — the migration must not \
+             launder a stale agent into a fresh one"
+        );
+    });
+}
+
+#[test]
+fn v2_migration_is_idempotent() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        LastHeartbeat::<Test>::remove(ALICE);
+        StorageVersion::new(1).put::<Pallet<Test>>();
+
+        System::set_block_number(100);
+        let _ = <Pallet<Test> as Hooks<u64>>::on_runtime_upgrade();
+        assert_eq!(LastHeartbeat::<Test>::get(ALICE), 100);
+
+        // A second pass (a re-run, or the next upgrade) must be a no-op, not a second
+        // backfill that silently resets everyone's clock.
+        System::set_block_number(200);
+        let _ = <Pallet<Test> as Hooks<u64>>::on_runtime_upgrade();
+        assert_eq!(LastHeartbeat::<Test>::get(ALICE), 100);
+        assert_eq!(StorageVersion::get::<Pallet<Test>>(), 2);
+    });
+}
+
+// ── spec 306: hardening from the tokenomics review ───────────────────────────
+
+#[test]
+fn stale_pair_volume_from_an_incomplete_clear_does_not_re_qualify() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &50, 400));
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &51, 400));
+        assert_eq!(Agents::qualifying_volume_of(&ALICE), 800);
+
+        // Simulate what an incomplete `clear(limit, None)` leaves behind: the era counters
+        // are gone, the pair entries are not. Without the era stamp these would read as
+        // fresh volume every era from here on, with no new escrow behind them —
+        // a monotonic inflation of the emission ceiling.
+        EraNumber::<Test>::put(1);
+        EraUniqueBuyers::<Test>::remove(ALICE);
+        EraEscrowVolume::<Test>::remove(ALICE);
+
+        assert_eq!(
+            Agents::qualifying_volume_of(&ALICE),
+            0,
+            "volume stamped with a past era is not this era's work"
+        );
+    });
+}
+
+#[test]
+fn qualifying_volume_is_capped_at_stake_times_the_vol_to_stake_ratio() {
+    new_test_ext().execute_with(|| {
+        // MaxVolToStakeRatio is 10 in this mock, matching the runtime.
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        // Recycle the same money through two cooperative buyers, far past what 1,000 of
+        // locked stake could plausibly service. Neither buyer is a provider, so no
+        // reciprocal edge exists and the ring flag never fires — this is the wash-trading
+        // shape that the ring and cycle rules cannot see.
+        for _ in 0..20 {
+            assert_ok!(Agents::add_era_escrow_volume(&ALICE, &50, 1_000));
+            assert_ok!(Agents::add_era_escrow_volume(&ALICE, &51, 1_000));
+        }
+        assert_eq!(EraEscrowVolume::<Test>::get(ALICE), 40_000);
+
+        assert_eq!(
+            Agents::qualifying_volume_of(&ALICE),
+            10_000,
+            "sizing the pot must cost locked capital, not just a completion fee"
+        );
+    });
+}
+
+#[test]
+fn unlink_restores_qualifying_volume_after_a_mistaken_link() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 500));
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &60, 400));
+
+        assert_ok!(Agents::link_funding_lineage(
+            RuntimeOrigin::root(),
+            ALICE,
+            BOB
+        ));
+        assert_eq!(Agents::qualifying_volume_of(&ALICE), 400);
+
+        // link_funding_lineage asserts an off-chain fact, and assertions can be wrong.
+        assert_ok!(Agents::unlink_funding_lineage(RuntimeOrigin::root(), BOB));
+        assert!(!Agents::same_funding_lineage(&ALICE, &BOB));
+        assert_eq!(Agents::qualifying_volume_of(&ALICE), 900);
+
+        assert_noop!(
+            Agents::unlink_funding_lineage(RuntimeOrigin::root(), BOB),
+            Error::<Test>::LineageNotLinked
+        );
+        assert_noop!(
+            Agents::unlink_funding_lineage(RuntimeOrigin::signed(ALICE), BOB),
+            sp_runtime::DispatchError::BadOrigin
+        );
+    });
+}
+
+#[test]
+fn an_unresolvable_lineage_chain_fails_closed() {
+    new_test_ext().execute_with(|| {
+        // Hand-build a parent chain longer than MAX_LINEAGE_DEPTH. Only root can create
+        // links, so this is not attacker-reachable — but a guard that degrades must
+        // degrade in the direction that pays out LESS, and under D7 "these two are
+        // unlinked" is the pay-more answer.
+        for i in 200u64..220 {
+            LineageParent::<Test>::insert(i, i + 1);
+        }
+        assert!(Agents::lineage_root(&200).is_none());
+        assert!(
+            Agents::same_funding_lineage(&200, &ALICE),
+            "an undecidable lineage walk must report linked, not unlinked"
+        );
+
+        assert_noop!(
+            Agents::link_funding_lineage(RuntimeOrigin::root(), 200, ALICE),
+            Error::<Test>::LineageTooDeep
+        );
+    });
+}
+
+#[test]
+fn linking_keeps_the_common_case_at_depth_one() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::link_funding_lineage(RuntimeOrigin::root(), 1, 2));
+        assert_eq!(LineageParent::<Test>::get(2), Some(1));
+        assert_eq!(Agents::lineage_root(&2), Some(1));
+        assert_eq!(Agents::lineage_root(&1), Some(1));
     });
 }

@@ -32,6 +32,9 @@ impl pallet_auto_params::pallet::AutoParamsProvider for StaticParams {
     fn min_score_eligible() -> u32 {
         5
     }
+    fn emission_volume_alpha_bps() -> u32 {
+        10_000
+    }
 }
 
 frame_support::construct_runtime!(
@@ -210,8 +213,18 @@ fn register(who: u64, stake: u64) {
 /// 5 × 20,000 = 100,000 era volume against `UnitVolume = 1,000` puts
 /// `log2_scaled` at 8,000 — i.e. an ordinarily productive agent, not an edge case.
 fn do_era_work(agent: u64) {
+    do_era_work_of(agent, 20_000);
+}
+
+/// `do_era_work` with the per-buyer amount spelled out.
+///
+/// spec 306 (D7, #164) bounds an era's emission at `alpha x qualifying escrow volume`, so a
+/// test that wants to observe an emission of size N must first give the chain at least N of
+/// qualifying volume to measure. Five distinct buyers keeps `diversity_score_bps` at its
+/// ceiling and keeps the provider clear of the ring flag, exactly as `do_era_work` does.
+fn do_era_work_of(agent: u64, per_buyer: u64) {
     for buyer in 100u64..105 {
-        assert_ok!(Agents::add_era_escrow_volume(&agent, &buyer, 20_000));
+        assert_ok!(Agents::add_era_escrow_volume(&agent, &buyer, per_buyer));
     }
 }
 
@@ -351,6 +364,14 @@ fn emission_override_replaces_formula_for_targeted_era() {
             500_000u64,
         ));
 
+        // spec 306: each era needs real qualifying volume, and the overridden era needs at
+        // least the override's worth of it — otherwise D7 cuts the override down to the
+        // volume and this test would be measuring the cap rather than the override. The
+        // assertions below are unchanged; only the setup now supplies the work that the
+        // emission is a payment FOR. `emission_override_is_still_bounded_by_qualifying_volume`
+        // in tests_issue_164.rs covers the other side, where the cap does bind.
+        do_era_work_of(ALICE, 100_000); // 5 buyers x 100_000 = 500_000 qualifying
+
         // Settle era 0 first (moves to era 1)
         settle(ALICE);
         let _last_era_0 = LastEraEmission::<Test>::get();
@@ -359,12 +380,14 @@ fn emission_override_replaces_formula_for_targeted_era() {
         AgentRewardDebt::<Test>::insert(ALICE, AccRewardPerStake::<Test>::get());
 
         // Settle era 1 (should use override amount = 500_000)
+        do_era_work_of(ALICE, 100_000);
         settle(ALICE);
         let last_era_1 = LastEraEmission::<Test>::get();
         assert_eq!(last_era_1, 500_000u64, "era 1 should use override amount");
 
         // Override consumed — era 2 uses formula
         AgentRewardDebt::<Test>::insert(ALICE, AccRewardPerStake::<Test>::get());
+        do_era_work_of(ALICE, 100_000);
         settle(ALICE);
         let last_era_2 = LastEraEmission::<Test>::get();
         assert_ne!(

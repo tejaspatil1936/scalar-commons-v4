@@ -69,6 +69,28 @@ describe('settledEraFromEvent', () => {
     });
   });
 
+  // spec 306 adds emissions.EmissionCappedByVolume alongside EraSettled, and both can be
+  // emitted from the same settle_era extrinsic. /v1/eras rebuilds settled eras by
+  // selecting section+method, so the risk worth pinning is that a sibling event in the same
+  // block leaks into that reconstruction — or that its differently-shaped payload reaches
+  // settledEraFromEvent at all.
+  it('is not confused by the spec-306 sibling events emitted from the same settle_era', () => {
+    const capped = {
+      blockNumber: 4_242,
+      data: {
+        era: 7,
+        uncapped: '110000000000000000000',
+        qualifying_volume: '60000000000000',
+        alpha_bps: 10_000,
+      },
+    };
+    // It carries no total_emission/total_weight, so if it ever reached this shaper it must
+    // throw rather than report an era that emitted nothing.
+    expect(() => settledEraFromEvent(capped)).toThrow();
+    // And the real EraSettled from the same block still shapes correctly.
+    expect(settledEraFromEvent(settled).era).toBe(7);
+  });
+
   it('accepts the camelCase spelling metadata may hand back', () => {
     const camel = { blockNumber: 9, data: { era: 1, totalEmission: '5', totalWeight: '2' } };
     expect(settledEraFromEvent(camel).totalEmissionPlancks).toBe('5');

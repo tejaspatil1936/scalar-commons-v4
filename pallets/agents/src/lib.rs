@@ -479,6 +479,63 @@ pub mod pallet {
         ValueQuery,
     >;
 
+    /// Escrow volume this era per directed counterparty pair, `(provider, buyer) -> volume`.
+    ///
+    /// `EraEscrowVolume` records only *how much* a provider sold; it cannot say *to whom*,
+    /// and "to whom" is the whole question when deciding whether volume is real work or a
+    /// ring paying itself. This map is what makes `qualifying_era_volume` able to drop one
+    /// counterparty's volume while keeping another's.
+    ///
+    /// Cost, stated plainly (spec 306): one entry per distinct `(provider, buyer)` pair that
+    /// completes at least one agreement in the era — the same cardinality as the
+    /// `EraSeenBuyerSlots` bloom map that already ships, and cleared by the same
+    /// `drain_era_maps` pass. An agent transacting with k distinct buyers costs k entries of
+    /// (AccountId, AccountId) key + Balance value per era, all reclaimed at settlement.
+    ///
+    /// The value is `(era, volume)` and not just `volume`, which is a correctness
+    /// requirement rather than bookkeeping. `drain_era_maps` clears era maps with a
+    /// `clear(limit, None)` whose limit is sized off `AgentStake::count()` — but a *buyer*
+    /// need not be a registered agent, so nothing ties this map's cardinality to the agent
+    /// count. A provider with more distinct buyers than the limit would leave a residue
+    /// behind, and an unstamped residue reads as fresh volume every subsequent era: a
+    /// monotonic, self-compounding inflation of the emission ceiling with no new escrow
+    /// behind it. Stamping the era makes any residue inert on sight, whether or not the
+    /// clear ran to completion.
+    #[pallet::storage]
+    pub type EraPairVolume<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Blake2_128Concat,
+        T::AccountId,
+        (u32, BalanceOf<T>),
+        ValueQuery,
+    >;
+
+    /// Funding-lineage union-find parent pointer: `account -> parent`. Absent means the
+    /// account is its own lineage root.
+    ///
+    /// Two accounts that share a funding root are treated as one economic actor, so escrow
+    /// between them is not qualifying volume and cannot size the emission pot (D7, #164).
+    ///
+    /// WHY THIS IS DECLARED RATHER THAN OBSERVED. `pallet_balances::Config` in
+    /// polkadot-stable2503 exposes no transfer hook — only `DustRemoval` and `AccountStore`
+    /// — and `frame_system`'s `OnNewAccount` carries the new account but never the funder.
+    /// So a pallet cannot see "these two addresses were paid by the same faucet drip"
+    /// without either forking pallet-balances or adding a `TransactionExtension`, which
+    /// changes the extrinsic format and every wallet with it. Neither belongs in a fix for
+    /// #164. The lineage that IS observable from escrow flow — a payer<->worker cycle
+    /// inside one era — is detected automatically and needs no storage at all (see
+    /// `qualifying_volume_of`); the lineage that is not observable is declared here by
+    /// root, which is how the operator records a known shared faucet drip.
+    ///
+    /// Cost: one `(AccountId -> AccountId)` entry per account that is ever linked, written
+    /// only by `link_funding_lineage`. Nothing writes it implicitly, so an unused chain
+    /// carries an empty map.
+    #[pallet::storage]
+    pub type LineageParent<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, T::AccountId, OptionQuery>;
+
     /// Governance votes recorded this era per agent. Feeds `gov_score` in emissions.
     /// Bounded above by `MaxProposalsPerEra`; equals the number of DISTINCT live
     /// referenda credited this era (see `EraGovVotedPolls`).
@@ -559,7 +616,9 @@ pub mod pallet {
     >;
 
     // ─── StorageVersion ──────────────────────────────────────────────────────
-    const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
+    /// Bumped 1 -> 2 for spec 306: `EraPairVolume` and `LineageParent` are new, and the
+    /// v2 migration backfills `LastHeartbeat` for agents that registered before D8 (#161).
+    const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
 
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]
@@ -604,8 +663,58 @@ pub mod pallet {
         }
 
         fn on_runtime_upgrade() -> Weight {
-            // Placeholder — add migration arms here when STORAGE_VERSION increments.
-            Weight::zero()
+            let on_chain = StorageVersion::get::<Pallet<T>>();
+            if on_chain >= 2 {
+                return T::DbWeight::get().reads(1);
+            }
+
+            // v1 -> v2 (spec 306). D8 makes `register` start the heartbeat clock, but every
+            // agent that registered under spec <= 305 has no `LastHeartbeat` entry at all,
+            // which `ValueQuery` reports as block 0. On a chain hundreds of thousands of
+            // blocks old that reads as "silent since genesis": #161 measured an agent with
+            // 171 lifetime completions and 10 000 CMN staked sitting at multiplier 63,
+            // below the `hb >= 90` activity gate, purely because nothing ever wrote the key.
+            //
+            // Backfill exactly those agents — the ones with no entry — to the upgrade block.
+            // That gives them the same grace window a newly registered agent gets and no
+            // more: they must send a real heartbeat within `HeartbeatGracePeriod` or decay
+            // from here like everyone else. An agent that HAS heartbeated is left untouched,
+            // so the migration can never move a real timestamp forward.
+            //
+            // Hard-bounded, because `MaxAgents` is 10 000 000 and returning an honest
+            // weight for ten million reads does not make the block executable — it bricks
+            // the upgrade. `MAX_HEARTBEAT_BACKFILL` caps the pass; any agent past it is
+            // simply not backfilled and reaches the same state by sending one heartbeat,
+            // which is the thing agents do anyway. The event reports how many were touched
+            // so a short backfill is visible rather than assumed complete.
+            const MAX_HEARTBEAT_BACKFILL: u32 = 10_000;
+            let now = frame_system::Pallet::<T>::block_number();
+            let mut seen: u32 = 0;
+            let mut writes: u64 = 0;
+            for (agent, _stake) in AgentStake::<T>::iter() {
+                seen = seen.saturating_add(1);
+                if seen > MAX_HEARTBEAT_BACKFILL {
+                    break;
+                }
+                if !LastHeartbeat::<T>::contains_key(&agent) {
+                    LastHeartbeat::<T>::insert(&agent, now);
+                    writes = writes.saturating_add(1);
+                }
+            }
+            let registered = seen as u64;
+
+            StorageVersion::new(2).put::<Pallet<T>>();
+            Self::deposit_event(Event::HeartbeatBackfilled {
+                agents: writes as u32,
+                at_block: now,
+            });
+
+            // reads: version + count + one per agent (iter) + one contains_key per agent
+            // writes: one per backfilled agent + the storage version
+            T::DbWeight::get().reads_writes(
+                2u64.saturating_add(registered.saturating_mul(2)),
+                writes.saturating_add(1),
+            )
         }
     }
 
@@ -650,6 +759,23 @@ pub mod pallet {
             who: T::AccountId,
             amount: BalanceOf<T>,
             era_total: BalanceOf<T>,
+        },
+        /// spec 306 v2 migration: agents whose `LastHeartbeat` was never written had the
+        /// key set to the upgrade block. Emitted once, at the upgrade. See #161.
+        HeartbeatBackfilled {
+            agents: u32,
+            at_block: BlockNumberFor<T>,
+        },
+        /// Two accounts were declared to share a funding lineage, so escrow between them
+        /// no longer counts as qualifying volume for emission sizing (#164, D7).
+        FundingLineageLinked {
+            a: T::AccountId,
+            b: T::AccountId,
+            root: T::AccountId,
+        },
+        /// An account was detached from its funding-lineage group.
+        FundingLineageUnlinked {
+            who: T::AccountId,
         },
         MetadataUpdated {
             who: T::AccountId,
@@ -720,6 +846,15 @@ pub mod pallet {
         PollAlreadyCredited,
         /// V4: F-07 — slash amount must be > 0 bps and ≤ 10000 bps.
         InvalidSlashBps,
+        /// `link_funding_lineage` was called with the same account twice, or with two
+        /// accounts that already resolve to the same lineage root. Nothing to do.
+        LineageAlreadyLinked,
+        /// `unlink_funding_lineage` was called on an account that is not linked to anything.
+        LineageNotLinked,
+        /// A lineage chain exceeded `MAX_LINEAGE_DEPTH`. Refused rather than guessed: the
+        /// qualifying-volume path already treats an undecidable walk as linked, and linking
+        /// on top of a structure it cannot resolve would compound the ambiguity.
+        LineageTooDeep,
     }
 
     // ─── Calls ───────────────────────────────────────────────────────────────
@@ -781,7 +916,18 @@ pub mod pallet {
             // Lock stake
             T::Currency::set_lock(AGENT_LOCK_ID, &who, stake, WithdrawReasons::all());
             AgentStake::<T>::insert(&who, stake);
-            StakeRegisteredAt::<T>::insert(&who, frame_system::Pallet::<T>::block_number());
+            let now = frame_system::Pallet::<T>::block_number();
+            StakeRegisteredAt::<T>::insert(&who, now);
+            // D8 (#161) — start the heartbeat clock at registration.
+            //
+            // `LastHeartbeat` is ValueQuery, so an agent that has never sent one reads 0.
+            // On a chain past its grace period that makes `heartbeat_multiplier` compute
+            // from a gap of the entire chain history: at block ~534 500 the multiplier is
+            // 63, `has_heartbeat` (hb >= 90) is false, and a brand-new agent is barred from
+            // the floor share on its first era for a liveness failure it had no opportunity
+            // to avoid. Registering IS a liveness signal — the account is on chain, staked,
+            // and signing this block — so the clock starts here and decays from here.
+            LastHeartbeat::<T>::insert(&who, now);
 
             // Induct into ranked-collective at Rank 0
             T::AgentCollective::induct(&who)?;
@@ -1280,6 +1426,71 @@ pub mod pallet {
             });
             Ok(())
         }
+
+        /// Declare that two accounts share a funding lineage, merging them into one
+        /// lineage group. Escrow between any two members of a group is not qualifying
+        /// volume and therefore cannot size the emission pot (#164, D7).
+        ///
+        /// Root-gated because it is an assertion about facts the chain cannot see. The
+        /// faucet knows which addresses it dripped to in one session; `pallet_balances`
+        /// exposes no transfer hook, so the chain does not. This is how that knowledge is
+        /// written down. The lineage that IS visible on chain — a payer<->worker cycle
+        /// inside one era — needs no declaration and is detected automatically.
+        ///
+        /// Note this is a *sizing* control, not a punishment: linking two accounts does not
+        /// slash them, block their escrow, or zero their individual weight. It only stops
+        /// their mutual trade from being counted as evidence that the chain did real work.
+        #[pallet::call_index(11)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(8, 1)
+            .saturating_add(Weight::from_parts(30_000_000, 0)))]
+        pub fn link_funding_lineage(
+            origin: OriginFor<T>,
+            a: T::AccountId,
+            b: T::AccountId,
+        ) -> DispatchResult {
+            ensure_root(origin)?;
+            // Both guards fire before any write.
+            let root_a = Self::lineage_root(&a).ok_or(Error::<T>::LineageTooDeep)?;
+            let root_b = Self::lineage_root(&b).ok_or(Error::<T>::LineageTooDeep)?;
+            ensure!(root_a != root_b, Error::<T>::LineageAlreadyLinked);
+
+            LineageParent::<T>::insert(&root_b, &root_a);
+            // Flatten the two arguments onto the new root. This does not make the
+            // structure depth-1 in general — merging a chain of groups still deepens it —
+            // but it keeps the common "link these two accounts" case at depth 1, and the
+            // walk fails closed if depth is ever exceeded anyway.
+            if a != root_a {
+                LineageParent::<T>::insert(&a, &root_a);
+            }
+            if b != root_a {
+                LineageParent::<T>::insert(&b, &root_a);
+            }
+            Self::deposit_event(Event::FundingLineageLinked { a, b, root: root_a });
+            Ok(())
+        }
+
+        /// Detach an account from its funding-lineage group, making it a lineage root
+        /// again. Anything linked *under* it stays with it.
+        ///
+        /// Exists because `link_funding_lineage` is an assertion about off-chain facts and
+        /// assertions can be wrong. Without an inverse, one mistyped address would
+        /// permanently disqualify two honest agents' mutual trade from ever sizing the pot,
+        /// with no way back short of a runtime upgrade. Linking is not a punishment and
+        /// neither is unlinking a pardon — both only change what counts as evidence that
+        /// the chain did independent work.
+        #[pallet::call_index(12)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1)
+            .saturating_add(Weight::from_parts(20_000_000, 0)))]
+        pub fn unlink_funding_lineage(origin: OriginFor<T>, who: T::AccountId) -> DispatchResult {
+            ensure_root(origin)?;
+            ensure!(
+                LineageParent::<T>::contains_key(&who),
+                Error::<T>::LineageNotLinked
+            );
+            LineageParent::<T>::remove(&who);
+            Self::deposit_event(Event::FundingLineageUnlinked { who });
+            Ok(())
+        }
     } // end #[pallet::call]
 
     // ─── Public cross-pallet helpers ─────────────────────────────────────────
@@ -1322,6 +1533,21 @@ pub mod pallet {
             let prior_total = EraEscrowVolume::<T>::get(agent);
             let era_total = prior_total.saturating_add(amount);
             EraEscrowVolume::<T>::insert(agent, era_total);
+
+            // Record WHO the volume came from, not just how much (spec 306, D7).
+            // `qualifying_era_volume` needs the per-counterparty split to drop a ring's
+            // volume from the emission pot while keeping an honest customer's.
+            //
+            // An entry stamped with an older era is overwritten rather than added to: that
+            // is what makes a clear that did not finish harmless instead of inflationary.
+            let this_era = EraNumber::<T>::get();
+            EraPairVolume::<T>::mutate(agent, buyer, |v| {
+                if v.0 == this_era {
+                    v.1 = v.1.saturating_add(amount);
+                } else {
+                    *v = (this_era, amount);
+                }
+            });
 
             // Buyer diversity via bloom filter
             let buyer_bytes = buyer.encode();
@@ -1385,6 +1611,170 @@ pub mod pallet {
             Ok(())
         }
 
+        // ── Funding lineage & qualifying volume (spec 306, D7 / #164) ────────
+
+        /// Maximum links walked when resolving a lineage root.
+        ///
+        /// `link_funding_lineage` attaches one root under another, and repeated merges do
+        /// build depth — `link(b,c)` then `link(x,b)` then `link(y,x)` is already a chain
+        /// of three — so the bound is reachable in principle and the walk needs a defined
+        /// behaviour at it, not an assumption that it never happens.
+        ///
+        /// **Truncation fails CLOSED.** Under D7 the unsafe direction is to decide two
+        /// accounts are *unlinked*: that lets their mutual volume size the emission pot.
+        /// So a walk that runs out of budget without reaching a root reports the pair as
+        /// linked and drops the volume. Being over-cautious costs a smaller pot; being
+        /// under-cautious mints against a ring.
+        const MAX_LINEAGE_DEPTH: u32 = 16;
+
+        /// Maximum (provider, buyer) pairs examined per provider when sizing qualifying
+        /// volume. Bounds the cost of a permissionless `settle_era`; overshooting the
+        /// bound under-counts volume, which lowers the emission ceiling.
+        const MAX_QUALIFYING_PAIRS: u32 = 512;
+
+        /// Resolve an account's funding-lineage root, or `None` if the walk ran past
+        /// `MAX_LINEAGE_DEPTH` without finding one. An account with no parent is its own
+        /// root, so an unlinked chain answers in a single read.
+        pub fn lineage_root(who: &T::AccountId) -> Option<T::AccountId> {
+            let mut cur = who.clone();
+            for _ in 0..Self::MAX_LINEAGE_DEPTH {
+                match LineageParent::<T>::get(&cur) {
+                    Some(parent) => cur = parent,
+                    None => return Some(cur),
+                }
+            }
+            None
+        }
+
+        /// True when two accounts have been declared to share a funding lineage — or when
+        /// the lineage walk could not prove that they do not. See `MAX_LINEAGE_DEPTH`.
+        pub fn same_funding_lineage(a: &T::AccountId, b: &T::AccountId) -> bool {
+            if a == b {
+                return true;
+            }
+            // Fast path: neither account is in any lineage group. This is the whole chain
+            // until root declares one, so the common case costs two reads and no walk.
+            if !LineageParent::<T>::contains_key(a) && !LineageParent::<T>::contains_key(b) {
+                return false;
+            }
+            match (Self::lineage_root(a), Self::lineage_root(b)) {
+                (Some(ra), Some(rb)) => ra == rb,
+                // Undecidable, so assume linked. Fail closed.
+                _ => true,
+            }
+        }
+
+        /// Qualifying escrow volume for ONE provider this era.
+        ///
+        /// This is the volume that is allowed to size the era's emission pot. It is NOT the
+        /// agent's weight input — `EraEscrowVolume` still feeds `work_score` unchanged, so
+        /// an agent's *share* of the pot is computed exactly as before. What changes is how
+        /// big the pot is allowed to be.
+        ///
+        /// Volume is dropped when:
+        ///
+        /// 1. **The provider is ring-flagged.** Same test `drain_era_maps` already applies
+        ///    to build `EraRingSnapshot`: active this era, `EraUniqueBuyers <= 1`, and
+        ///    established (`CompletedAgreements > 1`). Until spec 306 that flag did nothing
+        ///    to payouts — it nudged `CompletionFeeBps` by 25 bps and stopped there, which
+        ///    is why #164's ring was flagged and paid anyway. It is load-bearing now.
+        ///
+        ///    The `established` clause is kept deliberately rather than tightened. Dropping
+        ///    it would zero the qualifying volume of every genuinely new agent in its first
+        ///    era, which is the honest-onboarding case, not the attack. A first-era ring is
+        ///    already bounded by the alpha rule itself: its volume qualifies at most 1:1, so
+        ///    it can never mint more than the escrow it actually settled — which is exactly
+        ///    the bound #164 asks for.
+        ///
+        /// 2. **The counterparty traded in both directions this era** — a payer<->worker
+        ///    cycle. A pays B and B pays A inside one era is money going in a circle, and
+        ///    neither leg is evidence of demand.
+        ///
+        /// 3. **The counterparty shares a declared funding lineage** with the provider
+        ///    (see `LineageParent`).
+        pub fn qualifying_volume_of(agent: &T::AccountId) -> BalanceOf<T> {
+            let Some(stake) = AgentStake::<T>::get(agent) else {
+                return Zero::zero();
+            };
+            let completions = CompletedAgreements::<T>::get(agent);
+            let is_established = completions > 1;
+            if is_established && EraUniqueBuyers::<T>::get(agent) <= 1 {
+                return Zero::zero();
+            }
+
+            let this_era = EraNumber::<T>::get();
+            let mut total: BalanceOf<T> = Zero::zero();
+            let mut examined: u32 = 0;
+            for (buyer, (era, vol)) in EraPairVolume::<T>::iter_prefix(agent) {
+                // Bound the walk. `settle_era` is permissionless and economically
+                // essential, and the number of (provider, buyer) pairs is set by how many
+                // throwaway buyer accounts somebody funded, not by any Config constant —
+                // so an unbounded walk here is a liveness attack on settlement itself.
+                // Stopping early UNDER-counts volume, which lowers the emission ceiling.
+                // That is the safe direction to fail in.
+                examined = examined.saturating_add(1);
+                if examined > Self::MAX_QUALIFYING_PAIRS {
+                    break;
+                }
+                // A stale entry from an earlier era is not this era's work. See the note
+                // on `EraPairVolume` for why residue is possible at all.
+                if era != this_era {
+                    continue;
+                }
+                // Reciprocal edge this era → circular, drop both legs (this call drops
+                // one leg; the counterparty's own call drops the other).
+                let (rev_era, rev_vol) = EraPairVolume::<T>::get(&buyer, agent);
+                if rev_era == this_era && rev_vol > Zero::zero() {
+                    continue;
+                }
+                if Self::same_funding_lineage(agent, &buyer) {
+                    continue;
+                }
+                total = total.saturating_add(vol);
+            }
+
+            // Cap qualifying volume at the agent's own staked capital times
+            // `MaxVolToStakeRatio` — the same ratio that already bounds diversity credit.
+            //
+            // WHY. Without this the bound is on *flow*, and flow is free to recycle. A
+            // provider and one unregistered buyer can settle escrow, transfer the funds
+            // straight back (the chain has no transfer hook to see it), and settle again,
+            // as many times as the era has blocks for. The only cost is the completion fee
+            // — 25 bps at launch — so 250 CMN of fees would unlock a 100 000 CMN pot. That
+            // is a large improvement on #164, where the pot was free, but it is nowhere
+            // near "an era cannot mint more than the work it measured".
+            //
+            // Tying the ceiling to locked stake converts the cost from a fee into capital:
+            // sizing a 100 000 CMN pot needs 10 000 CMN staked, locked, and subject to the
+            // 7-day unstake cooldown and to slashing. It does not make wash trading
+            // impossible — nothing in a pallet can, while plain transfers are invisible —
+            // and the residual gap is tracked rather than papered over.
+            let ratio = T::MaxVolToStakeRatio::get();
+            if ratio == 0 {
+                return total;
+            }
+            let stake_ceiling = stake.saturating_mul(ratio.into());
+            total.min(stake_ceiling)
+        }
+
+        /// Total qualifying escrow volume settled this era, across all providers.
+        ///
+        /// Read by `pallet-emissions::settle_era` to bound the era emission at
+        /// `alpha x qualifying_volume` (D7). Must be called BEFORE `drain_era_maps`, which
+        /// clears the maps it reads.
+        ///
+        /// Cost: one pass over `EraPairVolume`, whose cardinality is the number of distinct
+        /// (provider, buyer) pairs that settled an agreement this era. `settle_era` already
+        /// walks every registered agent and `drain_era_maps` already walks every era map, so
+        /// this adds a pass of the same order rather than a new class of cost.
+        pub fn qualifying_era_volume() -> BalanceOf<T> {
+            let mut total: BalanceOf<T> = Zero::zero();
+            for (agent, _stake) in AgentStake::<T>::iter() {
+                total = total.saturating_add(Self::qualifying_volume_of(&agent));
+            }
+            total
+        }
+
         /// Heartbeat floor multiplier for the emission formula.
         /// Returns 10–100 (percentage of floor to apply).
         pub fn heartbeat_multiplier(who: &T::AccountId) -> u128 {
@@ -1435,6 +1825,9 @@ pub mod pallet {
             let bound = registered.saturating_add(registered / 5).max(100);
             let _ = EraEscrowVolume::<T>::clear(bound, None);
             let _ = EraUniqueBuyers::<T>::clear(bound, None);
+            // Same headroom as EraSeenBuyerSlots: a provider can hold one pair entry per
+            // distinct buyer it served this era, so the per-agent factor matches.
+            let _ = EraPairVolume::<T>::clear(bound.saturating_mul(128), None);
             let _ = EraGovParticipation::<T>::clear(bound, None);
             let _ = EraSeenBuyerSlots::<T>::clear(bound.saturating_mul(128), None);
             // ROUND14: the dedup set is exactly bounded — record_gov_vote refuses to add a
