@@ -80,6 +80,18 @@ if is_established && EraUniqueBuyers::<T>::get(&agent) <= 1 {
 `pallet-auto-params::rule_ring_farming` — where a ring ratio over 30 % raises
 `CompletionFeeBps` by `max_step` (**25 bps**, capped at 2 500).
 
+This is not a reading of the source alone. It is happening on the live chain right now:
+
+```text
+agents.eraRingSnapshot      = 1
+agents.eraActiveSnapshot    = 1      -> ring ratio 100 %, threshold 30 %
+autoParams.completionFeeBps = 75     (genesis 25 -> 50 at era 2 -> 75 at era 4)
+```
+
+Issue #166 recorded the first step of that climb. **Every era since #164's ring appeared the
+detector has correctly flagged it, and the only thing the chain has done about it is raise
+an escrow fee by a quarter of a basis point.** The ring kept being paid.
+
 So the entire consequence of being detected as a ring was that the *escrow completion fee*
 rose by a quarter of a basis point per era, chain-wide, for everyone. It did not reduce the
 ring's weight, its volume credit, its claim, or the size of the pot. #164's ring **was**

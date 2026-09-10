@@ -207,7 +207,8 @@ It bounds **flow**, and flow can be recycled. Two agents can settle escrow, tran
 funds straight back with a plain `balances.transfer` — which no pallet can observe, because
 `pallet_balances` exposes no transfer hook — and settle again, as many times as an era has
 blocks for. Without a further limit the only cost of manufacturing qualifying volume would
-be the completion fee, 25 bps, so a few hundred CMN would unlock a six-figure pot.
+be the completion fee — `autoParams.completionFeeBps`, seeded at 25 bps and auto-raised by
+the ring rule since — so a few hundred CMN would unlock a six-figure pot.
 
 Two things price that. First, **both sides of an escrow must be registered agents**
 (`escrow.createAgreement` fails with `BuyerNotAgent` otherwise), so a counterparty is never

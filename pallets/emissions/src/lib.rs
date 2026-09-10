@@ -400,6 +400,12 @@ pub mod pallet {
             // of the attack by orders of magnitude; it does not reduce it to zero. The
             // residual is issue #167, written down rather than described away.
             //
+            // (The completion fee is not a fixed number to price against, either: the
+            // auto-params ring rule has been raising it on the live chain, 25 -> 50 -> 75
+            // bps over successive era settlements, because it keeps detecting the very ring
+            // it could not otherwise do anything about. That rule is now one input to
+            // qualifying volume rather than the only response to a ring.)
+            //
             // Applied to the override path too, deliberately. `set_era_emission_override`
             // is root, and the temptation is to let root out of the rule; but then the
             // invariant is not an invariant, and the lever for a deliberate bootstrap
