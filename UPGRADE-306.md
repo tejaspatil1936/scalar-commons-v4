@@ -14,7 +14,7 @@
 | Pause block (D9, spec 305) | **#542152** — eras 5..14 overridden to zero |
 | Upgrade block (spec 306) | **#543472** — all five validators, none restarted |
 | PR | [#168](https://github.com/tejaspatil1936/scalar-commons-v4/pull/168), squash-merged as `5f5e3c9` |
-| Live re-test | §4 |
+| Live re-test | **PASS** — 60 CMN of escrow, **0 CMN** minted (#164 took 90 068.37 CMN for the same 60 CMN) |
 
 ---
 
@@ -520,3 +520,154 @@ working throughout — but it is a public surface stating something untrue about
 the same class of problem as #165, and it will recur on every upgrade until it is read live.
 
 [#169]: https://github.com/tejaspatil1936/scalar-commons-v4/issues/169
+
+---
+
+## §4 — The live re-test
+
+**Verdict: PASS. 60 CMN of escrow, 0 CMN minted.** #164's arithmetic was 60 CMN of escrow
+and 90 068.37 CMN claimed.
+
+### The scenario, reproduced move for move
+
+Three fresh accounts, funded only by the public faucet at `https://faucet.scalarnet.io`, and
+the walk from `docs/guide/testnet-tester-guide.md` §4:
+
+| | |
+|---|---|
+| A (provider) | `5EezSTqZ…ouiAa` — one drip, registered with 1 000 CMN |
+| B (buyer) | `5Fhj8P5g…fBU44` — one drip, registered with 1 000 CMN |
+| C | `5HWJQswK…tABA` — one drip, exists only to top B up |
+
+C exists because of **#162**: one drip is 1 100 CMN, registration costs 1 050.01, and the
+49.99 CMN left is a hundredth of a CMN short of a single 50 CMN job. Its top-up is a plain
+`balances.transfer`, which is also a live demonstration of **#167** — no pallet can see it.
+
+Then the two jobs from the issue, B → A and nobody else:
+
+```text
+escrow 10.000000 CMN B -> A settled (seq 0)
+escrow 50.000000 CMN B -> A settled (seq 1)
+A eraEscrowVolume 60.000000 CMN, eraUniqueBuyers 1, completions 2
+```
+
+`eraUniqueBuyers 1, completions 2` is precisely the ring shape: established, single
+counterparty.
+
+To make the measurement mean anything, era 6's emergency zero was first replaced with
+**exactly what the un-overridden formula would have paid** — `10 000 CMN × 13 agents =
+130 000 CMN`, inside the floor/ceiling clamp:
+
+```text
+node scripts/emissions-zero-override.mjs --era 6 --schedule-for 6
+  registered agents   : 13
+  clamped [floor,ceil]: 130000.0000 CMN
+  EmissionOverrides[6] = 130000000000000000
+```
+
+**A re-test that passes because emission was switched off proves nothing**, and that trap was
+of my own making — I had zeroed eras 5..14 in §1.
+
+### The settlement
+
+`settle_era` submitted by account A, an ordinary signed account, because it is permissionless
+and this is what any agent can do:
+
+```text
+event emissions.EmissionCappedByVolume {"era":"6","uncapped":"130,000,000,000,000,000",
+                                        "qualifyingVolume":"0","alphaBps":"10,000"}
+event emissions.NextEraScheduled       {"block":"553,567","scheduled":false}
+event emissions.EraSettled             {"era":"6","totalEmission":"0","totalWeight":"6,953,468"}
+```
+
+```text
+claim A -> emissions.NothingToClaim     A weightSnapshot 6953468   balance delta -0.000108 CMN
+claim B -> emissions.NothingToClaim     B weightSnapshot 0         balance delta -0.000108 CMN
+```
+
+| | #164 on spec 305 | this re-test on spec 306 |
+|---|---|---|
+| escrow volume settled | 60 CMN | **60 CMN** |
+| era emission | 110 000 CMN | **0 CMN** |
+| claimed by the two accounts | **90 068.37 CMN** | **0 CMN** (−0.000216 CMN in fees) |
+| share of the era captured | 81.88 % | **0 %** |
+
+### The number that settles it
+
+`totalWeight` at settlement was **6 953 468**. #164 reports its agent's weight as
+**6 953 468**. The same to the unit.
+
+Nothing about the weight formula changed, and that is the point: the attacker still has
+exactly the weight they had, and the split still works exactly as before. What changed is
+that **the pot is now sized by qualifying volume, and a ring's volume qualifies for nothing**.
+The fix is not a nerf applied to one account; it is the pot no longer being a free-standing
+number.
+
+### The other half — does it still admit honest work?
+
+Era 6 blocked a ring, but it did so with qualifying volume of zero **chain-wide**, and on its
+own that reading is equally consistent with "the rule zeroes everything". So the same
+provider was given a second distinct buyer in era 7, and the rule's inputs read back out of
+live storage:
+
+```text
+  era                        : 7
+  eraEscrowVolume            : 20.000000 CMN
+  eraUniqueBuyers            : 2
+  completedAgreements        : 4
+  ring-flagged?              : false
+  stake ceiling              : 10000.000000 CMN
+  eraPairVolume (provider -> buyer):
+    C  5HWJQswK…  era 7  10.000000 CMN  reciprocal=false  qualifies=true
+    B  5Fhj8P5g…  era 7  10.000000 CMN  reciprocal=false  qualifies=true
+  => qualifying volume for A : 20.000000 CMN
+```
+
+**The same agent that qualified for nothing with one buyer qualifies for its full 20 CMN with
+two.** The rule discriminates; it has not bricked emission.
+
+**What this control does NOT show, stated plainly:** era 7 still carries a zero override, so
+it will mint zero regardless, and no *observed mint* against non-zero qualifying volume has
+happened on this chain. The step from qualifying volume to minted amount is covered by
+`tests/emission_volume_cap.rs`, which asserts `LastEraEmission` equals the qualifying volume
+exactly and tracks α in both directions, and by era 6's `EmissionCappedByVolume` event showing
+the path executing on chain. A full live positive control — one era handed back to the
+schedule with honest multi-buyer work in it — is the obvious next measurement and has not
+been done.
+
+### D8 confirmed live, three times
+
+`register` now writes `LastHeartbeat`, observed before any `heartbeat()` call:
+
+```text
+A lastHeartbeat immediately after register = 543503
+B lastHeartbeat immediately after register = 543506
+C lastHeartbeat immediately after register = 549992
+```
+
+The tester guide records this field as `0` on spec 305 and tells readers to heartbeat
+immediately or earn nothing. That warning is now obsolete.
+
+---
+
+## Where this leaves the gate
+
+**#161 — closed.** `register` starts the clock, the migration cleared the stranded
+population, and zero agents remain at `LastHeartbeat = 0`.
+
+**#164 — the specific vector is closed and measured.** The exact scenario from the issue now
+pays nothing, and it does so through a stated rule rather than a parameter tweak.
+
+**The gate is not "open".** Three things are true at once and all three belong in the record:
+
+1. The chain currently mints **zero**, because the only escrow happening on it is a ring, and
+   eras 7..14 still carry the emergency zero override. That is the rule working, not a
+   failure — but nobody should read "0 CMN minted" as "emissions are healthy".
+2. **#167** is open and is `tier:T0`: the bound is on flow, and flow can be recycled. Spec
+   306 prices that in locked, slashable stake instead of a 25 bps fee, which is a change in
+   kind from #164's two free faucet drips — but it is not the invariant "an era cannot mint
+   more than the work it measured", and neither the code nor the docs claim it is.
+3. The overrides expire. `EmissionOverrides` is consumed on read and reaches only ten eras
+   ahead, so eras 7..14 are covered and **era 15 is not**. Before then, someone has to decide
+   whether emission resumes on the α rule alone — which is the decision this round was meant
+   to make possible, not the decision it makes.
