@@ -159,7 +159,33 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // entries are untouched and stay claimable — see the note at the EraPayout
     // definition. The only behavioural difference is that the next era
     // rotation books a payout of zero.
-    spec_version: 305,
+    //
+    // 305 -> 306: the economic gate. Issue #164 measured a two-account, faucet-funded
+    // tester capturing 81.88 % of an era's emission — 90 068.37 CMN — for 60 CMN of escrow
+    // it paid itself, because the pot is sized by `TargetEmissionPerAgent x agent_count`
+    // and never looks at whether work happened. Issue #161: `register` never wrote
+    // `LastHeartbeat`, so every agent registered on a live chain failed the `hb >= 90`
+    // activity gate for a liveness failure it had no chance to avoid.
+    //
+    // Three changes, all with storage layout consequences, so the bump is mandatory and
+    // BOTH pallets carry real migrations:
+    //
+    //   * pallet-emissions bounds the era emission at `alpha x qualifying escrow volume`
+    //     (D7). No new storage of its own — it reads the two new agents maps — but one new
+    //     event, EmissionCappedByVolume, appended last.
+    //   * pallet-agents v1 -> v2: adds EraPairVolume (era-scoped, who paid whom) and
+    //     LineageParent (declared funding groups), and its migration backfills
+    //     LastHeartbeat for every agent that registered before D8 so the #161 population
+    //     is not left permanently below the activity gate.
+    //   * pallet-auto-params v1 -> v2: adds EmissionVolumeAlphaBps and its bounds. The
+    //     migration is load-bearing rather than cosmetic — the value is ValueQuery, so
+    //     without seeding it the upgraded chain would read alpha = 0 and bound every
+    //     era's emission at zero forever.
+    //
+    // transaction_version is NOT bumped: agents::link_funding_lineage is appended at call
+    // index 11 and ParamId::EmissionVolumeAlphaBps at discriminant 5, so no existing call
+    // encoding moves.
+    spec_version: 306,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1360,6 +1386,13 @@ parameter_types! {
     pub const AutoInitialBeta:         u32 = 5_000;
     pub const AutoInitialFloorBps:     u32 = 1_000;
     pub const AutoInitialMinScore:     u32 = 5;
+    /// spec 306, D7 (#164). Alpha for the emission-volume rule, in basis points.
+    /// 10 000 bps = 1.0 — an era may mint at most the qualifying escrow volume it settled.
+    /// Launch value is deliberately exactly 1.0: the chain says "we minted no more than the
+    /// work we can point at", which is a claim that survives an outsider checking it.
+    /// Sudo or Track 2 governance can move it inside EmissionVolumeAlphaBounds (0..100 000)
+    /// without a runtime upgrade — including to 0, which is a real emission stop.
+    pub const AutoInitialEmissionVolumeAlphaBps: u32 = 10_000;
     pub const AutoRingThreshold:       u32 = 3_000;
     pub const AutoOracleLowThreshold:  u32 = 4_000;
     pub const AutoOracleHighThreshold: u32 = 9_000;
@@ -1376,6 +1409,7 @@ impl pallet_auto_params::Config for Runtime {
     type InitialBeta = AutoInitialBeta;
     type InitialFloorBps = AutoInitialFloorBps;
     type InitialMinScoreEligible = AutoInitialMinScore;
+    type InitialEmissionVolumeAlphaBps = AutoInitialEmissionVolumeAlphaBps;
     type RingRatioThreshold = AutoRingThreshold;
     type OracleParticipationLowThreshold = AutoOracleLowThreshold;
     type OracleParticipationHighThreshold = AutoOracleHighThreshold;
@@ -1850,7 +1884,7 @@ mod tests {
     /// The version the upgrade is applied as. If this and `VERSION.spec_version`
     /// ever disagree the node will refuse the blob, so pin it.
     #[test]
-    fn spec_version_is_305() {
-        assert_eq!(VERSION.spec_version, 305);
+    fn spec_version_is_306() {
+        assert_eq!(VERSION.spec_version, 306);
     }
 }

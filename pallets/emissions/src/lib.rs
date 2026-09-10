@@ -5,6 +5,12 @@ pub use pallet::*;
 #[cfg(test)]
 mod tests;
 
+/// Issue #164 reproduction, against a mock carrying the LIVE runtime's emissions
+/// constants rather than `tests.rs`'s round numbers. Separate module because a mock
+/// runtime is per-module and the two need different constants.
+#[cfg(test)]
+mod tests_issue_164;
+
 #[cfg(feature = "runtime-benchmarks")]
 pub mod benchmarks;
 
@@ -202,6 +208,16 @@ pub mod pallet {
         CapReached {
             agent: T::AccountId,
         },
+        /// spec 306, D7 (#164): the era's scheduled emission exceeded
+        /// `alpha x qualifying_escrow_volume` and was reduced to it. `uncapped` is what the
+        /// old agent-count schedule would have minted; the difference is what the ring
+        /// would have taken. Appended LAST — event discriminants are indexer wire format.
+        EmissionCappedByVolume {
+            era: u32,
+            uncapped: BalanceOf<T>,
+            qualifying_volume: BalanceOf<T>,
+            alpha_bps: u32,
+        },
     }
 
     #[pallet::error]
@@ -254,7 +270,12 @@ pub mod pallet {
             EraStartBlock::<T>::put(now);
 
             let agent_count = agents_pallet::AgentStake::<T>::count() as u128;
-            let emission: BalanceOf<T> =
+            // The pot BEFORE the D7 volume rule. Note what this is a function of:
+            // agent COUNT and nothing else. That is the shape #164 exploited — 110 000 CMN
+            // minted against ~120 CMN of gross escrow because 11 agents were registered,
+            // whether or not any of them did anything. It is kept as the ceiling on the
+            // schedule and then bounded by measured work below.
+            let base_emission: BalanceOf<T> =
                 if let Some(override_amount) = EmissionOverrides::<T>::take(era) {
                     override_amount
                 } else {
@@ -295,8 +316,17 @@ pub mod pallet {
             let mut total_weight: u128 = 0;
             let mut top_weight_sum: u128 = 0;
             let mut all_weights: Vec<u128> = sp_std::vec![];
+            // D7 (#164): the qualifying escrow volume this era, accumulated in the same
+            // pass that computes weights so the rule costs no extra walk of AgentStake.
+            // Must be summed BEFORE drain_era_maps, which clears the maps it reads.
+            let mut qualifying_vol: u128 = 0;
 
             for (agent, stake) in agents_pallet::AgentStake::<T>::iter() {
+                qualifying_vol = qualifying_vol.saturating_add(
+                    UniqueSaturatedInto::<u128>::unique_saturated_into(
+                        agents_pallet::Pallet::<T>::qualifying_volume_of(&agent),
+                    ),
+                );
                 let stake_u128 = UniqueSaturatedInto::<u128>::unique_saturated_into(stake);
                 // V4: onboarding_boost — 10,000 bps bonus for first 10 completions (any era).
                 // Linearly decays: completion 1 = 10,000 bps, completion 10 = 1,000 bps, after = 0.
@@ -326,6 +356,50 @@ pub mod pallet {
                     all_weights.push(w);
                 }
             }
+
+            // ── D7: emission <= alpha x qualifying escrow volume ─────────────────
+            //
+            // CLAUDE.md first principle #2 is "emissions reward verifiable work, not raw
+            // stake". Until spec 306 the *split* honoured that and the *size* did not: the
+            // pot was `TargetEmissionPerAgent x agent_count`, a number that never once
+            // looks at whether anything was delivered. #164 turned that into 90 068 CMN for
+            // 60 CMN of self-directed escrow — not by breaking any arithmetic, but because
+            // an unbounded pot divided among the few accounts that cleared the gates hands
+            // whoever shows up ~917 CMN per CMN of real work.
+            //
+            // The bound: an era may mint at most `alpha` times the escrow volume that era
+            // actually settled between economically independent counterparties. At the
+            // launch alpha of 1.0 the chain cannot mint more CMN than the work it measured.
+            // A ring is then bounded by its own escrow — it can recycle 60 CMN and mint at
+            // most 60 CMN, so the strategy pays for itself and stops.
+            //
+            // Applied to the override path too, deliberately. `set_era_emission_override`
+            // is root, and the temptation is to let root out of the rule; but then the
+            // invariant is not an invariant, and the lever for a deliberate bootstrap
+            // subsidy already exists and is the honest one — governance raises alpha, on
+            // chain, where it is visible, instead of quietly minting past the measurement.
+            let emission: BalanceOf<T> = {
+                let alpha_bps = T::AutoParams::emission_volume_alpha_bps() as u128;
+                let base_u128: u128 =
+                    UniqueSaturatedInto::<u128>::unique_saturated_into(base_emission);
+                // Basis-point math: alpha_bps / 10 000 is the multiple of qualifying volume
+                // an era may mint. 10 000 bps = 1.0x = "never more than the work measured".
+                let vol_cap = qualifying_vol
+                    .saturating_mul(alpha_bps)
+                    .checked_div(BPS_SCALE)
+                    .unwrap_or(0);
+                if vol_cap < base_u128 {
+                    Self::deposit_event(Event::EmissionCappedByVolume {
+                        era,
+                        uncapped: base_emission,
+                        qualifying_volume: qualifying_vol.try_into().unwrap_or(T::SupplyCap::get()),
+                        alpha_bps: alpha_bps as u32,
+                    });
+                    vol_cap.try_into().unwrap_or(base_emission)
+                } else {
+                    base_emission
+                }
+            };
 
             if !all_weights.is_empty() {
                 all_weights.sort_unstable_by(|a, b| b.cmp(a));
