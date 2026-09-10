@@ -4,7 +4,7 @@ A Scalar Commons node serves **118 JSON-RPC methods** over both HTTP and WebSock
 same port (`9944` on the reference devnet). On top of the standard Substrate surface, the
 runtime declares one custom runtime API, `ScalarCommonsApi`, reachable through `state_call`.
 
-Verified against `scalar-commons` spec 305, metadata v15.
+Verified against `scalar-commons` spec 306, metadata v15.
 
 ## Endpoints and transports
 

@@ -199,7 +199,7 @@ qualifying escrow volume it settled.
 |---|---|---|
 | Ring-flagged provider | `CompletedAgreements > 1` and `EraUniqueBuyers ≤ 1` | The detector that already fed `EraRingSnapshot`. Until spec 306 a flag only nudged `CompletionFeeBps` by 25 bps and did nothing to payouts — which is why #164's ring was flagged and paid anyway. |
 | Payer↔worker cycle | A sold to B **and** B sold to A in the same era | Money going in a circle is not demand, in either direction. |
-| Shared funding lineage | `agents.linkFundingLineage(a, b)` has merged them | Two accounts out of one faucet drip are one economic actor. |
+| Shared funding lineage | `agents.linkFundingLineage(a, b)` has merged them | Two accounts out of one faucet drip are one economic actor. Root-only, and reversible with `agents.unlinkFundingLineage(who)` — the link asserts an off-chain fact, and an assertion that cannot be withdrawn would make one mistyped address permanent. |
 | Beyond the provider's own stake | volume above `stake × agents.maxVolToStakeRatio` | See below — this is what stops the bound being priced in fees rather than capital. |
 
 ::: warning What this bound does and does not do

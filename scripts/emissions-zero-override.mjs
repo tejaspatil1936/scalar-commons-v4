@@ -4,7 +4,14 @@
  * era the existing lever can reach, using only the extrinsic that already ships.
  *
  *   node scripts/emissions-zero-override.mjs [--dry-run] [--ws ws://127.0.0.1:9944]
- *                                            [--amount 0]
+ *                                            [--amount <plancks>]
+ *                                            [--era N] [--schedule-for N]
+ *
+ * With no era flag it covers every era the lever can reach with `--amount` (default 0).
+ * `--era N` targets one era instead. `--schedule-for N` sets the amount to exactly what the
+ * UN-overridden agent-count formula would have produced, which is how you hand one era back
+ * to the normal schedule — needed before measuring the emission rule, so the measurement is
+ * of the rule and not of this script's own pause.
  *
  * WHY THIS EXISTS
  *
@@ -79,11 +86,15 @@ const argv = process.argv.slice(2);
 let dryRun = false;
 let ws = 'ws://127.0.0.1:9944';
 let amount = 0n;
+let onlyEra = null;
+let scheduleFor = null;
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--dry-run') dryRun = true;
   else if (a === '--ws') ws = argv[++i];
   else if (a === '--amount') amount = BigInt(argv[++i]);
+  else if (a === '--era') onlyEra = Number(argv[++i]);
+  else if (a === '--schedule-for') scheduleFor = Number(argv[++i]);
   else { console.error(`unrecognised argument: ${a}`); process.exit(2); }
 }
 
@@ -113,10 +124,43 @@ const main = async () => {
   const maxAhead = api.consts.emissions.maxEmissionOverrideEras.toNumber();
 
   // The reachable window is exactly the runtime's own guard, restated.
-  const first = currentEra + 1;
-  const last = currentEra + maxAhead;
+  let first = currentEra + 1;
+  let last = currentEra + maxAhead;
+  if (onlyEra !== null) {
+    first = onlyEra;
+    last = onlyEra;
+  }
   const eras = [];
   for (let e = first; e <= last; e++) eras.push(e);
+
+  // --schedule-for: set the amount to exactly what the un-overridden agent-count formula
+  // would have produced for that era. Used to hand ONE era back to the normal schedule
+  // after a blanket zero, so that measuring the emission rule measures the rule rather
+  // than reading this script's own pause back out of storage. A re-measurement that passes
+  // because emission was switched off proves nothing.
+  if (scheduleFor !== null) {
+    // `--schedule-for N` names the era it is computing for, and must agree with `--era N`.
+    // The formula reads the CURRENT agent count, so quoting the era back is the only way
+    // the script can tell that the caller means the era they are actually writing.
+    if (onlyEra === null || scheduleFor !== onlyEra) {
+      console.error(`FATAL: --schedule-for ${scheduleFor} needs a matching --era ${scheduleFor}.`);
+      await api.disconnect();
+      process.exit(2);
+    }
+    const agentCount = BigInt((await api.query.agents.agentStake.keys()).length);
+    const target = api.consts.emissions.targetEmissionPerAgent.toBigInt();
+    const floor = api.consts.emissions.floorEmissionPerEra.toBigInt();
+    const ceiling = api.consts.emissions.initialEmissionsPerEra.toBigInt();
+    let scaled = target * agentCount;
+    if (scaled < floor) scaled = floor;
+    if (scaled > ceiling) scaled = ceiling;
+    amount = scaled;
+    console.log('');
+    console.log('  --schedule-for      : reproducing the un-overridden formula');
+    console.log('  registered agents   : ' + agentCount);
+    console.log('  target x agents     : ' + cmn(target * agentCount));
+    console.log('  clamped [floor,ceil]: ' + cmn(amount));
+  }
 
   console.log('');
   console.log('  chain               : ' + (await api.rpc.system.chain()).toString());
@@ -128,9 +172,11 @@ const main = async () => {
     + '  next settlement due at #' + (eraStart + eraDuration));
   console.log('  MaxEmissionOverride : ' + maxAhead + ' eras');
   console.log('');
-  console.log('  NOT REACHABLE       : era ' + currentEra + ' — settle_era reads EraNumber, and the');
-  console.log('                        runtime guard is target_era > current_era. Era ' + currentEra + ' will');
-  console.log('                        mint its agent-count-scaled pot at #' + (eraStart + eraDuration) + '.');
+  if (onlyEra === null) {
+    console.log('  NOT REACHABLE       : era ' + currentEra + ' — settle_era reads EraNumber, and the');
+    console.log('                        runtime guard is target_era > current_era. Era ' + currentEra + ' will');
+    console.log('                        mint its agent-count-scaled pot at #' + (eraStart + eraDuration) + '.');
+  }
   console.log('  overriding eras     : ' + first + '..' + last + ' to ' + cmn(amount));
   console.log('');
   console.log('  signer              : ' + signer.address);
@@ -241,7 +287,9 @@ const main = async () => {
   }
   console.log('');
   console.log(`  OK — eras ${first}..${last} will mint ${cmn(amount)}.`);
-  console.log(`  Era ${currentEra} is NOT covered and mints at #${eraStart + eraDuration}.`);
+  if (onlyEra === null) {
+    console.log(`  Era ${currentEra} is NOT covered and mints at #${eraStart + eraDuration}.`);
+  }
   console.log(`  Overrides are consumed on read: re-run before era ${last} settles.`);
 };
 
