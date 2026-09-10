@@ -178,22 +178,57 @@ async function work() {
   const eraAtStart = (await api.query.agents.eraNumber()).toNumber();
 
   // #164's exact jobs: one 10 CMN and one 50 CMN, B -> A, and nobody else involved.
+  //
+  // Resumable on purpose. `record_delivery` enforces `escrow.minDeliveryBlocks` between
+  // creation and delivery — a real guard against a buyer and provider settling a job faster
+  // than any work could have happened — so this loop has to wait, and a run that dies in
+  // that wait must not strand a `Created` agreement or double-create one. Each pass looks
+  // for an unsettled agreement of the right size before making another.
+  const minDeliver = api.consts.escrow.minDeliveryBlocks.toNumber();
   let volume = 0n;
   for (const amount of [10n * CMN, 50n * CMN]) {
-    const seq = (await api.query.escrow.nextSeq(acct.B.address, acct.A.address)).toNumber();
-    const now = (await api.rpc.chain.getHeader()).number.toNumber();
-    await send(
-      api,
-      api.tx.escrow.createAgreement(acct.A.address, amount, '0x' + '11'.repeat(32), now + 200, null),
-      acct.B,
-      'createAgreement',
-    );
-    await send(
-      api,
-      api.tx.escrow.recordDelivery(acct.B.address, seq, '0x' + '22'.repeat(32)),
-      acct.A,
-      'recordDelivery',
-    );
+    const existing = (await api.query.escrow.agreements(acct.B.address, acct.A.address))
+      .toJSON()
+      .find((a) => BigInt(a.amount) === amount && a.status !== 'Settled');
+
+    let seq;
+    let createdAt;
+    if (existing) {
+      seq = existing.seq;
+      createdAt = existing.createdAt;
+      log(`resuming existing ${cmn(amount)} CMN agreement (seq ${seq}, status ${existing.status})`);
+    } else {
+      seq = (await api.query.escrow.nextSeq(acct.B.address, acct.A.address)).toNumber();
+      const now = (await api.rpc.chain.getHeader()).number.toNumber();
+      await send(
+        api,
+        api.tx.escrow.createAgreement(acct.A.address, amount, '0x' + '11'.repeat(32), now + 400, null),
+        acct.B,
+        'createAgreement',
+      );
+      createdAt = now;
+      log(`created ${cmn(amount)} CMN agreement (seq ${seq})`);
+    }
+
+    const deliverableAt = createdAt + minDeliver + 1;
+    for (;;) {
+      const now = (await api.rpc.chain.getHeader()).number.toNumber();
+      if (now >= deliverableAt) break;
+      log(`waiting ${deliverableAt - now} blocks for escrow.minDeliveryBlocks (${minDeliver})`);
+      await sleep(12000);
+    }
+
+    const stateNow = (await api.query.escrow.agreements(acct.B.address, acct.A.address))
+      .toJSON()
+      .find((a) => a.seq === seq);
+    if (stateNow && stateNow.status === 'Created') {
+      await send(
+        api,
+        api.tx.escrow.recordDelivery(acct.B.address, seq, '0x' + '22'.repeat(32)),
+        acct.A,
+        'recordDelivery',
+      );
+    }
     await send(api, api.tx.escrow.confirmDelivery(acct.A.address, seq), acct.B, 'confirmDelivery');
     volume += amount;
     log(`escrow ${cmn(amount)} CMN B -> A settled (seq ${seq})`);
