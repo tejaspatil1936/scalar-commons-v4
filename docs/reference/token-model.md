@@ -7,6 +7,19 @@ verifiable work rather than for holding tokens.
 Every raw value below is the value read from the live runtime. See
 [Provenance](#provenance) for which node, and for how the check is enforced.
 
+::: danger Economic gate: FAILED on spec 305 — fix in spec 306, re-measurement pending
+The emission schedule described here was measured against a live public testnet and it did
+not hold up. Two faucet-funded accounts captured **81.88 % of an era's emission — 90,068.37
+CMN — for 60 CMN of escrow between accounts one person controlled** ([#164]), because the
+size of an era's pool was a function of registered agent count and never of work done.
+
+Spec 306 bounds every era at `alpha x qualifying escrow volume` — see
+[the volume bound](#the-volume-bound-spec-306). **The gate is not re-declared passed by
+that change; it is re-declared passed by measuring it again on the live chain.** Until that
+re-measurement is published, treat the schedule below as the corrected design and not as a
+verified outcome.
+:::
+
 ## The unit
 
 | Quantity | Value | Raw |
@@ -160,6 +173,51 @@ pallet-emissions halves. If you have seen a halving described elsewhere, it does
 describe this runtime.
 :::
 
+### The volume bound (spec 306)
+
+Everything above sizes the pool from **agent count**. Nothing in it asks whether any work
+happened, and that gap is not theoretical: on 2026-09-09, era 2 of the public testnet,
+**two faucet-funded accounts captured 81.88 % of an era's emission — 90,068.37 CMN — for
+60 CMN of escrow they paid themselves** ([#164]). Total escrow across the whole chain that
+era was about 120 CMN, so the chain minted roughly **917 CMN per CMN of real work**, and
+the qualification gates then concentrated nearly all of it on the handful of accounts that
+cleared them. No arithmetic was wrong and the supply cap held. The shape was the defect.
+
+Since spec 306 the pool computed above is a **ceiling, not an amount**. On top of it:
+
+```text
+pool = min(pool_from_agent_count,
+           emissionVolumeAlphaBps / 10_000 × qualifying_escrow_volume_this_era)
+```
+
+At the launch alpha of `10000` bps = **1.0x**, an era cannot mint more CMN than the
+qualifying escrow volume it settled. A ring recycling 60 CMN can mint at most 60 CMN, so
+the strategy pays for itself and stops being a strategy.
+
+**Qualifying volume is not gross volume.** Escrow is excluded when:
+
+| Exclusion | Test | Why |
+|---|---|---|
+| Ring-flagged provider | `CompletedAgreements > 1` and `EraUniqueBuyers ≤ 1` | The detector that already fed `EraRingSnapshot`. Until spec 306 a flag only nudged `CompletionFeeBps` by 25 bps and did nothing to payouts — which is why #164's ring was flagged and paid anyway. |
+| Payer↔worker cycle | A sold to B **and** B sold to A in the same era | Money going in a circle is not demand, in either direction. |
+| Shared funding lineage | `agents.linkFundingLineage(a, b)` has merged them | Two accounts out of one faucet drip are one economic actor. |
+
+The alpha is `autoParams.emissionVolumeAlphaBps`, stored on chain and settable by sudo or
+Track 2 governance inside bounds `0..100000` — **no runtime upgrade needed to change it,
+including to 0**, which is a real emission stop that leaves `settleEra` and `claim`
+permissionless.
+
+::: warning On the lineage rule's reach
+The payer↔worker cycle is detected automatically. "Same faucet drip" is **declared**, not
+observed: `pallet_balances` in polkadot-stable2503 exposes no transfer hook and
+`frame_system`'s `OnNewAccount` carries the new account but never its funder, so a pallet
+cannot see that two addresses were paid by the same sender without forking pallet-balances
+or changing the extrinsic format. Wiring the faucet to declare its own drips is tracked
+separately; today an operator records known lineage by hand.
+:::
+
+[#164]: https://github.com/tejaspatil1936/scalar-commons-v4/issues/164
+
 ### Governance overrides
 
 `emissions.setEraEmissionOverride(targetEra, amount)` replaces one era's pool. It is root-
@@ -169,6 +227,12 @@ supply cap (`OverrideAmountExceedsCap`).
 
 This is the one path that can exceed the 1,000,000 CMN ceiling. It cannot exceed the cap,
 and the per-claim cap check still applies on top.
+
+Since spec 306 it also **cannot exceed the volume bound**. An override can lower an era's
+emission — that is how emission was stopped on the live chain at block #542152 while this
+fix was written — but it cannot mint past the work the chain measured. Raising that
+ceiling is alpha's job, where the decision is a visible on-chain parameter rather than a
+quiet root call. An invariant that root can step around is not an invariant.
 
 ### Settlement is permissionless
 
@@ -433,7 +497,7 @@ Every raw value on this page is read from a live node and mechanically re-checke
 | Field | Value |
 |---|---|
 | Chain | Scalar Commons Local Testnet |
-| Runtime | `scalar-commons` spec 305 |
+| Runtime | `scalar-commons` spec 306 |
 | Metadata | v15 |
 | Token | CMN, 12 decimals, SS58 42 |
 | Validators | 5 |

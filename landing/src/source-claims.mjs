@@ -34,6 +34,26 @@ export const sourceClaims = [
     snippet: 'let gov_contribution = if work_score > 0 {',
   },
   {
+    claim: 'An era cannot mint more than alpha times the qualifying escrow volume it settled.',
+    file: 'pallets/emissions/src/lib.rs',
+    snippet: 'let alpha_bps = T::AutoParams::emission_volume_alpha_bps() as u128;',
+  },
+  {
+    claim: 'Volume from a ring-flagged provider does not count toward what an era may mint.',
+    file: 'pallets/agents/src/lib.rs',
+    snippet: 'if is_established && EraUniqueBuyers::<T>::get(agent) <= 1 {',
+  },
+  {
+    claim: 'Escrow between two accounts that traded in both directions in one era does not qualify.',
+    file: 'pallets/agents/src/lib.rs',
+    snippet: 'if EraPairVolume::<T>::contains_key(&buyer, agent) {',
+  },
+  {
+    claim: 'Registering as an agent starts the heartbeat clock.',
+    file: 'pallets/agents/src/lib.rs',
+    snippet: 'LastHeartbeat::<T>::insert(&who, now);',
+  },
+  {
     claim: 'The minimum qualifying volume gates the activity floor.',
     file: 'pallets/emissions/src/lib.rs',
     snippet: 'let qualifies_for_floor = is_active && (min_qual == 0 || vol_u128 >= min_qual);',

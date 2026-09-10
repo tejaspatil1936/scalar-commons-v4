@@ -7,7 +7,7 @@ use crate::*;
 use core::cell::RefCell;
 use frame_support::{
     assert_noop, assert_ok, parameter_types,
-    traits::{ConstU32, ConstU64, Get},
+    traits::{ConstU32, ConstU64, Get, Hooks, StorageVersion},
 };
 use sp_core::H256;
 use sp_runtime::{
@@ -1150,5 +1150,81 @@ fn drain_era_maps_clears_pair_volume_but_not_lineage() {
             Agents::same_funding_lineage(&ALICE, &BOB),
             "lineage is a persistent fact, not an era counter"
         );
+    });
+}
+
+// ── spec 306: v1 -> v2 migration ─────────────────────────────────────────────
+
+#[test]
+fn v2_migration_backfills_last_heartbeat_for_pre_306_agents() {
+    new_test_ext().execute_with(|| {
+        // Reconstruct the spec-305 shape: agents exist, nothing ever wrote LastHeartbeat,
+        // and the pallet is at storage version 1.
+        System::set_block_number(1);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(BOB), 1_000));
+        LastHeartbeat::<Test>::remove(ALICE);
+        LastHeartbeat::<Test>::remove(BOB);
+        StorageVersion::new(1).put::<Pallet<Test>>();
+
+        // ...and let the chain age past the grace period, which is the only condition
+        // under which the missing key does any damage.
+        System::set_block_number(534_527);
+        assert!(
+            Agents::heartbeat_multiplier(&ALICE) < 90,
+            "precondition: a pre-306 agent is under the activity gate"
+        );
+
+        // The mock sets `DbWeight = ()`, so the returned Weight is structurally zero here
+        // and asserting on it would test the mock rather than the migration. What the
+        // migration must be judged on is the state it leaves behind.
+        let _ = <Pallet<Test> as Hooks<u64>>::on_runtime_upgrade();
+
+        assert_eq!(StorageVersion::get::<Pallet<Test>>(), 2);
+        assert_eq!(LastHeartbeat::<Test>::get(ALICE), 534_527);
+        assert_eq!(LastHeartbeat::<Test>::get(BOB), 534_527);
+        assert_eq!(Agents::heartbeat_multiplier(&ALICE), 100);
+    });
+}
+
+#[test]
+fn v2_migration_never_moves_a_real_heartbeat_forward() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        System::set_block_number(400_000);
+        assert_ok!(Agents::heartbeat(RuntimeOrigin::signed(ALICE)));
+        StorageVersion::new(1).put::<Pallet<Test>>();
+
+        System::set_block_number(534_527);
+        let _ = <Pallet<Test> as Hooks<u64>>::on_runtime_upgrade();
+
+        assert_eq!(
+            LastHeartbeat::<Test>::get(ALICE),
+            400_000,
+            "an agent that DID heartbeat keeps its own timestamp — the migration must not \
+             launder a stale agent into a fresh one"
+        );
+    });
+}
+
+#[test]
+fn v2_migration_is_idempotent() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        LastHeartbeat::<Test>::remove(ALICE);
+        StorageVersion::new(1).put::<Pallet<Test>>();
+
+        System::set_block_number(100);
+        let _ = <Pallet<Test> as Hooks<u64>>::on_runtime_upgrade();
+        assert_eq!(LastHeartbeat::<Test>::get(ALICE), 100);
+
+        // A second pass (a re-run, or the next upgrade) must be a no-op, not a second
+        // backfill that silently resets everyone's clock.
+        System::set_block_number(200);
+        let _ = <Pallet<Test> as Hooks<u64>>::on_runtime_upgrade();
+        assert_eq!(LastHeartbeat::<Test>::get(ALICE), 100);
+        assert_eq!(StorageVersion::get::<Pallet<Test>>(), 2);
     });
 }
