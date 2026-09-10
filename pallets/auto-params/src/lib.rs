@@ -73,12 +73,17 @@ pub mod pallet {
         /// Alpha for the D7 emission-volume rule, in basis points. 10 000 = 1.0, meaning an
         /// era may not mint more than the qualifying escrow volume it settled.
         ///
-        /// Defaulted to 10 000 so the dozen `AutoParamsProvider` mocks across the pallet
-        /// test suites keep compiling, and so the default is the *safe* value rather than
-        /// zero: a mock that forgets this method gets the 1:1 bound, not "no emissions".
-        fn emission_volume_alpha_bps() -> u32 {
-            10_000
-        }
+        /// REQUIRED, with no default, and that is deliberate. The first version of this
+        /// trait method carried `fn emission_volume_alpha_bps() -> u32 { 10_000 }` so the
+        /// mocks would keep compiling — and the runtime's own `AutoParamsImpl` then
+        /// silently inherited it. `EmissionVolumeAlphaBps`, its genesis seeding, its
+        /// migration, its bounds and `set_param(EmissionVolumeAlphaBps, ..)` were all live
+        /// and all dead: governance could set alpha to 0, watch `ParamSetByGovernance` fire,
+        /// read the new value back out of storage, and `settle_era` would go on using 1.0.
+        /// The emergency stop would have reported success and done nothing. A default on a
+        /// provider trait hides exactly this class of wiring omission, so this one has none
+        /// — a missing impl is now a compile error, which is what caught it.
+        fn emission_volume_alpha_bps() -> u32;
         /// V4: F-02 — called by pallet-emissions at the end of every settle_era.
         /// Default is a no-op so mock impls in tests don't need to implement it.
         fn run_era_rules(_metrics: EraMetrics) {}

@@ -275,6 +275,13 @@ impl pallet_auto_params::pallet::AutoParamsProvider for TestAutoParams {
     fn min_score_eligible() -> u32 {
         pallet_auto_params::Pallet::<TestRuntime>::live_min_score_eligible()
     }
+    /// Reads storage, exactly as the runtime's AutoParamsImpl does. If this mock hardcoded
+    /// the value instead, an integration test could set alpha through `set_param` and see
+    /// no effect — which is the shape of the defect that shipped in this method's first
+    /// version and is why the trait method has no default.
+    fn emission_volume_alpha_bps() -> u32 {
+        pallet_auto_params::Pallet::<TestRuntime>::live_emission_volume_alpha_bps()
+    }
 }
 
 pub struct TestOracleCounters;

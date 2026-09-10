@@ -46,7 +46,12 @@ export const sourceClaims = [
   {
     claim: 'Escrow between two accounts that traded in both directions in one era does not qualify.',
     file: 'pallets/agents/src/lib.rs',
-    snippet: 'if EraPairVolume::<T>::contains_key(&buyer, agent) {',
+    snippet: 'if rev_era == this_era && rev_vol > Zero::zero() {',
+  },
+  {
+    claim: 'Volume that can size an era’s emission is capped by the provider’s own locked stake.',
+    file: 'pallets/agents/src/lib.rs',
+    snippet: 'total.min(stake_ceiling)',
   },
   {
     claim: 'Registering as an agent starts the heartbeat clock.',

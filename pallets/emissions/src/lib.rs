@@ -354,6 +354,24 @@ pub mod pallet {
                     AgentWeightSnapshot::<T>::insert(&agent, w);
                     total_weight = total_weight.saturating_add(w);
                     all_weights.push(w);
+                } else {
+                    // Zero weight this era means the snapshot must go, not linger.
+                    //
+                    // `do_claim` pays `(acc - debt) x weight_snapshot`. An agent that goes
+                    // dormant keeps its last non-zero snapshot while being absent from
+                    // `total_weight`, so `AccRewardPerStake` advances as if it were not
+                    // there and then pays it anyway on its next claim. Total minted for an
+                    // era becomes `emission x (1 + sum of dormant stale weights /
+                    // total_weight)` — precisely the D7 invariant this round exists to
+                    // establish, broken at the mint site rather than the accumulator. The
+                    // supply cap always held; the per-era bound did not.
+                    //
+                    // Removing it forfeits any unclaimed prior-era reward for an agent that
+                    // did nothing this era. That is the same conservative trade-off already
+                    // made on slash (`on_slashed`) and on stake increase
+                    // (`on_stake_changed`), and for the same reason: a snapshot that no
+                    // longer describes the agent must not be used to pay it.
+                    AgentWeightSnapshot::<T>::remove(&agent);
                 }
             }
 
@@ -367,11 +385,20 @@ pub mod pallet {
             // an unbounded pot divided among the few accounts that cleared the gates hands
             // whoever shows up ~917 CMN per CMN of real work.
             //
-            // The bound: an era may mint at most `alpha` times the escrow volume that era
-            // actually settled between economically independent counterparties. At the
-            // launch alpha of 1.0 the chain cannot mint more CMN than the work it measured.
-            // A ring is then bounded by its own escrow — it can recycle 60 CMN and mint at
-            // most 60 CMN, so the strategy pays for itself and stops.
+            // The bound: an era may mint at most `alpha` times the QUALIFYING escrow volume
+            // that era settled — what is left after the ring flag, the reciprocal-pair
+            // test, declared funding lineage and each provider's stake ceiling have taken
+            // their exclusions. At the launch alpha of 1.0 an era cannot mint more than
+            // that number, and #164's exact shape now qualifies for nothing at all.
+            //
+            // What this is NOT, so nobody reads it as more than it is: a solution to wash
+            // trading. The rule bounds *flow*, and flow can be recycled — a provider and an
+            // unregistered buyer can settle escrow, transfer the funds straight back where
+            // no pallet can see it, and settle again. The stake ceiling in
+            // `qualifying_volume_of` is what stops that being free: sizing the pot costs
+            // locked, slashable capital rather than a completion fee. That raises the price
+            // of the attack by orders of magnitude; it does not reduce it to zero. The
+            // residual is issue #167, written down rather than described away.
             //
             // Applied to the override path too, deliberately. `set_era_emission_override`
             // is root, and the temptation is to let root out of the rule; but then the
@@ -392,10 +419,19 @@ pub mod pallet {
                     Self::deposit_event(Event::EmissionCappedByVolume {
                         era,
                         uncapped: base_emission,
-                        qualifying_volume: qualifying_vol.try_into().unwrap_or(T::SupplyCap::get()),
+                        // Zero on a conversion failure, never the supply cap: "qualifying
+                        // volume = 100B CMN" is the most misleading value this field could
+                        // carry for an indexer auditing the bound.
+                        qualifying_volume: qualifying_vol
+                            .try_into()
+                            .unwrap_or_else(|_| Zero::zero()),
                         alpha_bps: alpha_bps as u32,
                     });
-                    vol_cap.try_into().unwrap_or(base_emission)
+                    // Falling back to `base_emission` would mean "failed to represent the
+                    // cap, so mint the UNCAPPED amount" — the wrong default for a bound.
+                    // Unreachable today (vol_cap < base_u128, and base_u128 came from a
+                    // BalanceOf<T>), but a cap that cannot be computed must mint nothing.
+                    vol_cap.try_into().unwrap_or_else(|_| Zero::zero())
                 } else {
                     base_emission
                 }

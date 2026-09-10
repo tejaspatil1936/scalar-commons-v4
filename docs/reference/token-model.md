@@ -191,8 +191,7 @@ pool = min(pool_from_agent_count,
 ```
 
 At the launch alpha of `10000` bps = **1.0x**, an era cannot mint more CMN than the
-qualifying escrow volume it settled. A ring recycling 60 CMN can mint at most 60 CMN, so
-the strategy pays for itself and stops being a strategy.
+qualifying escrow volume it settled.
 
 **Qualifying volume is not gross volume.** Escrow is excluded when:
 
@@ -201,6 +200,27 @@ the strategy pays for itself and stops being a strategy.
 | Ring-flagged provider | `CompletedAgreements > 1` and `EraUniqueBuyers ≤ 1` | The detector that already fed `EraRingSnapshot`. Until spec 306 a flag only nudged `CompletionFeeBps` by 25 bps and did nothing to payouts — which is why #164's ring was flagged and paid anyway. |
 | Payer↔worker cycle | A sold to B **and** B sold to A in the same era | Money going in a circle is not demand, in either direction. |
 | Shared funding lineage | `agents.linkFundingLineage(a, b)` has merged them | Two accounts out of one faucet drip are one economic actor. |
+| Beyond the provider's own stake | volume above `stake × agents.maxVolToStakeRatio` | See below — this is what stops the bound being priced in fees rather than capital. |
+
+::: warning What this bound does and does not do
+It bounds **flow**, and flow can be recycled. Two agents can settle escrow, transfer the
+funds straight back with a plain `balances.transfer` — which no pallet can observe, because
+`pallet_balances` exposes no transfer hook — and settle again, as many times as an era has
+blocks for. Without a further limit the only cost of manufacturing qualifying volume would
+be the completion fee, 25 bps, so a few hundred CMN would unlock a six-figure pot.
+
+Two things price that. First, **both sides of an escrow must be registered agents**
+(`escrow.createAgreement` fails with `BuyerNotAgent` otherwise), so a counterparty is never
+a free throwaway address — it costs a burned registration fee and locked stake. Second, a
+provider's qualifying volume is **capped at its own stake × `maxVolToStakeRatio`**, so
+sizing a pot costs locked, slashable capital subject to the 7-day unstake cooldown rather
+than a fee.
+
+That converts the attack from nearly free to capital-intensive. It does not make it
+impossible, and this page will not claim otherwise — the residual is
+[#167](https://github.com/tejaspatil1936/scalar-commons-v4/issues/167), written down rather
+than described away.
+:::
 
 The alpha is `autoParams.emissionVolumeAlphaBps`, stored on chain and settable by sudo or
 Track 2 governance inside bounds `0..100000` — **no runtime upgrade needed to change it,

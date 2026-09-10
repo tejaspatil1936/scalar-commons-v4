@@ -1177,6 +1177,14 @@ impl pallet_auto_params::pallet::AutoParamsProvider for AutoParamsImpl {
     fn min_score_eligible() -> u32 {
         pallet_auto_params::Pallet::<Runtime>::live_min_score_eligible()
     }
+    /// spec 306, D7. This must read STORAGE, not a constant: the whole point of alpha is
+    /// that sudo or Track 2 governance can move it — including to 0 to stop emission —
+    /// without a runtime upgrade. Wiring it to `AutoInitialEmissionVolumeAlphaBps` or
+    /// letting it fall through to a trait default would leave `set_param` writing a value
+    /// that nothing reads.
+    fn emission_volume_alpha_bps() -> u32 {
+        pallet_auto_params::Pallet::<Runtime>::live_emission_volume_alpha_bps()
+    }
     // V4: F-02 fix — run_era_rules is now called every settle_era
     fn run_era_rules(metrics: pallet_auto_params::pallet::EraMetrics) {
         pallet_auto_params::Pallet::<Runtime>::run_era_rules(metrics);

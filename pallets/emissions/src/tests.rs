@@ -32,6 +32,9 @@ impl pallet_auto_params::pallet::AutoParamsProvider for StaticParams {
     fn min_score_eligible() -> u32 {
         5
     }
+    fn emission_volume_alpha_bps() -> u32 {
+        10_000
+    }
 }
 
 frame_support::construct_runtime!(

@@ -1007,8 +1007,10 @@ fn era_pair_volume_records_who_paid_whom() {
         assert_ok!(Agents::add_era_escrow_volume(&ALICE, &51, 600));
         assert_ok!(Agents::add_era_escrow_volume(&ALICE, &50, 100));
 
-        assert_eq!(EraPairVolume::<Test>::get(ALICE, 50), 500);
-        assert_eq!(EraPairVolume::<Test>::get(ALICE, 51), 600);
+        // Value is (era, volume) — the era stamp is what makes a residue from an
+        // incomplete clear inert rather than inflationary. See EraPairVolume's docs.
+        assert_eq!(EraPairVolume::<Test>::get(ALICE, 50), (0, 500));
+        assert_eq!(EraPairVolume::<Test>::get(ALICE, 51), (0, 600));
         assert_eq!(EraEscrowVolume::<Test>::get(ALICE), 1_100);
     });
 }
@@ -1143,7 +1145,7 @@ fn drain_era_maps_clears_pair_volume_but_not_lineage() {
 
         assert_eq!(
             EraPairVolume::<Test>::get(ALICE, BOB),
-            0,
+            (0, 0),
             "pair volume is per-era"
         );
         assert!(
@@ -1226,5 +1228,117 @@ fn v2_migration_is_idempotent() {
         let _ = <Pallet<Test> as Hooks<u64>>::on_runtime_upgrade();
         assert_eq!(LastHeartbeat::<Test>::get(ALICE), 100);
         assert_eq!(StorageVersion::get::<Pallet<Test>>(), 2);
+    });
+}
+
+// ── spec 306: hardening from the tokenomics review ───────────────────────────
+
+#[test]
+fn stale_pair_volume_from_an_incomplete_clear_does_not_re_qualify() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &50, 400));
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &51, 400));
+        assert_eq!(Agents::qualifying_volume_of(&ALICE), 800);
+
+        // Simulate what an incomplete `clear(limit, None)` leaves behind: the era counters
+        // are gone, the pair entries are not. Without the era stamp these would read as
+        // fresh volume every era from here on, with no new escrow behind them —
+        // a monotonic inflation of the emission ceiling.
+        EraNumber::<Test>::put(1);
+        EraUniqueBuyers::<Test>::remove(ALICE);
+        EraEscrowVolume::<Test>::remove(ALICE);
+
+        assert_eq!(
+            Agents::qualifying_volume_of(&ALICE),
+            0,
+            "volume stamped with a past era is not this era's work"
+        );
+    });
+}
+
+#[test]
+fn qualifying_volume_is_capped_at_stake_times_the_vol_to_stake_ratio() {
+    new_test_ext().execute_with(|| {
+        // MaxVolToStakeRatio is 10 in this mock, matching the runtime.
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        // Recycle the same money through two cooperative buyers, far past what 1,000 of
+        // locked stake could plausibly service. Neither buyer is a provider, so no
+        // reciprocal edge exists and the ring flag never fires — this is the wash-trading
+        // shape that the ring and cycle rules cannot see.
+        for _ in 0..20 {
+            assert_ok!(Agents::add_era_escrow_volume(&ALICE, &50, 1_000));
+            assert_ok!(Agents::add_era_escrow_volume(&ALICE, &51, 1_000));
+        }
+        assert_eq!(EraEscrowVolume::<Test>::get(ALICE), 40_000);
+
+        assert_eq!(
+            Agents::qualifying_volume_of(&ALICE),
+            10_000,
+            "sizing the pot must cost locked capital, not just a completion fee"
+        );
+    });
+}
+
+#[test]
+fn unlink_restores_qualifying_volume_after_a_mistaken_link() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &BOB, 500));
+        assert_ok!(Agents::add_era_escrow_volume(&ALICE, &60, 400));
+
+        assert_ok!(Agents::link_funding_lineage(
+            RuntimeOrigin::root(),
+            ALICE,
+            BOB
+        ));
+        assert_eq!(Agents::qualifying_volume_of(&ALICE), 400);
+
+        // link_funding_lineage asserts an off-chain fact, and assertions can be wrong.
+        assert_ok!(Agents::unlink_funding_lineage(RuntimeOrigin::root(), BOB));
+        assert!(!Agents::same_funding_lineage(&ALICE, &BOB));
+        assert_eq!(Agents::qualifying_volume_of(&ALICE), 900);
+
+        assert_noop!(
+            Agents::unlink_funding_lineage(RuntimeOrigin::root(), BOB),
+            Error::<Test>::LineageNotLinked
+        );
+        assert_noop!(
+            Agents::unlink_funding_lineage(RuntimeOrigin::signed(ALICE), BOB),
+            sp_runtime::DispatchError::BadOrigin
+        );
+    });
+}
+
+#[test]
+fn an_unresolvable_lineage_chain_fails_closed() {
+    new_test_ext().execute_with(|| {
+        // Hand-build a parent chain longer than MAX_LINEAGE_DEPTH. Only root can create
+        // links, so this is not attacker-reachable — but a guard that degrades must
+        // degrade in the direction that pays out LESS, and under D7 "these two are
+        // unlinked" is the pay-more answer.
+        for i in 200u64..220 {
+            LineageParent::<Test>::insert(i, i + 1);
+        }
+        assert!(Agents::lineage_root(&200).is_none());
+        assert!(
+            Agents::same_funding_lineage(&200, &ALICE),
+            "an undecidable lineage walk must report linked, not unlinked"
+        );
+
+        assert_noop!(
+            Agents::link_funding_lineage(RuntimeOrigin::root(), 200, ALICE),
+            Error::<Test>::LineageTooDeep
+        );
+    });
+}
+
+#[test]
+fn linking_keeps_the_common_case_at_depth_one() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::link_funding_lineage(RuntimeOrigin::root(), 1, 2));
+        assert_eq!(LineageParent::<Test>::get(2), Some(1));
+        assert_eq!(Agents::lineage_root(&2), Some(1));
+        assert_eq!(Agents::lineage_root(&1), Some(1));
     });
 }
