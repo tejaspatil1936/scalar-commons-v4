@@ -69,6 +69,11 @@ class FakeProvider {
   connectCalls = 0;
   /** Set false to make the next `connect()` land on a node that is still down. */
   nodeUp = true;
+  /**
+   * Set true to make `connect()` resolve having opened nothing and said nothing:
+   * the half-open handshake a node that is mid-restart leaves behind.
+   */
+  stalls = false;
 
   private readonly listeners = new Map<string, Set<(value?: unknown) => unknown>>();
 
@@ -81,6 +86,11 @@ class FakeProvider {
 
   async connect(): Promise<void> {
     this.connectCalls += 1;
+    if (this.stalls) {
+      // `WsProvider.connect()` resolves when the socket is *created*, not when
+      // it opens, so an attempt can return having achieved nothing at all.
+      return;
+    }
     if (!this.nodeUp) {
       // What a refused socket looks like: the connection attempt itself is
       // accepted, then the socket closes again.
@@ -243,6 +253,73 @@ describe('ConnectionSupervisor', () => {
     supervisor.stop();
     await vi.advanceTimersByTimeAsync(60_000);
     expect(provider.connectCalls).toBe(0);
+  });
+
+  it('retries an attempt that neither connected nor reported an error', async () => {
+    // A reconnect attempt can hang: the node is mid-restart, its listener is up
+    // before its RPC server is, so the TCP connection is accepted and the
+    // websocket handshake never completes. Node's WebSocket then fires neither
+    // `error` nor `close`, and `connect()` has already resolved. Nothing is left
+    // to re-arm the retry, so the chain ends here — the 74-minute outage reached
+    // by a second route, and the one a caller cannot tell from the first.
+    const provider = new FakeProvider();
+    provider.stalls = true;
+    vi.useFakeTimers();
+    const supervisor = new ConnectionSupervisor({
+      provider,
+      endpoint: ENDPOINT,
+      policy: { initialDelayMs: 1_000, maxDelayMs: 4_000, factor: 2 },
+      logger: recordingLogger(),
+    });
+
+    provider.drop();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(provider.connectCalls, 'the first retry ran').toBe(1);
+
+    // That attempt achieved nothing and announced nothing. Within the cap the
+    // supervisor has to assume it failed and try again anyway.
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(provider.connectCalls, 'a hung attempt must not end the retry chain').toBe(2);
+
+    // And recovery still arrives on its own once a handshake completes.
+    provider.stalls = false;
+    await vi.advanceTimersByTimeAsync(4_000);
+    expect(supervisor.status().connected).toBe(true);
+    expect(supervisor.status().downtimeMs).toBeNull();
+
+    supervisor.stop();
+  });
+
+  it('recovers when the socket was already down before it was attached', async () => {
+    // The supervisor is attached only once the API is ready — after
+    // `ApiPromise.create` and the metadata reads. A drop inside that window is
+    // never announced to it, because `disconnected` and `error` both fired
+    // before it was listening. Reading the initial state without acting on it
+    // left the service down with no retry ever scheduled, reporting a null
+    // downtime and "0 reconnect attempt(s)": the silent degradation of the
+    // original outage, and the shape hardest to diagnose from a 503 body.
+    const provider = new FakeProvider();
+    provider.isConnected = false;
+    const logger = recordingLogger();
+    vi.useFakeTimers();
+    const supervisor = new ConnectionSupervisor({
+      provider,
+      endpoint: ENDPOINT,
+      policy: { initialDelayMs: 1_000, maxDelayMs: 4_000, factor: 2 },
+      logger,
+    });
+
+    const status = supervisor.status();
+    expect(status.connected).toBe(false);
+    expect(status.downtimeMs, 'a socket found down has been down for some time').not.toBeNull();
+    expect(logger.lines.join('\n')).toMatch(/lost the connection to ws:\/\/127\.0\.0\.1:9944/);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(provider.connectCalls, 'a retry must have been scheduled').toBe(1);
+    expect(supervisor.status().connected).toBe(true);
+    expect(supervisor.status().downtimeMs).toBeNull();
+
+    supervisor.stop();
   });
 });
 

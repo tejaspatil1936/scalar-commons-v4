@@ -233,6 +233,18 @@ export class ConnectionSupervisor {
       this.provider.on('disconnected', () => this.onDisconnected()),
       this.provider.on('error', (error) => this.onError(error)),
     );
+
+    // A socket that was already down when we attached will never announce
+    // itself: `disconnected` and `error` both fired before these handlers
+    // existed. Every service attaches the supervisor only once its API is
+    // ready, so a drop during that window — `ApiPromise.create`, the metadata
+    // reads — would otherwise leave the process permanently down with no retry
+    // scheduled, nothing in the journal, and a status body claiming a null
+    // downtime and zero attempts. Reconciling the initial state is what makes
+    // the startup window recoverable rather than a second way to need a human.
+    if (!this.connected) {
+      this.markDown();
+    }
   }
 
   /** Whether the socket is up right now. */
@@ -288,8 +300,19 @@ export class ConnectionSupervisor {
     if (this.stopped) {
       return;
     }
-    if (this.connected) {
-      this.connected = false;
+    this.markDown();
+  }
+
+  /**
+   * Records that the node is away, and starts trying to get it back.
+   *
+   * Shared by the `disconnected` handler and the constructor, because a socket
+   * found already down is in the same state as one seen closing: both owe the
+   * status body a downtime and the journal a line, and both need a retry armed.
+   */
+  private markDown(): void {
+    this.connected = false;
+    if (this.downSince === null) {
       this.downSince = Date.now();
       // Logged at error level, and only once per outage: this is the line the
       // 2026-09-09 report was reconstructed from, and it has to be findable
@@ -313,12 +336,12 @@ export class ConnectionSupervisor {
     this.scheduleReconnect();
   }
 
-  private scheduleReconnect(): void {
+  private scheduleReconnect(delayOverrideMs?: number): void {
     if (this.stopped || this.timer !== null || this.connected) {
       return;
     }
     const attempt = this.attempts + 1;
-    const delayMs = backoffDelayMs(attempt, this.policy);
+    const delayMs = delayOverrideMs ?? backoffDelayMs(attempt, this.policy);
     this.timer = setTimeout(() => {
       this.timer = null;
       this.attempts = attempt;
@@ -356,7 +379,30 @@ export class ConnectionSupervisor {
     } catch (error) {
       this.lastError = messageOf(error);
       this.scheduleReconnect();
+      return;
     }
+    // `connect()` resolves when the socket is *created*, not when it opens, so
+    // an attempt can return having achieved nothing. A node whose listener is
+    // up before its RPC server is — mid-restart, exactly the case this module
+    // exists for — leaves the handshake hanging, and Node's WebSocket then
+    // fires neither `error` nor `close`. With no event to re-arm from, the
+    // retry chain would end on that attempt and the service would stay down
+    // until a human restarted it. Arming a deadline is what closes that.
+    if (!this.connected) {
+      this.scheduleReconnect(this.handshakeDeadlineMs());
+    }
+  }
+
+  /**
+   * How long a connect attempt may hang before it is assumed to have failed.
+   *
+   * The backoff cap serves as the deadline: long enough that a slow but genuine
+   * handshake is never discarded out from under itself, and bounded for the
+   * same reason the backoff is — recovery must not lag the node by more than
+   * one cap, however long the outage runs.
+   */
+  private handshakeDeadlineMs(): number {
+    return { ...DEFAULT_RECONNECT_POLICY, ...this.policy }.maxDelayMs;
   }
 
   private clearTimer(): void {
