@@ -241,7 +241,8 @@ backoff, so the fix is to wait, not to restart — a `503` here that persists pa
 a minute or two means the node itself is down, which `systemctl --user status
 'scalar-*'` will confirm. The same is true of `faucet.<DOMAIN>/health`, and the
 explorer serves a `503` degraded page. Before issue #155 all three stayed
-`active (running)` and returned `500` indefinitely after any node restart.
+`active (running)` indefinitely after any node restart — the faucet and the
+indexer answering `500`, the explorer `502`.
 
 ---
 
