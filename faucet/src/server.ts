@@ -246,6 +246,21 @@ export function createFaucetServer(options: FaucetServerOptions): Server {
   }
 
   async function handleDrip(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    // Asked before the body is read and before the rate limiter is touched, for
+    // the same reason `/health` asks first: while the socket is down the drip
+    // cannot be attempted at all. Refusing here also keeps an outage from
+    // spending the caller's one allowance on a drip they never received.
+    //
+    // Without this the solvency guard's chain read throws, `drip()` converts
+    // that into `TRANSFER_FAILED`, and the faucet's primary route answers `502`
+    // — "the transfer was tried and refused" — while every other chain-backed
+    // route answers `503`. One outage, two stories, and 502 is the wrong one.
+    const connection = faucet.connection();
+    if (!connection.connected) {
+      sendUnavailable(res, connection);
+      return;
+    }
+
     let body: unknown;
     try {
       body = await readJsonBody(req, maxBodyBytes);
@@ -274,6 +289,19 @@ export function createFaucetServer(options: FaucetServerOptions): Server {
         txHash: result.txHash,
       });
       return;
+    }
+
+    if (result.code === 'TRANSFER_FAILED') {
+      // The socket can still close with the extrinsic in flight, after the
+      // pre-check above has already passed. The connection is re-read rather
+      // than the error text pattern-matched: a transfer the chain genuinely
+      // refused stays a 502, but one that failed because the node went away is
+      // the same 503 as every other route reports.
+      const current = faucet.connection();
+      if (!current.connected) {
+        sendUnavailable(res, current);
+        return;
+      }
     }
 
     const headers: Record<string, string> = {};

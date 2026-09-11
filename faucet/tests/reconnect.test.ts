@@ -429,15 +429,25 @@ const FAUCET_ADDRESS = '5CiPPseXPECbkjWCa6MnjNokrgYjMqmKndv2rSnekmSK2DjL';
  * A chain client whose socket can be dropped, wired the way the live one is:
  * every chain read fails with the polkadot-js message while it is down.
  */
-function fakeChain(): ChainClient & { setConnected: (connected: boolean) => void } {
+function fakeChain(): ChainClient & {
+  setConnected: (connected: boolean) => void;
+  dropOnNextTransfer: () => void;
+} {
   let connected = true;
   let downSince: number | null = null;
   let attempts = 0;
+  let dropsOnTransfer = false;
 
   const requireSocket = () => {
     if (!connected) {
       throw new Error('WebSocket is not connected\nFailed WS Request: {"method":"state_getStorage"}');
     }
+  };
+
+  const markDown = () => {
+    connected = false;
+    downSince = Date.now();
+    attempts = 12;
   };
 
   return {
@@ -450,6 +460,14 @@ function fakeChain(): ChainClient & { setConnected: (connected: boolean) => void
     },
     async transfer(): Promise<TransferReceipt> {
       requireSocket();
+      if (dropsOnTransfer) {
+        // The socket closes with the extrinsic already in flight: every guard
+        // passed against a live node, and the failure is still "no node".
+        markDown();
+        throw new Error(
+          'WebSocket is not connected\nFailed WS Request: {"method":"author_submitAndWatchExtrinsic"}',
+        );
+      }
       return { blockHash: `0x${'11'.repeat(32)}`, txHash: `0x${'22'.repeat(32)}` };
     },
     connection: (): ConnectionStatus => ({
@@ -463,9 +481,17 @@ function fakeChain(): ChainClient & { setConnected: (connected: boolean) => void
       /* nothing to close */
     },
     setConnected(next: boolean): void {
-      connected = next;
-      downSince = next ? null : Date.now();
-      attempts = next ? 0 : 12;
+      if (!next) {
+        markDown();
+        return;
+      }
+      connected = true;
+      downSince = null;
+      attempts = 0;
+      dropsOnTransfer = false;
+    },
+    dropOnNextTransfer(): void {
+      dropsOnTransfer = true;
     },
   };
 }
@@ -557,6 +583,77 @@ describe('GET /health while the node socket is down', () => {
       h.chain.setConnected(false);
       const response = await fetch(`${h.url}/balance/${FAUCET_ADDRESS}`);
       const body = (await response.json()) as Record<string, unknown>;
+      expect(response.status).toBe(503);
+      expect(body.code).toBe('CHAIN_DISCONNECTED');
+    } finally {
+      await h.close();
+    }
+  });
+});
+
+/** Any valid SS58 address a drip can be addressed to. */
+const RECIPIENT = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
+
+function drip(url: string, address: string) {
+  return fetch(`${url}/drip`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ address }),
+  });
+}
+
+describe('POST /drip while the node socket is down', () => {
+  it('answers 503, not the 502 that a rejected transfer gets', async () => {
+    const h = await httpHarness();
+    try {
+      h.chain.setConnected(false);
+      const response = await drip(h.url, RECIPIENT);
+      const body = (await response.json()) as Record<string, unknown>;
+
+      // A drip that could not even be attempted, because the node is absent, is
+      // the same condition `/health` reports as 503. Reporting it as
+      // `502 TRANSFER_FAILED` says the transfer was tried and the chain refused
+      // it — a different thing to be paged about, and the one case that would
+      // make faucet/README.md's "every chain-backed route answers 503" false on
+      // the faucet's primary route.
+      expect(response.status).toBe(503);
+      expect(body.code).toBe('CHAIN_DISCONNECTED');
+      expect(String(body.error)).toContain(ENDPOINT);
+      expect(response.headers.get('retry-after')).toBeTruthy();
+    } finally {
+      await h.close();
+    }
+  });
+
+  it('leaves the allowance unspent, since the caller never got their CMN', async () => {
+    const h = await httpHarness();
+    try {
+      h.chain.setConnected(false);
+      expect((await drip(h.url, RECIPIENT)).status).toBe(503);
+
+      // The per-address budget in this harness is exactly one drip, and an
+      // outage must not be the thing that consumes it: nothing was dispensed,
+      // so once the node is back the same address is still owed its drip.
+      h.chain.setConnected(true);
+      const response = await drip(h.url, RECIPIENT);
+      expect(response.status).toBe(200);
+      expect(((await response.json()) as Record<string, unknown>).ok).toBe(true);
+    } finally {
+      await h.close();
+    }
+  });
+
+  it('answers 503 when the socket drops with the transfer already in flight', async () => {
+    const h = await httpHarness();
+    try {
+      // Every guard passes against a live node, then the socket closes while the
+      // extrinsic is in flight.
+      h.chain.dropOnNextTransfer();
+      const response = await drip(h.url, RECIPIENT);
+      const body = (await response.json()) as Record<string, unknown>;
+
+      // Which side of the drop a request landed on is not the caller's problem:
+      // both orderings are "the node went away", so both are 503.
       expect(response.status).toBe(503);
       expect(body.code).toBe('CHAIN_DISCONNECTED');
     } finally {
