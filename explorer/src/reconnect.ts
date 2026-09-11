@@ -40,12 +40,27 @@ export interface ReconnectPolicy {
   readonly maxDelayMs: number;
   /** Multiplier applied per attempt. */
   readonly factor: number;
+  /**
+   * How long a connect attempt may be in flight before it is assumed to have
+   * hung.
+   *
+   * Deliberately *not* the backoff cap. The retry interval answers "how often
+   * should we try a node that is down"; this answers "how long can a handshake
+   * legitimately take", and they have no reason to agree. Tying them together
+   * means any node whose handshake outlasts the retry interval has every
+   * attempt killed a fraction of the way through and a new one started — a
+   * livelock against a node that is merely slow, which is a worse failure than
+   * the outage being recovered from. Generous on purpose: the cost of waiting
+   * too long is a late recovery, the cost of waiting too little is no recovery.
+   */
+  readonly handshakeTimeoutMs: number;
 }
 
 export const DEFAULT_RECONNECT_POLICY: ReconnectPolicy = {
   initialDelayMs: 1_000,
   maxDelayMs: 30_000,
   factor: 2,
+  handshakeTimeoutMs: 30_000,
 };
 
 /**
@@ -213,6 +228,16 @@ export class ConnectionSupervisor {
   private readonly unsubscribers: (() => void)[] = [];
 
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * The handshake deadline, held apart from the retry timer on purpose.
+   *
+   * If one timer served both, the deadline armed when `connect()` resolves
+   * would occupy the slot, and the transport's own `error` — which a real
+   * `WsProvider` reports *after* `connect()` has resolved — would find a timer
+   * already set and schedule nothing. Every retry would then land on the
+   * deadline rather than on the backoff, and the ramp would be dead.
+   */
+  private deadlineTimer: ReturnType<typeof setTimeout> | null = null;
   private connected: boolean;
   private downSince: number | null = null;
   private attempts = 0;
@@ -243,7 +268,14 @@ export class ConnectionSupervisor {
     // downtime and zero attempts. Reconciling the initial state is what makes
     // the startup window recoverable rather than a second way to need a human.
     if (!this.connected) {
-      this.markDown();
+      // Said differently from a loss this supervisor watched happen: it did not
+      // see this socket close and must not claim it did. An operator reading
+      // the journal needs to know the difference between "the node went away"
+      // and "the node was already away when we started looking".
+      this.markDown(
+        `${this.label} found the node at ${this.endpoint} already down ` +
+          `(no socket was open when supervision began)`,
+      );
     }
   }
 
@@ -266,6 +298,7 @@ export class ConnectionSupervisor {
   stop(): void {
     this.stopped = true;
     this.clearTimer();
+    this.clearDeadline();
     for (const unsubscribe of this.unsubscribers.splice(0)) {
       unsubscribe();
     }
@@ -276,6 +309,7 @@ export class ConnectionSupervisor {
       return;
     }
     this.clearTimer();
+    this.clearDeadline();
     const downtimeMs = this.downSince === null ? null : Date.now() - this.downSince;
     const attempts = this.attempts;
 
@@ -300,7 +334,9 @@ export class ConnectionSupervisor {
     if (this.stopped) {
       return;
     }
-    this.markDown();
+    this.markDown(
+      `${this.label} lost the connection to ${this.endpoint}: ${this.lastError ?? 'socket closed'}`,
+    );
   }
 
   /**
@@ -309,17 +345,16 @@ export class ConnectionSupervisor {
    * Shared by the `disconnected` handler and the constructor, because a socket
    * found already down is in the same state as one seen closing: both owe the
    * status body a downtime and the journal a line, and both need a retry armed.
+   * They do not owe the journal the *same* line, so the caller supplies it.
    */
-  private markDown(): void {
+  private markDown(message: string): void {
     this.connected = false;
     if (this.downSince === null) {
       this.downSince = Date.now();
       // Logged at error level, and only once per outage: this is the line the
       // 2026-09-09 report was reconstructed from, and it has to be findable
       // without being repeated for every retry.
-      this.logger.error(
-        `${this.label} lost the connection to ${this.endpoint}: ${this.lastError ?? 'socket closed'}`,
-      );
+      this.logger.error(message);
     }
     this.scheduleReconnect();
   }
@@ -336,12 +371,15 @@ export class ConnectionSupervisor {
     this.scheduleReconnect();
   }
 
-  private scheduleReconnect(delayOverrideMs?: number): void {
+  private scheduleReconnect(): void {
     if (this.stopped || this.timer !== null || this.connected) {
       return;
     }
+    // A retry is now scheduled on the backoff, so a deadline still counting
+    // down on the attempt that just failed has nothing left to guard.
+    this.clearDeadline();
     const attempt = this.attempts + 1;
-    const delayMs = delayOverrideMs ?? backoffDelayMs(attempt, this.policy);
+    const delayMs = backoffDelayMs(attempt, this.policy);
     this.timer = setTimeout(() => {
       this.timer = null;
       this.attempts = attempt;
@@ -389,20 +427,37 @@ export class ConnectionSupervisor {
     // retry chain would end on that attempt and the service would stay down
     // until a human restarted it. Arming a deadline is what closes that.
     if (!this.connected) {
-      this.scheduleReconnect(this.handshakeDeadlineMs());
+      this.armHandshakeDeadline();
     }
   }
 
   /**
-   * How long a connect attempt may hang before it is assumed to have failed.
+   * Gives the attempt in flight a bounded time to open, and retries if it does
+   * not.
    *
-   * The backoff cap serves as the deadline: long enough that a slow but genuine
-   * handshake is never discarded out from under itself, and bounded for the
-   * same reason the backoff is — recovery must not lag the node by more than
-   * one cap, however long the outage runs.
+   * Skipped when a retry is already scheduled: the transport reported the
+   * failure itself, which is better evidence than a timeout, and the backoff is
+   * where that retry belongs.
    */
-  private handshakeDeadlineMs(): number {
-    return { ...DEFAULT_RECONNECT_POLICY, ...this.policy }.maxDelayMs;
+  private armHandshakeDeadline(): void {
+    if (this.stopped || this.connected || this.deadlineTimer !== null || this.timer !== null) {
+      return;
+    }
+    const { handshakeTimeoutMs } = { ...DEFAULT_RECONNECT_POLICY, ...this.policy };
+    this.deadlineTimer = setTimeout(() => {
+      this.deadlineTimer = null;
+      if (!this.connected) {
+        this.scheduleReconnect();
+      }
+    }, handshakeTimeoutMs);
+    this.deadlineTimer.unref?.();
+  }
+
+  private clearDeadline(): void {
+    if (this.deadlineTimer !== null) {
+      clearTimeout(this.deadlineTimer);
+      this.deadlineTimer = null;
+    }
   }
 
   private clearTimer(): void {

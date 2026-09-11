@@ -74,6 +74,17 @@ class FakeProvider {
    * the half-open handshake a node that is mid-restart leaves behind.
    */
   stalls = false;
+  /**
+   * How long a healthy handshake takes to finish after `connect()` resolves.
+   * Zero means the socket is already open when it returns.
+   */
+  handshakeMs = 0;
+  /**
+   * Set true to report a failure the way `WsProvider` does — after `connect()`
+   * has resolved, on a later turn of the event loop, rather than before it
+   * returns.
+   */
+  asyncFailure = false;
 
   private readonly listeners = new Map<string, Set<(value?: unknown) => unknown>>();
 
@@ -92,10 +103,26 @@ class FakeProvider {
       return;
     }
     if (!this.nodeUp) {
+      const reason = 'connect ECONNREFUSED 127.0.0.1:9944';
+      if (this.asyncFailure) {
+        setTimeout(() => {
+          this.emit('error', new Error(reason));
+          this.drop(reason);
+        }, 0);
+        return;
+      }
       // What a refused socket looks like: the connection attempt itself is
       // accepted, then the socket closes again.
-      this.emit('error', new Error('connect ECONNREFUSED 127.0.0.1:9944'));
-      this.drop('connect ECONNREFUSED 127.0.0.1:9944');
+      this.emit('error', new Error(reason));
+      this.drop(reason);
+      return;
+    }
+    if (this.handshakeMs > 0) {
+      // A healthy node that is simply slow to finish the upgrade.
+      setTimeout(() => {
+        this.isConnected = true;
+        this.emit('connected');
+      }, this.handshakeMs);
       return;
     }
     this.isConnected = true;
@@ -268,7 +295,7 @@ describe('ConnectionSupervisor', () => {
     const supervisor = new ConnectionSupervisor({
       provider,
       endpoint: ENDPOINT,
-      policy: { initialDelayMs: 1_000, maxDelayMs: 4_000, factor: 2 },
+      policy: { initialDelayMs: 1_000, maxDelayMs: 4_000, factor: 2, handshakeTimeoutMs: 2_000 },
       logger: recordingLogger(),
     });
 
@@ -276,14 +303,16 @@ describe('ConnectionSupervisor', () => {
     await vi.advanceTimersByTimeAsync(1_000);
     expect(provider.connectCalls, 'the first retry ran').toBe(1);
 
-    // That attempt achieved nothing and announced nothing. Within the cap the
-    // supervisor has to assume it failed and try again anyway.
-    await vi.advanceTimersByTimeAsync(4_000);
+    // That attempt achieved nothing and announced nothing, so only the deadline
+    // can notice it — and the retry it triggers still lands on the backoff.
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(provider.connectCalls, 'the deadline expiring is not itself a retry').toBe(1);
+    await vi.advanceTimersByTimeAsync(2_000);
     expect(provider.connectCalls, 'a hung attempt must not end the retry chain').toBe(2);
 
     // And recovery still arrives on its own once a handshake completes.
     provider.stalls = false;
-    await vi.advanceTimersByTimeAsync(4_000);
+    await vi.advanceTimersByTimeAsync(2_000 + 4_000);
     expect(supervisor.status().connected).toBe(true);
     expect(supervisor.status().downtimeMs).toBeNull();
 
@@ -312,12 +341,77 @@ describe('ConnectionSupervisor', () => {
     const status = supervisor.status();
     expect(status.connected).toBe(false);
     expect(status.downtimeMs, 'a socket found down has been down for some time').not.toBeNull();
-    expect(logger.lines.join('\n')).toMatch(/lost the connection to ws:\/\/127\.0\.0\.1:9944/);
+    // Reported as what it is. This supervisor did not watch the socket close,
+    // so claiming it saw a loss would put a fiction in the journal.
+    expect(logger.lines.join('\n')).toMatch(/found the node at ws:\/\/127\.0\.0\.1:9944 already down/);
 
     await vi.advanceTimersByTimeAsync(1_000);
     expect(provider.connectCalls, 'a retry must have been scheduled').toBe(1);
     expect(supervisor.status().connected).toBe(true);
     expect(supervisor.status().downtimeMs).toBeNull();
+
+    supervisor.stop();
+  });
+
+  it('lets a slow handshake finish instead of killing it and starting over', async () => {
+    // A handshake slower than the retry interval is still a healthy handshake.
+    // Deriving the deadline from the backoff cap made every attempt destroy a
+    // connection that was about to succeed and start another — a livelock
+    // against a node that was merely slow, which is a worse failure than the
+    // outage being recovered from, and one that recovers on no timescale at all.
+    const provider = new FakeProvider();
+    provider.handshakeMs = 400;
+    vi.useFakeTimers();
+    const supervisor = new ConnectionSupervisor({
+      provider,
+      endpoint: ENDPOINT,
+      policy: { initialDelayMs: 100, maxDelayMs: 100, factor: 2, handshakeTimeoutMs: 30_000 },
+      logger: recordingLogger(),
+    });
+
+    provider.drop();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(provider.connectCalls, 'the retry ran').toBe(1);
+
+    // Four retry intervals pass while that handshake is still in flight.
+    await vi.advanceTimersByTimeAsync(400);
+    expect(supervisor.status().connected).toBe(true);
+    expect(provider.connectCalls, 'a handshake in flight must not be restarted').toBe(1);
+
+    supervisor.stop();
+  });
+
+  it('keeps the backoff ramp when the failure arrives after connect() resolves', async () => {
+    // `WsProvider` resolves `connect()` and reports the failure afterwards. If
+    // the handshake deadline took the one retry slot, the `error` that follows
+    // would find a timer already set and schedule nothing, so every retry would
+    // land on the deadline instead of the backoff: a node down for five seconds
+    // would be found a full cap late, every time.
+    const provider = new FakeProvider();
+    provider.nodeUp = false;
+    provider.asyncFailure = true;
+    vi.useFakeTimers();
+    const supervisor = new ConnectionSupervisor({
+      provider,
+      endpoint: ENDPOINT,
+      policy: { initialDelayMs: 1_000, maxDelayMs: 8_000, factor: 2, handshakeTimeoutMs: 30_000 },
+      logger: recordingLogger(),
+    });
+
+    provider.drop();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(provider.connectCalls, 'first retry after 1s').toBe(1);
+
+    // The failure lands after `connect()` has already resolved. The next retry
+    // must still be one backoff step away (2s) and not a cap away (8s), so a
+    // window comfortably between the two tells the ramp from the collapse
+    // without depending on which tick the asynchronous failure lands in.
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(provider.connectCalls, 'second retry is a step away, not a cap away').toBe(2);
+
+    // The step after that is 4s, still short of the cap.
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(provider.connectCalls, 'the ramp is intact').toBe(3);
 
     supervisor.stop();
   });
@@ -400,6 +494,10 @@ describe('a real websocket close', () => {
     // loops on one socket race each other.
     const provider = new WsProvider(endpoint, false);
     const logger = recordingLogger();
+    // Connected first, then supervised — the order all three services use, and
+    // the one that leaves the journal silent until something actually breaks.
+    await provider.connect();
+    await until(() => provider.isConnected);
     const supervisor = new ConnectionSupervisor({
       provider,
       endpoint,
@@ -409,8 +507,7 @@ describe('a real websocket close', () => {
     });
 
     try {
-      await provider.connect();
-      await until(() => supervisor.status().connected);
+      expect(logger.lines, 'attaching to a healthy socket says nothing').toEqual([]);
 
       // The node goes away exactly as Alice did: no close frame, code 1006.
       node.killConnections();
@@ -451,6 +548,8 @@ describe('a real websocket close', () => {
 
     const provider = new WsProvider(endpoint, false);
     const logger = recordingLogger();
+    await provider.connect();
+    await until(() => provider.isConnected);
     const supervisor = new ConnectionSupervisor({
       provider,
       endpoint,
@@ -459,8 +558,7 @@ describe('a real websocket close', () => {
     });
 
     try {
-      await provider.connect();
-      await until(() => supervisor.status().connected);
+      expect(logger.lines, 'attaching to a healthy socket says nothing').toEqual([]);
 
       // The node goes away completely: listener closed, further connects refused.
       await node.close();
