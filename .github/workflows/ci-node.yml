@@ -166,8 +166,8 @@ jobs:
   # from a genesis-endowed account and asserts the balance moved on chain; its
   # own header states it is deliberately NOT skippable, because "an unreachable
   # node is a blocking finding". That is the right call for a devnet gate and
-  # the wrong one for a hosted runner with no chain, so CI selects the two
-  # offline files by path instead.
+  # the wrong one for a hosted runner with no chain, so CI selects the offline
+  # files by path instead.
   #
   # The file is NOT deleted, NOT skipped, and NOT modified. `npm test` with no
   # arguments still runs all 55 tests, and that is still the gate a human or the
@@ -199,7 +199,7 @@ jobs:
       - name: npm test (offline suites only — see header)
         if: needs.changes.outputs.faucet == 'true'
         working-directory: faucet
-        run: npm test -- tests/amount.test.ts tests/rateLimiter.test.ts
+        run: npm test -- tests/amount.test.ts tests/rateLimiter.test.ts tests/reconnect.test.ts
       - name: Not selected
         if: needs.changes.outputs.faucet != 'true'
         run: echo "faucet/ unchanged — nothing to check."
