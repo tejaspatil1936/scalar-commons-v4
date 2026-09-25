@@ -6,7 +6,10 @@ public chain spec, the public RPC for every signed transaction, a stash funded b
 faucet — and every output block is real, captured on **spec 306** from block **#750 660**
 onwards.
 
-<!-- election-banner -->
+::: tip Proven, not promised
+The outside validator built for this page was **elected in staking era 71** and authored
+finalized blocks **#766 726, #766 737, #766 742 and #766 743** — see [§7](./run-a-validator#_7-wait-for-the-election-and-prove-it).
+:::
 
 ::: danger Read this first — validators on this network are unpaid
 
@@ -361,7 +364,53 @@ no reason to wait: bond, set keys and validate back to back.
 
 ## 7. Wait for the election, and prove it
 
-<!-- election-section -->
+Intent is not membership. The set is chosen by an on-chain Phragmén election **at the start
+of the last session of each staking era**, and the winners take their seats **one session
+later**, when the next era begins. So after `validate` you wait for one election and one
+session: between ~3 and ~21 hours, depending on where in the ~18-hour era you declare.
+
+Watched over the public RPC, from `validate` at #754 123:
+
+```json
+{"at":"2026-09-25T20:20:23Z","result":"ELECTED","era":71,"block":764926,"electedCount":6,
+ "overview":{"total":999999999999712,"own":999999999999712,"nominatorCount":0,"pageCount":0}}
+{"at":"2026-09-25T23:19:29Z","result":"ACTIVE","block":766717,"activeEra":71,"session":426,"setSize":6,
+ "set":["5Ck5SLSH…zEAPT","5FADXQga…xZjmpe","5FCfAonR…LFE7n","5GNJqTPy…xiZY","5HKPmK9G…u4ns8","5HpG9w8E…qUsSWFc"]}
+{"at":"2026-09-25T23:20:18Z","result":"AUTHORED","block":766726,"hash":"0xcfee085a52a6e54218d407508ebd2bda2b2c764b3d7d9082975fd4a101b8a6da"}
+{"at":"2026-09-25T23:21:24Z","result":"AUTHORED","block":766737}
+{"at":"2026-09-25T23:21:54Z","result":"AUTHORED","block":766742,"hash":"0xad4ff36c347de6e169572645db8b20b49737b368818b83117f9458e5d57e86cd"}
+{"at":"2026-09-25T23:22:00Z","result":"AUTHORED","block":766743,"hash":"0x46b58d4e9f33779a1a6e0c94171ab2d8755a00692f790e037fe0e51092e623ef"}
+```
+
+- **Elected** for era 71 in the election at block #764 926 — six winners for seven seats: the
+  five operator validators and this one. (The exposure reads 999.999999999712 CMN, not 1 000:
+  stake is converted to a `u64` vote weight for the election, and the conversion rounds.)
+- **Active** from #766 717, the first block of session 426, era 71.
+- **First authored block #766 726**, nine blocks in. Authorship read independently from each
+  block's BABE pre-digest at the finalized hash — `authorityIndex 1` in the session's validator
+  list is `5FADXQga…xZjmpe`:
+
+```text
+766726 0xcfee085a…a6da author 5FADXQgabx5SaZg43YwZs3Q3XMfMUENvW49gW1Vjx1xZjmpe babe SecondaryPlain finalized
+766737 0x4beac836…cecc4 author 5FADXQgabx5SaZg43YwZs3Q3XMfMUENvW49gW1Vjx1xZjmpe babe Primary        finalized
+766742 0xad4ff36c…86cd author 5FADXQgabx5SaZg43YwZs3Q3XMfMUENvW49gW1Vjx1xZjmpe babe SecondaryPlain finalized
+766743 0x46b58d4e…23ef author 5FADXQgabx5SaZg43YwZs3Q3XMfMUENvW49gW1Vjx1xZjmpe babe SecondaryPlain finalized
+```
+
+The node's own log shows the other side of it:
+
+```text
+🎁 Prepared block for proposing at 766726 (1 ms) hash: 0x4030c5c5…022a; extrinsics_count: 1
+🔖 Pre-sealed block for proposal at 766726. Hash now 0xcfee085a52a6e54218d407508ebd2bda2b2c764b3d7d9082975fd4a101b8a6da
+```
+
+It also proposed a block at #766 724 that lost the fork race — the canonical #766 724 is
+`0x50fd02f6…8112`, not its `0x76081a9c…9a6e`. That is ordinary BABE behaviour when a secondary
+slot and a primary slot collide, not a fault.
+
+The explorer serves each of these blocks, e.g. <https://explorer.scalarnet.io/block/766726>,
+but its block page does not show the author; use the pre-digest check above, or
+`api.derive.chain.getHeader(hash).author`.
 
 ## Operating it
 
@@ -432,4 +481,18 @@ the old chain; your node's database belongs to a chain that no longer exists.
 
 ## What this walkthrough found
 
-<!-- findings -->
+Everything above worked end to end from outside: release download and checksum, sync over the
+public bootnodes, keys, bond, intent, election, authoring, finality, chill. These are the places
+where it worked only because the walkthrough already knew something, or where it could not be
+fully verified.
+
+| # | Finding | Where |
+|---|---|---|
+| 1 | **Validators are unpaid.** `EraPayout = ()`, fees burned, slashing to Treasury, 28-era exit. Negative expected value for an outside operator. | [#172](https://github.com/tejaspatil1936/scalar-commons-v4/issues/172) (`tier:T0`) |
+| 2 | A first start with `--validator` crash-loops on `NetworkKeyNotFound` until `key generate-node-key` is run, and that command writes the key **mode 664**. | §3 |
+| 3 | `--rpc-methods safe` refuses `author_rotateKeys` **on loopback too**, so key rotation needs a temporary switch to `unsafe` and two restarts. | §5 |
+| 4 | The bond is a staking *hold* (`reserved`), not a lock (`frozen`); tools and docs that look for a lock will report the stake as missing. | §6 |
+| 5 | The explorer's block page does not show the block author, so "did my validator author this?" needs the RPC. | §7 |
+| 6 | **Inbound p2p reachability of the test validator was not verified.** It ran on the operator's host, whose firewall rules are root-only, so whether TCP 30338 was reachable from outside is unknown. It dialled out to all five bootnodes, was elected, authored and finalized regardless. Open your p2p port anyway: with only outbound connections you depend on peers you dial. | §1 |
+| 7 | The chain spec sets no `protocolId` (the node falls back to `"sup"`) and still names the chain `Scalar Commons Local Testnet`, `chainType: Local`. | §4 |
+| 8 | Blocks run slightly slower than the nominal 6 s, so era boundaries arrive a few minutes to an hour later than `blocks × 6 s` predicts. Watch `session.currentIndex`, not the clock. | §7 |
