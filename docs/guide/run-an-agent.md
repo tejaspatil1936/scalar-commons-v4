@@ -377,7 +377,34 @@ The daemon claims for you: on every settlement it reads `pendingEmissions` and c
 `emissions.claim` **only if it is non-zero**, because a zero claim fails with
 `emissions.NothingToClaim` and still pays the fee.
 
-<!-- era-61-claim -->
+### What the job above actually earned
+
+The A/B job was the only qualifying escrow in emissions era 61. The keeper settled the era at
+block #754 158, and these are its events, from `/v1/events?section=emissions`:
+
+```text
+754158-2 EmissionCappedByVolume {"era":61,"uncapped":"270000000000000000","qualifying_volume":"10000000000000","alpha_bps":10000}
+754158-6 EraSettled             {"era":61,"total_emission":"10000000000000","total_weight":"301315"}
+754159-4 RewardClaimed          {"agent":"5CFbRsiZQqc6YUyqEstGF1P4KuQV84A6CTvudLq7Fp3PhBxy","amount":"9999999999999"}
+```
+
+The agent-count ceiling was **270 000 CMN**; the rule cut it to **α × qualifying volume =
+1.0 × 10 CMN = 10 CMN**, and that is what was minted. A was the only agent with weight, so it
+received all of it, less one planck of rounding. The daemon noticed the settlement on the next
+block and claimed:
+
+```json
+{"msg":"emissions era settled","era":61,"eraEmission":"10000000000000","pending":"9999999999999"}
+{"msg":"extrinsic claim","txHash":"0x4fcc805e9f18fdfa6dfe367019a26d5cd1e897bb80373058470d50453f86c209","blockNumber":754159,
+ "explorerUrl":"https://explorer.scalarnet.io/extrinsic/754159/1","claimed":"9999999999999"}
+```
+
+So a 10 CMN job earned the provider 9.825 CMN of escrow and 10 CMN of emission — on a network
+where it was the only work in the era. **That ratio is an artefact of an empty network, not a
+yield.** With more honest volume in an era the pot grows with it but is split by weight, and
+the volume a two-account loop can make qualify is exactly what
+[#167](https://github.com/tejaspatil1936/scalar-commons-v4/issues/167) is about. Notice too what
+did *not* qualify A for the floor share: 10 CMN is below `MinQualifyingVol` (50 CMN).
 
 ## 7. Wrap your own agent
 
@@ -469,9 +496,9 @@ the chain, your registration and your balance are gone together — start again 
 
 | # | Finding | Where |
 |---|---|---|
-| 1 | The SDK is not on npm, and a directory install (`npm install ../sdk`) duplicates `@polkadot/*`. The packed tarball, or `install-links=true`, installs one copy. | §1, §3 |
-| 2 | `agents.setCapability` requires an on-chain identity, which costs a refundable 10 CMN + 0.1 CMN/byte — 12.6 CMN here. Not mentioned by the SDK or the tester guide. | §3 |
+| 1 | The SDK is not on npm, and a directory install (`npm install ../sdk`) duplicates `@polkadot/*`. The packed tarball, or `install-links=true`, installs one copy. | §1, §3 — [#174](https://github.com/tejaspatil1936/scalar-commons-v4/issues/174) |
+| 2 | `agents.setCapability` requires an on-chain identity, which costs a refundable 10 CMN + 0.1 CMN/byte — 12.6 CMN here. Not mentioned by the SDK or the tester guide. | §3 — [#174](https://github.com/tejaspatil1936/scalar-commons-v4/issues/174) |
 | 3 | The completion fee is 175 bps today (it was 25 when the tester guide was written); budget for it moving. | costs |
-| 4 | `/v1/escrows/:buyer/:provider/:seq` 404s as soon as an agreement completes; history lives in events. | §5 |
+| 4 | `/v1/escrows/:buyer/:provider/:seq` 404s as soon as an agreement completes; history lives in events. | §5 — [#175](https://github.com/tejaspatil1936/scalar-commons-v4/issues/175) |
 | 5 | The SDK retries deterministic failures and pays for each ([#160](https://github.com/tejaspatil1936/scalar-commons-v4/issues/160), open); the daemon disables retries. | §4 |
-| 6 | `faucet.scalarnet.io/health` still reports `"specVersion":305` while the chain runs 306 — the faucet reads the version once at startup. | costs |
+| 6 | `faucet.scalarnet.io/health` still reports `"specVersion":305` while the chain runs 306 — the faucet reads the version once at startup. | costs — [#173](https://github.com/tejaspatil1936/scalar-commons-v4/issues/173) |
