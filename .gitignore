@@ -5,3 +5,6 @@ Cargo.lock.bak
 .idea/
 .vscode/
 *.swp
+
+# Local agent configuration may hold a seed (README-MATTY.md) — never commit it.
+.env

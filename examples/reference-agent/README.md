@@ -48,6 +48,7 @@ The seed is only ever read from a 0600 file; `SCALAR_SEED` in the environment is
 | `src/worker.ts` | **the part you replace** — does the job, returns the delivery hash |
 | `src/agent.ts` | the daemon loop |
 | `src/buyer.ts` | `scalar-buyer register \| hire \| wait \| confirm` — the other side, for testing |
+| `src/onboard.ts` | `check \| faucet \| register --yes \| heartbeat \| verify \| demo` — first contact, one explicit step at a time (driven by `scripts/run-matty-agent.sh`, see `README-MATTY.md`) |
 | `src/wrap-example.ts` | the minimal "wrap your own agent" integration from the guide, compiled |
 | `deploy/` | env example and systemd user unit |
 
