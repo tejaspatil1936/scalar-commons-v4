@@ -799,7 +799,7 @@ type Sub = ([u8; 32], [u8; 32], u32);
 /// constructed, and an over-cap SCALE payload fails to decode (an error path,
 /// not a panic in the runtime).
 #[test]
-fn batch_submit_response_over_cap_returns_error() {
+fn e25_batch_over_cap_error_path_events_and_storage() {
     let over: Vec<Sub> = (0..21u8).map(|i| ([i; 32], [i; 32], 0)).collect();
     assert!(frame_support::BoundedVec::<Sub, ConstU32<20>>::try_from(over.clone()).is_err());
     assert!(
@@ -908,6 +908,90 @@ fn self_vote_today_is_counted_characterisation() {
             id: q_hash(),
             agent: ALICE
         }));
+    });
+}
+
+#[test]
+fn batch_submit_response_over_cap_rejected_before_dispatch() {
+    use frame_support::traits::Get;
+    use parity_scale_codec::{Decode, Encode};
+    // The batch parameter is `BoundedVec<_, MaxBatchSubmissions>` (20 in the mock), so an
+    // over-cap batch cannot be built in-runtime, and SCALE decoding of an over-cap extrinsic
+    // fails before dispatch: the extrinsic is rejected as undecodable, not a runtime panic.
+    let cap = <<Test as crate::Config>::MaxBatchSubmissions as Get<u32>>::get() as usize;
+    let over: Vec<([u8; 32], [u8; 32], u32)> = vec![([1u8; 32], [2u8; 32], 0); cap + 1];
+    assert!(
+        frame_support::BoundedVec::<_, <Test as crate::Config>::MaxBatchSubmissions>::try_from(
+            over.clone()
+        )
+        .is_err()
+    );
+    let encoded = over.encode();
+    assert!(frame_support::BoundedVec::<
+        ([u8; 32], [u8; 32], u32),
+        <Test as crate::Config>::MaxBatchSubmissions,
+    >::decode(&mut &encoded[..])
+    .is_err());
+}
+
+#[test]
+fn batch_submit_response_over_cap_returns_error() {
+    use frame_support::traits::Get;
+    new_test_ext().execute_with(|| {
+        frame_system::Pallet::<Test>::set_block_number(1); // events are not recorded at block 0
+        register(ALICE);
+        register(BOB);
+        assert_ok!(Oracle::create_oracle_request(
+            RuntimeOrigin::signed(ALICE),
+            q_hash(),
+            150,
+            ConsensusMode::Factual,
+            2,
+            67,
+            100,
+            5,
+            None,
+        ));
+
+        // Fill the request to exactly the cap. The mock cannot register that many agents
+        // (MaxAgents = MaxResponsesPerRequest = 100, 10 registrations per block), so the
+        // prior responses are written straight to storage under synthetic accounts.
+        let cap = <<Test as crate::Config>::MaxResponsesPerRequest as Get<u32>>::get();
+        for i in 0..cap {
+            OracleResponses::<Test>::insert(q_hash(), 1_000 + i as u64, [7u8; 32]);
+        }
+        OracleRequests::<Test>::mutate(q_hash(), |r| {
+            let r = r.as_mut().unwrap();
+            r.response_count = cap;
+            r.status = OracleRequestStatus::Collecting;
+        });
+
+        let batch: frame_support::BoundedVec<_, _> =
+            vec![(q_hash(), [10u8; 32], 0u32)].try_into().unwrap();
+        assert_ok!(Oracle::batch_submit_response(
+            RuntimeOrigin::signed(BOB),
+            batch
+        ));
+
+        assert!(OracleResponses::<Test>::get(q_hash(), BOB).is_none());
+        assert_eq!(
+            OracleRequests::<Test>::get(q_hash())
+                .unwrap()
+                .response_count,
+            cap
+        );
+        assert_eq!(
+            OracleResponses::<Test>::iter_prefix(q_hash()).count() as u32,
+            cap
+        );
+        frame_system::Pallet::<Test>::assert_last_event(
+            Event::<Test>::BatchResponseSubmitted {
+                agent: BOB,
+                accepted: 0,
+                skipped: 1,
+            }
+            .into(),
+        );
     });
 }
 
