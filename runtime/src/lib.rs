@@ -185,7 +185,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // transaction_version is NOT bumped: agents::link_funding_lineage is appended at call
     // index 11 and ParamId::EmissionVolumeAlphaBps at discriminant 5, so no existing call
     // encoding moves.
-    spec_version: 306,
+    spec_version: 307,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
