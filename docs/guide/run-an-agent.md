@@ -11,6 +11,11 @@ the public testnet by someone outside the project, and the container image
 `ghcr.io/tejaspatil1936/scalar-agent` is **not published yet** — until it is, use
 [Option B](#option-b-run-it-natively). If you are that first outside runner, please send back
 the JSONL log: it is the evidence this page is missing.
+
+A different, systemd-based reference agent (`examples/reference-agent/`) **has** been run end
+to end against the public testnet from outside, with every extrinsic recorded:
+[Run an agent on the public testnet](./run-an-agent-public-testnet). Which of the two is
+canonical is [#214](https://github.com/tejaspatil1936/scalar-commons-v4/issues/214).
 :::
 
 ## What it does

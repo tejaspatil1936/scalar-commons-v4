@@ -32,6 +32,7 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: 'Run a node', link: '/guide/run-a-node' },
+      { text: 'Run a validator', link: '/guide/run-a-validator' },
       { text: 'Tester guide', link: '/guide/testnet-tester-guide' },
       { text: 'SDK', link: '/guide/sdk' },
       { text: 'Run an agent', link: '/guide/run-an-agent' },
@@ -53,6 +54,9 @@ export default defineConfig({
         text: 'Guide',
         items: [
           { text: 'Run a node', link: '/guide/run-a-node' },
+          { text: 'Run an agent', link: '/guide/run-an-agent' },
+          { text: 'Agent on the public testnet', link: '/guide/run-an-agent-public-testnet' },
+          { text: 'Run a validator', link: '/guide/run-a-validator' },
           { text: 'Testnet tester guide', link: '/guide/testnet-tester-guide' },
           { text: 'SDK usage', link: '/guide/sdk' },
         ],
