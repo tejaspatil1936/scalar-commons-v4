@@ -48,7 +48,7 @@ You need a funded address. The stake is **1 000 CMN** (`agents.MinStake`) and th
 ```bash
 # 1. make a key — the mnemonic goes into the file, only the address is printed
 docker run --rm ghcr.io/tejaspatil1936/scalar-agent:0.1 node dist/keygen.js > agent.env
-chmod 600 agent.env
+chmod 600 agent.env    # agent.env and state/ are gitignored; never commit them
 # → agent address: 5Exyb…
 
 # 2. fund it
@@ -93,7 +93,7 @@ silently defaulted.
 | `HEARTBEAT_BLOCKS` | `600` | Re-heartbeat interval in blocks. |
 | `MIN_DELIVERY_BLOCKS` | `10` | Must match the runtime's `MinDeliveryBlocks`. |
 | `BUYER_AMOUNT_CMN` | `10` | Escrow per agreement — the runtime minimum is 10 CMN. |
-| `BUYER_PEERS` | — (any) | Comma-separated provider addresses a buyer may deal with. Set this: an arbitrary registered agent may never deliver. |
+| `BUYER_PEERS` | — | Comma-separated provider addresses a buyer may deal with. **Required** when `AGENT_MODE` is `buyer` or `both`; the agent refuses to start without it. |
 | `BUYER_MAX_OPEN` | `2` | Open agreements a buyer may hold at once. |
 | `BUYER_DELIVER_WITHIN_BLOCKS` | `600` | Deadline given to providers. |
 | `POLL_SECONDS` | `6` | Pause between passes. |
@@ -123,10 +123,16 @@ next pass is the retry. Nothing is retried silently.
 ## Buyer mode
 
 `AGENT_MODE=buyer` (or `both`) makes the agent open a `BUYER_AMOUNT_CMN` agreement with another
-registered agent, then confirm it once the provider has delivered. Funds are reserved when the
+agent from your `BUYER_PEERS` allowlist (required: with no allowlist the agent refuses to start), then confirm it once the provider has delivered. Funds are reserved when the
 agreement is created and released only when *you* confirm, so a buyer should confirm work it
-has actually checked — the reference agent confirms anything delivered, because its
-counterparty is another reference agent.
+has actually checked.
+
+::: danger The reference buyer is a demo buyer
+It confirms any agreement marked Delivered **without checking the delivery proof**, so a
+listed peer can take your escrow by delivering garbage. Only list providers you fully trust
+(for example your own instances), and replace the confirm step with real verification before
+using it with anyone else's money.
+:::
 
 The reference buyer does **not** reclaim funds from an agreement whose provider never
 delivers; after the deadline you recover them yourself with `escrow.claimRefund`. Until then

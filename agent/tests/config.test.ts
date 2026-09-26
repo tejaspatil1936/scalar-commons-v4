@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from '../src/config.js';
+import { isLoopbackWs } from '../src/loopback.js';
 
 describe('loadConfig', () => {
   const base = { AGENT_MNEMONIC: 'test test test test test test test test test test test junk' };
@@ -44,5 +45,42 @@ describe('loadConfig', () => {
   it('never includes the secret in its printable summary', () => {
     const c = loadConfig({ ...base });
     expect(JSON.stringify(c.redacted())).not.toContain('junk');
+  });
+});
+
+describe('buyer fails closed', () => {
+  const base = { AGENT_URI: '//Alice//ref' };
+
+  it('refuses buyer and both modes without BUYER_PEERS', () => {
+    expect(() => loadConfig({ ...base, AGENT_MODE: 'buyer' })).toThrow(/BUYER_PEERS/);
+    expect(() => loadConfig({ ...base, AGENT_MODE: 'both', BUYER_PEERS: ' , ' })).toThrow(/BUYER_PEERS/);
+  });
+
+  it('starts a buyer with an explicit allowlist, and a provider without one', () => {
+    expect(loadConfig({ ...base, AGENT_MODE: 'buyer', BUYER_PEERS: '5A' }).buyerPeers).toEqual(['5A']);
+    expect(loadConfig({ ...base }).mode).toBe('provider');
+  });
+});
+
+describe('isLoopbackWs', () => {
+  it('accepts exact loopback hosts', () => {
+    for (const u of ['ws://127.0.0.1:9955', 'ws://localhost:9944', 'wss://localhost', 'ws://[::1]:9944']) {
+      expect(isLoopbackWs(u), u).toBe(true);
+    }
+  });
+
+  it('rejects look-alike and remote hosts', () => {
+    for (const u of [
+      'ws://localhost.attacker.example',
+      'ws://127.0.0.1.evil.com:9944',
+      'ws://evil.com/127.0.0.1',
+      'ws://127.0.0.1@evil.com',
+      'wss://rpc.scalarnet.io',
+      'http://127.0.0.1:9944',
+      'not a url',
+      '',
+    ]) {
+      expect(isLoopbackWs(u), u).toBe(false);
+    }
   });
 });

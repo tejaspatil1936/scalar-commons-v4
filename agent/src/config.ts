@@ -16,7 +16,7 @@ export interface Config {
   heartbeatEveryBlocks: bigint;
   minDeliveryBlocks: bigint;
   buyerAmount: bigint;
-  /** Providers a buyer may open agreements with; empty means any other registered agent. */
+  /** Providers a buyer may open agreements with. Required (non-empty) for `buyer` and `both`: the buyer fails closed. */
   buyerPeers: string[];
   buyerMaxOpen: number;
   buyerDeliverWithin: bigint;
@@ -92,5 +92,10 @@ export function loadConfig(env: Env): Config {
       );
     },
   };
+  // Fail closed: an empty allowlist would let the buyer reserve funds with any
+  // registered agent, which may never deliver.
+  if (mode !== 'provider' && cfg.buyerPeers.length === 0) {
+    throw new Error(`BUYER_PEERS is required when AGENT_MODE is ${mode}: list the provider addresses this buyer may pay`);
+  }
   return cfg;
 }

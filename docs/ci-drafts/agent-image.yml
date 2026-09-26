@@ -31,12 +31,20 @@ jobs:
 
       - name: Resolve version
         id: v
+        env:
+          # Untrusted free text on workflow_dispatch: only ever read as an env var.
+          INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          if [ -n "${{ github.event.inputs.version }}" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="$INPUT_VERSION"
           else
-            echo "version=${GITHUB_REF_NAME#agent-v}" >> "$GITHUB_OUTPUT"
+            VERSION="${GITHUB_REF_NAME#agent-v}"
           fi
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "version must be strict semver (e.g. 0.1.0), got a different value" >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       # The gate the image is built from: the same one the PR ran.
       - uses: actions/setup-node@v4

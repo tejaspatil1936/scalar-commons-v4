@@ -9,3 +9,7 @@ indexer
 explorer
 landing
 docs
+agent.env
+*.env
+state
+**/*.jsonl
