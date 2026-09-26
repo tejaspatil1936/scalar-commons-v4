@@ -1,10 +1,10 @@
 // Escrow lifecycle against a live node (default dev-real). Asserts on chain events and
 // storage/balances read back from the ledger, not on the submit call succeeding.
-import { after, before, describe, it } from 'node:test';
+import { afterAll, beforeAll, describe, it } from 'vitest';
 import assert from 'node:assert/strict';
 import type { ApiPromise } from '@polkadot/api';
 import type { KeyringPair } from '@polkadot/keyring/types';
-import { cmn, connect, findEvent, freshPair, fund, send, waitForBlock } from './helpers.js';
+import { cmn, connect, findEvent, freshPair, fund, send, waitForBlock } from './helpers';
 
 const HASH = '0x' + '11'.repeat(32);
 const PROOF = '0x' + '22'.repeat(32);
@@ -21,7 +21,7 @@ describe('escrow lifecycle', () => {
   const agreements = async () =>
     (await api.query.escrow.agreements(buyer.address, provider.address)) as any;
 
-  before(async () => {
+  beforeAll(async () => {
     api = await connect();
     buyer = await freshPair();
     provider = await freshPair();
@@ -30,7 +30,7 @@ describe('escrow lifecycle', () => {
     const minStake = (api.consts.agents.minStake as any).toBigInt() as bigint;
     for (const p of [buyer, provider]) await send(api, api.tx.agents.register(minStake), p);
   });
-  after(async () => {
+  afterAll(async () => {
     await api.disconnect();
   });
 
