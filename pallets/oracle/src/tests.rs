@@ -3,6 +3,7 @@
 //! Gated by `#[cfg(test)] mod tests;` in `lib.rs` — no inner `#![cfg(test)]`.
 
 use crate::pallet::*;
+use frame_support::pallet_prelude::Encode;
 use frame_support::{
     assert_noop, assert_ok, parameter_types,
     traits::{ConstU16, ConstU32, ConstU64},
@@ -141,7 +142,7 @@ impl super::Config for Test {
     type MinChallengeWindow = MinChallengeWindow;
     type MinConsensusThreshold = MinConsensusThreshold;
     type MaxResponsesPerRequest = MaxResponsesPerReq;
-    type DisputeCallback = ();
+    type DisputeCallback = RecordingDisputeCallback;
     type CapabilityChecker = (); // permissive in tests
     type MaxBatchSubmissions = ConstU32<20>;
     // A second `MaxResponsesPerRequest = ConstU32<200>` stood here — a duplicate
@@ -472,6 +473,507 @@ fn batch_submit_response_accepts_valid_skips_invalid() {
         assert!(OracleResponses::<Test>::get(q2, BOB).is_some());
         // Bogus request still doesn't exist
         assert!(!OracleRequests::<Test>::contains_key(bogus_id));
+    });
+}
+
+// ── Audit-finding tests (#182) ───────────────────────────────────────────────
+//
+// Every test below asserts on events and storage — the ledger — never only on a
+// call's `Ok`/`Err`. `System::events()` is empty at block 0, so these run from
+// block 1 via `ext_with_events()`.
+
+thread_local! {
+    static DISPUTE_CALLS: core::cell::RefCell<Vec<(u64, u64, u32, bool)>> =
+        const { core::cell::RefCell::new(Vec::new()) };
+}
+
+/// Records every `on_dispute_resolved` the oracle fires, so the E28 bridge is
+/// observable instead of vanishing into `()`.
+pub struct RecordingDisputeCallback;
+impl crate::escrow_bridge::DisputeCallback<u64, u64> for RecordingDisputeCallback {
+    fn on_dispute_resolved(
+        buyer: &u64,
+        provider: &u64,
+        seq: u32,
+        provider_wins: bool,
+    ) -> frame_support::pallet_prelude::DispatchResult {
+        DISPUTE_CALLS.with(|c| c.borrow_mut().push((*buyer, *provider, seq, provider_wins)));
+        Ok(())
+    }
+}
+
+fn ext_with_events() -> sp_io::TestExternalities {
+    let mut ext = new_test_ext();
+    ext.execute_with(|| {
+        System::set_block_number(1);
+        DISPUTE_CALLS.with(|c| c.borrow_mut().clear());
+    });
+    ext
+}
+
+fn has_event(e: Event<Test>) -> bool {
+    System::events()
+        .iter()
+        .any(|r| r.event == RuntimeEvent::Oracle(e.clone()))
+}
+
+fn create(creator: u64, id: [u8; 32], bounty: u64, min_responses: u32, deadline: u64) {
+    assert_ok!(Oracle::create_oracle_request(
+        RuntimeOrigin::signed(creator),
+        id,
+        bounty,
+        ConsensusMode::Factual,
+        min_responses,
+        67,
+        deadline,
+        5,
+        None,
+    ));
+}
+
+/// E7 — consensus + payout: the bounty is split between the majority, the
+/// dissenter is paid nothing and scored zero, and the request is cleaned up.
+#[test]
+fn oracle_consensus_pays_majority_and_scores_dissenter_zero() {
+    ext_with_events().execute_with(|| {
+        for a in [ALICE, BOB, CAROL, DAVE] {
+            register(a);
+        }
+        let (win, lose) = ([99u8; 32], [77u8; 32]);
+        let (bob0, carol0, dave0) = (
+            Balances::free_balance(BOB),
+            Balances::free_balance(CAROL),
+            Balances::free_balance(DAVE),
+        );
+        let alice_reserved0 = Balances::reserved_balance(ALICE);
+        create(ALICE, q_hash(), 300, 3, 10);
+        assert_eq!(Balances::reserved_balance(ALICE), alice_reserved0 + 300);
+        assert_ok!(Oracle::submit_response(
+            RuntimeOrigin::signed(BOB),
+            q_hash(),
+            win,
+            0
+        ));
+        assert_ok!(Oracle::submit_response(
+            RuntimeOrigin::signed(CAROL),
+            q_hash(),
+            win,
+            0
+        ));
+        assert_ok!(Oracle::submit_response(
+            RuntimeOrigin::signed(DAVE),
+            q_hash(),
+            lose,
+            0
+        ));
+        System::set_block_number(20);
+        assert_ok!(Oracle::finalise_request(
+            RuntimeOrigin::signed(ALICE),
+            q_hash()
+        ));
+
+        // Payout: 300 / 2 winners = 150 each; dissenter gets nothing.
+        assert_eq!(Balances::free_balance(BOB), bob0 + 150);
+        assert_eq!(Balances::free_balance(CAROL), carol0 + 150);
+        assert_eq!(Balances::free_balance(DAVE), dave0);
+        assert_eq!(Balances::reserved_balance(ALICE), alice_reserved0);
+        // Storage: result recorded, request and responses cleared, era counter bumped.
+        assert_eq!(OracleResults::<Test>::get(q_hash()), Some(win));
+        assert!(OracleRequests::<Test>::get(q_hash()).is_none());
+        assert!(OracleResponses::<Test>::get(q_hash(), BOB).is_none());
+        assert_eq!(EraFinalisedQuestions::<Test>::get(), 1);
+        assert_eq!(OracleScore::<Test>::get(BOB, 0), 10_000);
+        assert_eq!(OracleScore::<Test>::get(DAVE, 0), 0);
+        assert_eq!(OracleAccuracy::<Test>::get(DAVE, 0), (0, 1));
+        // Events.
+        assert!(has_event(Event::OracleRequestFinalised {
+            id: q_hash(),
+            winning_hash: win,
+            respondents_paid: 2
+        }));
+        assert!(has_event(Event::ScoreUpdated {
+            agent: DAVE,
+            capability: 0,
+            new_score: 0
+        }));
+        assert!(has_event(Event::ScoreUpdated {
+            agent: BOB,
+            capability: 0,
+            new_score: 10_000
+        }));
+    });
+}
+
+/// E8 — expiry returns the full bounty, emits the event and clears storage;
+/// it is refused before the deadline and once quorum has been reached.
+#[test]
+fn expire_request_returns_full_bounty() {
+    ext_with_events().execute_with(|| {
+        register(ALICE);
+        register(BOB);
+        let free0 = Balances::free_balance(ALICE);
+        let reserved0 = Balances::reserved_balance(ALICE);
+        create(ALICE, q_hash(), 100, 3, 5);
+        assert_eq!(Balances::free_balance(ALICE), free0 - 100);
+        assert_ok!(Oracle::submit_response(
+            RuntimeOrigin::signed(BOB),
+            q_hash(),
+            [5u8; 32],
+            0
+        ));
+
+        // Before the deadline: refused, nothing moves.
+        assert_noop!(
+            Oracle::expire_request(RuntimeOrigin::signed(CAROL), q_hash()),
+            Error::<Test>::RequestExpired
+        );
+        assert!(OracleRequests::<Test>::contains_key(q_hash()));
+
+        System::set_block_number(6);
+        // Permissionless: a third party expires it; quorum (3) was never met.
+        assert_ok!(Oracle::expire_request(
+            RuntimeOrigin::signed(CAROL),
+            q_hash()
+        ));
+        assert_eq!(Balances::free_balance(ALICE), free0);
+        assert_eq!(Balances::reserved_balance(ALICE), reserved0);
+        assert!(OracleRequests::<Test>::get(q_hash()).is_none());
+        assert!(OracleResponses::<Test>::get(q_hash(), BOB).is_none());
+        assert!(has_event(Event::OracleRequestExpired { id: q_hash() }));
+        assert_noop!(
+            Oracle::expire_request(RuntimeOrigin::signed(CAROL), q_hash()),
+            Error::<Test>::RequestNotFound
+        );
+    });
+}
+
+/// E8 — a request that met quorum must be finalised, not expired (the bounty is
+/// owed to the respondents).
+#[test]
+fn expire_request_refused_once_quorum_met() {
+    ext_with_events().execute_with(|| {
+        register(ALICE);
+        register(BOB);
+        create(ALICE, q_hash(), 100, 1, 5);
+        assert_ok!(Oracle::submit_response(
+            RuntimeOrigin::signed(BOB),
+            q_hash(),
+            [5u8; 32],
+            0
+        ));
+        System::set_block_number(6);
+        assert_noop!(
+            Oracle::expire_request(RuntimeOrigin::signed(CAROL), q_hash()),
+            Error::<Test>::RequestAlreadyFinalised
+        );
+        assert!(OracleRequests::<Test>::contains_key(q_hash()));
+        assert!(!has_event(Event::OracleRequestExpired { id: q_hash() }));
+    });
+}
+
+fn dispute_id(buyer: u64, provider: u64, seq: u32) -> [u8; 32] {
+    let mut pre = buyer.encode();
+    pre.extend_from_slice(&provider.encode());
+    pre.extend_from_slice(&seq.to_le_bytes());
+    sp_io::hashing::blake2_256(&pre)
+}
+
+/// E28 — the escrow→oracle bridge stores a request that carries the dispute
+/// context, reserves the buyer's bounty, and counts toward the era total.
+#[test]
+fn dispute_request_carries_dispute_context() {
+    use crate::escrow_bridge::DisputeOracle;
+    ext_with_events().execute_with(|| {
+        register(ALICE);
+        let reserved0 = Balances::reserved_balance(ALICE);
+        let id = <Oracle as DisputeOracle<u64, u64, u64>>::post_dispute_question(
+            &ALICE, &BOB, 7, 200, 30, None,
+        )
+        .unwrap();
+        assert_eq!(id, dispute_id(ALICE, BOB, 7));
+        let req = OracleRequests::<Test>::get(id).unwrap();
+        let ctx = req.dispute_context.clone().expect("dispute context stored");
+        assert_eq!((ctx.buyer, ctx.provider, ctx.seq), (ALICE, BOB, 7));
+        assert_eq!(req.creator, ALICE);
+        assert_eq!(req.bounty, 200);
+        assert_eq!(req.mode, ConsensusMode::Factual);
+        assert_eq!((req.min_responses, req.consensus_threshold), (3, 67));
+        assert_eq!(req.response_deadline, 30);
+        assert_eq!(Balances::reserved_balance(ALICE), reserved0 + 200);
+        assert_eq!(EraTotalQuestions::<Test>::get(), 1);
+    });
+}
+
+/// Returns the request id and ALICE's reserved balance after registration, before the bounty.
+fn resolve_dispute(answers: [[u8; 32]; 3]) -> ([u8; 32], u64) {
+    use crate::escrow_bridge::DisputeOracle;
+    for a in [ALICE, BOB, CAROL, DAVE] {
+        register(a);
+    }
+    let reserved_after_registration = Balances::reserved_balance(ALICE);
+    // ALICE = buyer, BOB = provider; CAROL, DAVE and a fifth juror vote.
+    let id = <Oracle as DisputeOracle<u64, u64, u64>>::post_dispute_question(
+        &ALICE, &BOB, 1, 300, 10, None,
+    )
+    .unwrap();
+    let juror = 5u64;
+    assert_ok!(Balances::force_set_balance(
+        RuntimeOrigin::root(),
+        juror,
+        200_000
+    ));
+    register(juror);
+    for (who, ans) in [CAROL, DAVE, juror].into_iter().zip(answers) {
+        assert_ok!(Oracle::submit_response(
+            RuntimeOrigin::signed(who),
+            id,
+            ans,
+            0
+        ));
+    }
+    System::set_block_number(20);
+    assert_ok!(Oracle::finalise_request(RuntimeOrigin::signed(DAVE), id));
+    (id, reserved_after_registration)
+}
+
+/// E28 — a provider-wins verdict reaches the callback as `provider_wins = true`.
+#[test]
+fn dispute_verdict_provider_wins_reaches_callback() {
+    ext_with_events().execute_with(|| {
+        let pw = sp_io::hashing::blake2_256(pallet_escrow::dispute_hashes::PROVIDER_WINS_PREIMAGE);
+        let (id, _) = resolve_dispute([pw, pw, [1u8; 32]]);
+        assert_eq!(
+            DISPUTE_CALLS.with(|c| c.borrow().clone()),
+            vec![(ALICE, BOB, 1, true)]
+        );
+        assert_eq!(OracleResults::<Test>::get(id), Some(pw));
+        assert!(OracleRequests::<Test>::get(id).is_none());
+        assert!(has_event(Event::OracleRequestFinalised {
+            id,
+            winning_hash: pw,
+            respondents_paid: 2
+        }));
+    });
+}
+
+/// E28 — a buyer-wins verdict reaches the callback as `provider_wins = false`.
+#[test]
+fn dispute_verdict_buyer_wins_reaches_callback() {
+    ext_with_events().execute_with(|| {
+        let bw = sp_io::hashing::blake2_256(pallet_escrow::dispute_hashes::BUYER_WINS_PREIMAGE);
+        let (id, _) = resolve_dispute([bw, bw, bw]);
+        assert_eq!(
+            DISPUTE_CALLS.with(|c| c.borrow().clone()),
+            vec![(ALICE, BOB, 1, false)]
+        );
+        assert_eq!(OracleResults::<Test>::get(id), Some(bw));
+    });
+}
+
+/// E28 — with no consensus the callback still fires (provider_wins = false), the
+/// buyer's bounty is unreserved, and no result is stored.
+#[test]
+fn dispute_without_consensus_defaults_to_buyer() {
+    ext_with_events().execute_with(|| {
+        let (id, reserved_before) = resolve_dispute([[1u8; 32], [2u8; 32], [3u8; 32]]);
+        assert_eq!(
+            DISPUTE_CALLS.with(|c| c.borrow().clone()),
+            vec![(ALICE, BOB, 1, false)]
+        );
+        assert!(OracleResults::<Test>::get(id).is_none());
+        // Only ALICE's own registration stake remains reserved; the 300 bounty is back.
+        assert_eq!(Balances::reserved_balance(ALICE), reserved_before);
+        assert!(has_event(Event::OracleRequestFinalised {
+            id,
+            winning_hash: [0u8; 32],
+            respondents_paid: 0
+        }));
+    });
+}
+
+type Sub = ([u8; 32], [u8; 32], u32);
+
+/// E25 — a batch at exactly the cap is processed in full and reported in the
+/// event; an empty batch is rejected with `BatchEmpty` and leaves no event.
+#[test]
+fn batch_submit_response_at_cap_accepts_all_and_empty_rejected() {
+    ext_with_events().execute_with(|| {
+        register(ALICE);
+        register(BOB);
+        let mut subs: Vec<Sub> = vec![];
+        for i in 0..20u8 {
+            let id = [i + 1; 32];
+            create(ALICE, id, 100, 2, 100);
+            subs.push((id, [9u8; 32], 0));
+        }
+        let bounded: frame_support::BoundedVec<Sub, ConstU32<20>> = subs.try_into().unwrap();
+        assert_ok!(Oracle::batch_submit_response(
+            RuntimeOrigin::signed(BOB),
+            bounded
+        ));
+        for i in 0..20u8 {
+            assert_eq!(
+                OracleResponses::<Test>::get([i + 1; 32], BOB),
+                Some([9u8; 32])
+            );
+            assert_eq!(
+                OracleRequests::<Test>::get([i + 1; 32])
+                    .unwrap()
+                    .response_count,
+                1
+            );
+        }
+        assert!(has_event(Event::BatchResponseSubmitted {
+            agent: BOB,
+            accepted: 20,
+            skipped: 0
+        }));
+
+        let empty: frame_support::BoundedVec<Sub, ConstU32<20>> = Default::default();
+        assert_noop!(
+            Oracle::batch_submit_response(RuntimeOrigin::signed(CAROL), empty.clone()),
+            Error::<Test>::NotRegistered
+        );
+        register(CAROL);
+        assert_noop!(
+            Oracle::batch_submit_response(RuntimeOrigin::signed(CAROL), empty),
+            Error::<Test>::BatchEmpty
+        );
+    });
+}
+
+/// C1 — a request creator answering their own question must not be counted as a
+/// respondent (they would vote on, and be paid from, their own bounty).
+/// KNOWN BUG: `submit_response` has no creator guard, so today the self-vote is
+/// stored and counted. Un-ignore when the guard lands.
+#[test]
+#[ignore = "bug: creator can answer own request and is counted as a respondent, see #200"]
+fn self_vote_attempt_is_recorded_not_counted() {
+    ext_with_events().execute_with(|| {
+        register(ALICE);
+        create(ALICE, q_hash(), 100, 1, 50);
+        let _ = Oracle::submit_response(RuntimeOrigin::signed(ALICE), q_hash(), [1u8; 32], 0);
+        assert!(OracleResponses::<Test>::get(q_hash(), ALICE).is_none());
+        assert_eq!(
+            OracleRequests::<Test>::get(q_hash())
+                .unwrap()
+                .response_count,
+            0
+        );
+    });
+}
+
+/// C1 (characterisation) — documents today's behaviour so a fix flips this test
+/// deliberately: the self-vote IS stored and counted.
+#[test]
+fn self_vote_today_is_counted_characterisation() {
+    ext_with_events().execute_with(|| {
+        register(ALICE);
+        create(ALICE, q_hash(), 100, 1, 50);
+        assert_ok!(Oracle::submit_response(
+            RuntimeOrigin::signed(ALICE),
+            q_hash(),
+            [1u8; 32],
+            0
+        ));
+        assert_eq!(
+            OracleResponses::<Test>::get(q_hash(), ALICE),
+            Some([1u8; 32])
+        );
+        assert_eq!(
+            OracleRequests::<Test>::get(q_hash())
+                .unwrap()
+                .response_count,
+            1
+        );
+        assert!(has_event(Event::OracleResponseSubmitted {
+            id: q_hash(),
+            agent: ALICE
+        }));
+    });
+}
+
+#[test]
+fn batch_submit_response_over_cap_rejected_before_dispatch() {
+    use frame_support::traits::Get;
+    use parity_scale_codec::{Decode, Encode};
+    // The batch parameter is `BoundedVec<_, MaxBatchSubmissions>` (20 in the mock), so an
+    // over-cap batch cannot be built in-runtime, and SCALE decoding of an over-cap extrinsic
+    // fails before dispatch: the extrinsic is rejected as undecodable, not a runtime panic.
+    let cap = <<Test as crate::Config>::MaxBatchSubmissions as Get<u32>>::get() as usize;
+    let over: Vec<([u8; 32], [u8; 32], u32)> = vec![([1u8; 32], [2u8; 32], 0); cap + 1];
+    assert!(
+        frame_support::BoundedVec::<_, <Test as crate::Config>::MaxBatchSubmissions>::try_from(
+            over.clone()
+        )
+        .is_err()
+    );
+    let encoded = over.encode();
+    assert!(frame_support::BoundedVec::<
+        ([u8; 32], [u8; 32], u32),
+        <Test as crate::Config>::MaxBatchSubmissions,
+    >::decode(&mut &encoded[..])
+    .is_err());
+}
+
+#[test]
+fn batch_submit_response_over_cap_returns_error() {
+    use frame_support::traits::Get;
+    new_test_ext().execute_with(|| {
+        frame_system::Pallet::<Test>::set_block_number(1); // events are not recorded at block 0
+        register(ALICE);
+        register(BOB);
+        assert_ok!(Oracle::create_oracle_request(
+            RuntimeOrigin::signed(ALICE),
+            q_hash(),
+            150,
+            ConsensusMode::Factual,
+            2,
+            67,
+            100,
+            5,
+            None,
+        ));
+
+        // Fill the request to exactly the cap. The mock cannot register that many agents
+        // (MaxAgents = MaxResponsesPerRequest = 100, 10 registrations per block), so the
+        // prior responses are written straight to storage under synthetic accounts.
+        let cap = <<Test as crate::Config>::MaxResponsesPerRequest as Get<u32>>::get();
+        for i in 0..cap {
+            OracleResponses::<Test>::insert(q_hash(), 1_000 + i as u64, [7u8; 32]);
+        }
+        OracleRequests::<Test>::mutate(q_hash(), |r| {
+            let r = r.as_mut().unwrap();
+            r.response_count = cap;
+            r.status = OracleRequestStatus::Collecting;
+        });
+
+        let batch: frame_support::BoundedVec<_, _> =
+            vec![(q_hash(), [10u8; 32], 0u32)].try_into().unwrap();
+        assert_ok!(Oracle::batch_submit_response(
+            RuntimeOrigin::signed(BOB),
+            batch
+        ));
+
+        assert!(OracleResponses::<Test>::get(q_hash(), BOB).is_none());
+        assert_eq!(
+            OracleRequests::<Test>::get(q_hash())
+                .unwrap()
+                .response_count,
+            cap
+        );
+        assert_eq!(
+            OracleResponses::<Test>::iter_prefix(q_hash()).count() as u32,
+            cap
+        );
+        frame_system::Pallet::<Test>::assert_last_event(
+            Event::<Test>::BatchResponseSubmitted {
+                agent: BOB,
+                accepted: 0,
+                skipped: 1,
+            }
+            .into(),
+        );
     });
 }
 

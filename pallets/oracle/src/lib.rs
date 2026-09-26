@@ -511,6 +511,13 @@ pub mod pallet {
                         );
                         let now = frame_system::Pallet::<T>::block_number();
                         ensure!(now <= req.response_deadline, Error::<T>::DeadlinePassed);
+                        // Same per-request cap as `submit_response`: `finalise` walks every
+                        // stored response, so an uncapped batch path would let work exceed the
+                        // weight priced for a request.
+                        ensure!(
+                            req.response_count < T::MaxResponsesPerRequest::get(),
+                            Error::<T>::ResponseLimitReached
+                        );
                         ensure!(
                             OracleResponses::<T>::get(request_id, &agent).is_none(),
                             Error::<T>::AlreadyResponded
