@@ -1892,7 +1892,7 @@ mod tests {
     /// The version the upgrade is applied as. If this and `VERSION.spec_version`
     /// ever disagree the node will refuse the blob, so pin it.
     #[test]
-    fn spec_version_is_306() {
-        assert_eq!(VERSION.spec_version, 306);
+    fn spec_version_is_307() {
+        assert_eq!(VERSION.spec_version, 307);
     }
 }
