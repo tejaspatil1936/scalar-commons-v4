@@ -68,7 +68,7 @@ export default defineConfig({
     outline: [2, 3],
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/tejaspatil1936/scalar-commons' },
+      { icon: 'github', link: 'https://github.com/tejaspatil1936/scalar-commons-v4' },
     ],
 
     footer: {
