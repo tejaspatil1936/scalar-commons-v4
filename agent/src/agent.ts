@@ -37,6 +37,9 @@ export function deliveryHashFor(a: AgreementView): string {
  * each one is a fresh, logged attempt (the SDK's no-silent-retry rule).
  */
 export class Agent {
+  /** Set once we registered this run and the metadata name is not yet on chain. */
+  private metadataPending = false;
+
   constructor(
     readonly chain: Chain,
     readonly config: AgentConfig,
@@ -57,6 +60,7 @@ export class Agent {
     const registered = await this.ensureRegistered();
     if (registered === undefined) return;
     await this.step('heartbeat', () => this.maybeHeartbeat(registered === 'new'));
+    if (this.metadataPending) await this.step('metadata', () => this.updateMetadata());
     const { mode } = this.config;
     if (mode === 'provider' || mode === 'both') await this.step('provider', () => this.provide());
     if (mode === 'buyer' || mode === 'both') await this.step('buyer', () => this.buy());
@@ -68,10 +72,21 @@ export class Agent {
     const already = await this.step('registered-check', () => this.chain.isRegistered(this.config.address));
     if (already === undefined) return undefined;
     if (already) return 'existing';
-    const tx = await this.step('register', () => this.chain.register(this.config.stake, this.config.name));
+    const tx = await this.step('register', () => this.chain.register(this.config.stake));
     if (tx === undefined) return undefined;
     this.emit('register', { stake: this.config.stake.toString(), name: this.config.name, tx });
+    // The agent IS registered from here on; naming it is best-effort and is
+    // retried on later ticks, so it can never hide the register or delay the
+    // first heartbeat.
+    this.metadataPending = true;
+    await this.step('metadata', () => this.updateMetadata());
     return 'new';
+  }
+
+  private async updateMetadata(): Promise<void> {
+    const tx = await this.chain.setMetadata(this.config.name);
+    this.metadataPending = false;
+    if (tx !== null) this.emit('metadata', { name: this.config.name, tx });
   }
 
   /**
@@ -116,6 +131,12 @@ export class Agent {
   }
 
   private async buy(): Promise<void> {
+    // Defence in depth (loadConfig also refuses): a buyer with no explicit
+    // peers would pay any registered stranger, so it does nothing at all.
+    if (this.config.buyerPeers.length === 0) {
+      this.emit('error', { step: 'buyer', message: 'BUYER_PEERS is empty; buyer mode refuses to act' });
+      return;
+    }
     const me = this.config.address;
     const mine = (await this.chain.agreementsAsBuyer(me)).filter((a) => a.buyer === me);
 
@@ -135,10 +156,9 @@ export class Agent {
     if ((await this.chain.freeBalance(me)) < this.config.buyerAmount) return;
     const busy = new Set(mine.map((a) => a.provider));
     const { buyerPeers } = this.config;
-    // An allowlist (BUYER_PEERS) lets an operator point a buyer at providers it
-    // trusts to deliver; without one, any other registered agent qualifies.
+    // Only providers the operator explicitly trusts (BUYER_PEERS) qualify.
     const peer = (await this.chain.registeredAgents()).find(
-      (p) => p !== me && !busy.has(p) && (buyerPeers.length === 0 || buyerPeers.includes(p)),
+      (p) => p !== me && !busy.has(p) && buyerPeers.includes(p),
     );
     if (peer === undefined) return;
 

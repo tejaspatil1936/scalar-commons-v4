@@ -39,7 +39,9 @@ export interface Chain {
   /** Other registered agents (candidates for buyer mode). */
   registeredAgents(): Promise<string[]>;
 
-  register(stake: bigint, name: string): Promise<string>;
+  register(stake: bigint): Promise<string>;
+  /** Name the instance via `agents.updateMetadata`; `null` if the runtime has no such call. */
+  setMetadata(name: string): Promise<string | null>;
   heartbeat(): Promise<string>;
   acceptAgreement(buyer: string, seq: number): Promise<string>;
   recordDelivery(buyer: string, seq: number, deliveryHash: string): Promise<string>;

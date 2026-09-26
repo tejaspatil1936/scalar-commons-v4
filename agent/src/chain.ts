@@ -98,21 +98,22 @@ export class SdkChain implements Chain {
     return (await this.query('agents', 'agentStake').keys()).map((k) => k.args[0]!.toString());
   }
 
-  async register(stake: bigint, name: string): Promise<string> {
-    const r = await this.client.register(this.signer, stake);
+  async register(stake: bigint): Promise<string> {
+    return (await this.client.register(this.signer, stake)).txHash;
+  }
+
+  async setMetadata(name: string): Promise<string | null> {
     // Name the instance so ambient activity is attributable to its operator.
     const meta = this.api.tx.agents?.updateMetadata;
-    if (typeof meta === 'function') {
-      await new Promise<void>((resolve, reject) => {
-        meta('', name)
-          .signAndSend(this.signer, ({ status, dispatchError }) => {
-            if (dispatchError) reject(new Error(dispatchError.toString()));
-            else if (status.isInBlock) resolve();
-          })
-          .catch(reject);
-      });
-    }
-    return r.txHash;
+    if (typeof meta !== 'function') return null;
+    return new Promise<string>((resolve, reject) => {
+      meta('', name)
+        .signAndSend(this.signer, ({ status, dispatchError, txHash }) => {
+          if (dispatchError) reject(new Error(dispatchError.toString()));
+          else if (status.isInBlock) resolve(txHash.toHex());
+        })
+        .catch(reject);
+    });
   }
 
   async heartbeat(): Promise<string> {

@@ -45,7 +45,8 @@ function fake(init: Partial<State> = {}): Fake {
     agreementsAsProvider: async () => s.asProvider,
     agreementsAsBuyer: async () => s.asBuyer,
     registeredAgents: async () => s.agents,
-    register: (stake, name) => rec('register', stake, name),
+    register: (stake) => rec('register', stake),
+    setMetadata: (name) => rec('metadata', name),
     heartbeat: () => rec('heartbeat'),
     acceptAgreement: (b, q) => rec('accept', b, q),
     recordDelivery: (b, q, h) => rec('deliver', b, q, h),
@@ -76,14 +77,14 @@ describe('registration and heartbeat', () => {
     const c = fake({ registered: false, lastHb: null });
     const { agent } = make(c);
     await agent.tick();
-    expect(c.calls).toEqual([`register:${1000n * CMN}:operator-reference-agent`, 'heartbeat']);
+    expect(c.calls).toEqual([`register:${1000n * CMN}`, 'metadata:operator-reference-agent', 'heartbeat']);
   });
 
   it('heartbeats right after registering even when the runtime already stamped the register block', async () => {
     // Spec 306 starts the heartbeat clock at register (#161): lastHeartbeat is recent, not null.
     const c = fake({ registered: false, lastHb: 999n, head: 1000n });
     await make(c).agent.tick();
-    expect(c.calls).toEqual([`register:${1000n * CMN}:operator-reference-agent`, 'heartbeat']);
+    expect(c.calls).toEqual([`register:${1000n * CMN}`, 'metadata:operator-reference-agent', 'heartbeat']);
   });
 
   it('does not re-register a registered agent', async () => {
@@ -106,6 +107,25 @@ describe('registration and heartbeat', () => {
     const c = fake({ lastHb: null });
     await make(c).agent.tick();
     expect(c.calls).toContain('heartbeat');
+  });
+});
+
+describe('metadata after register', () => {
+  it('a rejected metadata update still reports the register, heartbeats, and is retried next tick', async () => {
+    const c = fake({ registered: false, lastHb: null, failOn: 'metadata' });
+    const { agent, events } = make(c);
+    await agent.tick();
+    expect(events.some((e) => e.event === 'register')).toBe(true);
+    expect(c.calls).toContain('heartbeat');
+    expect(events.some((e) => e.event === 'error' && e.step === 'metadata')).toBe(true);
+    expect(events.some((e) => e.event === 'metadata')).toBe(false);
+
+    c.set({ registered: true, failOn: null });
+    await agent.tick();
+    expect(events.some((e) => e.event === 'metadata')).toBe(true);
+    expect(c.calls.filter((x) => x.startsWith('metadata'))).toHaveLength(1);
+    await agent.tick();
+    expect(c.calls.filter((x) => x.startsWith('metadata'))).toHaveLength(1);
   });
 });
 
@@ -193,15 +213,26 @@ describe('claim', () => {
 });
 
 describe('buyer mode', () => {
+  it('fails closed: with no BUYER_PEERS it opens and confirms nothing, and says why', async () => {
+    const c = fake({
+      agents: [ME, 'peer'],
+      asBuyer: [agreement({ buyer: ME, provider: 'peer', status: 'Delivered' })],
+    });
+    const { agent, events } = make(c, { mode: 'buyer', buyerPeers: [] });
+    await agent.tick();
+    expect(c.calls.some((x) => x.startsWith('create') || x.startsWith('confirm'))).toBe(false);
+    expect(events.some((e) => e.event === 'error' && e.step === 'buyer')).toBe(true);
+  });
+
   it('provider mode never opens agreements', async () => {
     const c = fake({ agents: [ME, 'peer'] });
-    await make(c, { mode: 'provider' }).agent.tick();
+    await make(c, { mode: 'provider', buyerPeers: ['peer'] }).agent.tick();
     expect(c.calls.some((x) => x.startsWith('create'))).toBe(false);
   });
 
   it('opens one small agreement with another agent, never with itself', async () => {
     const c = fake({ agents: [ME, 'peer'] });
-    await make(c, { mode: 'buyer' }).agent.tick();
+    await make(c, { mode: 'buyer', buyerPeers: ['peer'] }).agent.tick();
     const created = c.calls.filter((x) => x.startsWith('create'));
     expect(created).toHaveLength(1);
     expect(created[0]).toBe(`create:peer:${10n * CMN}:${1000n + 200n}`);
@@ -221,20 +252,20 @@ describe('buyer mode', () => {
 
   it('does nothing when there is no other agent', async () => {
     const c = fake({ agents: [ME] });
-    await make(c, { mode: 'buyer' }).agent.tick();
+    await make(c, { mode: 'buyer', buyerPeers: ['peer'] }).agent.tick();
     expect(c.calls.some((x) => x.startsWith('create'))).toBe(false);
   });
 
   it('respects the open-agreement cap', async () => {
     const open = [agreement({ buyer: ME, provider: 'p1', seq: 0 }), agreement({ buyer: ME, provider: 'p2', seq: 0 })];
     const c = fake({ agents: [ME, 'peer'], asBuyer: open });
-    await make(c, { mode: 'buyer' }).agent.tick();
+    await make(c, { mode: 'buyer', buyerPeers: ['peer'] }).agent.tick();
     expect(c.calls.some((x) => x.startsWith('create'))).toBe(false);
   });
 
   it('confirms a Delivered agreement, releasing funds, exactly once', async () => {
     const c = fake({ asBuyer: [agreement({ buyer: ME, provider: 'peer', status: 'Delivered' })], agents: [ME] });
-    const { agent } = make(c, { mode: 'both' });
+    const { agent } = make(c, { mode: 'both', buyerPeers: ['peer'] });
     await agent.tick();
     await agent.tick();
     expect(c.calls.filter((x) => x.startsWith('confirm'))).toEqual(['confirm:peer:0']);
@@ -243,7 +274,7 @@ describe('buyer mode', () => {
   it('will not open an agreement it cannot afford', async () => {
     const c = fake({ agents: [ME, 'peer'] });
     c.freeBalance = async () => 1n;
-    await make(c, { mode: 'buyer' }).agent.tick();
+    await make(c, { mode: 'buyer', buyerPeers: ['peer'] }).agent.tick();
     expect(c.calls.some((x) => x.startsWith('create'))).toBe(false);
   });
 });
