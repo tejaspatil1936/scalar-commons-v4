@@ -450,7 +450,20 @@ Keep the node running until `chill` has taken effect — `session.validators` no
 your stash — or you are an elected validator that is not producing blocks. Then stop the service
 and delete the base path.
 
-<!-- chill-section -->
+What the exit looked like for the validator on this page:
+
+```json
+{"label":"staking.chill","txHash":"0x281caf73ef511e10d1ef7a594a2b65d9f2c211e91989da979d4d816c160584a6","block":766748,
+ "explorer":"https://explorer.scalarnet.io/extrinsic/766748/1","events":["balances.Withdraw","staking.Chilled","transactionPayment.TransactionFeePaid","system.ExtrinsicSuccess"]}
+{"at":"2026-09-26T14:19:57Z","result":"ERA72_ELECTED","block":775720,"count":5,"includesStash":false}
+{"at":"2026-09-26T17:20:00Z","result":"LEFT_SET","block":777521,"activeEra":72,"session":432,"setSize":5}
+```
+
+Chilled five blocks after its first authored block, it **stayed in the set and kept producing
+for the rest of era 71** — about 18 hours — was left out of the era-72 election at #775 720, and
+dropped out when era 72 began at #777 521. Only then was the service stopped and the base path
+deleted (2.4 GB, keystore included). It was not unbonded: the 1 000 CMN hold stays on the test
+stash, which is harmless on a testnet and saves a 21-day wait nobody needs.
 
 ### If the testnet is reset
 

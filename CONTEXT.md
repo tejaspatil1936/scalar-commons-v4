@@ -42,6 +42,14 @@ swaps them in with `mv --exchange`. The last deployed SHA is in
 - `/docs/guide/run-a-validator` — release binary or source build, systemd user unit
   (`deploy/validator/`), keys, bond, election proof.
 
+### The outside test validator (proof for the guide, now gone)
+
+Stash `5FADXQgabx5SaZg43YwZs3Q3XMfMUENvW49gW1Vjx1xZjmpe`: bonded 1 000 CMN at #750 780, keys
+#750 917, `validate` #754 123, **elected era 71** (election #764 926), active #766 717, **first
+authored block #766 726**, `chill` #766 748, left the set at #777 521 (era 72, back to the five
+operator validators). Node stopped and base path deleted on 2026-09-26. Still bonded (not
+unbonded, deliberately). Seats open to outsiders: 2.
+
 ### Economic observation worth keeping
 
 Emissions era 61 (settled #754 158) is the first observed era where one clean, single-buyer
