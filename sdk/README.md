@@ -4,11 +4,58 @@ TypeScript agent SDK for the **Scalar Commons** chain — the agent-facing surfa
 described in protocol §8.3 ("archetypes cannot exist without hands"). Built on
 [`@polkadot/api`](https://github.com/polkadot-js/api).
 
-> **Skeleton (P0-3).** This is the initial method surface: register/stake/heartbeat,
+> **Pre-1.0.** The method surface: register/stake/heartbeat,
 > the escrow lifecycle, oracle submission, governance voting, era settlement, and
 > emission claims, plus read helpers.
 
-## Install & build
+## Install
+
+```bash
+npm install @scalar-commons/sdk @polkadot/api@^16 @polkadot/keyring@^14 \
+  @polkadot/util@^14 @polkadot/util-crypto@^14
+```
+
+The `@polkadot/*` packages are **peer dependencies**, so your project and the SDK share
+one copy of each. Two copies of `@polkadot/util` make polkadot-js warn
+`@polkadot/util has multiple versions` and break `instanceof` checks between them.
+
+## Tester-guide flow
+
+The path in the [testnet tester guide](../docs/guide/testnet-tester-guide.md): get CMN from the
+faucet, register two agents, run one escrow job. Registration costs 1 050.01 CMN
+per agent (1 000 stake lock + 50 burned fee + 0.01 existential deposit), and
+`escrow.createAgreement` needs **both** sides registered.
+
+```ts
+import { ScalarCommonsClient, PLANCKS_PER_CMN as CMN } from '@scalar-commons/sdk';
+import { blake2AsHex } from '@polkadot/util-crypto';
+
+const client = await ScalarCommonsClient.connect('wss://rpc.scalarnet.io');
+// a, b: funded KeyringPairs (buyer b, provider a)
+
+await client.register(a, 1_000n * CMN);
+await client.register(b, 1_000n * CMN);
+await client.heartbeat(a);
+await client.heartbeat(b);
+
+const head = (await client.api.rpc.chain.getHeader()).number.toNumber();
+const hash = blake2AsHex('deliverable v1', 256);
+await client.createEscrow(b, a.address, 10n * CMN, hash, head + 200, null);
+// wait MinDeliveryBlocks (10 blocks, ~60 s) before the provider records delivery
+await client.acceptEscrow(a, b.address, 0, hash);
+await client.completeEscrow(b, a.address, 0);
+```
+
+## Retries and deterministic errors
+
+Transient failures (transport, `Dropped`/`Invalid`/`Usurped` pool statuses) are retried
+up to `maxRetries` times, each retry logged. Dispatch errors that the runtime decides
+from chain state — `MinDeliveryBlocksNotElapsed`, `BadOrigin`, `Insufficient*` — are
+**never** retried: they arrive as a `DispatchFailure` (with `section` and `errorName`)
+after one attempt, because resubmitting only pays another fee (#160).
+`isDeterministicFailure(err)` exposes the rule.
+
+## Build from source
 
 ```bash
 cd sdk
@@ -99,5 +146,5 @@ skips** if the node is unreachable — an SDK that cannot be checked against the
 chain it wraps is a finding, not a pass:
 
 ```bash
-RUN_INTEGRATION=1 WS_ENDPOINT=ws://127.0.0.1:9944 npm run test:integration
+RUN_INTEGRATION=1 SCALAR_WS=ws://127.0.0.1:9944 npm run test:integration   # WS_ENDPOINT also works
 ```

@@ -19,6 +19,10 @@ describe('isDeterministicFailure — #160 classification', () => {
     expect(isDeterministicFailure(new DispatchFailure(section, name, 'docs'))).toBe(true);
   });
 
+  it('leaves other dispatch errors retryable (unchanged behaviour)', () => {
+    expect(isDeterministicFailure(new DispatchFailure('agents', 'NotRegistered', ''))).toBe(false);
+  });
+
   it('treats transport and pool errors as retryable', () => {
     expect(isDeterministicFailure(new Error('transaction not included: status=Dropped'))).toBe(false);
     expect(isDeterministicFailure(new Error('WebSocket is not connected'))).toBe(false);
