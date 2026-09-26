@@ -1,7 +1,9 @@
 # RPC reference
 
-A Scalar Commons node serves **118 JSON-RPC methods** over both HTTP and WebSocket on the
-same port (`9944` on the reference devnet). On top of the standard Substrate surface, the
+A Scalar Commons node serves **108 JSON-RPC methods** over both HTTP and WebSocket on the
+same port (`9944` on the reference devnet). That is the count on a default, pruning node; an
+archive node (the reference devnet's alice) also serves the ten `archive_v1_*` methods, 118 in
+total. On top of the standard Substrate surface, the
 runtime declares one custom runtime API, `ScalarCommonsApi`, reachable through `state_call`.
 
 Verified against `scalar-commons` spec 306, metadata v15.
