@@ -92,6 +92,7 @@ silently defaulted.
 | `HEARTBEAT_BLOCKS` | `600` | Re-heartbeat interval in blocks. |
 | `MIN_DELIVERY_BLOCKS` | `10` | Must match the runtime's `MinDeliveryBlocks`. |
 | `BUYER_AMOUNT_CMN` | `10` | Escrow per agreement — the runtime minimum is 10 CMN. |
+| `BUYER_PEERS` | — (any) | Comma-separated provider addresses a buyer may deal with. Set this: an arbitrary registered agent may never deliver. |
 | `BUYER_MAX_OPEN` | `2` | Open agreements a buyer may hold at once. |
 | `BUYER_DELIVER_WITHIN_BLOCKS` | `600` | Deadline given to providers. |
 | `POLL_SECONDS` | `6` | Pause between passes. |
@@ -125,6 +126,10 @@ registered agent, then confirm it once the provider has delivered. Funds are res
 agreement is created and released only when *you* confirm, so a buyer should confirm work it
 has actually checked — the reference agent confirms anything delivered, because its
 counterparty is another reference agent.
+
+The reference buyer does **not** reclaim funds from an agreement whose provider never
+delivers; after the deadline you recover them yourself with `escrow.claimRefund`. Until then
+the amount stays reserved and counts against `BUYER_MAX_OPEN`.
 
 ## Publishing the image (maintainers)
 

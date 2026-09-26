@@ -55,30 +55,35 @@ export class Agent {
 
   async tick(): Promise<void> {
     const registered = await this.ensureRegistered();
-    if (!registered) return;
-    await this.step('heartbeat', () => this.maybeHeartbeat());
+    if (registered === undefined) return;
+    await this.step('heartbeat', () => this.maybeHeartbeat(registered === 'new'));
     const { mode } = this.config;
     if (mode === 'provider' || mode === 'both') await this.step('provider', () => this.provide());
     if (mode === 'buyer' || mode === 'both') await this.step('buyer', () => this.buy());
     await this.step('claim', () => this.maybeClaim());
   }
 
-  /** Returns true when the agent is (now) registered and the tick may continue. */
-  private async ensureRegistered(): Promise<boolean> {
+  /** `'existing'`/`'new'` when the agent is (now) registered; `undefined` if the tick must stop. */
+  private async ensureRegistered(): Promise<'existing' | 'new' | undefined> {
     const already = await this.step('registered-check', () => this.chain.isRegistered(this.config.address));
-    if (already === undefined) return false;
-    if (already) return true;
+    if (already === undefined) return undefined;
+    if (already) return 'existing';
     const tx = await this.step('register', () => this.chain.register(this.config.stake, this.config.name));
-    if (tx === undefined) return false;
+    if (tx === undefined) return undefined;
     this.emit('register', { stake: this.config.stake.toString(), name: this.config.name, tx });
-    return true;
+    return 'new';
   }
 
-  private async maybeHeartbeat(): Promise<void> {
+  /**
+   * `force` is set right after registering: from spec 306 `register` stamps the
+   * heartbeat clock itself, so the interval rule alone would skip the first
+   * beat. One explicit beat proves the liveness path works from the start.
+   */
+  private async maybeHeartbeat(force: boolean): Promise<void> {
     const [head, last] = await Promise.all([this.chain.head(), this.chain.lastHeartbeat(this.config.address)]);
     // Economic why: the heartbeat multiplier rewards liveness, and the grace
     // period is far longer than our interval, so one missed tick costs nothing.
-    if (last !== null && head - last < this.config.heartbeatEveryBlocks) return;
+    if (!force && last !== null && head - last < this.config.heartbeatEveryBlocks) return;
     const tx = await this.chain.heartbeat();
     this.emit('heartbeat', { block: head.toString(), previous: last === null ? null : last.toString(), tx });
   }
