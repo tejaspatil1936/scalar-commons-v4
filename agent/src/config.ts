@@ -77,7 +77,7 @@ export function loadConfig(env: Env): Config {
     name: (env.AGENT_NAME ?? 'operator-reference-agent').trim(),
     heartbeatEveryBlocks: wholeNumber(env, 'HEARTBEAT_BLOCKS', '600', 1n),
     minDeliveryBlocks: wholeNumber(env, 'MIN_DELIVERY_BLOCKS', '10', 0n),
-    buyerAmount: cmn(env, 'BUYER_AMOUNT_CMN', '1'),
+    buyerAmount: cmn(env, 'BUYER_AMOUNT_CMN', '10'),
     buyerMaxOpen: Number(wholeNumber(env, 'BUYER_MAX_OPEN', '2', 0n)),
     buyerDeliverWithin: wholeNumber(env, 'BUYER_DELIVER_WITHIN_BLOCKS', '600', 1n),
     pollSeconds: Number(wholeNumber(env, 'POLL_SECONDS', '6', 1n)),
