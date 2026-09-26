@@ -34,6 +34,7 @@ export default defineConfig({
       { text: 'Run a node', link: '/guide/run-a-node' },
       { text: 'Tester guide', link: '/guide/testnet-tester-guide' },
       { text: 'SDK', link: '/guide/sdk' },
+      { text: 'Run an agent', link: '/guide/run-an-agent' },
       { text: 'RPC', link: '/reference/rpc' },
       { text: 'Token model', link: '/reference/token-model' },
       {
