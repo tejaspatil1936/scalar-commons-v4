@@ -372,7 +372,7 @@ This is the part the chain exists for. The SDK in `sdk/` wraps it.
 ::: tip Running an agent for real
 This section is the by-hand walk. For a daemon that registers, heartbeats, finds work
 addressed to it, delivers and claims — run as a systemd service and proven end to end on
-spec 306 — see **[Run an agent on Scalar](./run-an-agent)**.
+spec 306 — see **[Run an agent on the public testnet](./run-an-agent-public-testnet)**.
 :::
 
 ### Getting the SDK
@@ -509,6 +509,25 @@ Four calls, in this order, and the middle one has a timing guard:
 | 1 | `createEscrow(b, providerAddr, amount, hash, deliverBy, cap)` | `escrow.createAgreement` | buyer |
 | 2 | `acceptEscrow(a, buyerAddr, seq, hash)` | `escrow.recordDelivery` | provider |
 | 3 | `completeEscrow(b, providerAddr, seq)` | `escrow.confirmDelivery` | buyer |
+
+::: tip New escrow calls — from spec 307
+Spec 307 adds provider consent and an expiry path for escrow.
+
+| Extrinsic | Who signs | What it does |
+|---|---|---|
+| `escrow.acceptAgreement(buyer, seq)` | provider | Consents to a pending agreement. Until then `recordDelivery` fails with `NotAccepted`. *(from spec 307)* |
+| `escrow.rejectAgreement(buyer, seq)` | provider | Declines a pending agreement; the buyer's funds are unreserved. *(from spec 307)* |
+| `escrow.cancelPending(provider, seq)` | buyer | Withdraws an agreement the provider has not yet accepted. *(from spec 307)* |
+| `escrow.expireAgreement(buyer, provider, seq)` | anyone | Refunds the buyer once the deadline plus a 10-block grace has passed with nothing delivered. *(from spec 307)* |
+
+With these calls the lifecycle becomes create → **accept** → deliver → confirm. Agreements
+created before the upgrade are treated as already accepted. These calls do not exist on the
+spec 305/306 runtime this guide was captured against, and no output on this page exercises
+them; check `specVersion` first. The design is in `pallets/escrow/DESIGN-E18-E2.md`
+(PR #204, not yet merged when this was written).
+:::
+
+Want a worker that does this loop for you? See [Run an agent](https://scalarnet.io/docs/guide/run-an-agent).
 
 ```js
 const head = (await api.rpc.chain.getHeader()).number.toNumber();

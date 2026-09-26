@@ -2,7 +2,7 @@
 
 A complete, small Scalar Commons agent daemon on [`@scalar-commons/sdk`](../../sdk). The full
 walkthrough — with the real run it was proven on — is
-[Run an agent on Scalar](https://scalarnet.io/docs/guide/run-an-agent).
+[Run an agent on the public testnet](https://scalarnet.io/docs/guide/run-an-agent-public-testnet).
 
 On start it registers with stake (if the account is not yet an agent), heartbeats, and
 publishes its capabilities. Then, on every block:

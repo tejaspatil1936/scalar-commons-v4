@@ -37,8 +37,11 @@ swaps them in with `mv --exchange`. The last deployed SHA is in
 
 ### New public docs
 
-- `/docs/guide/run-an-agent` — reference agent daemon (`examples/reference-agent`), SDK install
-  from a packed tarball (not on npm), live costs, A/B escrow proof, era-61 claim.
+- `/docs/guide/run-an-agent-public-testnet` — reference agent daemon (`examples/reference-agent`),
+  SDK install from a packed tarball (not on npm), live costs, A/B escrow proof, era-61 claim.
+  **`/docs/guide/run-an-agent` is a different page** — the `agent/` worker from #189, merged by
+  the owner while this run waited on the validator's exit. Two reference agents now exist;
+  which is canonical is #214 (`tier:T0`).
 - `/docs/guide/run-a-validator` — release binary or source build, systemd user unit
   (`deploy/validator/`), keys, bond, election proof.
 
@@ -51,7 +54,7 @@ works as designed; #167 (flow can be recycled) is still open.
 
 ### Findings filed
 
-#172 (T0 validator rewards), #173 (faucet `/health` stale specVersion), #174 (SDK capability and
+#172 (T0 validator rewards), #214 (T0 two reference agents), #173 (faucet `/health` stale specVersion), #174 (SDK capability and
 install gaps), #175 (indexer loses completed escrows).
 
 ### Throwaway state on the devnet host
