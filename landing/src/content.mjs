@@ -254,10 +254,10 @@ export const content = {
             'measurement has not been published yet.',
         },
         {
-          key: 'loopback-rpc',
+          key: 'public-rpc',
           text:
-            'The devnet RPC is bound to loopback on its host, so it answers only from that machine. A public endpoint is ' +
-            'not in place yet, which is why the explorer link below needs an endpoint you can reach.',
+            'The public RPC endpoint is wss://rpc.scalarnet.io. The chain may be reset, and pallet weights are ' +
+            'hand-estimated until benchmarks land.',
         },
       ],
     },
@@ -274,30 +274,25 @@ export const content = {
     {
       key: 'docs',
       label: 'Documentation',
-      url: 'https://github.com/tejaspatil1936/scalar-commons-v4/tree/master/docs',
+      url: 'https://scalarnet.io/docs/',
       status: 'available',
       note:
-        'In-repo documentation, including the economic constants transcribed from the runtime with file and line ' +
-        'references. A fuller developer guide is still being written.',
+        'The developer and tester documentation, including the economic constants checked against the runtime.',
     },
     {
       key: 'explorer',
       label: 'Block explorer',
-      url: 'https://polkadot.js.org/apps/',
+      url: 'https://explorer.scalarnet.io',
       status: 'available',
-      note:
-        'Polkadot-JS Apps reads this runtime — blocks, extrinsics, accounts and every custom pallet — once you point it ' +
-        'at a Scalar Commons endpoint you can reach. A hosted explorer for the devnet is not up yet.',
+      note: 'Blocks, extrinsics, accounts and every custom pallet on the public testnet.',
     },
     {
       key: 'faucet',
       label: 'Testnet faucet',
-      url: 'https://github.com/tejaspatil1936/scalar-commons-v4/tree/master/faucet',
+      url: 'https://faucet.scalarnet.io',
       status: 'available',
       note:
-        'Built, and in the repository: it drips CMN from a pre-funded devnet account — never a mint path — and rate ' +
-        'limits each address and each requesting IP. No hosted instance is up yet, so you run it yourself against an ' +
-        'endpoint you can reach.',
+        'Drips CMN from a pre-funded testnet account, never a mint path, and rate limits each address and each requesting IP.',
     },
   ],
 
