@@ -865,7 +865,7 @@ fn batch_submit_response_at_cap_accepts_all_and_empty_rejected() {
 /// KNOWN BUG: `submit_response` has no creator guard, so today the self-vote is
 /// stored and counted. Un-ignore when the guard lands.
 #[test]
-#[ignore = "bug: creator can answer own request and is counted as a respondent, see #182"]
+#[ignore = "bug: creator can answer own request and is counted as a respondent, see #200"]
 fn self_vote_attempt_is_recorded_not_counted() {
     ext_with_events().execute_with(|| {
         register(ALICE);
