@@ -619,6 +619,7 @@ fn delegate_voting_fails_period_too_long() {
 fn slash_appeal_stores_record() {
     new_test_ext().execute_with(|| {
         assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        SlashRecords::<Test>::insert(ALICE, 0, 100);
         let reason = [42u8; 32];
         // Submit appeal for era 0 while in early era
         assert_ok!(Agents::slash_appeal(
@@ -636,6 +637,7 @@ fn slash_appeal_stores_record() {
 fn slash_appeal_cleared_on_unstake() {
     new_test_ext().execute_with(|| {
         assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        SlashRecords::<Test>::insert(ALICE, 0, 100);
         assert_ok!(Agents::slash_appeal(
             RuntimeOrigin::signed(ALICE),
             0,
@@ -654,6 +656,7 @@ fn slash_appeal_cleared_on_unstake() {
 fn slash_appeal_duplicate_rejected() {
     new_test_ext().execute_with(|| {
         assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        SlashRecords::<Test>::insert(ALICE, 0, 100);
         assert_ok!(Agents::slash_appeal(
             RuntimeOrigin::signed(ALICE),
             0,
@@ -664,6 +667,67 @@ fn slash_appeal_duplicate_rejected() {
             Agents::slash_appeal(RuntimeOrigin::signed(ALICE), 0, [1u8; 32]),
             Error::<Test>::AppealAlreadyPending
         );
+    });
+}
+
+#[test]
+fn slash_appeal_requires_slash_record() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        // Alice was never slashed: there is nothing to appeal.
+        assert_noop!(
+            Agents::slash_appeal(RuntimeOrigin::signed(ALICE), 0, [7u8; 32]),
+            Error::<Test>::NoSuchSlash
+        );
+        assert!(!PendingSlashAppeals::<Test>::contains_key(ALICE));
+        // A record for a different era does not cover this one.
+        SlashRecords::<Test>::insert(ALICE, 1, 100);
+        assert_noop!(
+            Agents::slash_appeal(RuntimeOrigin::signed(ALICE), 0, [7u8; 32]),
+            Error::<Test>::NoSuchSlash
+        );
+        assert_ok!(Agents::slash_appeal(
+            RuntimeOrigin::signed(ALICE),
+            1,
+            [7u8; 32]
+        ));
+    });
+}
+
+#[test]
+fn slash_appeal_capped_per_account() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        for era in 0..=MAX_OPEN_APPEALS {
+            SlashRecords::<Test>::insert(ALICE, era, 100);
+        }
+        for era in 0..MAX_OPEN_APPEALS {
+            assert_ok!(Agents::slash_appeal(
+                RuntimeOrigin::signed(ALICE),
+                era,
+                [era as u8; 32]
+            ));
+        }
+        assert_eq!(OpenAppealCount::<Test>::get(ALICE), MAX_OPEN_APPEALS);
+        assert_noop!(
+            Agents::slash_appeal(RuntimeOrigin::signed(ALICE), MAX_OPEN_APPEALS, [9u8; 32]),
+            Error::<Test>::TooManyOpenAppeals
+        );
+        // The cap is per account: Bob is unaffected.
+        assert_ok!(Agents::register(RuntimeOrigin::signed(BOB), 1_000));
+        SlashRecords::<Test>::insert(BOB, 0, 100);
+        assert_ok!(Agents::slash_appeal(RuntimeOrigin::signed(BOB), 0, [1u8; 32]));
+    });
+}
+
+#[test]
+fn register_sets_last_heartbeat() {
+    // #161: spec 306 already starts the heartbeat clock in `register` (lib.rs, D8). This test
+    // documents it at a block far past the grace period; no code change is needed.
+    new_test_ext().execute_with(|| {
+        System::set_block_number(534_527);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_eq!(LastHeartbeat::<Test>::get(ALICE), 534_527);
     });
 }
 
