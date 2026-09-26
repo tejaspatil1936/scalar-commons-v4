@@ -90,5 +90,5 @@ describe('escrow lifecycle', () => {
     const gained = (await free(provider)) - providerFreeBefore;
     assert.ok(gained <= net, `provider gained ${gained}, expected at most ${net}`);
     assert.ok(gained >= net - cmn(1) / 2n, `provider gained ${gained}, expected about ${net}`);
-  });
+  }, 240_000); // waits on real block production (MinDeliveryBlocks)
 });
