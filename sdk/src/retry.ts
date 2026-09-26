@@ -1,3 +1,4 @@
+import { isDeterministicFailure } from './errors.js';
 import { consoleLogger, errorMessage, type Logger } from './logger.js';
 
 /** Options controlling the no-silent-retry wrapper. */
@@ -45,6 +46,15 @@ export async function withRetry<T>(
       return await fn(attempt);
     } catch (err) {
       lastError = err;
+      // #160: a dispatch error would recur and cost another fee — give up at once.
+      if (isDeterministicFailure(err)) {
+        logger.error(`${label} failed on attempt ${attempt}/${totalAttempts}; deterministic error, not retrying`, {
+          attempt,
+          totalAttempts,
+          error: errorMessage(err),
+        });
+        throw err;
+      }
       if (attempt < totalAttempts) {
         // NOT silent: surface the failed attempt and that we are retrying.
         logger.warn(`${label} failed on attempt ${attempt}/${totalAttempts}; retrying`, {
