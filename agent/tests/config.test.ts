@@ -13,6 +13,11 @@ describe('loadConfig', () => {
     expect(c.name).toBe('operator-reference-agent');
   });
 
+  it('parses BUYER_PEERS as a trimmed list, empty by default', () => {
+    expect(loadConfig({ ...base }).buyerPeers).toEqual([]);
+    expect(loadConfig({ ...base, BUYER_PEERS: ' 5A , 5B,,' }).buyerPeers).toEqual(['5A', '5B']);
+  });
+
   it('refuses to start without a key', () => {
     expect(() => loadConfig({})).toThrow(/AGENT_MNEMONIC/);
   });

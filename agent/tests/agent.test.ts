@@ -57,7 +57,7 @@ function fake(init: Partial<State> = {}): Fake {
 
 const cfg: AgentConfig = {
   address: ME, mode: 'provider', stake: 1000n * CMN, name: 'operator-reference-agent',
-  heartbeatEveryBlocks: 600n, minDeliveryBlocks: 10n, buyerAmount: 10n * CMN, buyerMaxOpen: 2, buyerDeliverWithin: 200n,
+  heartbeatEveryBlocks: 600n, minDeliveryBlocks: 10n, buyerPeers: [], buyerAmount: 10n * CMN, buyerMaxOpen: 2, buyerDeliverWithin: 200n,
 };
 
 const agreement = (over: Partial<AgreementView> = {}): AgreementView => ({
@@ -198,6 +198,18 @@ describe('buyer mode', () => {
     const created = c.calls.filter((x) => x.startsWith('create'));
     expect(created).toHaveLength(1);
     expect(created[0]).toBe(`create:peer:${10n * CMN}:${1000n + 200n}`);
+  });
+
+  it('with a peer allowlist, only opens agreements with listed agents', async () => {
+    const c = fake({ agents: [ME, 'stranger', 'friend'] });
+    await make(c, { mode: 'buyer', buyerPeers: ['friend'] }).agent.tick();
+    expect(c.calls.filter((x) => x.startsWith('create'))).toEqual([`create:friend:${10n * CMN}:${1200n}`]);
+  });
+
+  it('with an allowlist and no listed agent registered, opens nothing', async () => {
+    const c = fake({ agents: [ME, 'stranger'] });
+    await make(c, { mode: 'buyer', buyerPeers: ['friend'] }).agent.tick();
+    expect(c.calls.some((x) => x.startsWith('create'))).toBe(false);
   });
 
   it('does nothing when there is no other agent', async () => {
