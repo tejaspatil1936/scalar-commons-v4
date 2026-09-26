@@ -101,7 +101,7 @@ Done means **all seven** of the following hold simultaneously and are independen
   Ranked Collective) so the chain is upgradeable and parameterizable on-chain rather than by fiat.
 - **Multiple validators producing and finalizing blocks continuously and unattended.** Five is
   the current devnet; finality must survive a validator going down (proven), and the network
-  must run for extended periods without human intervention (the longest-running validator has now been up 35 days).
+  must run for extended periods without human intervention.
 - **A forkless runtime upgrade rehearsed** — `spec_version` bumped and applied on a live
   network without restarting nodes. A chain that cannot upgrade itself is not an L1.
 - **Real weight benchmarks for every extrinsic across all seven pallets.** Today every
@@ -146,8 +146,9 @@ done by an agent.**
   own port exposed directly.
 - **A restricted RPC method allowlist.** The unsafe method set (`author_insertKey`,
   `author_rotateKeys`, and peers) must be confirmed blocked on every exposed node. *Current
-  status: all five validators have run with `--rpc-methods safe` since 2026-09-02, and the unsafe
-  methods are refused on every port. Closed; keep it verified.*
+  status: not asserted here. `rpc_methods` lists every registered method even when unsafe calls
+  are denied, so it is not evidence; confirm by calling an unsafe method on each exposed node and
+  recording the refusal.*
 - **Firewall rules, human-reviewed before they go live**, and rate limiting at the proxy.
 - **The faucet, docs, landing page, and explorer all deployed and publicly reachable** — not
   merely built and sitting in the repo.
