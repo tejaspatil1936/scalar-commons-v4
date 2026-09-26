@@ -83,7 +83,12 @@ test("E25: over-cap batch is rejected client-side/at decode, chain stays live", 
   const cap = (api.consts.oracle.maxBatchSubmissions as any).toNumber();
   const subs = Array.from({ length: cap + 1 }, (_, i) => [ans(`q${i}`), ans("a"), 0]);
   const before = (await api.rpc.chain.getHeader()).number.toNumber();
-  await expect(send(api.tx.oracle.batchSubmitResponse(subs), acc.Bob)).rejects.toBeDefined();
+  // The bound is a type-level cap: the runtime cannot decode the extrinsic, so the
+  // node rejects it at validation (the node logs a validate_transaction trap) and
+  // block production is unaffected.
+  await expect(send(api.tx.oracle.batchSubmitResponse(subs), acc.Bob)).rejects.toThrow(
+    /1002|Invalid Transaction|Could not decode|Unable to decode|validate_transaction|Bad input|Bad Proof|wasm trap|Cannot decode/i,
+  );
   await waitBlocks(api, 1, acc.Juror);
   expect((await api.rpc.chain.getHeader()).number.toNumber()).toBeGreaterThan(before);
 }, 120_000);

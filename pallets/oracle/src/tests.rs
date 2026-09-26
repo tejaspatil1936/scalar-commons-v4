@@ -3,7 +3,7 @@
 //! Gated by `#[cfg(test)] mod tests;` in `lib.rs` — no inner `#![cfg(test)]`.
 
 use crate::pallet::*;
-use frame_support::pallet_prelude::{Decode, Encode};
+use frame_support::pallet_prelude::Encode;
 use frame_support::{
     assert_noop, assert_ok, parameter_types,
     traits::{ConstU16, ConstU32, ConstU64},
@@ -704,11 +704,13 @@ fn dispute_request_carries_dispute_context() {
     });
 }
 
-fn resolve_dispute(answers: [[u8; 32]; 3]) -> [u8; 32] {
+/// Returns the request id and ALICE's reserved balance after registration, before the bounty.
+fn resolve_dispute(answers: [[u8; 32]; 3]) -> ([u8; 32], u64) {
     use crate::escrow_bridge::DisputeOracle;
     for a in [ALICE, BOB, CAROL, DAVE] {
         register(a);
     }
+    let reserved_after_registration = Balances::reserved_balance(ALICE);
     // ALICE = buyer, BOB = provider; CAROL, DAVE and a fifth juror vote.
     let id = <Oracle as DisputeOracle<u64, u64, u64>>::post_dispute_question(
         &ALICE, &BOB, 1, 300, 10, None,
@@ -731,15 +733,15 @@ fn resolve_dispute(answers: [[u8; 32]; 3]) -> [u8; 32] {
     }
     System::set_block_number(20);
     assert_ok!(Oracle::finalise_request(RuntimeOrigin::signed(DAVE), id));
-    id
+    (id, reserved_after_registration)
 }
 
 /// E28 — a provider-wins verdict reaches the callback as `provider_wins = true`.
 #[test]
 fn dispute_verdict_provider_wins_reaches_callback() {
     ext_with_events().execute_with(|| {
-        let pw = sp_io::hashing::blake2_256(crate::escrow_bridge::PROVIDER_WINS_PREIMAGE);
-        let id = resolve_dispute([pw, pw, [1u8; 32]]);
+        let pw = sp_io::hashing::blake2_256(pallet_escrow::dispute_hashes::PROVIDER_WINS_PREIMAGE);
+        let (id, _) = resolve_dispute([pw, pw, [1u8; 32]]);
         assert_eq!(
             DISPUTE_CALLS.with(|c| c.borrow().clone()),
             vec![(ALICE, BOB, 1, true)]
@@ -759,7 +761,7 @@ fn dispute_verdict_provider_wins_reaches_callback() {
 fn dispute_verdict_buyer_wins_reaches_callback() {
     ext_with_events().execute_with(|| {
         let bw = sp_io::hashing::blake2_256(pallet_escrow::dispute_hashes::BUYER_WINS_PREIMAGE);
-        let id = resolve_dispute([bw, bw, bw]);
+        let (id, _) = resolve_dispute([bw, bw, bw]);
         assert_eq!(
             DISPUTE_CALLS.with(|c| c.borrow().clone()),
             vec![(ALICE, BOB, 1, false)]
@@ -773,18 +775,14 @@ fn dispute_verdict_buyer_wins_reaches_callback() {
 #[test]
 fn dispute_without_consensus_defaults_to_buyer() {
     ext_with_events().execute_with(|| {
-        let reserved_before_register = Balances::reserved_balance(ALICE);
-        let id = resolve_dispute([[1u8; 32], [2u8; 32], [3u8; 32]]);
+        let (id, reserved_before) = resolve_dispute([[1u8; 32], [2u8; 32], [3u8; 32]]);
         assert_eq!(
             DISPUTE_CALLS.with(|c| c.borrow().clone()),
             vec![(ALICE, BOB, 1, false)]
         );
         assert!(OracleResults::<Test>::get(id).is_none());
         // Only ALICE's own registration stake remains reserved; the 300 bounty is back.
-        assert_eq!(
-            Balances::reserved_balance(ALICE),
-            reserved_before_register + Balances::reserved_balance(BOB)
-        );
+        assert_eq!(Balances::reserved_balance(ALICE), reserved_before);
         assert!(has_event(Event::OracleRequestFinalised {
             id,
             winning_hash: [0u8; 32],
@@ -794,22 +792,6 @@ fn dispute_without_consensus_defaults_to_buyer() {
 }
 
 type Sub = ([u8; 32], [u8; 32], u32);
-
-/// E25 — the batch cap is a type-level bound. An over-cap batch cannot be
-/// constructed, and an over-cap SCALE payload fails to decode (an error path,
-/// not a panic in the runtime).
-#[test]
-fn e25_batch_over_cap_error_path_events_and_storage() {
-    let over: Vec<Sub> = (0..21u8).map(|i| ([i; 32], [i; 32], 0)).collect();
-    assert!(frame_support::BoundedVec::<Sub, ConstU32<20>>::try_from(over.clone()).is_err());
-    assert!(
-        frame_support::BoundedVec::<Sub, ConstU32<20>>::decode(&mut &over.encode()[..]).is_err()
-    );
-    let at_cap: Vec<Sub> = over[..20].to_vec();
-    assert!(
-        frame_support::BoundedVec::<Sub, ConstU32<20>>::decode(&mut &at_cap.encode()[..]).is_ok()
-    );
-}
 
 /// E25 — a batch at exactly the cap is processed in full and reported in the
 /// event; an empty batch is rejected with `BatchEmpty` and leaves no event.
