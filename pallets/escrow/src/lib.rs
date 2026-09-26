@@ -266,6 +266,10 @@ pub mod pallet {
         MinDeliveryBlocksNotElapsed,
         NewDeadlineMustBeLater,
         DeadlineWouldExceedMaxSpan,
+        /// The provider does not hold the capability the agreement requires (E1).
+        ProviderLacksCapability,
+        /// The requested deadline is further out than `MaxAgreementSpan` allows (E21).
+        SpanTooLong,
     }
 
     #[pallet::call]
@@ -299,13 +303,24 @@ pub mod pallet {
                 amount >= T::MinAgreementAmount::get(),
                 Error::<T>::AmountTooLow
             );
+            // E1: a buyer who names a required capability is paying for that skill, so the
+            // provider must actually hold it. Checked before any reserve() below.
+            ensure!(
+                Self::provider_has_capability(&provider, capability_id),
+                Error::<T>::ProviderLacksCapability
+            );
 
             let now = frame_system::Pallet::<T>::block_number();
             ensure!(
                 deliver_by > now.saturating_add(T::MinDeliveryBlocks::get()),
                 Error::<T>::DeadlineTooEarly
             );
-            let clamped = deliver_by.min(now.saturating_add(T::MaxAgreementSpan::get()));
+            // E21: reject, rather than silently clamp, a deadline beyond MaxAgreementSpan so
+            // the buyer never locks funds against a deadline different from the one they signed.
+            ensure!(
+                deliver_by <= now.saturating_add(T::MaxAgreementSpan::get()),
+                Error::<T>::SpanTooLong
+            );
 
             let seq =
                 NextSeq::<T>::try_mutate(&buyer, &provider, |s| -> Result<u32, DispatchError> {
@@ -317,7 +332,7 @@ pub mod pallet {
             let agreement = Agreement::<T> {
                 amount,
                 deliverable_hash,
-                deliver_by: clamped,
+                deliver_by,
                 created_at: now,
                 status: AgreementStatus::Created,
                 delivery_proof: None,
@@ -361,6 +376,11 @@ pub mod pallet {
                 ensure!(
                     a.status == AgreementStatus::Created,
                     Error::<T>::WrongStatus
+                );
+                // E1: the capability must still be held at delivery, not just at creation.
+                ensure!(
+                    Self::provider_has_capability(&provider, a.capability_id),
+                    Error::<T>::ProviderLacksCapability
                 );
                 let now = frame_system::Pallet::<T>::block_number();
                 ensure!(now <= a.deliver_by, Error::<T>::DeadlinePassed);
@@ -558,6 +578,12 @@ pub mod pallet {
                     new_deadline > a.deliver_by,
                     Error::<T>::NewDeadlineMustBeLater
                 );
+                // E21: the new deadline may never lie beyond MaxAgreementSpan from now.
+                let now = frame_system::Pallet::<T>::block_number();
+                ensure!(
+                    new_deadline <= now.saturating_add(T::MaxAgreementSpan::get()),
+                    Error::<T>::SpanTooLong
+                );
                 let absolute_max = a.created_at.saturating_add(T::MaxAgreementSpan::get());
                 ensure!(
                     new_deadline <= absolute_max,
@@ -582,6 +608,15 @@ pub mod pallet {
         BalanceOf<T>: From<u32>,
         <T as agents_pallet::Config>::Currency: ReservableCurrency<T::AccountId>,
     {
+        /// True when no capability is required, or the provider has it registered.
+        /// Reads the agents pallet's `AgentCapabilities` list (the source `set_capability` maintains).
+        fn provider_has_capability(provider: &T::AccountId, required: Option<u32>) -> bool {
+            match required {
+                None => true,
+                Some(cap) => agents_pallet::AgentCapabilities::<T>::get(provider).contains(&cap),
+            }
+        }
+
         pub fn settle_dispute_from_oracle(
             buyer: &T::AccountId,
             provider: &T::AccountId,

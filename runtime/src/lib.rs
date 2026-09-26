@@ -185,7 +185,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // transaction_version is NOT bumped: agents::link_funding_lineage is appended at call
     // index 11 and ParamId::EmissionVolumeAlphaBps at discriminant 5, so no existing call
     // encoding moves.
-    spec_version: 306,
+    spec_version: 307,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1892,7 +1892,7 @@ mod tests {
     /// The version the upgrade is applied as. If this and `VERSION.spec_version`
     /// ever disagree the node will refuse the blob, so pin it.
     #[test]
-    fn spec_version_is_306() {
-        assert_eq!(VERSION.spec_version, 306);
+    fn spec_version_is_307() {
+        assert_eq!(VERSION.spec_version, 307);
     }
 }

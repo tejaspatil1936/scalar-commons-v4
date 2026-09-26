@@ -619,6 +619,7 @@ fn delegate_voting_fails_period_too_long() {
 fn slash_appeal_stores_record() {
     new_test_ext().execute_with(|| {
         assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        SlashRecords::<Test>::insert(ALICE, 0, 100);
         let reason = [42u8; 32];
         // Submit appeal for era 0 while in early era
         assert_ok!(Agents::slash_appeal(
@@ -636,6 +637,7 @@ fn slash_appeal_stores_record() {
 fn slash_appeal_cleared_on_unstake() {
     new_test_ext().execute_with(|| {
         assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        SlashRecords::<Test>::insert(ALICE, 0, 100);
         assert_ok!(Agents::slash_appeal(
             RuntimeOrigin::signed(ALICE),
             0,
@@ -654,6 +656,7 @@ fn slash_appeal_cleared_on_unstake() {
 fn slash_appeal_duplicate_rejected() {
     new_test_ext().execute_with(|| {
         assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        SlashRecords::<Test>::insert(ALICE, 0, 100);
         assert_ok!(Agents::slash_appeal(
             RuntimeOrigin::signed(ALICE),
             0,
@@ -664,6 +667,121 @@ fn slash_appeal_duplicate_rejected() {
             Agents::slash_appeal(RuntimeOrigin::signed(ALICE), 0, [1u8; 32]),
             Error::<Test>::AppealAlreadyPending
         );
+    });
+}
+
+#[test]
+fn slash_appeal_requires_slash_record() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        // Alice was never slashed: there is nothing to appeal.
+        assert_noop!(
+            Agents::slash_appeal(RuntimeOrigin::signed(ALICE), 0, [7u8; 32]),
+            Error::<Test>::NoSuchSlash
+        );
+        assert!(!PendingSlashAppeals::<Test>::contains_key(ALICE));
+        // A record for a different era does not cover this one.
+        SlashRecords::<Test>::insert(ALICE, 1, 100);
+        assert_noop!(
+            Agents::slash_appeal(RuntimeOrigin::signed(ALICE), 0, [7u8; 32]),
+            Error::<Test>::NoSuchSlash
+        );
+        assert_ok!(Agents::slash_appeal(
+            RuntimeOrigin::signed(ALICE),
+            1,
+            [7u8; 32]
+        ));
+    });
+}
+
+#[test]
+fn slash_appeal_capped_per_account() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        for era in 0..=MAX_OPEN_APPEALS {
+            SlashRecords::<Test>::insert(ALICE, era, 100);
+        }
+        for era in 0..MAX_OPEN_APPEALS {
+            assert_ok!(Agents::slash_appeal(
+                RuntimeOrigin::signed(ALICE),
+                era,
+                [era as u8; 32]
+            ));
+        }
+        assert_eq!(OpenAppealCount::<Test>::get(ALICE), MAX_OPEN_APPEALS);
+        assert_noop!(
+            Agents::slash_appeal(RuntimeOrigin::signed(ALICE), MAX_OPEN_APPEALS, [9u8; 32]),
+            Error::<Test>::TooManyOpenAppeals
+        );
+        // The cap is per account: Bob is unaffected.
+        assert_ok!(Agents::register(RuntimeOrigin::signed(BOB), 1_000));
+        SlashRecords::<Test>::insert(BOB, 0, 100);
+        assert_ok!(Agents::slash_appeal(
+            RuntimeOrigin::signed(BOB),
+            0,
+            [1u8; 32]
+        ));
+    });
+}
+
+#[test]
+fn second_era_appeal_does_not_overwrite_first() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        SlashRecords::<Test>::insert(ALICE, 0, 100);
+        SlashRecords::<Test>::insert(ALICE, 1, 100);
+        assert_ok!(Agents::slash_appeal(
+            RuntimeOrigin::signed(ALICE),
+            0,
+            [0xAA; 32]
+        ));
+        assert_ok!(Agents::slash_appeal(
+            RuntimeOrigin::signed(ALICE),
+            1,
+            [0xBB; 32]
+        ));
+        assert_eq!(
+            OpenAppeals::<Test>::get(ALICE, 0).unwrap().reason_hash,
+            [0xAA; 32]
+        );
+        assert_eq!(
+            OpenAppeals::<Test>::get(ALICE, 1).unwrap().reason_hash,
+            [0xBB; 32]
+        );
+        let pending = PendingSlashAppeals::<Test>::get(ALICE).unwrap();
+        assert_eq!(pending.slash_era, 0);
+        assert_eq!(pending.reason_hash, [0xAA; 32]);
+    });
+}
+
+#[test]
+fn execute_slash_records_slash_and_clears_open_appeals() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        SlashRecords::<Test>::insert(ALICE, 0, 100);
+        assert_ok!(Agents::slash_appeal(
+            RuntimeOrigin::signed(ALICE),
+            0,
+            [1u8; 32]
+        ));
+        assert_ok!(Agents::execute_slash(RuntimeOrigin::root(), ALICE, 100));
+        assert_eq!(
+            SlashRecords::<Test>::get(ALICE, EraNumber::<Test>::get()),
+            Some(100)
+        );
+        assert_eq!(OpenAppealCount::<Test>::get(ALICE), 0);
+        assert!(!OpenAppeals::<Test>::contains_key(ALICE, 0));
+    });
+}
+
+#[test]
+fn register_sets_last_heartbeat() {
+    // #161: spec 306 already starts the heartbeat clock in `register` (lib.rs, D8). This test
+    // documents it at a block far past the grace period; no code change is needed.
+    new_test_ext().execute_with(|| {
+        System::set_block_number(534_527);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_eq!(LastHeartbeat::<Test>::get(ALICE), 534_527);
     });
 }
 
@@ -1340,5 +1458,985 @@ fn linking_keeps_the_common_case_at_depth_one() {
         assert_eq!(LineageParent::<Test>::get(2), Some(1));
         assert_eq!(Agents::lineage_root(&2), Some(1));
         assert_eq!(Agents::lineage_root(&1), Some(1));
+    });
+}
+
+// ── #187: findings encoded as ledger-level tests ─────────────────────────────
+//
+// Every test below asserts on storage and on deposited events, never on a call's return
+// value alone ("trust the ledger"). Failure paths use `assert_noop!` so a rejected call is
+// proven to leave storage untouched, and additionally check that no pallet event leaked.
+//
+// Finding labels (E20, minStake freeze, heartbeat gate, unstake cooldown, E33, E22) follow
+// the sprint runbook §1.4 table.
+
+/// Blocks start at 0 in the mock, and `frame_system` drops events deposited at block 0.
+/// Start at block 1 with an empty event log.
+fn start() {
+    System::set_block_number(1);
+    System::reset_events();
+}
+
+/// Every `pallet-agents` event deposited since the last `start()`/`clear_events()`, in order.
+fn agent_events() -> Vec<Event<Test>> {
+    System::events()
+        .into_iter()
+        .filter_map(|r| match r.event {
+            RuntimeEvent::Agents(e) => Some(e),
+            _ => None,
+        })
+        .collect()
+}
+
+fn clear_events() {
+    System::reset_events();
+}
+
+/// Full storage footprint of an agent for the lifecycle keys `complete_unstake` must wipe.
+fn assert_no_agent_state(who: u64) {
+    assert!(!AgentStake::<Test>::contains_key(who));
+    assert!(!UnstakeAt::<Test>::contains_key(who));
+    assert!(!StakeRegisteredAt::<Test>::contains_key(who));
+    assert!(!LastHeartbeat::<Test>::contains_key(who));
+    assert!(!CompletedAgreements::<Test>::contains_key(who));
+    assert!(!AgentMetadata::<Test>::contains_key(who));
+    assert!(AgentCapabilities::<Test>::get(who).is_empty());
+    assert!(!VotingDelegations::<Test>::contains_key(who));
+    assert!(!PendingSlashAppeals::<Test>::contains_key(who));
+    assert_eq!(OpenAppealCount::<Test>::get(who), 0);
+    assert!(
+        Balances::locks(&who).is_empty(),
+        "stake lock must be released"
+    );
+}
+
+// ── E20: re-registration ─────────────────────────────────────────────────────
+
+#[test]
+fn e20_register_writes_state_and_emits_event() {
+    new_test_ext().execute_with(|| {
+        start();
+        System::set_block_number(42);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 2_500));
+
+        assert_eq!(AgentStake::<Test>::get(ALICE), Some(2_500));
+        assert_eq!(StakeRegisteredAt::<Test>::get(ALICE), 42);
+        assert_eq!(LastHeartbeat::<Test>::get(ALICE), 42);
+        assert_eq!(
+            Balances::free_balance(ALICE),
+            100_000 - 50,
+            "only the fee leaves"
+        );
+        let locks = Balances::locks(&ALICE);
+        assert_eq!(locks.len(), 1);
+        assert_eq!(locks[0].amount, 2_500);
+        assert_eq!(
+            agent_events(),
+            vec![Event::AgentRegistered {
+                who: ALICE,
+                stake: 2_500,
+                fee: 50
+            }]
+        );
+    });
+}
+
+#[test]
+fn e20_duplicate_register_is_a_noop_on_the_ledger() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        clear_events();
+        System::set_block_number(50);
+        let free = Balances::free_balance(ALICE);
+
+        assert_noop!(
+            Agents::register(RuntimeOrigin::signed(ALICE), 5_000),
+            Error::<Test>::AlreadyRegistered
+        );
+        // Stake, clock and balance are exactly as they were; no second fee was burned.
+        assert_eq!(AgentStake::<Test>::get(ALICE), Some(1_000));
+        assert_eq!(StakeRegisteredAt::<Test>::get(ALICE), 1);
+        assert_eq!(LastHeartbeat::<Test>::get(ALICE), 1);
+        assert_eq!(Balances::free_balance(ALICE), free);
+        assert_eq!(Balances::locks(&ALICE)[0].amount, 1_000);
+        assert!(agent_events().is_empty());
+    });
+}
+
+#[test]
+fn e20_register_while_unstake_pending_is_rejected_and_keeps_the_request() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::request_unstake(RuntimeOrigin::signed(ALICE)));
+        clear_events();
+
+        assert_noop!(
+            Agents::register(RuntimeOrigin::signed(ALICE), 1_000),
+            Error::<Test>::AlreadyRegistered
+        );
+        assert_eq!(UnstakeAt::<Test>::get(ALICE), Some(1 + 100));
+        assert!(agent_events().is_empty());
+    });
+}
+
+#[test]
+fn e20_reregistration_after_unstake_starts_from_a_clean_slate() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+
+        // Accumulate every piece of per-agent state the first life can leave behind.
+        assert_ok!(Agents::update_metadata(
+            RuntimeOrigin::signed(ALICE),
+            b"ipfs://old".to_vec().try_into().unwrap(),
+            b"old-name".to_vec().try_into().unwrap(),
+        ));
+        assert_ok!(Agents::delegate_voting(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            500
+        ));
+        CompletedAgreements::<Test>::insert(ALICE, 7);
+        assert_ok!(Agents::heartbeat(RuntimeOrigin::signed(ALICE)));
+
+        assert_ok!(Agents::request_unstake(RuntimeOrigin::signed(ALICE)));
+        System::set_block_number(101);
+        assert_ok!(Agents::complete_unstake(RuntimeOrigin::signed(ALICE)));
+        assert_no_agent_state(ALICE);
+        assert_eq!(
+            agent_events().last(),
+            Some(&Event::UnstakeCompleted {
+                who: ALICE,
+                released: 1_000
+            })
+        );
+
+        // Second life, much later, at a different stake.
+        System::set_block_number(9_000);
+        clear_events();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 3_000));
+
+        assert_eq!(AgentStake::<Test>::get(ALICE), Some(3_000));
+        assert_eq!(StakeRegisteredAt::<Test>::get(ALICE), 9_000);
+        assert_eq!(LastHeartbeat::<Test>::get(ALICE), 9_000);
+        assert_eq!(Agents::heartbeat_multiplier(&ALICE), 100);
+        assert_eq!(
+            CompletedAgreements::<Test>::get(ALICE),
+            0,
+            "old track record must not carry over"
+        );
+        assert!(AgentMetadata::<Test>::get(ALICE).is_none());
+        assert!(VotingDelegations::<Test>::get(ALICE).is_none());
+        assert!(UnstakeAt::<Test>::get(ALICE).is_none());
+        assert_eq!(Balances::locks(&ALICE)[0].amount, 3_000);
+        assert_eq!(
+            agent_events(),
+            vec![Event::AgentRegistered {
+                who: ALICE,
+                stake: 3_000,
+                fee: 50
+            }]
+        );
+    });
+}
+
+#[test]
+fn e20_reregistration_after_full_slash_eviction_works() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        // A 100% slash takes stake below MinStake: the AgentStake entry is removed.
+        assert_ok!(Agents::execute_slash(RuntimeOrigin::root(), ALICE, 10_000));
+        assert!(!AgentStake::<Test>::contains_key(ALICE));
+        assert!(Balances::locks(&ALICE).is_empty());
+        assert_eq!(
+            agent_events().last(),
+            Some(&Event::SlashExecuted {
+                who: ALICE,
+                amount: 1_000,
+                burn: 500,
+                treasury: 500
+            })
+        );
+
+        System::set_block_number(20);
+        clear_events();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_eq!(AgentStake::<Test>::get(ALICE), Some(1_000));
+        assert_eq!(LastHeartbeat::<Test>::get(ALICE), 20);
+        assert_eq!(Balances::locks(&ALICE)[0].amount, 1_000);
+        assert_eq!(agent_events().len(), 1);
+    });
+}
+
+// ── minStake freeze ──────────────────────────────────────────────────────────
+
+#[test]
+fn min_stake_boundary_exact_min_registers_one_below_does_not() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_noop!(
+            Agents::register(RuntimeOrigin::signed(ALICE), 999),
+            Error::<Test>::StakeTooLow
+        );
+        assert!(!AgentStake::<Test>::contains_key(ALICE));
+        assert!(Balances::locks(&ALICE).is_empty());
+        assert_eq!(
+            Balances::free_balance(ALICE),
+            100_000,
+            "no fee burned on a rejected register"
+        );
+        assert!(agent_events().is_empty());
+
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_eq!(AgentStake::<Test>::get(ALICE), Some(1_000));
+        assert_eq!(agent_events().len(), 1);
+    });
+}
+
+#[test]
+fn min_stake_ceiling_is_enforced() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_noop!(
+            Agents::register(RuntimeOrigin::signed(ALICE), 1_000_001),
+            Error::<Test>::StakeTooHigh
+        );
+        assert!(!AgentStake::<Test>::contains_key(ALICE));
+        assert!(agent_events().is_empty());
+
+        // The ceiling is a hard bound, not a clamp: nothing was locked or burned.
+        assert!(Balances::locks(&ALICE).is_empty());
+        assert_eq!(Balances::free_balance(ALICE), 100_000);
+    });
+}
+
+#[test]
+fn min_stake_locked_stake_cannot_be_transferred_away() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 60_000));
+        let free = Balances::free_balance(ALICE); // 100_000 - 50
+                                                  // Only free - stake is spendable; one plank more is frozen by the lock.
+        assert_noop!(
+            Balances::transfer_allow_death(RuntimeOrigin::signed(ALICE), BOB, free - 60_000 + 1),
+            sp_runtime::TokenError::Frozen
+        );
+        assert_eq!(Balances::free_balance(ALICE), free);
+        assert_ok!(Balances::transfer_allow_death(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            free - 60_000
+        ));
+        assert_eq!(Balances::free_balance(ALICE), 60_000);
+        assert_eq!(AgentStake::<Test>::get(ALICE), Some(60_000));
+    });
+}
+
+#[test]
+fn min_stake_add_stake_grows_the_lock_and_emits_total() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        clear_events();
+        assert_ok!(Agents::add_stake(RuntimeOrigin::signed(ALICE), 4_000));
+
+        assert_eq!(AgentStake::<Test>::get(ALICE), Some(5_000));
+        assert_eq!(Balances::locks(&ALICE)[0].amount, 5_000);
+        assert_eq!(
+            agent_events(),
+            vec![Event::StakeAdded {
+                who: ALICE,
+                added: 4_000,
+                total: 5_000
+            }]
+        );
+    });
+}
+
+#[test]
+fn min_stake_zero_add_and_non_agent_add_are_rejected() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_noop!(
+            Agents::add_stake(RuntimeOrigin::signed(ALICE), 100),
+            Error::<Test>::NotRegistered
+        );
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        clear_events();
+        assert_noop!(
+            Agents::add_stake(RuntimeOrigin::signed(ALICE), 0),
+            Error::<Test>::StakeTooLow
+        );
+        assert_eq!(AgentStake::<Test>::get(ALICE), Some(1_000));
+        assert!(agent_events().is_empty());
+    });
+}
+
+#[test]
+fn min_stake_frozen_while_unstake_is_pending() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::request_unstake(RuntimeOrigin::signed(ALICE)));
+        clear_events();
+
+        // Stake may not change once the cooldown started, and the lock stays in force.
+        assert_noop!(
+            Agents::add_stake(RuntimeOrigin::signed(ALICE), 500),
+            Error::<Test>::UnstakeAlreadyPending
+        );
+        assert_eq!(AgentStake::<Test>::get(ALICE), Some(1_000));
+        assert_eq!(Balances::locks(&ALICE)[0].amount, 1_000);
+        assert!(agent_events().is_empty());
+    });
+}
+
+#[test]
+fn min_stake_slash_below_min_drops_the_agent_but_partial_slash_keeps_it() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 10_000));
+        clear_events();
+        // 10% of 10_000 = 1_000 → remaining 9_000 ≥ MinStake: still an agent.
+        assert_ok!(Agents::execute_slash(RuntimeOrigin::root(), ALICE, 1_000));
+        assert_eq!(AgentStake::<Test>::get(ALICE), Some(9_000));
+        assert_eq!(Balances::locks(&ALICE)[0].amount, 9_000);
+        assert_eq!(
+            agent_events(),
+            vec![Event::SlashExecuted {
+                who: ALICE,
+                amount: 1_000,
+                burn: 500,
+                treasury: 500
+            }]
+        );
+        // 95% of 9_000 leaves 450 < MinStake: the entry is removed, not left at 450.
+        assert_ok!(Agents::execute_slash(RuntimeOrigin::root(), ALICE, 9_500));
+        assert!(!AgentStake::<Test>::contains_key(ALICE));
+        assert!(Balances::locks(&ALICE).is_empty());
+    });
+}
+
+#[test]
+fn min_stake_slash_requires_root_and_valid_bps() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        clear_events();
+        assert_noop!(
+            Agents::execute_slash(RuntimeOrigin::signed(BOB), ALICE, 100),
+            sp_runtime::DispatchError::BadOrigin
+        );
+        assert_noop!(
+            Agents::execute_slash(RuntimeOrigin::root(), ALICE, 0),
+            Error::<Test>::InvalidSlashBps
+        );
+        assert_noop!(
+            Agents::execute_slash(RuntimeOrigin::root(), ALICE, 10_001),
+            Error::<Test>::InvalidSlashBps
+        );
+        assert_eq!(AgentStake::<Test>::get(ALICE), Some(1_000));
+        assert!(agent_events().is_empty());
+    });
+}
+
+// ── heartbeat gate ───────────────────────────────────────────────────────────
+
+#[test]
+fn heartbeat_updates_clock_and_emits_event() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        clear_events();
+        System::set_block_number(777);
+        assert_ok!(Agents::heartbeat(RuntimeOrigin::signed(ALICE)));
+
+        assert_eq!(LastHeartbeat::<Test>::get(ALICE), 777);
+        assert_eq!(agent_events(), vec![Event::HeartbeatSent { who: ALICE }]);
+    });
+}
+
+#[test]
+fn heartbeat_from_non_agent_is_rejected_and_writes_nothing() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_noop!(
+            Agents::heartbeat(RuntimeOrigin::signed(BOB)),
+            Error::<Test>::NotRegistered
+        );
+        assert!(!LastHeartbeat::<Test>::contains_key(BOB));
+        assert!(agent_events().is_empty());
+    });
+}
+
+#[test]
+fn heartbeat_only_touches_the_callers_clock() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(BOB), 1_000));
+        System::set_block_number(500);
+        assert_ok!(Agents::heartbeat(RuntimeOrigin::signed(ALICE)));
+        assert_eq!(LastHeartbeat::<Test>::get(ALICE), 500);
+        assert_eq!(LastHeartbeat::<Test>::get(BOB), 1);
+    });
+}
+
+#[test]
+fn heartbeat_multiplier_holds_at_100_through_the_grace_period() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        // Grace = 600: silent for exactly 600 blocks is still full.
+        System::set_block_number(1 + 600);
+        assert_eq!(Agents::heartbeat_multiplier(&ALICE), 100);
+    });
+}
+
+#[test]
+fn heartbeat_gate_boundary_at_the_ninety_percent_activity_threshold() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        // Emissions gates the floor share on `hb >= 90`. Multiplier is
+        // 100 - floor(90 * over / 14_400): 90 holds through over = 1_759 and drops to 89
+        // at over = 1_760 (90 * 1_760 / 14_400 = 11).
+        System::set_block_number(1 + 600 + 1_759);
+        assert_eq!(Agents::heartbeat_multiplier(&ALICE), 90);
+        System::set_block_number(1 + 600 + 1_760);
+        assert_eq!(Agents::heartbeat_multiplier(&ALICE), 89);
+    });
+}
+
+#[test]
+fn heartbeat_multiplier_floors_at_ten_and_recovers_on_a_heartbeat() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        System::set_block_number(1 + 600 + 14_400);
+        assert_eq!(Agents::heartbeat_multiplier(&ALICE), 10);
+        System::set_block_number(1_000_000);
+        assert_eq!(
+            Agents::heartbeat_multiplier(&ALICE),
+            10,
+            "never below the 10% floor"
+        );
+
+        assert_ok!(Agents::heartbeat(RuntimeOrigin::signed(ALICE)));
+        assert_eq!(LastHeartbeat::<Test>::get(ALICE), 1_000_000);
+        assert_eq!(Agents::heartbeat_multiplier(&ALICE), 100);
+    });
+}
+
+#[test]
+fn heartbeat_is_rejected_after_the_agent_has_left() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::request_unstake(RuntimeOrigin::signed(ALICE)));
+        System::set_block_number(101);
+        assert_ok!(Agents::complete_unstake(RuntimeOrigin::signed(ALICE)));
+        clear_events();
+        assert_noop!(
+            Agents::heartbeat(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::NotRegistered
+        );
+        assert!(!LastHeartbeat::<Test>::contains_key(ALICE));
+        assert!(agent_events().is_empty());
+    });
+}
+
+// ── unstake cooldown ─────────────────────────────────────────────────────────
+
+#[test]
+fn cooldown_request_records_deadline_and_emits_it() {
+    new_test_ext().execute_with(|| {
+        start();
+        System::set_block_number(30);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        clear_events();
+        System::set_block_number(40);
+        assert_ok!(Agents::request_unstake(RuntimeOrigin::signed(ALICE)));
+
+        assert_eq!(UnstakeAt::<Test>::get(ALICE), Some(140));
+        assert_eq!(
+            agent_events(),
+            vec![Event::UnstakeRequested {
+                who: ALICE,
+                unstake_at: 140
+            }]
+        );
+        // Requesting does not release anything yet.
+        assert_eq!(AgentStake::<Test>::get(ALICE), Some(1_000));
+        assert_eq!(Balances::locks(&ALICE)[0].amount, 1_000);
+    });
+}
+
+#[test]
+fn cooldown_blocks_completion_until_the_exact_deadline_block() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::request_unstake(RuntimeOrigin::signed(ALICE))); // deadline 101
+        clear_events();
+
+        System::set_block_number(100);
+        assert_noop!(
+            Agents::complete_unstake(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::UnstakeCooldownNotElapsed
+        );
+        assert_eq!(AgentStake::<Test>::get(ALICE), Some(1_000));
+        assert_eq!(Balances::locks(&ALICE)[0].amount, 1_000);
+        assert!(agent_events().is_empty());
+
+        System::set_block_number(101);
+        assert_ok!(Agents::complete_unstake(RuntimeOrigin::signed(ALICE)));
+        assert_no_agent_state(ALICE);
+        assert_eq!(
+            agent_events(),
+            vec![Event::UnstakeCompleted {
+                who: ALICE,
+                released: 1_000
+            }]
+        );
+    });
+}
+
+#[test]
+fn cooldown_release_makes_the_full_stake_spendable() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 60_000));
+        assert_ok!(Agents::request_unstake(RuntimeOrigin::signed(ALICE)));
+        System::set_block_number(101);
+        assert_ok!(Agents::complete_unstake(RuntimeOrigin::signed(ALICE)));
+        // Everything except the burned fee is now transferable.
+        assert_ok!(Balances::transfer_allow_death(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            100_000 - 50 - 1
+        ));
+        assert_eq!(Balances::free_balance(ALICE), 1);
+    });
+}
+
+#[test]
+fn cooldown_second_request_is_rejected_and_does_not_extend_the_deadline() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::request_unstake(RuntimeOrigin::signed(ALICE)));
+        clear_events();
+        System::set_block_number(60);
+        assert_noop!(
+            Agents::request_unstake(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::UnstakeAlreadyPending
+        );
+        assert_eq!(UnstakeAt::<Test>::get(ALICE), Some(101));
+        assert!(agent_events().is_empty());
+    });
+}
+
+#[test]
+fn cooldown_complete_without_request_or_registration_is_rejected() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_noop!(
+            Agents::complete_unstake(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::NotRegistered
+        );
+        assert_noop!(
+            Agents::request_unstake(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::NotRegistered
+        );
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_noop!(
+            Agents::complete_unstake(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::NoUnstakeRequest
+        );
+        assert_eq!(AgentStake::<Test>::get(ALICE), Some(1_000));
+    });
+}
+
+#[test]
+fn cooldown_active_escrow_blocks_request_and_completion() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::increment_active_escrow(&ALICE));
+        clear_events();
+        assert_noop!(
+            Agents::request_unstake(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::HasActiveAgreements
+        );
+        assert!(!UnstakeAt::<Test>::contains_key(ALICE));
+        assert!(agent_events().is_empty());
+
+        // An escrow opened *during* the cooldown is re-checked at completion.
+        Agents::decrement_active_escrow(&ALICE);
+        assert_ok!(Agents::request_unstake(RuntimeOrigin::signed(ALICE)));
+        assert_ok!(Agents::increment_active_escrow(&ALICE));
+        System::set_block_number(500);
+        assert_noop!(
+            Agents::complete_unstake(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::HasActiveAgreements
+        );
+        assert_eq!(AgentStake::<Test>::get(ALICE), Some(1_000));
+        assert!(UnstakeAt::<Test>::contains_key(ALICE));
+
+        Agents::decrement_active_escrow(&ALICE);
+        assert_ok!(Agents::complete_unstake(RuntimeOrigin::signed(ALICE)));
+        assert!(!AgentStake::<Test>::contains_key(ALICE));
+    });
+}
+
+// ── E33: delegation ──────────────────────────────────────────────────────────
+
+#[test]
+fn e33_delegate_stores_record_and_emits_event() {
+    new_test_ext().execute_with(|| {
+        start();
+        System::set_block_number(10);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        clear_events();
+        assert_ok!(Agents::delegate_voting(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            500
+        ));
+
+        let rec = VotingDelegations::<Test>::get(ALICE).expect("delegation stored");
+        assert_eq!(rec.delegate_to, BOB);
+        assert_eq!(rec.expires_at, 500);
+        assert_eq!(rec.created_at, 10);
+        assert_eq!(
+            agent_events(),
+            vec![Event::VotingDelegated {
+                who: ALICE,
+                to: BOB,
+                until: 500
+            }]
+        );
+    });
+}
+
+#[test]
+fn e33_delegation_requires_registration() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_noop!(
+            Agents::delegate_voting(RuntimeOrigin::signed(ALICE), BOB, 500),
+            Error::<Test>::NotRegistered
+        );
+        assert!(!VotingDelegations::<Test>::contains_key(ALICE));
+        assert!(agent_events().is_empty());
+    });
+}
+
+#[test]
+fn e33_delegation_expiry_bounds_are_exact() {
+    new_test_ext().execute_with(|| {
+        start();
+        System::set_block_number(100);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        clear_events();
+        // until must be strictly in the future.
+        assert_noop!(
+            Agents::delegate_voting(RuntimeOrigin::signed(ALICE), BOB, 100),
+            Error::<Test>::DelegationExpired
+        );
+        // now + MaxDelegationPeriod (90_000) is the last accepted block; +1 is not.
+        assert_noop!(
+            Agents::delegate_voting(RuntimeOrigin::signed(ALICE), BOB, 100 + 90_000 + 1),
+            Error::<Test>::DelegationPeriodTooLong
+        );
+        assert!(!VotingDelegations::<Test>::contains_key(ALICE));
+        assert!(agent_events().is_empty());
+
+        assert_ok!(Agents::delegate_voting(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            101
+        ));
+        assert_ok!(Agents::delegate_voting(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            100 + 90_000
+        ));
+        assert_eq!(
+            VotingDelegations::<Test>::get(ALICE).unwrap().expires_at,
+            90_100
+        );
+    });
+}
+
+#[test]
+fn e33_redelegation_replaces_the_previous_record() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::delegate_voting(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            500
+        ));
+        System::set_block_number(20);
+        clear_events();
+        assert_ok!(Agents::delegate_voting(
+            RuntimeOrigin::signed(ALICE),
+            3,
+            900
+        ));
+
+        let rec = VotingDelegations::<Test>::get(ALICE).unwrap();
+        assert_eq!(
+            (rec.delegate_to, rec.expires_at, rec.created_at),
+            (3, 900, 20)
+        );
+        assert_eq!(
+            agent_events(),
+            vec![Event::VotingDelegated {
+                who: ALICE,
+                to: 3,
+                until: 900
+            }]
+        );
+    });
+}
+
+#[test]
+fn e33_revoking_delegation_emits_removal_and_leaves_slash_appeals_alone() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        SlashRecords::<Test>::insert(ALICE, 0, 100);
+        assert_ok!(Agents::slash_appeal(
+            RuntimeOrigin::signed(ALICE),
+            0,
+            [5u8; 32]
+        ));
+        assert_ok!(Agents::delegate_voting(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            500
+        ));
+        clear_events();
+
+        assert_ok!(Agents::delegate_voting(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            0
+        ));
+        assert!(VotingDelegations::<Test>::get(ALICE).is_none());
+        assert_eq!(
+            agent_events(),
+            vec![Event::VotingDelegationRemoved { who: ALICE }]
+        );
+        // A slashed agent cannot erase its appeal record by toggling delegation.
+        assert!(PendingSlashAppeals::<Test>::contains_key(ALICE));
+        assert!(OpenAppeals::<Test>::contains_key(ALICE, 0));
+        assert_eq!(OpenAppealCount::<Test>::get(ALICE), 1);
+    });
+}
+
+#[test]
+fn e33_delegation_does_not_move_stake_or_weight() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        let free = Balances::free_balance(ALICE);
+        assert_ok!(Agents::delegate_voting(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            500
+        ));
+        assert_eq!(AgentStake::<Test>::get(ALICE), Some(1_000));
+        assert_eq!(Balances::free_balance(ALICE), free);
+        assert_eq!(Balances::locks(&ALICE)[0].amount, 1_000);
+        assert!(
+            !AgentStake::<Test>::contains_key(BOB),
+            "delegating does not register the delegate"
+        );
+    });
+}
+
+// ── E22: slash appeals ───────────────────────────────────────────────────────
+
+#[test]
+fn e22_appeal_writes_full_record_and_emits_event() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        SlashRecords::<Test>::insert(ALICE, 2, 500);
+        System::set_block_number(33);
+        clear_events();
+        assert_ok!(Agents::slash_appeal(
+            RuntimeOrigin::signed(ALICE),
+            2,
+            [0xCD; 32]
+        ));
+
+        let open = OpenAppeals::<Test>::get(ALICE, 2).expect("open appeal");
+        assert_eq!(open.slash_era, 2);
+        assert_eq!(open.appealed_at, 33);
+        assert_eq!(open.reason_hash, [0xCD; 32]);
+        let pending = PendingSlashAppeals::<Test>::get(ALICE).expect("pending pointer");
+        assert_eq!(pending.slash_era, open.slash_era);
+        assert_eq!(pending.appealed_at, open.appealed_at);
+        assert_eq!(pending.reason_hash, open.reason_hash);
+        assert_eq!(OpenAppealCount::<Test>::get(ALICE), 1);
+        assert_eq!(
+            agent_events(),
+            vec![Event::SlashAppealed {
+                who: ALICE,
+                slash_era: 2,
+                reason_hash: [0xCD; 32]
+            }]
+        );
+    });
+}
+
+#[test]
+fn e22_appeal_without_a_slash_record_leaves_no_trace() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        clear_events();
+        assert_noop!(
+            Agents::slash_appeal(RuntimeOrigin::signed(ALICE), 0, [1u8; 32]),
+            Error::<Test>::NoSuchSlash
+        );
+        assert!(!PendingSlashAppeals::<Test>::contains_key(ALICE));
+        assert!(!OpenAppeals::<Test>::contains_key(ALICE, 0));
+        assert_eq!(OpenAppealCount::<Test>::get(ALICE), 0);
+        assert!(agent_events().is_empty());
+    });
+}
+
+#[test]
+fn e22_appeal_by_non_agent_is_rejected() {
+    new_test_ext().execute_with(|| {
+        start();
+        SlashRecords::<Test>::insert(BOB, 0, 100);
+        assert_noop!(
+            Agents::slash_appeal(RuntimeOrigin::signed(BOB), 0, [1u8; 32]),
+            Error::<Test>::NotRegistered
+        );
+        assert_eq!(OpenAppealCount::<Test>::get(BOB), 0);
+    });
+}
+
+#[test]
+fn e22_duplicate_appeal_for_the_same_era_is_rejected() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        SlashRecords::<Test>::insert(ALICE, 0, 100);
+        assert_ok!(Agents::slash_appeal(
+            RuntimeOrigin::signed(ALICE),
+            0,
+            [1u8; 32]
+        ));
+        clear_events();
+        assert_noop!(
+            Agents::slash_appeal(RuntimeOrigin::signed(ALICE), 0, [2u8; 32]),
+            Error::<Test>::AppealAlreadyPending
+        );
+        assert_eq!(
+            OpenAppeals::<Test>::get(ALICE, 0).unwrap().reason_hash,
+            [1u8; 32]
+        );
+        assert_eq!(OpenAppealCount::<Test>::get(ALICE), 1);
+        assert!(agent_events().is_empty());
+    });
+}
+
+#[test]
+fn e22_appeal_window_closes_after_slash_appeal_window_eras() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        SlashRecords::<Test>::insert(ALICE, 0, 100);
+        // SlashAppealWindow = 10: era 9 is the last era an era-0 slash can be appealed in.
+        EraNumber::<Test>::put(10u32);
+        clear_events();
+        assert_noop!(
+            Agents::slash_appeal(RuntimeOrigin::signed(ALICE), 0, [1u8; 32]),
+            Error::<Test>::AppealWindowExpired
+        );
+        assert!(!OpenAppeals::<Test>::contains_key(ALICE, 0));
+        assert!(agent_events().is_empty());
+
+        EraNumber::<Test>::put(9u32);
+        assert_ok!(Agents::slash_appeal(
+            RuntimeOrigin::signed(ALICE),
+            0,
+            [1u8; 32]
+        ));
+        assert!(OpenAppeals::<Test>::contains_key(ALICE, 0));
+    });
+}
+
+#[test]
+fn e22_slash_then_appeal_round_trip_through_execute_slash() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 10_000));
+        EraNumber::<Test>::put(4u32);
+        // A real slash creates the record the appeal needs.
+        assert_ok!(Agents::execute_slash(RuntimeOrigin::root(), ALICE, 1_000));
+        assert_eq!(SlashRecords::<Test>::get(ALICE, 4), Some(1_000));
+        clear_events();
+
+        assert_ok!(Agents::slash_appeal(
+            RuntimeOrigin::signed(ALICE),
+            4,
+            [9u8; 32]
+        ));
+        assert_eq!(OpenAppealCount::<Test>::get(ALICE), 1);
+        assert_eq!(
+            agent_events(),
+            vec![Event::SlashAppealed {
+                who: ALICE,
+                slash_era: 4,
+                reason_hash: [9u8; 32]
+            }]
+        );
+        // A later slash makes earlier appeals moot and clears them all.
+        EraNumber::<Test>::put(5u32);
+        assert_ok!(Agents::execute_slash(RuntimeOrigin::root(), ALICE, 500));
+        assert_eq!(OpenAppealCount::<Test>::get(ALICE), 0);
+        assert!(!OpenAppeals::<Test>::contains_key(ALICE, 4));
+        assert!(!PendingSlashAppeals::<Test>::contains_key(ALICE));
+        assert_eq!(SlashRecords::<Test>::get(ALICE, 5), Some(500));
+        // The earlier slash record itself is history and stays.
+        assert_eq!(SlashRecords::<Test>::get(ALICE, 4), Some(1_000));
+    });
+}
+
+#[test]
+fn e22_unstake_clears_every_open_appeal() {
+    new_test_ext().execute_with(|| {
+        start();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        for era in 0..3u32 {
+            SlashRecords::<Test>::insert(ALICE, era, 100);
+            assert_ok!(Agents::slash_appeal(
+                RuntimeOrigin::signed(ALICE),
+                era,
+                [era as u8; 32]
+            ));
+        }
+        assert_eq!(OpenAppealCount::<Test>::get(ALICE), 3);
+        assert_ok!(Agents::request_unstake(RuntimeOrigin::signed(ALICE)));
+        System::set_block_number(101);
+        assert_ok!(Agents::complete_unstake(RuntimeOrigin::signed(ALICE)));
+        for era in 0..3u32 {
+            assert!(!OpenAppeals::<Test>::contains_key(ALICE, era));
+        }
+        assert_no_agent_state(ALICE);
     });
 }
