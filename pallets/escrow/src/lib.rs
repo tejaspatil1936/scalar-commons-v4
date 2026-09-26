@@ -190,6 +190,25 @@ pub mod pallet {
     #[pallet::storage]
     pub type ActiveAgreementCount<T: Config> = StorageValue<_, u32, ValueQuery>;
 
+    /// Agreements created but not yet accepted by the provider (E18). An entry means the
+    /// provider has not consented, so the agreement does not count toward the provider's
+    /// `ActiveEscrowCount`. Agreements that predate this map have no entry and read as
+    /// accepted. Value = block of creation.
+    #[pallet::storage]
+    pub type PendingAcceptance<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Blake2_128Concat,
+        (T::AccountId, u32),
+        BlockNumberFor<T>,
+        OptionQuery,
+    >;
+
+    /// Blocks past `deliver_by` before anyone may expire an undelivered agreement (E2).
+    /// A pallet const, not a `Config` type, so the runtime needs no change.
+    pub const EXPIRY_GRACE: u32 = 10;
+
     const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]
@@ -248,6 +267,33 @@ pub mod pallet {
             old_deadline: BlockNumberFor<T>,
             new_deadline: BlockNumberFor<T>,
         },
+        /// The provider accepted a pending agreement (E18).
+        AgreementAccepted {
+            buyer: T::AccountId,
+            provider: T::AccountId,
+            seq: u32,
+        },
+        /// The provider rejected a pending agreement; the buyer was refunded.
+        AgreementRejected {
+            buyer: T::AccountId,
+            provider: T::AccountId,
+            seq: u32,
+            amount: BalanceOf<T>,
+        },
+        /// The buyer cancelled an agreement before the provider accepted it.
+        PendingCancelled {
+            buyer: T::AccountId,
+            provider: T::AccountId,
+            seq: u32,
+            amount: BalanceOf<T>,
+        },
+        /// An undelivered agreement outlived `deliver_by` plus `EXPIRY_GRACE`; the buyer was refunded (E2).
+        AgreementExpired {
+            buyer: T::AccountId,
+            provider: T::AccountId,
+            seq: u32,
+            amount: BalanceOf<T>,
+        },
     }
 
     #[pallet::error]
@@ -270,6 +316,14 @@ pub mod pallet {
         ProviderLacksCapability,
         /// The requested deadline is further out than `MaxAgreementSpan` allows (E21).
         SpanTooLong,
+        /// The provider has not accepted this agreement yet (E18).
+        NotAccepted,
+        /// The agreement is not awaiting acceptance.
+        NotPending,
+        /// `deliver_by` plus `EXPIRY_GRACE` has not passed yet.
+        AgreementNotExpired,
+        /// A delivery is already recorded, so the agreement cannot expire.
+        AlreadyDelivered,
     }
 
     #[pallet::call]
@@ -600,6 +654,55 @@ pub mod pallet {
                 });
                 Ok(())
             })
+        }
+
+        /// Provider consents to a pending agreement (E18). STUB.
+        #[pallet::call_index(6)]
+        #[pallet::weight(Weight::from_parts(60_000_000, 0))]
+        pub fn accept_agreement(
+            origin: OriginFor<T>,
+            buyer: T::AccountId,
+            seq: u32,
+        ) -> DispatchResult {
+            let _ = (ensure_signed(origin)?, buyer, seq);
+            Err(DispatchError::Other("unimplemented"))
+        }
+
+        /// Provider declines a pending agreement. STUB.
+        #[pallet::call_index(7)]
+        #[pallet::weight(Weight::from_parts(60_000_000, 0))]
+        pub fn reject_agreement(
+            origin: OriginFor<T>,
+            buyer: T::AccountId,
+            seq: u32,
+        ) -> DispatchResult {
+            let _ = (ensure_signed(origin)?, buyer, seq);
+            Err(DispatchError::Other("unimplemented"))
+        }
+
+        /// Buyer withdraws a still-pending agreement. STUB.
+        #[pallet::call_index(8)]
+        #[pallet::weight(Weight::from_parts(60_000_000, 0))]
+        pub fn cancel_pending(
+            origin: OriginFor<T>,
+            provider: T::AccountId,
+            seq: u32,
+        ) -> DispatchResult {
+            let _ = (ensure_signed(origin)?, provider, seq);
+            Err(DispatchError::Other("unimplemented"))
+        }
+
+        /// Anyone closes an undelivered agreement past deadline + grace. STUB.
+        #[pallet::call_index(9)]
+        #[pallet::weight(Weight::from_parts(80_000_000, 0))]
+        pub fn expire_agreement(
+            origin: OriginFor<T>,
+            buyer: T::AccountId,
+            provider: T::AccountId,
+            seq: u32,
+        ) -> DispatchResult {
+            let _ = (ensure_signed(origin)?, buyer, provider, seq);
+            Err(DispatchError::Other("unimplemented"))
         }
     }
 
