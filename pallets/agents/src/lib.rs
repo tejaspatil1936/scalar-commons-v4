@@ -1320,7 +1320,7 @@ pub mod pallet {
         /// This extrinsic records intent — actual slash reversal requires a
         /// governance referendum that calls a privileged reversal extrinsic.
         #[pallet::call_index(9)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(3, 2)
+        #[pallet::weight(T::DbWeight::get().reads_writes(5, 3)
             .saturating_add(Weight::from_parts(50_000_000, 0)))]
         pub fn slash_appeal(
             origin: OriginFor<T>,
