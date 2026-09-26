@@ -101,7 +101,7 @@ Done means **all seven** of the following hold simultaneously and are independen
   Ranked Collective) so the chain is upgradeable and parameterizable on-chain rather than by fiat.
 - **Multiple validators producing and finalizing blocks continuously and unattended.** Five is
   the current devnet; finality must survive a validator going down (proven), and the network
-  must run for extended periods without human intervention (currently proven over 11+ days).
+  must run for extended periods without human intervention.
 - **A forkless runtime upgrade rehearsed** — `spec_version` bumped and applied on a live
   network without restarting nodes. A chain that cannot upgrade itself is not an L1.
 - **Real weight benchmarks for every extrinsic across all seven pallets.** Today every
@@ -146,8 +146,9 @@ done by an agent.**
   own port exposed directly.
 - **A restricted RPC method allowlist.** The unsafe method set (`author_insertKey`,
   `author_rotateKeys`, and peers) must be confirmed blocked on every exposed node. *Current
-  known gap: four of five validators run without `--rpc-methods safe` and serve the full unsafe
-  set on loopback — reachable by any local process. This must be closed before exposure.*
+  status: not asserted here. `rpc_methods` lists every registered method even when unsafe calls
+  are denied, so it is not evidence; confirm by calling an unsafe method on each exposed node and
+  recording the refusal.*
 - **Firewall rules, human-reviewed before they go live**, and rate limiting at the proxy.
 - **The faucet, docs, landing page, and explorer all deployed and publicly reachable** — not
   merely built and sitting in the repo.
@@ -176,8 +177,8 @@ unsolved and is explicitly a post-testnet item.
 This is the requirement that did not exist in the original list and matters more than most of it.
 
 - **Every subproject's tests must run in CI.** A test suite that no automated gate executes is
-  decoration. *(Known gap: landing, faucet, docs, sdk, and indexer have real suites that no
-  workflow runs — meaning green badges on TypeScript PRs attest only that Rust still compiles.)*
+  decoration. *(Known gap: landing, faucet, docs and sdk now have CI jobs; the indexer and explorer
+  suites are what remain unrun by any workflow.)*
 - **A green check must mean the code is correct**, never that a check was weakened to pass.
 - **Branch protection enforced, admins included**, with required status checks and no force-push.
 - **The standing rule, mechanically enforced by hooks, not by trust:** never make a check pass by
@@ -270,7 +271,7 @@ Non-technical, but real, and easy to forget until they block something:
 - **The server (netcup RS 8000) is in Matty's name.** Panel access must be transferred or
   formally shared before the network is publicly announced — otherwise the infrastructure has a
   single point of administrative failure outside the operator's control.
-- **The repository now lives at `tejaspatil1936/scalar-commons-v4`**, forked from Matty's. Which
+- **The repository now lives at `tejaspatil1936/scalar-commons-v4`**; the GitHub repository is not a fork (`isFork: false`). Which
   repo is canonical at launch needs an explicit decision.
 - **`CLAUDE.md` and the public description must be corrected** wherever they currently describe
   unbuilt components as existing. Until each component actually lands, the honest form is
