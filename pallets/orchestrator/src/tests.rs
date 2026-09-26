@@ -1169,7 +1169,7 @@ fn fifty_sub_agents_link_and_the_fifty_first_offer_is_refused() {
 /// three agents while empty and have all three accept. `accept_orchestrator_link`
 /// increments `active_sub_count` without re-checking it.
 #[test]
-#[ignore = "bug: accept_orchestrator_link does not re-check max_sub_agents, so queued offers overshoot the cap, see #184"]
+#[ignore = "bug: accept_orchestrator_link does not re-check max_sub_agents, so queued offers overshoot the cap, see #203"]
 fn queued_offers_cannot_overshoot_max_sub_agents_on_accept() {
     new_test_ext().execute_with(|| {
         start_block();

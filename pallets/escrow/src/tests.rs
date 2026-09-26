@@ -241,6 +241,99 @@ fn cannot_create_self_deal() {
 }
 
 #[test]
+fn create_agreement_rejects_provider_without_capability() {
+    new_test_ext().execute_with(|| {
+        register_both();
+        // BOB is registered but never called set_capability(7).
+        assert_noop!(
+            Escrow::create_agreement(
+                RuntimeOrigin::signed(ALICE),
+                BOB,
+                1_000,
+                [1u8; 32],
+                500,
+                Some(7),
+            ),
+            Error::<Test>::ProviderLacksCapability
+        );
+        // With the capability registered, the same call succeeds.
+        assert_ok!(Agents::set_capability(RuntimeOrigin::signed(BOB), 7, true));
+        assert_ok!(Escrow::create_agreement(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            1_000,
+            [1u8; 32],
+            500,
+            Some(7),
+        ));
+    });
+}
+
+#[test]
+fn record_delivery_rejects_provider_without_capability() {
+    new_test_ext().execute_with(|| {
+        register_both();
+        assert_ok!(Agents::set_capability(RuntimeOrigin::signed(BOB), 7, true));
+        assert_ok!(Escrow::create_agreement(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            1_000,
+            [1u8; 32],
+            500,
+            Some(7),
+        ));
+        // Provider drops the capability after the agreement is created.
+        assert_ok!(Agents::set_capability(RuntimeOrigin::signed(BOB), 7, false));
+        System::set_block_number(10); // past MinDeliveryBlocks(5)
+        assert_noop!(
+            Escrow::record_delivery(RuntimeOrigin::signed(BOB), ALICE, 0, [2u8; 32]),
+            Error::<Test>::ProviderLacksCapability
+        );
+    });
+}
+
+#[test]
+fn create_agreement_rejects_deliver_by_beyond_span() {
+    new_test_ext().execute_with(|| {
+        register_both();
+        // now(0) + MaxAgreementSpan(1000) = 1000; 1001 is one block too far.
+        assert_noop!(
+            Escrow::create_agreement(
+                RuntimeOrigin::signed(ALICE),
+                BOB,
+                1_000,
+                [1u8; 32],
+                1_001,
+                None,
+            ),
+            Error::<Test>::SpanTooLong
+        );
+        // Exactly at the span is allowed and stored unclamped.
+        assert_ok!(Escrow::create_agreement(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            1_000,
+            [1u8; 32],
+            1_000,
+            None,
+        ));
+        assert_eq!(Agreements::<Test>::get(ALICE, BOB)[0].deliver_by, 1_000);
+    });
+}
+
+#[test]
+fn extend_deadline_rejects_beyond_span() {
+    new_test_ext().execute_with(|| {
+        register_both();
+        create(1_000);
+        assert_noop!(
+            Escrow::extend_deadline(RuntimeOrigin::signed(ALICE), BOB, 0, 1_001),
+            Error::<Test>::SpanTooLong
+        );
+    });
+}
+
+#[test]
 fn cannot_deliver_before_min_blocks() {
     new_test_ext().execute_with(|| {
         register_both();
