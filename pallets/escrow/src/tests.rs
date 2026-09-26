@@ -120,11 +120,29 @@ impl pallet_agents::Config for Test {
     type MaxProposalsPerEra = ConstU32<20>;
 }
 
-// Static zero fee provider
-pub struct ZeroFee;
-impl frame_support::traits::Get<u32> for ZeroFee {
+// Completion-fee provider: 0 bps by default (existing tests are fee-free), settable per test.
+thread_local! {
+    static FEE_BPS: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
+}
+pub struct MockFeeBps;
+impl frame_support::traits::Get<u32> for MockFeeBps {
     fn get() -> u32 {
-        0
+        FEE_BPS.with(|f| f.get())
+    }
+}
+fn set_fee_bps(bps: u32) {
+    FEE_BPS.with(|f| f.set(bps));
+}
+
+/// Stand-in for the runtime's Treasury: `FeeDestination` credits this account, so a test
+/// can assert on where the completion fee and dispute penalty actually land.
+const TREASURY: u64 = 99;
+pub struct MockTreasury;
+impl frame_support::traits::OnUnbalanced<pallet_balances::NegativeImbalance<Test>>
+    for MockTreasury
+{
+    fn on_nonzero_unbalanced(amount: pallet_balances::NegativeImbalance<Test>) {
+        <Balances as frame_support::traits::Currency<u64>>::resolve_creating(&TREASURY, amount);
     }
 }
 
@@ -157,11 +175,12 @@ impl super::Config for Test {
     type DisputeBurnBps = DisputeBurnBps;
     type DisputeOracle = ();
     type DisputeCallback = ();
-    type CompletionFeeProvider = ZeroFee;
-    type FeeDestination = (); // test: fee is burned (no treasury in unit test runtime)
+    type CompletionFeeProvider = MockFeeBps; // 0 unless a test sets it via `set_fee_bps`
+    type FeeDestination = MockTreasury; // credits TREASURY so fee routing is observable
 }
 
 fn new_test_ext() -> sp_io::TestExternalities {
+    set_fee_bps(0);
     let mut storage = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
         .unwrap();
@@ -523,6 +542,476 @@ fn extend_deadline_fails_after_delivery_recorded() {
         assert_noop!(
             Escrow::extend_deadline(RuntimeOrigin::signed(ALICE), BOB, 0, 800),
             Error::<Test>::WrongStatus
+        );
+    });
+}
+
+// ── Ledger-level tests (#186) ────────────────────────────────────────────────
+//
+// Every test below asserts on events and storage/balances, never only on a call's
+// return value ("trust the ledger"). Events are only recorded from block 1.
+
+fn last_escrow_events() -> Vec<crate::pallet::Event<Test>> {
+    System::events()
+        .into_iter()
+        .filter_map(|r| match r.event {
+            RuntimeEvent::Escrow(e) => Some(e),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Register both agents at block 1 and open one agreement (`amount`, deliver_by 500).
+fn setup_agreement(amount: u64) {
+    System::set_block_number(1);
+    register_both();
+    assert_ok!(Escrow::create_agreement(
+        RuntimeOrigin::signed(ALICE),
+        BOB,
+        amount,
+        [1u8; 32],
+        500,
+        None,
+    ));
+}
+
+/// E5 — full lifecycle create → deliver → confirm leaves the ledger consistent.
+/// NOTE: the issue brief does not define E5; it is encoded here as the settlement
+/// lifecycle invariant (funds, counters, storage and events all agree).
+#[test]
+fn e5_lifecycle_events_storage_and_balances_agree() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        register_both();
+        let alice_reserved0 = Balances::reserved_balance(ALICE);
+        let alice_free0 = Balances::free_balance(ALICE);
+        let bob_free0 = Balances::free_balance(BOB);
+        let issuance0 = Balances::total_issuance();
+
+        assert_ok!(Escrow::create_agreement(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            1_000,
+            [1u8; 32],
+            500,
+            None,
+        ));
+        assert_eq!(Balances::reserved_balance(ALICE), alice_reserved0 + 1_000);
+        assert_eq!(Balances::free_balance(ALICE), alice_free0 - 1_000);
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
+        assert_eq!(ActiveAgreementCount::<Test>::get(), 1);
+        assert_eq!(NextSeq::<Test>::get(ALICE, BOB), 1);
+        let a = &Agreements::<Test>::get(ALICE, BOB)[0];
+        assert_eq!(
+            (a.status, a.amount, a.seq, a.created_at),
+            (AgreementStatus::Created, 1_000, 0, 1)
+        );
+
+        System::set_block_number(10);
+        assert_ok!(Escrow::record_delivery(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            [2u8; 32]
+        ));
+        let a = &Agreements::<Test>::get(ALICE, BOB)[0];
+        assert_eq!(
+            (a.status, a.delivery_proof),
+            (AgreementStatus::Delivered, Some([2u8; 32]))
+        );
+
+        assert_ok!(Escrow::confirm_delivery(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            0
+        ));
+        assert!(Agreements::<Test>::get(ALICE, BOB).is_empty());
+        assert_eq!(Balances::reserved_balance(ALICE), alice_reserved0);
+        assert_eq!(Balances::free_balance(ALICE), alice_free0 - 1_000);
+        assert_eq!(Balances::free_balance(BOB), bob_free0 + 1_000);
+        assert_eq!(Balances::total_issuance(), issuance0);
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 0);
+        assert_eq!(ActiveAgreementCount::<Test>::get(), 0);
+
+        assert_eq!(
+            last_escrow_events(),
+            vec![
+                Event::AgreementCreated {
+                    buyer: ALICE,
+                    provider: BOB,
+                    seq: 0,
+                    amount: 1_000
+                },
+                Event::DeliveryRecorded {
+                    provider: BOB,
+                    buyer: ALICE,
+                    seq: 0,
+                    proof: [2u8; 32]
+                },
+                Event::DeliveryConfirmed {
+                    buyer: ALICE,
+                    provider: BOB,
+                    seq: 0,
+                    amount: 1_000
+                },
+            ]
+        );
+    });
+}
+
+/// E6 — the completion fee (25 bps of the agreement) reaches the Treasury via
+/// `FeeDestination`, the provider gets the remainder, and issuance is unchanged
+/// (the fee is re-credited, not burned).
+#[test]
+fn e6_completion_fee_is_routed_to_treasury() {
+    new_test_ext().execute_with(|| {
+        set_fee_bps(25); // 25 bps = 0.25%: 1_000_000 * 25 / 10_000 = 2_500
+        System::set_block_number(1);
+        register_both();
+        assert_ok!(Escrow::create_agreement(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            100_000,
+            [1u8; 32],
+            500,
+            None,
+        ));
+        System::set_block_number(10);
+        assert_ok!(Escrow::record_delivery(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            [2u8; 32]
+        ));
+        let bob_free0 = Balances::free_balance(BOB);
+        let reserved0 = Balances::reserved_balance(ALICE);
+        let issuance0 = Balances::total_issuance();
+        assert_eq!(Balances::free_balance(TREASURY), 0);
+
+        assert_ok!(Escrow::confirm_delivery(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            0
+        ));
+
+        // 100_000 * 25 bps = 250 to Treasury; provider nets 99_750.
+        assert_eq!(Balances::free_balance(TREASURY), 250);
+        assert_eq!(Balances::free_balance(BOB), bob_free0 + 99_750);
+        assert_eq!(Balances::reserved_balance(ALICE), reserved0 - 100_000);
+        assert_eq!(Balances::total_issuance(), issuance0);
+        // The event reports the gross agreement amount.
+        assert_eq!(
+            last_escrow_events().last(),
+            Some(&Event::DeliveryConfirmed {
+                buyer: ALICE,
+                provider: BOB,
+                seq: 0,
+                amount: 100_000
+            })
+        );
+    });
+}
+
+/// E6 — with a zero fee nothing reaches the Treasury and the provider is paid in full.
+#[test]
+fn e6_zero_fee_sends_nothing_to_treasury() {
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        System::set_block_number(10);
+        assert_ok!(Escrow::record_delivery(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            [2u8; 32]
+        ));
+        let bob_free0 = Balances::free_balance(BOB);
+        assert_ok!(Escrow::confirm_delivery(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            0
+        ));
+        assert_eq!(Balances::free_balance(TREASURY), 0);
+        assert_eq!(Balances::free_balance(BOB), bob_free0 + 1_000);
+    });
+}
+
+/// E19 — a self-deal is rejected with no funds reserved, no storage written, no event.
+#[test]
+fn e19_self_deal_leaves_no_trace() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        register_both();
+        let reserved0 = Balances::reserved_balance(ALICE);
+        let free0 = Balances::free_balance(ALICE);
+        assert_noop!(
+            Escrow::create_agreement(
+                RuntimeOrigin::signed(ALICE),
+                ALICE,
+                1_000,
+                [1u8; 32],
+                500,
+                None
+            ),
+            Error::<Test>::SelfDeal
+        );
+        assert!(Agreements::<Test>::get(ALICE, ALICE).is_empty());
+        assert_eq!(NextSeq::<Test>::get(ALICE, ALICE), 0);
+        assert_eq!(Balances::reserved_balance(ALICE), reserved0);
+        assert_eq!(Balances::free_balance(ALICE), free0);
+        assert_eq!(ActiveAgreementCount::<Test>::get(), 0);
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(ALICE), 0);
+        assert!(last_escrow_events().is_empty());
+    });
+}
+
+/// E24 — the bilateral cap (5 in the mock) holds: the 6th open agreement is refused
+/// without moving funds, and a slot frees up once one settles.
+#[test]
+fn e24_pair_cap_enforced_and_slot_frees_on_settlement() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        register_both();
+        let reserved0 = Balances::reserved_balance(ALICE);
+        for _ in 0..5 {
+            assert_ok!(Escrow::create_agreement(
+                RuntimeOrigin::signed(ALICE),
+                BOB,
+                10,
+                [1u8; 32],
+                500,
+                None,
+            ));
+        }
+        assert_eq!(Agreements::<Test>::get(ALICE, BOB).len(), 5);
+        assert_eq!(Balances::reserved_balance(ALICE), reserved0 + 50);
+        let events_before = last_escrow_events().len();
+
+        assert_noop!(
+            Escrow::create_agreement(RuntimeOrigin::signed(ALICE), BOB, 10, [1u8; 32], 500, None),
+            Error::<Test>::BilateralCapReached
+        );
+        assert_eq!(Agreements::<Test>::get(ALICE, BOB).len(), 5);
+        assert_eq!(NextSeq::<Test>::get(ALICE, BOB), 5);
+        assert_eq!(Balances::reserved_balance(ALICE), reserved0 + 50);
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 5);
+        assert_eq!(last_escrow_events().len(), events_before);
+
+        // The cap is per (buyer, provider): another buyer can still open one with BOB.
+        assert_ok!(Agents::register(RuntimeOrigin::signed(3), 1_000));
+        assert_ok!(Escrow::create_agreement(
+            RuntimeOrigin::signed(3),
+            BOB,
+            10,
+            [1u8; 32],
+            500,
+            None
+        ));
+        assert_eq!(Agreements::<Test>::get(3, BOB).len(), 1);
+
+        // Settling one frees a slot for ALICE.
+        System::set_block_number(10);
+        assert_ok!(Escrow::record_delivery(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            [2u8; 32]
+        ));
+        assert_ok!(Escrow::confirm_delivery(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            0
+        ));
+        assert_eq!(Agreements::<Test>::get(ALICE, BOB).len(), 4);
+        assert_ok!(Escrow::create_agreement(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            10,
+            [1u8; 32],
+            500,
+            None
+        ));
+        let a = Agreements::<Test>::get(ALICE, BOB);
+        assert_eq!(a.len(), 5);
+        // Sequence numbers are never reused.
+        assert_eq!(a.iter().map(|x| x.seq).max(), Some(5));
+    });
+}
+
+/// MinDeliveryBlocks — delivery is refused until `created_at + MinDeliveryBlocks` (5),
+/// allowed exactly at that block, and the refusal leaves the agreement untouched.
+#[test]
+fn min_delivery_blocks_boundary() {
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000); // created_at = 1, so delivery opens at block 6
+        System::set_block_number(5);
+        assert_noop!(
+            Escrow::record_delivery(RuntimeOrigin::signed(BOB), ALICE, 0, [2u8; 32]),
+            Error::<Test>::MinDeliveryBlocksNotElapsed
+        );
+        let a = &Agreements::<Test>::get(ALICE, BOB)[0];
+        assert_eq!(
+            (a.status, a.delivery_proof),
+            (AgreementStatus::Created, None)
+        );
+        assert_eq!(last_escrow_events().len(), 1); // only AgreementCreated
+
+        System::set_block_number(6);
+        assert_ok!(Escrow::record_delivery(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            [2u8; 32]
+        ));
+        let a = &Agreements::<Test>::get(ALICE, BOB)[0];
+        assert_eq!(
+            (a.status, a.delivery_proof),
+            (AgreementStatus::Delivered, Some([2u8; 32]))
+        );
+        assert_eq!(
+            last_escrow_events().last(),
+            Some(&Event::DeliveryRecorded {
+                provider: BOB,
+                buyer: ALICE,
+                seq: 0,
+                proof: [2u8; 32]
+            })
+        );
+    });
+}
+
+/// MinDeliveryBlocks — `deliver_by` must exceed `now + MinDeliveryBlocks`; a rejected
+/// create reserves nothing.
+#[test]
+fn min_delivery_blocks_bounds_deliver_by_at_creation() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        register_both();
+        let reserved0 = Balances::reserved_balance(ALICE);
+        // now(1) + MinDelivery(5) = 6: deliver_by 6 is too early, 7 is the first allowed.
+        assert_noop!(
+            Escrow::create_agreement(RuntimeOrigin::signed(ALICE), BOB, 1_000, [1u8; 32], 6, None),
+            Error::<Test>::DeadlineTooEarly
+        );
+        assert_eq!(Balances::reserved_balance(ALICE), reserved0);
+        assert_ok!(Escrow::create_agreement(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            1_000,
+            [1u8; 32],
+            7,
+            None
+        ));
+        assert_eq!(Agreements::<Test>::get(ALICE, BOB)[0].deliver_by, 7);
+    });
+}
+
+/// Refund path — an undelivered agreement is refundable only strictly after
+/// `deliver_by + BuyerResponseWindow` (500 + 50); the buyer gets the full amount back.
+#[test]
+fn refund_after_buyer_response_window_returns_funds_and_clears_state() {
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        let free_after_create = Balances::free_balance(ALICE);
+        let reserved_after_create = Balances::reserved_balance(ALICE);
+
+        System::set_block_number(550); // == deliver_by + window: not yet
+        assert_noop!(
+            Escrow::claim_refund(RuntimeOrigin::signed(ALICE), BOB, 0),
+            Error::<Test>::DisputeTimeoutNotElapsed
+        );
+        assert_eq!(Agreements::<Test>::get(ALICE, BOB).len(), 1);
+        assert_eq!(Balances::reserved_balance(ALICE), reserved_after_create);
+
+        System::set_block_number(551);
+        assert_ok!(Escrow::claim_refund(RuntimeOrigin::signed(ALICE), BOB, 0));
+        assert!(Agreements::<Test>::get(ALICE, BOB).is_empty());
+        assert_eq!(Balances::free_balance(ALICE), free_after_create + 1_000);
+        assert_eq!(
+            Balances::reserved_balance(ALICE),
+            reserved_after_create - 1_000
+        );
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 0);
+        assert_eq!(ActiveAgreementCount::<Test>::get(), 0);
+        assert_eq!(
+            last_escrow_events().last(),
+            Some(&Event::RefundClaimed {
+                buyer: ALICE,
+                provider: BOB,
+                seq: 0,
+                amount: 1_000
+            })
+        );
+    });
+}
+
+/// Refund path — only the buyer of record can refund; a stranger finds no agreement and
+/// the ledger is untouched.
+#[test]
+fn refund_by_non_buyer_is_refused() {
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        System::set_block_number(1_000);
+        let reserved0 = Balances::reserved_balance(ALICE);
+        assert_noop!(
+            Escrow::claim_refund(RuntimeOrigin::signed(3), BOB, 0),
+            Error::<Test>::AgreementNotFound
+        );
+        // The provider signing as "buyer" is likewise not found (no BOB→BOB agreement).
+        assert_noop!(
+            Escrow::claim_refund(RuntimeOrigin::signed(BOB), BOB, 0),
+            Error::<Test>::AgreementNotFound
+        );
+        assert_eq!(Agreements::<Test>::get(ALICE, BOB).len(), 1);
+        assert_eq!(Balances::reserved_balance(ALICE), reserved0);
+    });
+}
+
+/// Refund path — a disputed agreement refunds the buyer only once `DisputeTimeoutWindow`
+/// (200) has passed since it opened, and only the post-bounty remainder is returned.
+#[test]
+fn refund_of_disputed_agreement_waits_for_dispute_timeout() {
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        System::set_block_number(10);
+        assert_ok!(Escrow::record_delivery(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            [2u8; 32]
+        ));
+        assert_ok!(Escrow::dispute_delivery(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            0
+        ));
+        // Bounty = max(2% of 1_000 = 20, MinBounty 10) = 20 leaves the agreement amount.
+        let a = &Agreements::<Test>::get(ALICE, BOB)[0];
+        assert_eq!(
+            (a.status, a.amount, a.dispute_opened_at),
+            (AgreementStatus::Disputed, 980, Some(10))
+        );
+        let reserved0 = Balances::reserved_balance(ALICE);
+        let free0 = Balances::free_balance(ALICE);
+
+        System::set_block_number(209); // opened(10) + 200 = 210 is the first refundable block
+        assert_noop!(
+            Escrow::claim_refund(RuntimeOrigin::signed(ALICE), BOB, 0),
+            Error::<Test>::DisputeTimeoutNotElapsed
+        );
+        System::set_block_number(210);
+        assert_ok!(Escrow::claim_refund(RuntimeOrigin::signed(ALICE), BOB, 0));
+        assert!(Agreements::<Test>::get(ALICE, BOB).is_empty());
+        assert_eq!(Balances::free_balance(ALICE), free0 + 980);
+        assert_eq!(Balances::reserved_balance(ALICE), reserved0 - 980);
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 0);
+        assert_eq!(
+            last_escrow_events().last(),
+            Some(&Event::RefundClaimed {
+                buyer: ALICE,
+                provider: BOB,
+                seq: 0,
+                amount: 980
+            })
         );
     });
 }
