@@ -1,26 +1,19 @@
 {
-  "name": "@scalar-commons/testkit",
-  "version": "0.1.0",
-  "description": "Re-runnable lifecycle tests for Scalar Commons pallets, run against any node via SCALAR_WS.",
-  "license": "Apache-2.0",
-  "type": "module",
+  "name": "scalar-testkit",
   "private": true,
+  "type": "module",
+  "description": "Lifecycle tests for Scalar Commons pallets. Run against any node: SCALAR_WS=ws://127.0.0.1:9955 npm test",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
-  },
-  "dependencies": {
-    "@polkadot/api": "^15.0.0",
-    "@polkadot/keyring": "^13.0.0",
-    "@polkadot/util-crypto": "^13.0.0"
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/node": "^22.20.1",
-    "typescript": "^5.4.0",
-    "vitest": "^4.1.11"
-  },
-  "engines": {
-    "node": ">=22"
+    "@polkadot/api": "^16.0.0",
+    "@polkadot/keyring": "^14.0.0",
+    "@polkadot/util-crypto": "^14.0.0",
+    "@polkadot/util": "^14.0.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
   }
 }
