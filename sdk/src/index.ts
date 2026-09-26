@@ -21,6 +21,7 @@ import { consoleLogger, type Logger } from './logger.js';
 import type { RetryOptions } from './retry.js';
 
 export { consoleLogger, errorMessage, type Logger } from './logger.js';
+export { DispatchFailure, isDeterministicFailure } from './errors.js';
 export { withRetry, type RetryOptions } from './retry.js';
 export { submitAndWatch, type SubmitResult } from './submit.js';
 
