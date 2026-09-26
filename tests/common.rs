@@ -434,6 +434,13 @@ pub fn complete_escrow(buyer: u64, provider: u64, amount: u64, deliver_block: u6
         None,
     )
     .expect("create_agreement failed");
+    // E18: the provider must consent before it can deliver.
+    pallet_escrow::Pallet::<TestRuntime>::accept_agreement(
+        RuntimeOrigin::signed(provider),
+        buyer,
+        seq,
+    )
+    .expect("accept_agreement failed");
     go_to_block(frame_system::Pallet::<TestRuntime>::block_number() + 10);
     pallet_escrow::Pallet::<TestRuntime>::record_delivery(
         RuntimeOrigin::signed(provider),

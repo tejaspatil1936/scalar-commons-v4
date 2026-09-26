@@ -27,6 +27,11 @@ fn dispute_provider_wins() {
         ));
 
         // Provider delivers
+        assert_ok!(pallet_escrow::Pallet::<TestRuntime>::accept_agreement(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0
+        ));
         go_to_block(10);
         assert_ok!(pallet_escrow::Pallet::<TestRuntime>::record_delivery(
             RuntimeOrigin::signed(BOB),
@@ -139,6 +144,11 @@ fn dispute_buyer_wins() {
             [1u8; 32],
             frame_system::Pallet::<TestRuntime>::block_number() + 200,
             None
+        ));
+        assert_ok!(pallet_escrow::Pallet::<TestRuntime>::accept_agreement(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0
         ));
         go_to_block(10);
         assert_ok!(pallet_escrow::Pallet::<TestRuntime>::record_delivery(
