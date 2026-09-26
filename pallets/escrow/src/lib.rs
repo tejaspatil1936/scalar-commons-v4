@@ -401,7 +401,9 @@ pub mod pallet {
             })?;
 
             <T as agents_pallet::Config>::Currency::reserve(&buyer, amount)?;
-            agents_pallet::Pallet::<T>::increment_active_escrow(&provider)?;
+            // E18: the provider has not consented yet, so the agreement does not count toward
+            // its ActiveEscrowCount (and cannot block its unstake) until `accept_agreement`.
+            PendingAcceptance::<T>::insert(&buyer, (provider.clone(), seq), now);
             ActiveAgreementCount::<T>::mutate(|c| *c = c.saturating_add(1));
             Self::deposit_event(Event::AgreementCreated {
                 buyer,
@@ -422,6 +424,11 @@ pub mod pallet {
             delivery_hash: [u8; 32],
         ) -> DispatchResult {
             let provider = ensure_signed(origin)?;
+            // E18: no delivery against an agreement the provider has not consented to.
+            ensure!(
+                !PendingAcceptance::<T>::contains_key(&buyer, (provider.clone(), seq)),
+                Error::<T>::NotAccepted
+            );
             Agreements::<T>::try_mutate(&buyer, &provider, |vec| {
                 let a = vec
                     .iter_mut()
@@ -656,53 +663,134 @@ pub mod pallet {
             })
         }
 
-        /// Provider consents to a pending agreement (E18). STUB.
+        /// Provider consents to a pending agreement (E18). Consent is what makes the
+        /// agreement count toward the provider's `ActiveEscrowCount`, so a buyer can no longer
+        /// pin an agent's stake by opening agreements it never agreed to. The E1 capability
+        /// check runs again here: acceptance is the provider's commitment to the skill.
         #[pallet::call_index(6)]
-        #[pallet::weight(Weight::from_parts(60_000_000, 0))]
+        #[pallet::weight(T::DbWeight::get().reads_writes(4, 2)
+            .saturating_add(Weight::from_parts(60_000_000, 0)))]
         pub fn accept_agreement(
             origin: OriginFor<T>,
             buyer: T::AccountId,
             seq: u32,
         ) -> DispatchResult {
-            let _ = (ensure_signed(origin)?, buyer, seq);
-            Err(DispatchError::Other("unimplemented"))
+            let provider = ensure_signed(origin)?;
+            let a = Agreements::<T>::get(&buyer, &provider)
+                .into_iter()
+                .find(|a| a.seq == seq)
+                .ok_or(Error::<T>::AgreementNotFound)?;
+            ensure!(
+                PendingAcceptance::<T>::contains_key(&buyer, (provider.clone(), seq)),
+                Error::<T>::NotPending
+            );
+            ensure!(
+                Self::provider_has_capability(&provider, a.capability_id),
+                Error::<T>::ProviderLacksCapability
+            );
+            // Accepting past the deadline would only pin the provider's count for nothing.
+            let now = frame_system::Pallet::<T>::block_number();
+            ensure!(now <= a.deliver_by, Error::<T>::DeadlinePassed);
+            agents_pallet::Pallet::<T>::increment_active_escrow(&provider)?;
+            PendingAcceptance::<T>::remove(&buyer, (provider.clone(), seq));
+            Self::deposit_event(Event::AgreementAccepted {
+                buyer,
+                provider,
+                seq,
+            });
+            Ok(())
         }
 
-        /// Provider declines a pending agreement. STUB.
+        /// Provider declines a pending agreement; the buyer's funds are released in full.
+        /// Only valid before acceptance, so it cannot be used to walk away from a commitment.
         #[pallet::call_index(7)]
-        #[pallet::weight(Weight::from_parts(60_000_000, 0))]
+        #[pallet::weight(T::DbWeight::get().reads_writes(3, 4)
+            .saturating_add(Weight::from_parts(60_000_000, 0)))]
         pub fn reject_agreement(
             origin: OriginFor<T>,
             buyer: T::AccountId,
             seq: u32,
         ) -> DispatchResult {
-            let _ = (ensure_signed(origin)?, buyer, seq);
-            Err(DispatchError::Other("unimplemented"))
+            let provider = ensure_signed(origin)?;
+            let amount = Self::close_pending(&buyer, &provider, seq)?;
+            Self::deposit_event(Event::AgreementRejected {
+                buyer,
+                provider,
+                seq,
+                amount,
+            });
+            Ok(())
         }
 
-        /// Buyer withdraws a still-pending agreement. STUB.
+        /// Buyer withdraws an agreement the provider has not accepted yet, so funds are never
+        /// held hostage by a silent provider.
         #[pallet::call_index(8)]
-        #[pallet::weight(Weight::from_parts(60_000_000, 0))]
+        #[pallet::weight(T::DbWeight::get().reads_writes(3, 4)
+            .saturating_add(Weight::from_parts(60_000_000, 0)))]
         pub fn cancel_pending(
             origin: OriginFor<T>,
             provider: T::AccountId,
             seq: u32,
         ) -> DispatchResult {
-            let _ = (ensure_signed(origin)?, provider, seq);
-            Err(DispatchError::Other("unimplemented"))
+            let buyer = ensure_signed(origin)?;
+            let amount = Self::close_pending(&buyer, &provider, seq)?;
+            Self::deposit_event(Event::PendingCancelled {
+                buyer,
+                provider,
+                seq,
+                amount,
+            });
+            Ok(())
         }
 
-        /// Anyone closes an undelivered agreement past deadline + grace. STUB.
+        /// Closes an agreement nobody delivered on (E2) and refunds the buyer. Permissionless
+        /// by design (modelled on `oracle.expire_request`): liveness must not depend on the
+        /// buyer or any privileged caller. Only after `deliver_by + EXPIRY_GRACE`, and never
+        /// once a delivery is recorded, so a provider who delivered in time is not exposed.
         #[pallet::call_index(9)]
-        #[pallet::weight(Weight::from_parts(80_000_000, 0))]
+        #[pallet::weight(T::DbWeight::get().reads_writes(4, 5)
+            .saturating_add(Weight::from_parts(80_000_000, 0)))]
         pub fn expire_agreement(
             origin: OriginFor<T>,
             buyer: T::AccountId,
             provider: T::AccountId,
             seq: u32,
         ) -> DispatchResult {
-            let _ = (ensure_signed(origin)?, buyer, provider, seq);
-            Err(DispatchError::Other("unimplemented"))
+            ensure_signed(origin)?;
+            let mut refund_amount = BalanceOf::<T>::zero();
+            Agreements::<T>::try_mutate(&buyer, &provider, |vec| {
+                let idx = vec
+                    .iter()
+                    .position(|a| a.seq == seq)
+                    .ok_or(Error::<T>::AgreementNotFound)?;
+                let a = &vec[idx];
+                // Delivered or Disputed both mean a delivery was recorded.
+                ensure!(
+                    a.status == AgreementStatus::Created,
+                    Error::<T>::AlreadyDelivered
+                );
+                let now = frame_system::Pallet::<T>::block_number();
+                ensure!(
+                    now > a.deliver_by.saturating_add(EXPIRY_GRACE.into()),
+                    Error::<T>::AgreementNotExpired
+                );
+                refund_amount = a.amount;
+                <T as agents_pallet::Config>::Currency::unreserve(&buyer, refund_amount);
+                // Only an accepted agreement ever counted toward the provider.
+                if PendingAcceptance::<T>::take(&buyer, (provider.clone(), seq)).is_none() {
+                    agents_pallet::Pallet::<T>::decrement_active_escrow(&provider);
+                }
+                ActiveAgreementCount::<T>::mutate(|c| *c = c.saturating_sub(1));
+                vec.swap_remove(idx);
+                Ok::<(), DispatchError>(())
+            })?;
+            Self::deposit_event(Event::AgreementExpired {
+                buyer,
+                provider,
+                seq,
+                amount: refund_amount,
+            });
+            Ok(())
         }
     }
 
@@ -718,6 +806,31 @@ pub mod pallet {
                 None => true,
                 Some(cap) => agents_pallet::AgentCapabilities::<T>::get(provider).contains(&cap),
             }
+        }
+
+        /// Shared exit for reject / cancel: only valid while the agreement is pending. The
+        /// provider's count was never incremented, so only the reserve and the global count unwind.
+        fn close_pending(
+            buyer: &T::AccountId,
+            provider: &T::AccountId,
+            seq: u32,
+        ) -> Result<BalanceOf<T>, DispatchError> {
+            Agreements::<T>::try_mutate(buyer, provider, |vec| {
+                let idx = vec
+                    .iter()
+                    .position(|a| a.seq == seq)
+                    .ok_or(Error::<T>::AgreementNotFound)?;
+                ensure!(
+                    PendingAcceptance::<T>::contains_key(buyer, (provider.clone(), seq)),
+                    Error::<T>::NotPending
+                );
+                let amount = vec[idx].amount;
+                <T as agents_pallet::Config>::Currency::unreserve(buyer, amount);
+                PendingAcceptance::<T>::remove(buyer, (provider.clone(), seq));
+                ActiveAgreementCount::<T>::mutate(|c| *c = c.saturating_sub(1));
+                vec.swap_remove(idx);
+                Ok(amount)
+            })
         }
 
         pub fn settle_dispute_from_oracle(

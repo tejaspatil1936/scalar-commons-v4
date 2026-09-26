@@ -194,11 +194,22 @@ fn create(amount: u64) -> u32 {
     0u32 // seq 0 for first agreement
 }
 
+/// Create then accept, for tests that exercise the post-consent lifecycle (E18).
+fn create_accepted(amount: u64) -> u32 {
+    let seq = create(amount);
+    assert_ok!(Escrow::accept_agreement(
+        RuntimeOrigin::signed(BOB),
+        ALICE,
+        seq
+    ));
+    seq
+}
+
 #[test]
 fn full_happy_path() {
     new_test_ext().execute_with(|| {
         register_both();
-        create(1_000);
+        create_accepted(1_000);
         // Advance past min delivery blocks
         frame_system::Pallet::<Test>::set_block_number(10);
         assert_ok!(Escrow::record_delivery(
@@ -282,6 +293,11 @@ fn record_delivery_rejects_provider_without_capability() {
             500,
             Some(7),
         ));
+        assert_ok!(Escrow::accept_agreement(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0
+        ));
         // Provider drops the capability after the agreement is created.
         assert_ok!(Agents::set_capability(RuntimeOrigin::signed(BOB), 7, false));
         System::set_block_number(10); // past MinDeliveryBlocks(5)
@@ -337,7 +353,7 @@ fn extend_deadline_rejects_beyond_span() {
 fn cannot_deliver_before_min_blocks() {
     new_test_ext().execute_with(|| {
         register_both();
-        create(1_000);
+        create_accepted(1_000);
         // Block 0 — min delivery is 5 blocks
         assert_noop!(
             Escrow::record_delivery(RuntimeOrigin::signed(BOB), ALICE, 0, [2u8; 32]),
@@ -350,7 +366,7 @@ fn cannot_deliver_before_min_blocks() {
 fn dispute_sets_status_and_reserves_bounty() {
     new_test_ext().execute_with(|| {
         register_both();
-        create(1_000);
+        create_accepted(1_000);
         frame_system::Pallet::<Test>::set_block_number(10);
         assert_ok!(Escrow::record_delivery(
             RuntimeOrigin::signed(BOB),
@@ -374,7 +390,7 @@ fn dispute_sets_status_and_reserves_bounty() {
 fn claim_refund_after_timeout() {
     new_test_ext().execute_with(|| {
         register_both();
-        create(1_000);
+        create_accepted(1_000);
         frame_system::Pallet::<Test>::set_block_number(10);
         assert_ok!(Escrow::record_delivery(
             RuntimeOrigin::signed(BOB),
@@ -401,7 +417,7 @@ fn claim_refund_after_timeout() {
 fn provider_wins_oracle_settles_correctly() {
     new_test_ext().execute_with(|| {
         register_both();
-        create(1_000);
+        create_accepted(1_000);
         frame_system::Pallet::<Test>::set_block_number(10);
         assert_ok!(Escrow::record_delivery(
             RuntimeOrigin::signed(BOB),
@@ -511,6 +527,11 @@ fn extend_deadline_fails_after_delivery_recorded() {
             [1u8; 32],
             500,
             None,
+        ));
+        assert_ok!(Escrow::accept_agreement(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0
         ));
         frame_system::Pallet::<Test>::set_block_number(10);
         assert_ok!(Escrow::record_delivery(
@@ -743,6 +764,24 @@ fn grandfathered_agreement_without_entry_is_treated_as_accepted() {
             Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0),
             Error::<Test>::AgreementNotFound
         );
+    });
+}
+
+/// Desired behaviour, NOT implemented in this PR: `claim_refund` is out of scope here.
+/// Refunding a still-pending agreement must not decrement the provider's count, which
+/// belongs to its other (accepted) agreements. See DESIGN-E18-E2.md.
+#[test]
+#[ignore = "claim_refund on a pending agreement decrements the provider's ActiveEscrowCount; fix needs a claim_refund change, out of scope for #180"]
+fn claim_refund_on_pending_agreement_leaves_provider_count_alone() {
+    new_test_ext().execute_with(|| {
+        register_both();
+        create_accepted(1_000); // seq 0, accepted: provider count = 1
+        create(1_000); // seq 1, still pending
+        assert_eq!(bob_active(), 1);
+        System::set_block_number(500 + 50 + 1); // past deliver_by + BuyerResponseWindow
+        assert_ok!(Escrow::claim_refund(RuntimeOrigin::signed(ALICE), BOB, 1));
+        assert_eq!(bob_active(), 1);
+        assert!(!PendingAcceptance::<Test>::contains_key(ALICE, (BOB, 1u32)));
     });
 }
 

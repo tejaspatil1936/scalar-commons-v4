@@ -64,7 +64,10 @@ was never incremented, so a buyer using `claim_refund` after `deliver_by + Buyer
 would decrement (saturating) a count that belongs to *other* accepted agreements of that provider,
 and would leave a stale `PendingAcceptance` entry behind. Fix (one line each, in `claim_refund`):
 skip the decrement when `PendingAcceptance` has an entry, and remove the entry. Flagged in the PR as
-a NEEDS_HUMAN item.
+a NEEDS_HUMAN item. The tokenomics review rated it HIGH (a sybil buyer can walk a victim's count
+to 0 and unstake while owing accepted deliveries), so this change should not merge without that
+fix. An `#[ignore]`d test, `claim_refund_on_pending_agreement_leaves_provider_count_alone`, encodes
+the desired behaviour.
 
 ## Rollout / compatibility
 
