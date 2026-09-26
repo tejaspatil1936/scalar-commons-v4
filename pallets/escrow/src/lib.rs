@@ -266,6 +266,10 @@ pub mod pallet {
         MinDeliveryBlocksNotElapsed,
         NewDeadlineMustBeLater,
         DeadlineWouldExceedMaxSpan,
+        /// The provider does not hold the capability the agreement requires (E1).
+        ProviderLacksCapability,
+        /// The requested deadline is further out than `MaxAgreementSpan` allows (E21).
+        SpanTooLong,
     }
 
     #[pallet::call]
