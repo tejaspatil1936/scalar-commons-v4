@@ -75,6 +75,8 @@ export interface AgentConfig {
   heartbeatEveryBlocks: bigint;
   /** Blocks after creation before `recordDelivery` is accepted (`MinDeliveryBlocks`). */
   minDeliveryBlocks: bigint;
+  /** Buyer mode: if non-empty, only open agreements with these providers. */
+  buyerPeers: string[];
   /** Buyer mode: escrow amount per agreement, in plancks. */
   buyerAmount: bigint;
   /** Buyer mode: never hold more than this many unsettled agreements as buyer. */

@@ -129,7 +129,12 @@ export class Agent {
     if (mine.length >= this.config.buyerMaxOpen) return;
     if ((await this.chain.freeBalance(me)) < this.config.buyerAmount) return;
     const busy = new Set(mine.map((a) => a.provider));
-    const peer = (await this.chain.registeredAgents()).find((p) => p !== me && !busy.has(p));
+    const { buyerPeers } = this.config;
+    // An allowlist (BUYER_PEERS) lets an operator point a buyer at providers it
+    // trusts to deliver; without one, any other registered agent qualifies.
+    const peer = (await this.chain.registeredAgents()).find(
+      (p) => p !== me && !busy.has(p) && (buyerPeers.length === 0 || buyerPeers.includes(p)),
+    );
     if (peer === undefined) return;
 
     const head = await this.chain.head();

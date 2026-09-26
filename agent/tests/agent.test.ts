@@ -79,6 +79,13 @@ describe('registration and heartbeat', () => {
     expect(c.calls).toEqual([`register:${1000n * CMN}:operator-reference-agent`, 'heartbeat']);
   });
 
+  it('heartbeats right after registering even when the runtime already stamped the register block', async () => {
+    // Spec 306 starts the heartbeat clock at register (#161): lastHeartbeat is recent, not null.
+    const c = fake({ registered: false, lastHb: 999n, head: 1000n });
+    await make(c).agent.tick();
+    expect(c.calls).toEqual([`register:${1000n * CMN}:operator-reference-agent`, 'heartbeat']);
+  });
+
   it('does not re-register a registered agent', async () => {
     const c = fake({ lastHb: 900n });
     await make(c).agent.tick();

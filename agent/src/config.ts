@@ -16,6 +16,8 @@ export interface Config {
   heartbeatEveryBlocks: bigint;
   minDeliveryBlocks: bigint;
   buyerAmount: bigint;
+  /** Providers a buyer may open agreements with; empty means any other registered agent. */
+  buyerPeers: string[];
   buyerMaxOpen: number;
   buyerDeliverWithin: bigint;
   pollSeconds: number;
@@ -78,6 +80,7 @@ export function loadConfig(env: Env): Config {
     heartbeatEveryBlocks: wholeNumber(env, 'HEARTBEAT_BLOCKS', '600', 1n),
     minDeliveryBlocks: wholeNumber(env, 'MIN_DELIVERY_BLOCKS', '10', 0n),
     buyerAmount: cmn(env, 'BUYER_AMOUNT_CMN', '10'),
+    buyerPeers: (env.BUYER_PEERS ?? '').split(',').map((x) => x.trim()).filter((x) => x !== ''),
     buyerMaxOpen: Number(wholeNumber(env, 'BUYER_MAX_OPEN', '2', 0n)),
     buyerDeliverWithin: wholeNumber(env, 'BUYER_DELIVER_WITHIN_BLOCKS', '600', 1n),
     pollSeconds: Number(wholeNumber(env, 'POLL_SECONDS', '6', 1n)),
