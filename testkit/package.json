@@ -1,22 +1,18 @@
 {
-  "name": "@scalar-commons/testkit",
-  "version": "0.0.0",
+  "name": "scalar-testkit",
   "private": true,
-  "description": "Chain lifecycle integration tests. Run against a local dev node (SCALAR_WS, default ws://127.0.0.1:9955). Never point at the public testnet.",
   "type": "module",
+  "description": "Lifecycle tests for Scalar Commons pallets. Run against any node: SCALAR_WS=ws://127.0.0.1:9955 npm test",
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
-  },
-  "dependencies": {
-    "@polkadot/api": "^15.0.0",
-    "@polkadot/keyring": "^13.0.0",
-    "@polkadot/util-crypto": "^13.0.0"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@types/node": "^20.11.0",
-    "typescript": "^5.4.0",
-    "vitest": "^1.6.0"
-  },
-  "engines": { "node": ">=18" }
+    "@polkadot/api": "^16.0.0",
+    "@polkadot/keyring": "^14.0.0",
+    "@polkadot/util-crypto": "^14.0.0",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0"
+  }
 }
