@@ -725,6 +725,36 @@ fn slash_appeal_capped_per_account() {
 }
 
 #[test]
+fn second_era_appeal_does_not_overwrite_first() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        SlashRecords::<Test>::insert(ALICE, 0, 100);
+        SlashRecords::<Test>::insert(ALICE, 1, 100);
+        assert_ok!(Agents::slash_appeal(
+            RuntimeOrigin::signed(ALICE),
+            0,
+            [0xAA; 32]
+        ));
+        assert_ok!(Agents::slash_appeal(
+            RuntimeOrigin::signed(ALICE),
+            1,
+            [0xBB; 32]
+        ));
+        assert_eq!(
+            OpenAppeals::<Test>::get(ALICE, 0).unwrap().reason_hash,
+            [0xAA; 32]
+        );
+        assert_eq!(
+            OpenAppeals::<Test>::get(ALICE, 1).unwrap().reason_hash,
+            [0xBB; 32]
+        );
+        let pending = PendingSlashAppeals::<Test>::get(ALICE).unwrap();
+        assert_eq!(pending.slash_era, 0);
+        assert_eq!(pending.reason_hash, [0xAA; 32]);
+    });
+}
+
+#[test]
 fn execute_slash_records_slash_and_clears_open_appeals() {
     new_test_ext().execute_with(|| {
         assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));

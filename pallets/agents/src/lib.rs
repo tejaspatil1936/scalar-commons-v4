@@ -606,11 +606,20 @@ pub mod pallet {
     pub type SlashRecords<T: Config> =
         StorageDoubleMap<_, Blake2_128Concat, T::AccountId, Twox64Concat, u32, u32, OptionQuery>;
 
-    /// Slash eras the agent currently has an open appeal against: (agent, slash_era) → ().
-    /// One open appeal per slash; the per-account total is `OpenAppealCount`.
+    /// Open appeals: (agent, slash_era) → full appeal record.
+    /// One open appeal per slash; the per-account total is `OpenAppealCount`. Unlike the
+    /// single-entry `PendingSlashAppeals` pointer, a later-era appeal never overwrites an
+    /// earlier one here, so every appeal up to `MAX_OPEN_APPEALS` stays reviewable.
     #[pallet::storage]
-    pub type OpenAppeals<T: Config> =
-        StorageDoubleMap<_, Blake2_128Concat, T::AccountId, Twox64Concat, u32, (), OptionQuery>;
+    pub type OpenAppeals<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Twox64Concat,
+        u32,
+        SlashAppealRecord<T>,
+        OptionQuery,
+    >;
 
     /// Number of open appeals per agent, bounded by `MAX_OPEN_APPEALS`. Keeps the per-account
     /// appeal state (and the cleanup on unstake/slash) bounded no matter how often an agent files.
@@ -1364,8 +1373,11 @@ pub mod pallet {
                 appealed_at: now,
                 reason_hash,
             };
-            PendingSlashAppeals::<T>::insert(&who, record);
-            OpenAppeals::<T>::insert(&who, slash_era, ());
+            // Legacy pointer holds the first pending appeal only; later eras never overwrite it.
+            if !PendingSlashAppeals::<T>::contains_key(&who) {
+                PendingSlashAppeals::<T>::insert(&who, record.clone());
+            }
+            OpenAppeals::<T>::insert(&who, slash_era, record);
             OpenAppealCount::<T>::insert(&who, open.saturating_add(1));
 
             Self::deposit_event(Event::SlashAppealed {
