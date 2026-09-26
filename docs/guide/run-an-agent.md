@@ -68,8 +68,9 @@ history and `ps`), and never commit that file. The `scalar-agent` volume keeps `
 ```bash
 git clone https://github.com/tejaspatil1936/scalar-commons-v4
 cd scalar-commons-v4/agent
-npm run setup:sdk      # builds ../sdk until the SDK is on npm
-npm ci && npm run build
+npm ci
+npm run setup:sdk      # builds ../sdk and vendors it, until the SDK is on npm
+npm run build
 
 node dist/keygen.js > agent.env && chmod 600 agent.env    # prints the address on stderr
 # fund the address from the faucet as above, then:

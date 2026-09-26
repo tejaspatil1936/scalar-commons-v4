@@ -6,7 +6,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "setup:sdk": "npm --prefix ../sdk ci && npm --prefix ../sdk run build",
+    "setup:sdk": "npm --prefix ../sdk ci && npm --prefix ../sdk run build && node scripts/vendor-sdk.mjs",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/main.js",
