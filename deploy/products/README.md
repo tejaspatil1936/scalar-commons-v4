@@ -201,3 +201,36 @@ backstop.
 
 There is no in-code default seed and the script refuses to start without a key file — a keeper that
 silently fell back to a published dev seed would be the `//Ferdie` faucet defect over again.
+
+## The site redeploy timer
+
+`deploy/public/redeploy-site.sh` is the reproducible path from a repository state to the live
+scalarnet.io, and until #158 nothing ran it: a merged docs change sat on `origin/master` while the
+public site served the previous build. `scalar-redeploy.timer` runs it for you.
+
+```bash
+install -m 644 deploy/products/scalar-redeploy.service ~/.config/systemd/user/
+install -m 644 deploy/products/scalar-redeploy.timer   ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now scalar-redeploy.timer
+journalctl --user -u scalar-redeploy.service -f
+```
+
+| | |
+|---|---|
+| unit | `scalar-redeploy.service` (Type=oneshot) + `scalar-redeploy.timer` |
+| cadence | every 10 min (`OnUnitActiveSec=10min`, `Persistent=true`) |
+| script | `deploy/products/redeploy-on-merge.sh` → `deploy/public/redeploy-site.sh` |
+| source | a dedicated clone at `~/scalar-products/site-src`, never the working checkout |
+| state | `~/scalar-products/redeploy/last-deployed-sha` |
+| test | `deploy/products/test-redeploy-on-merge.sh` (offline, no npm, no network) |
+
+Each tick fetches `origin/master`. If it has not moved since the last deploy, that is the whole
+tick. If it moved but none of the new commits touch `landing/` or `docs/`, the SHA is recorded and
+nothing is built. Otherwise both sites are built into `/var/www/scalarnet/.staging.*` and, **only if
+the build exits 0**, swapped into place with `mv --exchange` (an atomic `renameat2` exchange). A
+failed build deletes staging, leaves the live site exactly as it was, and does not advance the SHA,
+so the next tick retries. Every deploy logs `redeploy: deployed <sha>`.
+
+It holds no privilege and no credential: it reads a public repository and writes two directories
+the `dev` user already owns.

@@ -369,6 +369,12 @@ curl -s https://api.scalarnet.io/v1/accounts/5HittaW1bxyNsuCd6zxJd84D1Td4UDUMBgA
 
 This is the part the chain exists for. The SDK in `sdk/` wraps it.
 
+::: tip Running an agent for real
+This section is the by-hand walk. For a daemon that registers, heartbeats, finds work
+addressed to it, delivers and claims — run as a systemd service and proven end to end on
+spec 306 — see **[Run an agent on the public testnet](./run-an-agent-public-testnet)**.
+:::
+
 ### Getting the SDK
 
 ::: warning The SDK is not published to npm
@@ -995,6 +1001,15 @@ That is the whole footprint. A full node keeps no keys and holds no funds.
 
 ## 7. Running a validator
 
+::: tip Updated 2026-09-24 — validation is open, and unpaid
+The numbers below were undecided when this page was written. They are now set (decision D11,
+[#159](https://github.com/tejaspatil1936/scalar-commons-v4/issues/159)): **7 seats, a
+1 000 CMN minimum validator bond, 100 CMN minimum nominator bond**. Validators remain
+**unpaid** ([#172](https://github.com/tejaspatil1936/scalar-commons-v4/issues/172)). The full,
+executed procedure — release binary, systemd unit, keys, bond, election — is
+**[Run a validator on Scalar](./run-a-validator)**.
+:::
+
 **Read this section as a statement of what is *not* decided.** The mechanical procedure is
 below and it is accurate. The economics are not settled, and on today's chain they are
 actively against you.
@@ -1031,10 +1046,10 @@ endpoint.
 
 | Value | Now | Where |
 |---|---|---|
-| `staking.validatorCount` | **5** | storage |
+| `staking.validatorCount` | **7** (was 5; set at block #750 511) | storage |
 | `staking.minimumValidatorCount` | 1 | storage |
-| `staking.minValidatorBond` | **0** | storage |
-| `staking.minNominatorBond` | **0** | storage |
+| `staking.minValidatorBond` | **1 000 CMN** (was 0; set at block #750 515) | storage |
+| `staking.minNominatorBond` | **100 CMN** (was 0; set at block #750 515) | storage |
 | `SessionsPerEra` | 6 | `runtime/src/lib.rs:816` |
 | `babe.epochDuration` | 1 800 blocks | const |
 | **staking era** | 6 × 1 800 = **10 800 blocks ≈ 18 h** | derived |
@@ -1054,13 +1069,13 @@ words (`runtime/src/lib.rs:898`):
 > risk, 28-era exit. Acceptable for an operator-run testnet where all five authorities are
 > ours; **NOT acceptable for a public validator set.**
 
-**2. `minValidatorBond` and `minNominatorBond` are both 0**, with
-`minimumValidatorCount = 1`. There is no economic floor on entering the set.
+**2. ~~`minValidatorBond` and `minNominatorBond` are both 0.~~** Decided (D11): 1 000 CMN
+and 100 CMN.
 
-**3. All five seats are operator-run**, and `staking::AdminOrigin` is `EnsureRoot`, so
-raising `validatorCount` is a governance action, not a config edit.
+**3. ~~All five seats are operator-run.~~** Decided (D11): `validatorCount` is 7, so two seats
+are open to outside validators.
 
-Tracked as [issue #159](https://github.com/tejaspatil1936/scalar-commons-v4/issues/159)
+Compensation is tracked as [issue #172](https://github.com/tejaspatil1936/scalar-commons-v4/issues/172)
 (`tier:T0` — never worked on autonomously). **Do not bond real effort into a validator on
 this network expecting a return.** Run one to test the software, not to earn.
 :::
@@ -1090,9 +1105,10 @@ await api.tx.staking.validate({ commission: 100_000_000, blocked: false }).signA
 
 `commission` is a `Perbill` — `100_000_000` is 10 %. Then **wait for an election**: intent
 is not membership. The set is chosen by Phragmén at the next staking era boundary, i.e. up
-to **18 hours**, and only if `validatorCount` has room. With `validatorCount = 5` and five
-operator nodes bonded, today there is no room, which is the honest reason this section
-cannot yet end in "and now you are validating".
+to **18 hours**, and only if `validatorCount` has room. When this page was written
+`validatorCount` was 5 with five operator nodes bonded, so there was no room. It is now 7 —
+[Run a validator on Scalar](./run-a-validator) ends in an outside validator elected and
+authoring.
 
 Unbonding afterwards takes `BondingDuration` = 28 eras ≈ **21 days**.
 
@@ -1155,7 +1171,7 @@ Each is filed.
 | 2 | The SDK retries deterministic runtime rejections, paying a fee each time — measured at exactly 4.0 fee-paying submissions for one `MinDeliveryBlocksNotElapsed`, with backoff (6 s) shorter than the guard (60 s) | Spends an agent's money on calls that cannot succeed | [#160](https://github.com/tejaspatil1936/scalar-commons-v4/issues/160) |
 | 3 | One faucet drip (1 100 CMN) clears agent registration (1 050.01 CMN) by **4.5 %**, and the escrow flow needs two registered agents; one ordinary demo transfer strands you behind a 60-minute cooldown | Blocks the flagship flow for a first-time tester | [#162](https://github.com/tejaspatil1936/scalar-commons-v4/issues/162) |
 | 4 | On a near-empty era, one two-account tester captured **81.88 % of the era's 110 000 CMN emission** for 60 CMN of self-directed escrow — the pot is sized by agent count, not work (~917 CMN minted per CMN of work), and the qualification gates concentrate rather than dilute | Testnet balances are not indicative of mainnet economics | [#164](https://github.com/tejaspatil1936/scalar-commons-v4/issues/164) |
-| 5 | Validator compensation is exactly zero (`EraPayout = ()`), `minValidatorBond` and `minNominatorBond` are both 0, and all 5 seats are operator-run | Third-party validation has negative expected value today | [#159](https://github.com/tejaspatil1936/scalar-commons-v4/issues/159) |
+| 5 | Validator compensation is exactly zero (`EraPayout = ()`), `minValidatorBond` and `minNominatorBond` were both 0, and all 5 seats were operator-run. Bonds and seats were decided on 2026-09-24 (D11: 1 000 / 100 CMN, 7 seats); compensation is still zero | Third-party validation has negative expected value today | [#159](https://github.com/tejaspatil1936/scalar-commons-v4/issues/159), [#172](https://github.com/tejaspatil1936/scalar-commons-v4/issues/172) |
 
 And the smaller edges, documented in place above rather than filed:
 
