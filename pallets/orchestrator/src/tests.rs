@@ -114,7 +114,7 @@ impl pallet_agents::Config for Test {
     type OnAgentRegistered = ();
     type OnAgentSlashed = ();
     type OnStakeChanged = ();
-    type AgentCollective = ();
+    type AgentCollective = MockCollective;
     type OracleScoreGate = ();
     type GovVoteVerifier = MockGovVoteVerifier;
     type IdentityHandler = ();
@@ -715,4 +715,492 @@ pub fn conclude_poll(poll: u32) {
 pub fn reset_gov_state() {
     HELD_VOTES.with(|v| v.borrow_mut().clear());
     ONGOING_POLLS.with(|p| p.borrow_mut().clear());
+}
+
+// ---------------------------------------------------------------------------
+// #184 — finding-encoding suite. These assert on the ledger (events + storage),
+// never on a dispatch's return value alone.
+// ---------------------------------------------------------------------------
+
+std::thread_local! {
+    static RANKS: core::cell::RefCell<std::collections::BTreeMap<u64, u32>> =
+        const { core::cell::RefCell::new(std::collections::BTreeMap::new()) };
+}
+
+/// Rank-aware stand-in for `pallet_ranked_collective`: unlisted accounts are
+/// Rank 0, exactly as the `()` collective reported before, so every earlier
+/// test is unaffected. Lets the Rank-2 gate (E11) be tested on both sides.
+pub struct MockCollective;
+impl pallet_agents::pallet::AgentCollective<u64> for MockCollective {
+    fn induct(_: &u64) -> frame_support::dispatch::DispatchResult {
+        Ok(())
+    }
+    fn promote(_: &u64) -> frame_support::dispatch::DispatchResult {
+        Ok(())
+    }
+    fn rank_of(who: &u64) -> Option<u32> {
+        Some(RANKS.with(|r| r.borrow().get(who).copied().unwrap_or(0)))
+    }
+    fn remove(_: &u64) {}
+}
+
+fn set_rank(who: u64, rank: u32) {
+    RANKS.with(|r| {
+        r.borrow_mut().insert(who, rank);
+    });
+}
+
+/// Events are only recorded from block 1.
+fn start_block() {
+    System::set_block_number(1);
+    System::reset_events();
+}
+
+fn orch_events() -> Vec<Event<Test>> {
+    System::events()
+        .into_iter()
+        .filter_map(|r| match r.event {
+            RuntimeEvent::Orchestrator(e) => Some(e),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Propose then accept, asserting nothing — callers assert on the ledger.
+fn link(orch: u64, sub: u64) {
+    assert_ok!(Orchestrator::propose_sub_agent_link(
+        RuntimeOrigin::signed(orch),
+        sub
+    ));
+    assert_ok!(Orchestrator::accept_orchestrator_link(
+        RuntimeOrigin::signed(sub),
+        orch
+    ));
+}
+
+#[test]
+fn self_link_is_rejected_and_leaves_no_trace() {
+    new_test_ext().execute_with(|| {
+        start_block();
+        seed_agent(ALICE);
+        orchestrator(ALICE);
+
+        assert_noop!(
+            Orchestrator::propose_sub_agent_link(RuntimeOrigin::signed(ALICE), ALICE),
+            Error::<Test>::SelfLink
+        );
+
+        assert!(!PendingLinkProposals::<Test>::contains_key(ALICE, ALICE));
+        assert_eq!(PendingProposalCount::<Test>::get(ALICE), 0);
+        assert!(!SubAgentLinks::<Test>::contains_key(ALICE, ALICE));
+        assert!(SubAgentToOrchestrator::<Test>::get(ALICE).is_none());
+        assert!(orch_events().is_empty());
+    });
+}
+
+#[test]
+fn rank_below_two_cannot_register_orchestrator() {
+    new_test_ext().execute_with(|| {
+        start_block();
+        seed_agent(ALICE);
+        for rank in [0, 1] {
+            set_rank(ALICE, rank);
+            assert_noop!(
+                Orchestrator::register_orchestrator(RuntimeOrigin::signed(ALICE), 10, 200),
+                Error::<Test>::AgentMustBeRank2
+            );
+            assert!(OrchestratorRegistration::<Test>::get(ALICE).is_none());
+        }
+        assert!(orch_events().is_empty());
+    });
+}
+
+#[test]
+fn rank_two_and_above_register_orchestrator_with_event_and_record() {
+    new_test_ext().execute_with(|| {
+        start_block();
+        seed_agent(ALICE);
+        seed_agent(CAROL);
+        set_rank(ALICE, 2);
+        set_rank(CAROL, 3);
+
+        assert_ok!(Orchestrator::register_orchestrator(
+            RuntimeOrigin::signed(ALICE),
+            10,
+            200
+        ));
+        assert_ok!(Orchestrator::register_orchestrator(
+            RuntimeOrigin::signed(CAROL),
+            50,
+            500
+        ));
+
+        let rec = OrchestratorRegistration::<Test>::get(ALICE).expect("record written");
+        assert_eq!(rec.max_sub_agents, 10);
+        assert_eq!(rec.fee_bps, 200);
+        assert_eq!(rec.registered_at, 1);
+        assert_eq!(rec.active_sub_count, 0);
+        // Boundary values of both caps are accepted.
+        let rec = OrchestratorRegistration::<Test>::get(CAROL).expect("record written");
+        assert_eq!((rec.max_sub_agents, rec.fee_bps), (50, 500));
+
+        assert_eq!(
+            orch_events(),
+            vec![
+                Event::OrchestratorRegistered {
+                    who: ALICE,
+                    max_sub_agents: 10,
+                    fee_bps: 200
+                },
+                Event::OrchestratorRegistered {
+                    who: CAROL,
+                    max_sub_agents: 50,
+                    fee_bps: 500
+                },
+            ]
+        );
+    });
+}
+
+#[test]
+fn registration_is_rejected_twice_and_for_non_agents() {
+    new_test_ext().execute_with(|| {
+        start_block();
+        // Rank alone is not enough: BOB never registered as an agent.
+        set_rank(BOB, 2);
+        assert_noop!(
+            Orchestrator::register_orchestrator(RuntimeOrigin::signed(BOB), 10, 100),
+            Error::<Test>::NotAnAgent
+        );
+        assert!(OrchestratorRegistration::<Test>::get(BOB).is_none());
+
+        seed_agent(ALICE);
+        set_rank(ALICE, 2);
+        assert_ok!(Orchestrator::register_orchestrator(
+            RuntimeOrigin::signed(ALICE),
+            10,
+            100
+        ));
+        System::reset_events();
+        assert_noop!(
+            Orchestrator::register_orchestrator(RuntimeOrigin::signed(ALICE), 20, 300),
+            Error::<Test>::AlreadyRegistered
+        );
+        // The original record is untouched by the rejected second attempt.
+        let rec = OrchestratorRegistration::<Test>::get(ALICE).unwrap();
+        assert_eq!((rec.max_sub_agents, rec.fee_bps), (10, 100));
+        assert!(orch_events().is_empty());
+    });
+}
+
+#[test]
+fn propose_accept_emits_events_and_writes_both_link_maps() {
+    new_test_ext().execute_with(|| {
+        start_block();
+        seed_agent(ALICE);
+        seed_agent(BOB);
+        set_rank(ALICE, 2);
+        assert_ok!(Orchestrator::register_orchestrator(
+            RuntimeOrigin::signed(ALICE),
+            10,
+            200
+        ));
+        System::reset_events();
+
+        assert_ok!(Orchestrator::propose_sub_agent_link(
+            RuntimeOrigin::signed(ALICE),
+            BOB
+        ));
+        // start_block = 1, LinkApprovalWindow = 100.
+        assert_eq!(PendingLinkProposals::<Test>::get(ALICE, BOB), Some(101));
+        assert_eq!(PendingProposalCount::<Test>::get(BOB), 1);
+        assert!(SubAgentToOrchestrator::<Test>::get(BOB).is_none());
+
+        System::set_block_number(5);
+        assert_ok!(Orchestrator::accept_orchestrator_link(
+            RuntimeOrigin::signed(BOB),
+            ALICE
+        ));
+
+        assert!(PendingLinkProposals::<Test>::get(ALICE, BOB).is_none());
+        assert_eq!(PendingProposalCount::<Test>::get(BOB), 0);
+        assert_eq!(SubAgentToOrchestrator::<Test>::get(BOB), Some(ALICE));
+        let link = SubAgentLinks::<Test>::get(ALICE, BOB).expect("link written");
+        assert_eq!(link.linked_at, 5);
+        assert_eq!(link.lifetime_volume, 0);
+        assert_eq!(
+            OrchestratorRegistration::<Test>::get(ALICE)
+                .unwrap()
+                .active_sub_count,
+            1
+        );
+        assert_eq!(
+            orch_events(),
+            vec![
+                Event::LinkProposed {
+                    orchestrator: ALICE,
+                    sub_agent: BOB,
+                    expires_at: 101
+                },
+                Event::LinkAccepted {
+                    orchestrator: ALICE,
+                    sub_agent: BOB
+                },
+            ]
+        );
+    });
+}
+
+#[test]
+fn accept_without_proposal_is_rejected_and_writes_nothing() {
+    new_test_ext().execute_with(|| {
+        start_block();
+        seed_agent(BOB);
+        orchestrator(ALICE);
+        assert_noop!(
+            Orchestrator::accept_orchestrator_link(RuntimeOrigin::signed(BOB), ALICE),
+            Error::<Test>::ProposalNotFound
+        );
+        assert!(SubAgentToOrchestrator::<Test>::get(BOB).is_none());
+        assert_eq!(
+            OrchestratorRegistration::<Test>::get(ALICE)
+                .unwrap()
+                .active_sub_count,
+            0
+        );
+        assert!(orch_events().is_empty());
+    });
+}
+
+#[test]
+fn propose_requires_registered_orchestrator_and_agent_target() {
+    new_test_ext().execute_with(|| {
+        start_block();
+        seed_agent(BOB);
+        // ALICE is not an orchestrator.
+        assert_noop!(
+            Orchestrator::propose_sub_agent_link(RuntimeOrigin::signed(ALICE), BOB),
+            Error::<Test>::NotRegistered
+        );
+        orchestrator(ALICE);
+        // CAROL is not a registered agent.
+        assert_noop!(
+            Orchestrator::propose_sub_agent_link(RuntimeOrigin::signed(ALICE), CAROL),
+            Error::<Test>::NotAnAgent
+        );
+        assert!(!PendingLinkProposals::<Test>::contains_key(ALICE, CAROL));
+        assert_eq!(PendingProposalCount::<Test>::get(CAROL), 0);
+        assert!(orch_events().is_empty());
+    });
+}
+
+#[test]
+fn orchestrator_removes_link_and_event_names_the_caller() {
+    new_test_ext().execute_with(|| {
+        start_block();
+        seed_agent(BOB);
+        orchestrator(ALICE);
+        link(ALICE, BOB);
+        System::reset_events();
+
+        assert_ok!(Orchestrator::remove_sub_agent_link(
+            RuntimeOrigin::signed(ALICE),
+            BOB
+        ));
+
+        assert!(!SubAgentLinks::<Test>::contains_key(ALICE, BOB));
+        assert!(SubAgentToOrchestrator::<Test>::get(BOB).is_none());
+        assert_eq!(
+            OrchestratorRegistration::<Test>::get(ALICE)
+                .unwrap()
+                .active_sub_count,
+            0
+        );
+        assert_eq!(
+            orch_events(),
+            vec![Event::LinkRemoved {
+                orchestrator: ALICE,
+                sub_agent: BOB,
+                by: ALICE
+            }]
+        );
+    });
+}
+
+#[test]
+fn sub_agent_removal_event_names_the_sub_agent_as_caller() {
+    new_test_ext().execute_with(|| {
+        start_block();
+        seed_agent(BOB);
+        orchestrator(ALICE);
+        link(ALICE, BOB);
+        System::reset_events();
+
+        assert_ok!(Orchestrator::remove_sub_agent_link(
+            RuntimeOrigin::signed(BOB),
+            ALICE
+        ));
+        assert!(SubAgentToOrchestrator::<Test>::get(BOB).is_none());
+        assert_eq!(
+            orch_events(),
+            vec![Event::LinkRemoved {
+                orchestrator: ALICE,
+                sub_agent: BOB,
+                by: BOB
+            }]
+        );
+    });
+}
+
+#[test]
+fn third_party_cannot_remove_a_link() {
+    new_test_ext().execute_with(|| {
+        start_block();
+        seed_agent(BOB);
+        orchestrator(ALICE);
+        link(ALICE, BOB);
+        System::reset_events();
+
+        // CAROL is neither an orchestrator nor a linked sub-agent.
+        assert_noop!(
+            Orchestrator::remove_sub_agent_link(RuntimeOrigin::signed(CAROL), BOB),
+            Error::<Test>::NotOrchestratorOrSubAgent
+        );
+        // A sub-agent naming the wrong orchestrator is refused too.
+        assert_noop!(
+            Orchestrator::remove_sub_agent_link(RuntimeOrigin::signed(BOB), CAROL),
+            Error::<Test>::NotLinked
+        );
+        // Another orchestrator cannot cut ALICE's link.
+        orchestrator(CAROL);
+        assert_noop!(
+            Orchestrator::remove_sub_agent_link(RuntimeOrigin::signed(CAROL), BOB),
+            Error::<Test>::NotLinked
+        );
+
+        assert_eq!(SubAgentToOrchestrator::<Test>::get(BOB), Some(ALICE));
+        assert!(SubAgentLinks::<Test>::contains_key(ALICE, BOB));
+        assert_eq!(
+            OrchestratorRegistration::<Test>::get(ALICE)
+                .unwrap()
+                .active_sub_count,
+            1
+        );
+        assert!(orch_events().is_empty());
+    });
+}
+
+/// Sub-agent accounts for the cap tests, clear of ALICE/BOB/CAROL.
+const SUB_BASE: u64 = 100;
+
+#[test]
+fn registering_above_the_50_sub_agent_cap_is_rejected() {
+    new_test_ext().execute_with(|| {
+        start_block();
+        seed_agent(ALICE);
+        set_rank(ALICE, 2);
+        assert_noop!(
+            Orchestrator::register_orchestrator(RuntimeOrigin::signed(ALICE), 51, 100),
+            Error::<Test>::MaxSubAgentsTooHigh
+        );
+        assert!(OrchestratorRegistration::<Test>::get(ALICE).is_none());
+        assert!(orch_events().is_empty());
+    });
+}
+
+#[test]
+fn fifty_sub_agents_link_and_the_fifty_first_offer_is_refused() {
+    new_test_ext().execute_with(|| {
+        start_block();
+        seed_agent(ALICE);
+        set_rank(ALICE, 2);
+        assert_ok!(Orchestrator::register_orchestrator(
+            RuntimeOrigin::signed(ALICE),
+            50,
+            100
+        ));
+        for i in 0..50 {
+            seed_agent(SUB_BASE + i);
+            link(ALICE, SUB_BASE + i);
+        }
+        let rec = OrchestratorRegistration::<Test>::get(ALICE).unwrap();
+        assert_eq!(rec.active_sub_count, 50);
+        assert_eq!(
+            SubAgentLinks::<Test>::iter_prefix(ALICE).count(),
+            50,
+            "one link row per sub-agent"
+        );
+        System::reset_events();
+
+        let extra = SUB_BASE + 50;
+        seed_agent(extra);
+        assert_noop!(
+            Orchestrator::propose_sub_agent_link(RuntimeOrigin::signed(ALICE), extra),
+            Error::<Test>::SubAgentCapFull
+        );
+        assert!(!PendingLinkProposals::<Test>::contains_key(ALICE, extra));
+        assert_eq!(PendingProposalCount::<Test>::get(extra), 0);
+        assert!(orch_events().is_empty());
+
+        // Removing one link frees exactly one slot.
+        assert_ok!(Orchestrator::remove_sub_agent_link(
+            RuntimeOrigin::signed(ALICE),
+            SUB_BASE
+        ));
+        assert_eq!(
+            OrchestratorRegistration::<Test>::get(ALICE)
+                .unwrap()
+                .active_sub_count,
+            49
+        );
+        link(ALICE, extra);
+        assert_eq!(
+            OrchestratorRegistration::<Test>::get(ALICE)
+                .unwrap()
+                .active_sub_count,
+            50
+        );
+    });
+}
+
+/// The cap is only checked in `propose_sub_agent_link`, against the count at
+/// *proposal* time. Offers are permissive and queue up while `active_sub_count`
+/// is still low, so an orchestrator with `max_sub_agents = 2` can propose to
+/// three agents while empty and have all three accept. `accept_orchestrator_link`
+/// increments `active_sub_count` without re-checking it.
+#[test]
+#[ignore = "bug: accept_orchestrator_link does not re-check max_sub_agents, so queued offers overshoot the cap, see #184"]
+fn queued_offers_cannot_overshoot_max_sub_agents_on_accept() {
+    new_test_ext().execute_with(|| {
+        start_block();
+        orchestrator(ALICE);
+        OrchestratorRegistration::<Test>::mutate(ALICE, |r| r.as_mut().unwrap().max_sub_agents = 2);
+        for i in 0..3 {
+            seed_agent(SUB_BASE + i);
+            assert_ok!(Orchestrator::propose_sub_agent_link(
+                RuntimeOrigin::signed(ALICE),
+                SUB_BASE + i
+            ));
+        }
+        let mut accepted = 0;
+        for i in 0..3 {
+            if Orchestrator::accept_orchestrator_link(RuntimeOrigin::signed(SUB_BASE + i), ALICE)
+                .is_ok()
+            {
+                accepted += 1;
+            }
+        }
+        let rec = OrchestratorRegistration::<Test>::get(ALICE).unwrap();
+        assert!(
+            rec.active_sub_count <= rec.max_sub_agents,
+            "active_sub_count {} exceeds max_sub_agents {} ({} accepted)",
+            rec.active_sub_count,
+            rec.max_sub_agents,
+            accepted
+        );
+        assert_eq!(
+            SubAgentLinks::<Test>::iter_prefix(ALICE).count() as u32,
+            rec.active_sub_count
+        );
+    });
 }
