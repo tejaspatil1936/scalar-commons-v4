@@ -475,6 +475,29 @@ fn batch_submit_response_accepts_valid_skips_invalid() {
     });
 }
 
+#[test]
+fn batch_submit_response_over_cap_rejected_before_dispatch() {
+    use frame_support::traits::Get;
+    use parity_scale_codec::{Decode, Encode};
+    // The batch parameter is `BoundedVec<_, MaxBatchSubmissions>` (20 in the mock), so an
+    // over-cap batch cannot be built in-runtime, and SCALE decoding of an over-cap extrinsic
+    // fails before dispatch: the extrinsic is rejected as undecodable, not a runtime panic.
+    let cap = <<Test as crate::Config>::MaxBatchSubmissions as Get<u32>>::get() as usize;
+    let over: Vec<([u8; 32], [u8; 32], u32)> = vec![([1u8; 32], [2u8; 32], 0); cap + 1];
+    assert!(
+        frame_support::BoundedVec::<_, <Test as crate::Config>::MaxBatchSubmissions>::try_from(
+            over.clone()
+        )
+        .is_err()
+    );
+    let encoded = over.encode();
+    assert!(frame_support::BoundedVec::<
+        ([u8; 32], [u8; 32], u32),
+        <Test as crate::Config>::MaxBatchSubmissions,
+    >::decode(&mut &encoded[..])
+    .is_err());
+}
+
 // ── Governance-vote verifier mock (ROUND14) ──────────────────────────────────
 //
 // Replaces `GovVoteVerifier = ()`, whose impl returned `true` unconditionally and was
