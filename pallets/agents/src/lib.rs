@@ -603,28 +603,14 @@ pub mod pallet {
     /// a record of the slash there is nothing to appeal, and an unchecked `slash_appeal` lets
     /// any registered account plant appeal records against slashes that never happened (E22).
     #[pallet::storage]
-    pub type SlashRecords<T: Config> = StorageDoubleMap<
-        _,
-        Blake2_128Concat,
-        T::AccountId,
-        Twox64Concat,
-        u32,
-        u32,
-        OptionQuery,
-    >;
+    pub type SlashRecords<T: Config> =
+        StorageDoubleMap<_, Blake2_128Concat, T::AccountId, Twox64Concat, u32, u32, OptionQuery>;
 
     /// Slash eras the agent currently has an open appeal against: (agent, slash_era) → ().
     /// One open appeal per slash; the per-account total is `OpenAppealCount`.
     #[pallet::storage]
-    pub type OpenAppeals<T: Config> = StorageDoubleMap<
-        _,
-        Blake2_128Concat,
-        T::AccountId,
-        Twox64Concat,
-        u32,
-        (),
-        OptionQuery,
-    >;
+    pub type OpenAppeals<T: Config> =
+        StorageDoubleMap<_, Blake2_128Concat, T::AccountId, Twox64Concat, u32, (), OptionQuery>;
 
     /// Number of open appeals per agent, bounded by `MAX_OPEN_APPEALS`. Keeps the per-account
     /// appeal state (and the cleanup on unstake/slash) bounded no matter how often an agent files.
@@ -1086,6 +1072,8 @@ pub mod pallet {
             AgentCapabilities::<T>::remove(&who);
             VotingDelegations::<T>::remove(&who);
             PendingSlashAppeals::<T>::remove(&who);
+            let _ = OpenAppeals::<T>::clear_prefix(&who, MAX_OPEN_APPEALS, None);
+            OpenAppealCount::<T>::remove(&who);
 
             // Clear offchain discovery index
             {
@@ -1322,10 +1310,11 @@ pub mod pallet {
         /// explaining why the slash was unwarranted. A Track 0 governance referendum
         /// can then vote to reverse the slash within SlashAppealWindow blocks.
         ///
-        /// Only one appeal can be pending at a time. Appeal fails if:
-        /// - No slash record exists for this agent
+        /// One appeal per slash, at most `MAX_OPEN_APPEALS` open per account. Appeal fails if:
+        /// - No slash record exists for this agent in `slash_era` (`NoSuchSlash`)
         /// - The appeal window has already passed
-        /// - A prior appeal is still pending
+        /// - An appeal against this slash is still pending
+        /// - The account already holds `MAX_OPEN_APPEALS` open appeals
         ///
         /// # Note
         /// This extrinsic records intent — actual slash reversal requires a
@@ -1343,10 +1332,17 @@ pub mod pallet {
                 AgentStake::<T>::contains_key(&who),
                 Error::<T>::NotRegistered
             );
+            // E22: an appeal must name a slash that actually happened.
             ensure!(
-                !PendingSlashAppeals::<T>::contains_key(&who),
+                SlashRecords::<T>::contains_key(&who, slash_era),
+                Error::<T>::NoSuchSlash
+            );
+            ensure!(
+                !OpenAppeals::<T>::contains_key(&who, slash_era),
                 Error::<T>::AppealAlreadyPending
             );
+            let open = OpenAppealCount::<T>::get(&who);
+            ensure!(open < MAX_OPEN_APPEALS, Error::<T>::TooManyOpenAppeals);
 
             let now = frame_system::Pallet::<T>::block_number();
             let era_now = EraNumber::<T>::get();
@@ -1369,6 +1365,8 @@ pub mod pallet {
                 reason_hash,
             };
             PendingSlashAppeals::<T>::insert(&who, record);
+            OpenAppeals::<T>::insert(&who, slash_era, ());
+            OpenAppealCount::<T>::insert(&who, open.saturating_add(1));
 
             Self::deposit_event(Event::SlashAppealed {
                 who,
@@ -1455,6 +1453,12 @@ pub mod pallet {
 
             // Clear any pending appeal — slash executed, appeal moot.
             PendingSlashAppeals::<T>::remove(&who);
+            let _ = OpenAppeals::<T>::clear_prefix(&who, MAX_OPEN_APPEALS, None);
+            OpenAppealCount::<T>::remove(&who);
+
+            // Record the slash so it can be appealed (E22). Written after the clear above:
+            // appeals filed against earlier slashes are moot, this one is fresh.
+            SlashRecords::<T>::insert(&who, EraNumber::<T>::get(), bps);
 
             // Notify emissions pallet to zero the weight snapshot.
             // This prevents the slashed agent from overclaiming using the stale

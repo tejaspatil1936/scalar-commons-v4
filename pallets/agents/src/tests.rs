@@ -716,7 +716,31 @@ fn slash_appeal_capped_per_account() {
         // The cap is per account: Bob is unaffected.
         assert_ok!(Agents::register(RuntimeOrigin::signed(BOB), 1_000));
         SlashRecords::<Test>::insert(BOB, 0, 100);
-        assert_ok!(Agents::slash_appeal(RuntimeOrigin::signed(BOB), 0, [1u8; 32]));
+        assert_ok!(Agents::slash_appeal(
+            RuntimeOrigin::signed(BOB),
+            0,
+            [1u8; 32]
+        ));
+    });
+}
+
+#[test]
+fn execute_slash_records_slash_and_clears_open_appeals() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        SlashRecords::<Test>::insert(ALICE, 0, 100);
+        assert_ok!(Agents::slash_appeal(
+            RuntimeOrigin::signed(ALICE),
+            0,
+            [1u8; 32]
+        ));
+        assert_ok!(Agents::execute_slash(RuntimeOrigin::root(), ALICE, 100));
+        assert_eq!(
+            SlashRecords::<Test>::get(ALICE, EraNumber::<Test>::get()),
+            Some(100)
+        );
+        assert_eq!(OpenAppealCount::<Test>::get(ALICE), 0);
+        assert!(!OpenAppeals::<Test>::contains_key(ALICE, 0));
     });
 }
 
