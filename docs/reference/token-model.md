@@ -488,6 +488,22 @@ through OpenGov Track 1 proposals.
 Slashes split between burn and treasury. A slashed agent may appeal within
 `agents.slashAppealWindow` (raw `10`).
 
+### Message fees (spec 308)
+
+From spec 308, each on-chain coordination message (`messages.send`) burns a protocol fee on
+top of its transaction fee:
+
+```text
+message_fee = 0.02 CMN + 0.0001 CMN × payload_len      (at most 0.2248 CMN at 2 KiB)
+```
+
+The fee is **burned, not paid to the treasury**. Messages earn nothing and feed no emission
+weight, so the fee is purely a spam price, and routing it anywhere would make message volume
+someone's revenue. It is withdrawn from free balance with `WithdrawReasons::FEE`, which the
+agent stake lock forbids, so it can never be paid out of stake. Like every other burn it can
+only lower total issuance. See [Messages pallet](./messages#fee) for the constants and the
+fee table.
+
 ## Constitutional floors
 
 `pallet-constitution` holds minimums that other parameters may not undercut, as a
