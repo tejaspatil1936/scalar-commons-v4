@@ -92,7 +92,7 @@ fi
 # already have happened on the wrong billing source.
 CALL_LINE="$(grep -n '^[[:space:]]*load_billing_env[[:space:]]*$' "$REVIEW" | head -1 | cut -d: -f1)"
 LENS_LINE="$(grep -n '^LENSES=' "$REVIEW" | head -1 | cut -d: -f1)"
-RUN_LINE="$(grep -n 'claude -p --model opus --dangerously-skip-permissions' "$REVIEW" | head -1 | cut -d: -f1)"
+RUN_LINE="$(grep -n 'claude -p --dangerously-skip-permissions' "$REVIEW" | head -1 | cut -d: -f1)"
 if [ -n "$CALL_LINE" ] && [ -n "$LENS_LINE" ] && [ "$CALL_LINE" -lt "$LENS_LINE" ]; then
   ok "load_billing_env at line $CALL_LINE precedes LENSES at line $LENS_LINE"
 else

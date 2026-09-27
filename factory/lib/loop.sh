@@ -217,52 +217,15 @@ while :; do
   REMAIN_SECS=$(( DEADLINE - NOW ))
   log "--- attempt $ATTEMPT/$MAX_ATTEMPTS (${REMAIN_SECS}s of wall budget left) ---"
 
-  # --- select model ---------------------------------------------------------
-  # opus for anything touching runtime/ or pallets/, sonnet otherwise. Model is
-  # chosen explicitly via --model rather than left to the CLI's default (LAB
-  # decision, 27 Sep 2026 Max-auth cutover). Before attempt 1, WORKDIR is a
-  # pristine worktree with no diff yet, so a tier:T1 issue (dispatch-lab.sh's
-  # own label for runtime/pallets work) is caught via the prompt file instead:
-  # build_prompt writes "... (${tier})." on its second line, so the check is
-  # restricted to the first few lines rather than the whole file, which could
-  # otherwise be swayed by that exact substring appearing in the issue body.
-  #
-  # Committed AND uncommitted/untracked changes both count: `git diff` alone
-  # misses a file a previous attempt created but never got to `git add`, so
-  # `git status --porcelain` is checked too (same fallback detect_gate uses in
-  # dispatch-lab.sh). A merge-base that cannot be resolved is a real failure
-  # worth a log line, not a silent narrowing to comparing against HEAD.
-  MODEL=sonnet
-  MERGE_BASE="$(git -C "$WORKDIR" merge-base HEAD "origin/${BASE_BRANCH:-master}" 2>/dev/null)" || true
-  if [ -z "$MERGE_BASE" ]; then
-    warn "model select: could not resolve merge-base against origin/${BASE_BRANCH:-master}; diff-based detection limited to uncommitted changes"
-    MERGE_BASE=HEAD
-  fi
-  # `|| true`: this runs under `set -e` from the second attempt onward (it is
-  # turned on after the first attempt's agent/gate subshells), and both git
-  # commands legitimately fail with a non-git WORKDIR or no prior commit — an
-  # unguarded assignment here would kill the whole loop, not just this check.
-  CHANGED="$( { git -C "$WORKDIR" diff --name-only "$MERGE_BASE" 2>/dev/null; git -C "$WORKDIR" status --porcelain 2>/dev/null | awk '{print $2}'; } || true )"
-  PROMPT_HEAD="$(head -5 "$PROMPTFILE" 2>/dev/null || true)"
-  # Herestrings, not pipes: `grep -q` exits after its first match, which can
-  # SIGPIPE a large enough writer on the other end of a pipe; under pipefail
-  # that would make a genuine match register as a pipeline failure and this
-  # loop would silently pick the weaker model on exactly the code this exists
-  # to catch. A herestring has no writer process to SIGPIPE.
-  if grep -qE '^(runtime|pallets)/' <<<"$CHANGED" || grep -q '(tier:T1)' <<<"$PROMPT_HEAD"; then
-    MODEL=opus
-  fi
-
   # --- run the agent ------------------------------------------------------
   # Bound the agent by whatever wall budget remains, so a single hung call
   # cannot blow through max_minutes.
   AGENT_LOG="$LOG_DIR/${NAME}-attempt${ATTEMPT}.agent.log"
-  log "model: $MODEL"
   set +e
   (
     cd "$WORKDIR" || exit 1
     timeout --signal=TERM --kill-after=30s "${REMAIN_SECS}s" \
-      claude -p "$(cat "$PROMPTFILE")" --model "$MODEL" --dangerously-skip-permissions
+      claude -p "$(cat "$PROMPTFILE")" --dangerously-skip-permissions
   ) >"$AGENT_LOG" 2>&1
   AGENT_RC=$?
   set -e

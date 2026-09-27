@@ -653,11 +653,7 @@ run_lens() {
   # A redirect passes a file descriptor, so prompt size is irrelevant to exec
   # and E2BIG cannot recur at any diff size. The caps below exist for
   # reviewability, NOT to keep an argv string under a limit.
-  # opus, unconditionally: every review lens is adversarial-reviewing a diff
-  # that may touch anything in the repo, including runtime/pallets, so the
-  # reviewer never gets a weaker model than the code it is judging (LAB
-  # decision, 27 Sep 2026 Max-auth cutover).
-  ( cd "$WORK" && timeout "$REVIEW_LENS_TIMEOUT" claude -p --model opus --dangerously-skip-permissions ) \
+  ( cd "$WORK" && timeout "$REVIEW_LENS_TIMEOUT" claude -p --dangerously-skip-permissions ) \
     < "$pf" > "$out" 2> "$err"
   rc=$?
   printf '%s\n' "$rc" > "$WORK/$name.rc"

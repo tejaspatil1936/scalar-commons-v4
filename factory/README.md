@@ -289,12 +289,12 @@ Any FAIL → `needs-human` plus a comment with the objections. Both labels can b
 set at once (2 PASS + 1 FAIL); since merging requires `agent-reviewed` *and* no
 `needs-human`, any FAIL blocks the merge while the audit trail survives.
 
-`review.sh` also runs the same `load_billing_env` preflight `lib/loop.sh` runs,
-and fails closed without an API key: every lens is a `claude -p` process, so a
-reviewer that cannot prove its billing source does not run. Before this, all six
-systemd-launched reviews — 18 of 18 lenses — exited 127. (See **Billing** below
-for what "billing source" means post-cutover: the check is now that no stray
-key reaches the child, not that a key is present.)
+`review.sh` also runs the same `load_billing_env` preflight `lib/loop.sh` runs:
+every lens is a `claude -p` process, so each one goes through the same billing
+guarantee the loops do — post-cutover that means no stray API key reaches the
+child and the Max login is what gets billed (see **Billing** below). Before this
+preflight was wired into `review.sh` at all, all six systemd-launched reviews —
+18 of 18 lenses — exited 127.
 
 **The verdict is bound to a head SHA.** `review.sh` records the exact commit it
 read in its verdict comment, and `merge.sh` refuses a PR whose head has moved
@@ -461,19 +461,6 @@ how the 217/219/223/225 tasks died mid-GATING on 2026-09-27), and it still
 strips the `CLAUDECODE*` interactive-session markers, same as the old policy —
 that guard against a nested, non-clean session was never about which billing
 source was in use, so the Max-auth flip gives no reason to drop it.
-
-Cost reporting is unchanged by this diff and lives outside this repo, in the
-LAB-only `~/lab/autonomy/bin/claude` shim and `~/lab/autonomy/digest.sh` (see
-LAB decision 002): `bin/claude` records whatever `total_cost_usd`/`usage` the
-CLI reports per call, and the digest distinguishes a call with no reported
-cost (expected under Max billing — a subscription is a flat fee) from an
-actual $0.00, rather than folding the two together.
-
-Model selection is explicit, via the CLI's `--model` flag, not left to
-whatever the login defaults to: `sonnet` unless the diff (or, before a diff
-exists, the issue's `tier:T1` label) touches `runtime/` or `pallets/`, and
-`opus` unconditionally for every `review.sh` lens. See `lib/loop.sh` and
-`review.sh`.
 
 ---
 
