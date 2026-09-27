@@ -1,0 +1,11 @@
+# Loads every JSON in grafana/dashboards/. install.sh downloads and patches
+# dashboard 13840 into that directory; nothing there is committed.
+apiVersion: 1
+providers:
+  - name: scalar
+    folder: Scalar Commons
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
