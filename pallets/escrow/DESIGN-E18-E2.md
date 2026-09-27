@@ -158,3 +158,77 @@ In every new call all `ensure!`s precede the first `unreserve` /
 `dispute_delivery`, the dispute→oracle bridge, and `runtime/src/lib.rs` are
 untouched. The SDK's missing `acceptAgreement` and indexer decoding for the four
 new events are follow-ups, not part of this change.
+
+## 8. Gaming-vector analysis (first principle 4)
+
+Four new extrinsics, so this section is a merge requirement, not a courtesy.
+
+### 8.1 The `ActiveEscrowCount` invariant
+
+Each agreement contributes 0 (pending) or 1 (accepted) to its provider's
+`ActiveEscrowCount`, and releases that contribution exactly once when it closes.
+Mechanically, in `pallets/escrow/src/lib.rs`:
+
+- Exactly one `increment_active_escrow`, in `accept_agreement`, which removes the
+  pending entry in the same call and so cannot run twice for one agreement.
+- Five `swap_remove` sites, each of which either decrements or is provably
+  unreachable for a pending agreement:
+
+| Close path | Reached only when | Decrements? |
+|---|---|---|
+| `confirm_delivery` | `status == Delivered` | yes |
+| `claim_refund` | `ConsentState::Accepted` | yes |
+| `expire_agreement` | either arm | only in the `Accepted` arm |
+| `close_pending` (reject/cancel) | `ConsentState::Pending` | no — correctly |
+| `settle_dispute_from_oracle` | `status == Disputed` | yes |
+
+`Delivered` is written in exactly one place, `record_delivery`, which requires
+`ConsentState::Accepted`; `Disputed` is only reachable from `Delivered`. So both
+status-guarded paths are accepted-only by construction, not by inspection.
+
+**Downward drift** (the #204 defect: walking a victim's count to 0 so it can
+unstake while owing accepted deliveries) is closed by the `claim_refund` consent
+guard and by `expire_agreement`'s `Pending` arm. Covered by
+`e18e2_claim_refund_rejects_pending_agreement` and
+`e18e2_expire_pending_agreement_leaves_provider_count_alone`, which both put a real
+accepted obligation on the provider and assert the slot survives.
+
+**Upward drift** (pinning a provider's stake forever) needs an agreement that
+increments and never releases. There is no such path: one increment site, and
+every removal from `Agreements` is in the table above.
+
+### 8.2 Vectors considered and why each fails
+
+- **Buyer griefs a provider with pending agreements.** The point of E18: pending
+  agreements no longer enter `ActiveEscrowCount`, so they cannot block
+  `request_unstake`. What remains is a per-pair storage cost bounded by
+  `MaxAgreementsPerPair`, each entry requiring ≥ `MinAgreementAmount` reserved.
+  Strictly weaker than before this change.
+- **Third party profits from expiring.** `expire_agreement` refunds the buyer of
+  record and nobody else; the caller pays a fee and receives nothing. There is no
+  bounty to farm.
+- **Provider farms emissions via accept/reject churn.** None of
+  `accept_agreement`, `reject_agreement`, `cancel_pending` or `expire_agreement`
+  calls `add_era_escrow_volume`, so none moves `EraEscrowVolume`, the
+  `MinQualifyingVol` floor, rank, or emissions weight.
+  `e18e2_expire_agreement_is_permissionless_after_deadline` asserts
+  `EraEscrowVolume == 0` after an expiry.
+- **Provider escapes a commitment by rejecting late.** `reject_agreement` requires
+  `ConsentState::Pending`, so it is unavailable once accepted.
+- **Expiry races a provider that delivered.** `status == Created` is required, and
+  `EXPIRY_GRACE` (10 blocks) covers the same-block race at the deadline.
+- **`NextSeq` exhaustion by create/cancel churn.** `u32` behind the existing
+  `SeqOverflow` guard, one tx fee per step; identical to the pre-existing
+  create/`claim_refund` churn. Not a new surface.
+- **Provider deregisters with pending agreements open.** It can (that is E18
+  working). The buyer still exits via `cancel_pending`, or anyone via
+  `expire_agreement`, whose `Pending` arm touches no count. No funds strand.
+
+### 8.3 Supply cap and arithmetic
+
+No new path mints, burns, or calls `on_unbalanced`: the only balance operation is
+`unreserve`, which leaves `total_issuance` untouched.
+`e18e2_expire_agreement_is_permissionless_after_deadline` asserts that directly.
+Balance values are copied, never computed. The one new arithmetic expression is
+`deliver_by.saturating_add(EXPIRY_GRACE.into())`; both `ActiveAgreementCount`
+mutations use `saturating_sub`.
