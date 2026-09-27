@@ -60,7 +60,7 @@ boot on a bad value rather than falling back to a default drip amount):
 | `FAUCET_RPC_ENDPOINT` | `ws://127.0.0.1:9944` |
 | `FAUCET_SEED` | `//Ferdie` |
 | `FAUCET_SS58_FORMAT` | `42` |
-| `FAUCET_DRIP_CMN` | `10` |
+| `FAUCET_DRIP_CMN` | `1500` |
 | `FAUCET_RESERVE_CMN` | `1000` |
 | `FAUCET_ADDRESS_MAX_REQUESTS` / `FAUCET_ADDRESS_WINDOW_MINUTES` | `1` / `60` |
 | `FAUCET_IP_MAX_REQUESTS` / `FAUCET_IP_WINDOW_MINUTES` | `5` / `60` |

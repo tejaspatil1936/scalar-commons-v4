@@ -768,11 +768,15 @@ fn execute_slash_records_slash_and_clears_open_appeals() {
             0,
             [1u8; 32]
         ));
+        // Slash in a later era than the planted record: a same-era slash would accumulate
+        // onto it (#216), which `same_era_slash_*` covers.
+        EraNumber::<Test>::put(1u32);
         assert_ok!(Agents::execute_slash(RuntimeOrigin::root(), ALICE, 100));
         assert_eq!(
             SlashRecords::<Test>::get(ALICE, EraNumber::<Test>::get()),
             Some(100)
         );
+        assert_eq!(SlashRecords::<Test>::get(ALICE, 0), Some(100));
         assert_eq!(OpenAppealCount::<Test>::get(ALICE), 0);
         assert!(!OpenAppeals::<Test>::contains_key(ALICE, 0));
     });
@@ -2380,6 +2384,38 @@ fn e22_appeal_window_closes_after_slash_appeal_window_eras() {
             [1u8; 32]
         ));
         assert!(OpenAppeals::<Test>::contains_key(ALICE, 0));
+    });
+}
+
+#[test]
+fn same_era_slash_accumulates_bps() {
+    // #216: a second slash in the same era adds to the record instead of replacing it, so the
+    // on-chain history shows the full 15% governance took, not just the last 5%.
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 10_000));
+        EraNumber::<Test>::put(3u32);
+        assert_ok!(Agents::execute_slash(RuntimeOrigin::root(), ALICE, 1_000));
+        assert_ok!(Agents::execute_slash(RuntimeOrigin::root(), ALICE, 500));
+        assert_eq!(SlashRecords::<Test>::get(ALICE, 3), Some(1_500));
+    });
+}
+
+#[test]
+fn same_era_slash_accumulation_is_capped_at_full() {
+    // #216: 60% + 60% + 60% sums to 18_000 bps, which is not a readable percentage. The record
+    // is clamped to exactly 10_000 (100%), not left at the raw sum or saturated at an int max.
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 50_000));
+        EraNumber::<Test>::put(3u32);
+        assert_ok!(Agents::execute_slash(RuntimeOrigin::root(), ALICE, 6_000));
+        assert_ok!(Agents::execute_slash(RuntimeOrigin::root(), ALICE, 6_000));
+        assert_eq!(SlashRecords::<Test>::get(ALICE, 3), Some(10_000));
+        assert_ok!(Agents::execute_slash(RuntimeOrigin::root(), ALICE, 6_000));
+        assert_eq!(SlashRecords::<Test>::get(ALICE, 3), Some(10_000));
+        // A later era starts its own record.
+        EraNumber::<Test>::put(4u32);
+        assert_ok!(Agents::execute_slash(RuntimeOrigin::root(), ALICE, 100));
+        assert_eq!(SlashRecords::<Test>::get(ALICE, 4), Some(100));
     });
 }
 
