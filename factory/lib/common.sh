@@ -97,17 +97,34 @@ looks_rate_limited() {
 }
 
 # ---- billing preflight ----------------------------------------------------
-# Loops MUST bill the API key, never the interactive Max subscription.
+# Loops bill the Claude Max subscription, not a metered API key (LAB decision
+# 002 amendment, 27 Sep 2026 Max-subscription cutover: this box no longer has
+# an ANTHROPIC_API_KEY/ANTHROPIC_BASE_URL — the inference proxy is retired).
 #
-# Verified behaviour (claude 2.1.220): when ANTHROPIC_API_KEY is set, the CLI
-# prints "claude.ai connectors are disabled because ANTHROPIC_API_KEY or
-# another auth source is set and takes precedence over your claude.ai login",
-# and an invalid key FAILS rather than falling back to OAuth. So a non-empty
-# key is sufficient to guarantee API billing.
+# Verified behaviour (claude 2.1.220): the CLI uses the claude.ai (Max) login
+# UNLESS ANTHROPIC_API_KEY (or another auth source) is set, in which case that
+# takes precedence and disables claude.ai connectors. So Max billing requires
+# the *absence* of a key, not its presence — the inverse of the old policy.
 #
-# This fails closed: no key, no loop. A loop that cannot prove its billing
-# source does not run at all, because the failure mode is silently draining
-# the interactive subscription.
+# NOT A PREFLIGHT GUARANTEE ANY MORE, and the old "fails closed" framing does
+# not carry over honestly: there is no longer a condition this function
+# refuses to run under, because there is nothing left to check FOR (an OAuth
+# login is either on disk or it isn't, and probing for that here would just
+# be a second, redundant place for that check to go stale). What this
+# function still owns, and fails closed on in the sense that matters: a
+# leftover API-auth env var must never silently redirect billing at the
+# retired proxy (that exact failure mode killed the 217/219/223/225 tasks
+# mid-GATING, 2026-09-27 ~01:51-02:36 UTC — one real attempt, then three
+# instant, unparseable exits). If Max auth itself is unreachable, `claude -p`
+# fails loudly on its own and the caller's normal attempt/gate bounds handle
+# it — that failure path was already exercised and did not need duplicating
+# here.
+#
+# Scrub is scoped to this box's known auth surface: ANTHROPIC_API_KEY/
+# BASE_URL/AUTH_TOKEN, the three that route to a key or a proxy instead of
+# the Max login. It does NOT cover CLAUDE_CODE_USE_BEDROCK/VERTEX or an
+# apiKeyHelper in settings — this box uses neither, so they are out of scope
+# rather than silently handled; a box that does would need this extended.
 load_billing_env() {
   local envfile="$HOME/.factory/env"
   if [ -f "$envfile" ]; then
@@ -116,16 +133,18 @@ load_billing_env() {
     . "$envfile"
     set +a
   fi
-  if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-    die "ANTHROPIC_API_KEY not set (expected in $envfile). Refusing to run: \
-loops must bill the API key, not the interactive Max login. See factory/README.md."
+  if [ -n "${ANTHROPIC_API_KEY:-}${ANTHROPIC_BASE_URL:-}${ANTHROPIC_AUTH_TOKEN:-}" ]; then
+    warn "stray API-auth env var set ($envfile or inherited) — clearing it so billing goes through the Max login, not a key/proxy."
   fi
-  export ANTHROPIC_API_KEY
-  # Strip inherited interactive-session markers so the child is a clean,
-  # API-billed, non-nested session.
+  unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN
+  # Interactive-session markers ARE still stripped, same as the old policy:
+  # nothing about the Max-auth flip changes the reason to want a clean,
+  # non-nested session (OAuth credentials come from ~/.claude/, not from
+  # these markers — an earlier version of this comment claimed otherwise;
+  # that claim was wrong, not the strip itself).
   unset CLAUDECODE CLAUDE_CODE_SESSION_ID CLAUDE_CODE_CHILD_SESSION \
-        CLAUDE_CODE_ENTRYPOINT CLAUDE_PID CLAUDE_EFFORT ANTHROPIC_AUTH_TOKEN
-  log "billing: ANTHROPIC_API_KEY loaded (…${ANTHROPIC_API_KEY: -6}); API billing enforced."
+        CLAUDE_CODE_ENTRYPOINT CLAUDE_PID CLAUDE_EFFORT
+  log "billing: Max subscription login (no ANTHROPIC_API_KEY/BASE_URL/AUTH_TOKEN in env)."
 }
 
 # ---- guards ---------------------------------------------------------------
