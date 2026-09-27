@@ -457,10 +457,10 @@ Verified on this host with `claude` 2.1.220:
 `load_billing_env` therefore **clears** `ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL`/
 `ANTHROPIC_AUTH_TOKEN` (logging a warning if any were set — a stray key would
 otherwise silently redirect billing at the retired, dead proxy; this is exactly
-how the 217/219/223/225 tasks died mid-GATING on 2026-09-27) and leaves the
-`CLAUDECODE*` interactive-session markers untouched so each loop's `claude`
-process can find the Max OAuth credentials the way any other session on this
-box would.
+how the 217/219/223/225 tasks died mid-GATING on 2026-09-27), and it still
+strips the `CLAUDECODE*` interactive-session markers, same as the old policy —
+that guard against a nested, non-clean session was never about which billing
+source was in use, so the Max-auth flip gives no reason to drop it.
 
 Cost reporting is unchanged by this diff and lives outside this repo, in the
 LAB-only `~/lab/autonomy/bin/claude` shim and `~/lab/autonomy/digest.sh` (see

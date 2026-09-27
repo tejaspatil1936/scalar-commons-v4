@@ -243,8 +243,13 @@ while :; do
   # commands legitimately fail with a non-git WORKDIR or no prior commit — an
   # unguarded assignment here would kill the whole loop, not just this check.
   CHANGED="$( { git -C "$WORKDIR" diff --name-only "$MERGE_BASE" 2>/dev/null; git -C "$WORKDIR" status --porcelain 2>/dev/null | awk '{print $2}'; } || true )"
-  if printf '%s\n' "$CHANGED" | grep -qE '^(runtime|pallets)/' \
-     || head -5 "$PROMPTFILE" 2>/dev/null | grep -q '(tier:T1)'; then
+  PROMPT_HEAD="$(head -5 "$PROMPTFILE" 2>/dev/null || true)"
+  # Herestrings, not pipes: `grep -q` exits after its first match, which can
+  # SIGPIPE a large enough writer on the other end of a pipe; under pipefail
+  # that would make a genuine match register as a pipeline failure and this
+  # loop would silently pick the weaker model on exactly the code this exists
+  # to catch. A herestring has no writer process to SIGPIPE.
+  if grep -qE '^(runtime|pallets)/' <<<"$CHANGED" || grep -q '(tier:T1)' <<<"$PROMPT_HEAD"; then
     MODEL=opus
   fi
 

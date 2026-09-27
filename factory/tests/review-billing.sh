@@ -56,11 +56,13 @@ trap 'rm -rf "$T"' EXIT
 printf '\n\033[1m=== load_billing_env actually clears the environment, not just the log ===\033[0m\n'
 
 ENVCHECK="$T/envcheck.txt"
+ISOLATED_HOME="$T/isolated-home"; mkdir -p "$ISOLATED_HOME"   # never the real ~/.factory/env
 (
+  HOME="$ISOLATED_HOME"
   ANTHROPIC_API_KEY=sk-ant-should-be-cleared
   ANTHROPIC_BASE_URL=https://dead-proxy.example
   ANTHROPIC_AUTH_TOKEN=should-also-clear
-  export ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN
+  export HOME ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN
   # shellcheck source=/dev/null
   . "$FACTORY_DIR/lib/common.sh"
   load_billing_env >/dev/null 2>&1
@@ -105,27 +107,27 @@ fi
 # ---------------------------------------------------------------------------
 # 2. Behavioural: no key reachable => Max billing, preflight does not block.
 #
-# review.sh is expected to fail later (the stub `gh` always refuses), but that
-# failure must come from gh, never from the billing preflight — Max login with
-# no key present is now the normal, expected case.
+# review.sh is expected to fail later — PR #999 does not exist, so its own
+# diff fetch (git first, real gh calls only as its fallback) refuses — but
+# that failure must come from the missing PR, never from the billing
+# preflight — Max login with no key present is now the normal, expected case.
 # ---------------------------------------------------------------------------
 printf '\n\033[1m=== with no API key reachable, review.sh proceeds on Max billing ===\033[0m\n'
 
 STUB="$T/bin"; mkdir -p "$STUB"
 # `claude` is present so PATH resolution succeeds, but it is never reached in
-# this section: the stub `gh` below always refuses, and review.sh fetches the
-# PR diff via gh before any lens spawns. That is what proves the billing
-# preflight is what let the run get this far, not a spawned lens.
+# this section: review.sh refuses (PR #999 doesn't exist) before any lens
+# spawns. That is what proves the billing preflight is what let the run get
+# this far, not a spawned lens.
 cat > "$STUB/claude" <<'EOF'
 #!/usr/bin/env bash
-echo "FATAL: claude should never be spawned in this test (gh always refuses first)" >&2
+echo "FATAL: claude should never be spawned in this test (PR #999 does not exist)" >&2
 exit 1
 EOF
 cat > "$STUB/gh" <<'EOF'
 #!/usr/bin/env bash
-# Present so have_gh() succeeds. Any real use fails deliberately, so a run
-# that gets past the billing preflight still fails — but for a DIFFERENT,
-# distinguishable reason (see the assertions below).
+# Present so have_gh() succeeds, in case review.sh's diff-fetch fallback
+# reaches it for a nonexistent PR; a real call still fails deliberately.
 echo "STUB gh called: $*" >&2
 exit 1
 EOF
@@ -140,9 +142,25 @@ env -i \
 RC=$?
 
 if [ "$RC" -ne 0 ]; then
-  ok "review.sh exited non-zero ($RC) — failed on the stub gh, not on billing"
+  ok "review.sh exited non-zero ($RC)"
 else
-  bad "review.sh exited 0 despite the stub gh always refusing — something short-circuited"
+  bad "review.sh exited 0 despite PR #999 not existing — something short-circuited"
+fi
+
+# The two checks that actually justify "failed fetching the diff, not on
+# billing": PR #999 doesn't exist, so review.sh's own diff-fetch (git first,
+# falling back toward gh) must be what refused, and claude must never have
+# been reached — a bare non-zero RC alone doesn't distinguish those from a
+# billing refusal.
+if grep -q 'could not fetch diff for PR #999' "$OUT"; then
+  ok 'review.sh failed fetching the (nonexistent) PR diff, not on billing'
+else
+  bad "review.sh did not fail where expected; got: $(head -5 "$OUT" | tr '\n' ' ')"
+fi
+if grep -q 'FATAL: claude should never be spawned' "$OUT"; then
+  bad 'review.sh spawned a lens before the diff fetch failed — billing preflight let it get further than it should have'
+else
+  ok 'no lens was spawned (the stub claude was never invoked)'
 fi
 
 if grep -qi 'billing: Max subscription login' "$OUT"; then
