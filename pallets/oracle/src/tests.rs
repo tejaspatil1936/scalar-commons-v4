@@ -290,7 +290,9 @@ fn factual_consensus_with_majority() {
             300,
             ConsensusMode::Factual,
             3,
-            67,
+            // 66, not 67: the threshold now rounds up, and 2 of 3 is 66.7% —
+            // short of 67% (see consensus_threshold_rounds_up_not_down).
+            66,
             10,
             5,
             None,
@@ -414,6 +416,110 @@ fn no_consensus_refunds_creator() {
         assert!(OracleResults::<Test>::get(q_hash()).is_none());
         // Creator refunded
         assert_eq!(Balances::free_balance(ALICE), balance_before);
+    });
+}
+
+// Opens a factual request from ALICE (bounty 300, response deadline 10,
+// challenge window 5), submits each (respondent, answer) pair, then advances
+// past the challenge window and finalises.
+fn run_factual_request(min_responses: u32, threshold: u8, answers: &[(u64, [u8; 32])]) {
+    assert_ok!(Oracle::create_oracle_request(
+        RuntimeOrigin::signed(ALICE),
+        q_hash(),
+        300,
+        ConsensusMode::Factual,
+        min_responses,
+        threshold,
+        10,
+        5,
+        None,
+    ));
+    for (who, answer) in answers {
+        assert_ok!(Oracle::submit_response(
+            RuntimeOrigin::signed(*who),
+            q_hash(),
+            *answer,
+            0
+        ));
+    }
+    frame_system::Pallet::<Test>::set_block_number(20);
+    assert_ok!(Oracle::finalise_request(
+        RuntimeOrigin::signed(ALICE),
+        q_hash()
+    ));
+}
+
+#[test]
+fn consensus_threshold_rounds_up_not_down() {
+    new_test_ext().execute_with(|| {
+        register(ALICE);
+        register(BOB);
+        register(CAROL);
+        register(DAVE);
+        let balance_before = Balances::free_balance(ALICE);
+
+        // 2 of 3 is 66.7% agreement — short of the 67% the request names, so
+        // it must not count as consensus.
+        run_factual_request(
+            3,
+            67,
+            &[(BOB, [10u8; 32]), (CAROL, [10u8; 32]), (DAVE, [20u8; 32])],
+        );
+
+        assert!(OracleResults::<Test>::get(q_hash()).is_none());
+        assert_eq!(Balances::free_balance(ALICE), balance_before);
+        assert_eq!(OracleAccuracy::<Test>::get(BOB, 0), (0, 1));
+    });
+}
+
+#[test]
+fn consensus_threshold_exact_percentage_still_reaches_consensus() {
+    new_test_ext().execute_with(|| {
+        register(ALICE);
+        register(BOB);
+        register(CAROL);
+        register(DAVE);
+        let winner = [10u8; 32];
+
+        // 3 of 4 is exactly 75%: rounding up must not demand a fourth vote.
+        run_factual_request(
+            4,
+            75,
+            &[
+                (ALICE, winner),
+                (BOB, winner),
+                (CAROL, winner),
+                (DAVE, [20u8; 32]),
+            ],
+        );
+
+        assert_eq!(OracleResults::<Test>::get(q_hash()), Some(winner));
+        assert_eq!(OracleAccuracy::<Test>::get(BOB, 0), (1, 1));
+        assert_eq!(OracleAccuracy::<Test>::get(DAVE, 0), (0, 1));
+    });
+}
+
+#[test]
+fn consensus_threshold_tie_resolves_to_no_consensus() {
+    new_test_ext().execute_with(|| {
+        register(ALICE);
+        register(BOB);
+        register(CAROL);
+        let alice_before = Balances::free_balance(ALICE);
+        let bob_before = Balances::free_balance(BOB);
+        let carol_before = Balances::free_balance(CAROL);
+
+        // 1-1 at a 50% threshold: both outcomes meet the threshold, so neither
+        // may win on storage order.
+        run_factual_request(2, 50, &[(BOB, [10u8; 32]), (CAROL, [20u8; 32])]);
+
+        assert!(OracleResults::<Test>::get(q_hash()).is_none());
+        // No-consensus path: bounty back to the creator, nobody paid.
+        assert_eq!(Balances::free_balance(ALICE), alice_before);
+        assert_eq!(Balances::free_balance(BOB), bob_before);
+        assert_eq!(Balances::free_balance(CAROL), carol_before);
+        assert_eq!(OracleAccuracy::<Test>::get(BOB, 0), (0, 1));
+        assert_eq!(OracleAccuracy::<Test>::get(CAROL, 0), (0, 1));
     });
 }
 
