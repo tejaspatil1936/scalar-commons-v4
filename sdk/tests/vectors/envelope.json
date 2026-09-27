@@ -1,0 +1,125 @@
+{
+  "description": "Scalar Commons spec-308 signed envelope test vectors. See docs/reference/messaging.md.",
+  "generator": "sdk/scripts/gen-envelope-vectors.mjs",
+  "signingDomain": "ScalarMsg/v1|",
+  "genesisHash": "0x5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c",
+  "ss58Format": 42,
+  "envelopes": [
+    {
+      "name": "offer-plain",
+      "signerUri": "//Alice",
+      "input": {
+        "from": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+        "to": "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty",
+        "kind": "Offer",
+        "agreement": null,
+        "nonce": "1",
+        "expiresAtBlock": 1000,
+        "payload": "0x7b226f66666572223a22313020434d4e222c2264656c6976657257697468696e223a3630307d"
+      },
+      "expected": {
+        "payloadHash": "0x434dc4fe239d7658a63762010d8bbf1b5c77673b02cbf1906916b3edab5c2cce",
+        "scale": "0x01d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d8eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a4800000100000000000000e8030000434dc4fe239d7658a63762010d8bbf1b5c77673b02cbf1906916b3edab5c2cce",
+        "signingPayload": "0x5363616c61724d73672f76317c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5ca5cabca4415837ac79b5cf7bb55f56ef3a66ef2a75ded07460134224b54f2eab"
+      },
+      "sample": {
+        "signature": "0xb4c21eadd6f674b9f7e821a5b8d99eeea58711a7459ecb114052558579de1207b7c0c49b694c2e994faf11847ba1423b40ae7d418ec630c81dd78bb00783fc8f",
+        "frame": "0x01d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d8eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a4800000100000000000000e8030000434dc4fe239d7658a63762010d8bbf1b5c77673b02cbf1906916b3edab5c2cceb4c21eadd6f674b9f7e821a5b8d99eeea58711a7459ecb114052558579de1207b7c0c49b694c2e994faf11847ba1423b40ae7d418ec630c81dd78bb00783fc8f7b226f66666572223a22313020434d4e222c2264656c6976657257697468696e223a3630307d"
+      }
+    },
+    {
+      "name": "accept-with-agreement",
+      "signerUri": "//Bob",
+      "input": {
+        "from": "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty",
+        "to": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+        "kind": "Accept",
+        "agreement": {
+          "account": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+          "seq": 3
+        },
+        "nonce": "1700000000000000",
+        "expiresAtBlock": 4294967295,
+        "payload": "0x7b22616363657074223a747275657d"
+      },
+      "expected": {
+        "payloadHash": "0xce8bffcfba50596a325ff8067b6b0cb880dbbfa50c2503598eb0cc71a8aeb1cf",
+        "scale": "0x018eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a48d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d0201d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d0300000000401e18240a0600ffffffffce8bffcfba50596a325ff8067b6b0cb880dbbfa50c2503598eb0cc71a8aeb1cf",
+        "signingPayload": "0x5363616c61724d73672f76317c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c2c289407f34b78240afd9f287f71b7c4a8ccfad432ee0c9f6f36b87cc91b0aa9"
+      },
+      "sample": {
+        "signature": "0xe0eb9d65c58585eb9672c7985aeba1d3a2037989c870dc67c6861b0e140103389148e34ee3f9d23bff932c785b346fb384e1e602984922de46f01f5b3d813a87",
+        "frame": "0x018eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a48d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d0201d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d0300000000401e18240a0600ffffffffce8bffcfba50596a325ff8067b6b0cb880dbbfa50c2503598eb0cc71a8aeb1cfe0eb9d65c58585eb9672c7985aeba1d3a2037989c870dc67c6861b0e140103389148e34ee3f9d23bff932c785b346fb384e1e602984922de46f01f5b3d813a877b22616363657074223a747275657d"
+      }
+    },
+    {
+      "name": "delivery-notice-sealed",
+      "signerUri": "//Alice",
+      "input": {
+        "from": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+        "to": "5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty",
+        "kind": "DeliveryNotice",
+        "agreement": {
+          "account": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+          "seq": 0
+        },
+        "nonce": "2",
+        "expiresAtBlock": 1200,
+        "payload": "0x01dd43cc73c280c3f5ea91612beb6e67fbedc8608cc1b4f90aa0d6ca653eaec62c74ad375c9cf7194a553a069e69a7aba5e6ce407b72bc257539f24ab3208257d647be2aed0e8822f85ca0939bba15925e89bdcb29bebf15ae7e"
+      },
+      "expected": {
+        "payloadHash": "0x003c896e59aa8798752fe2468aa1c34fa097b9bda681b503fc90a08890c861fc",
+        "scale": "0x01d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d8eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a480401d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d000000000200000000000000b0040000003c896e59aa8798752fe2468aa1c34fa097b9bda681b503fc90a08890c861fc",
+        "signingPayload": "0x5363616c61724d73672f76317c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5cfd92b3d735022ae521672efd578f3bccf446f608698306798b1d867a17c6c9d8"
+      },
+      "sample": {
+        "signature": "0xce9232b5b7665a6bae93c303bea6b468180c9e493c5608b8f1fe26787c5e0a313188b889895a8cd4737db1abe6fe2293f39123c3cb0d04c05ed8c377a985b18e",
+        "frame": "0x01d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d8eaf04151687736326c9fea17e25fc5287613693c912909cb226aa4794f26a480401d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d000000000200000000000000b0040000003c896e59aa8798752fe2468aa1c34fa097b9bda681b503fc90a08890c861fcce9232b5b7665a6bae93c303bea6b468180c9e493c5608b8f1fe26787c5e0a313188b889895a8cd4737db1abe6fe2293f39123c3cb0d04c05ed8c377a985b18e01dd43cc73c280c3f5ea91612beb6e67fbedc8608cc1b4f90aa0d6ca653eaec62c74ad375c9cf7194a553a069e69a7aba5e6ce407b72bc257539f24ab3208257d647be2aed0e8822f85ca0939bba15925e89bdcb29bebf15ae7e"
+      }
+    },
+    {
+      "name": "ping-empty-payload",
+      "signerUri": "//Charlie",
+      "input": {
+        "from": "5FLSigC9HGRKVhB9FiEo4Y3koPsNmBmLJbpXg2mp1hXcS59Y",
+        "to": "5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY",
+        "kind": "Ping",
+        "agreement": null,
+        "nonce": "18446744073709551615",
+        "expiresAtBlock": 0,
+        "payload": "0x"
+      },
+      "expected": {
+        "payloadHash": "0x0e5751c026e543b2e8ab2eb06099daa1d1e5df47778f7787faab45cdf12fe3a8",
+        "scale": "0x0190b5ab205c6974c9ea841be688864633dc9ca8a357843eeacf2314649965fe22d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d0700ffffffffffffffff000000000e5751c026e543b2e8ab2eb06099daa1d1e5df47778f7787faab45cdf12fe3a8",
+        "signingPayload": "0x5363616c61724d73672f76317c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c2c36363fab7a1752686fc13b7a194c4fd152e28f572cabbda97efb8f00f1e30b"
+      },
+      "sample": {
+        "signature": "0x169694dd83056b9fa9e625ddf21680566d89f5a4b17a9c74731c1771fd0e977bfada35e33b66bcd7de13d36b2d8abbd88e810fb74e3579b4178449f4b431898e",
+        "frame": "0x0190b5ab205c6974c9ea841be688864633dc9ca8a357843eeacf2314649965fe22d43593c715fdd31c61141abd04a99fd6822c8558854ccde39a5684e7a56da27d0700ffffffffffffffff000000000e5751c026e543b2e8ab2eb06099daa1d1e5df47778f7787faab45cdf12fe3a8169694dd83056b9fa9e625ddf21680566d89f5a4b17a9c74731c1771fd0e977bfada35e33b66bcd7de13d36b2d8abbd88e810fb74e3579b4178449f4b431898e"
+      }
+    }
+  ],
+  "messagingKeys": [
+    {
+      "suri": "//Alice",
+      "rotation": 0,
+      "publicKey": "0x3b03602806a0f5e831b0688d6a2e263a2772a797603f18ea6b1694efb60e6b31"
+    },
+    {
+      "suri": "//Bob",
+      "rotation": 0,
+      "publicKey": "0x8dc20b28afe80c2fd626899c93284eea3771af4dd9ed62d0bc1dc23ce197ad3a"
+    },
+    {
+      "suri": "//Bob",
+      "rotation": 1,
+      "publicKey": "0xd0cd6a4ea70f83e14b15248dacd63bae44870315276700ba80e09f9c6456c47d"
+    }
+  ],
+  "sealed": {
+    "recipientUri": "//Bob",
+    "plaintext": "0x7365616c656420746f20426f62",
+    "sample": "0x01ba041f6f1fa3de8f2b1111b871dd3a7c0f9f0c15427e6bd0d0c099b47810c87ba75523e79a997bafb5400af3f578efdd885b8007ba1ef1f2e8f7e177c57c5e3c13776c1edd96b6181896aa863069eef6de98c359a2"
+  }
+}
