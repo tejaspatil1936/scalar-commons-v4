@@ -1403,9 +1403,10 @@ fn e18e2_expire_agreement_is_permissionless_after_deadline() {
         ));
         assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
         let free0 = Balances::free_balance(ALICE);
+        let issuance0 = Balances::total_issuance();
 
+        // CAROL is not registered as an agent and is party to nothing here.
         System::set_block_number(511); // deliver_by(500) + GRACE(10) + 1
-                                       // CAROL is not registered as an agent and is party to nothing here.
         assert_ok!(Escrow::expire_agreement(
             RuntimeOrigin::signed(CAROL),
             ALICE,
@@ -1430,6 +1431,8 @@ fn e18e2_expire_agreement_is_permissionless_after_deadline() {
         );
         // Expiry earns the provider no escrow volume, so it cannot be farmed for emissions.
         assert_eq!(pallet_agents::EraEscrowVolume::<Test>::get(BOB), 0);
+        // First principle 1: a refund is a reserve release, never a mint or a burn.
+        assert_eq!(Balances::total_issuance(), issuance0);
     });
 }
 
