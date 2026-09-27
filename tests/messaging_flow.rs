@@ -3,7 +3,7 @@
 
 use super::common;
 use common::*;
-use frame_support::{assert_noop, assert_ok, traits::Currency};
+use frame_support::{assert_noop, assert_ok};
 use pallet_messages::pallet::{MessageKind, Payload};
 
 fn payload(bytes: &[u8]) -> Payload {
