@@ -70,6 +70,11 @@ fn claim_returns_zero_at_cap() {
                 frame_system::Pallet::<TestRuntime>::block_number() + 50,
                 None,
             );
+            let _ = pallet_escrow::Pallet::<TestRuntime>::accept_agreement(
+                RuntimeOrigin::signed(ALICE),
+                BOB,
+                0,
+            );
             advance_blocks(10);
             let _ = pallet_escrow::Pallet::<TestRuntime>::record_delivery(
                 RuntimeOrigin::signed(ALICE),

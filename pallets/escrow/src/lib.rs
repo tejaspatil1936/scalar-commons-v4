@@ -443,7 +443,11 @@ pub mod pallet {
             })?;
 
             <T as agents_pallet::Config>::Currency::reserve(&buyer, amount)?;
-            agents_pallet::Pallet::<T>::increment_active_escrow(&provider)?;
+            // E18: the provider has not consented yet, so this agreement does not enter its
+            // ActiveEscrowCount and cannot block its unstake. `accept_agreement` is what
+            // increments the count. The agreement still occupies a bilateral slot, so
+            // MaxAgreementsPerPair continues to bound how much a buyer can force open.
+            PendingAcceptance::<T>::insert(&buyer, (provider.clone(), seq), now);
             ActiveAgreementCount::<T>::mutate(|c| *c = c.saturating_add(1));
             Self::deposit_event(Event::AgreementCreated {
                 buyer,
@@ -464,6 +468,13 @@ pub mod pallet {
             delivery_hash: [u8; 32],
         ) -> DispatchResult {
             let provider = ensure_signed(origin)?;
+            // E18: no delivery against an agreement the provider never consented to —
+            // otherwise a provider could unilaterally turn an unwanted agreement into a
+            // claim on the buyer's funds. Checked before any status write below.
+            ensure!(
+                Self::consent_state(&buyer, &provider, seq) == ConsentState::Accepted,
+                Error::<T>::NotAccepted
+            );
             Agreements::<T>::try_mutate(&buyer, &provider, |vec| {
                 let a = vec
                     .iter_mut()
@@ -621,6 +632,21 @@ pub mod pallet {
                     .position(|a| a.seq == seq)
                     .ok_or(Error::<T>::AgreementNotFound)?;
                 let a = &vec[idx];
+                // E18, guard order is load-bearing: consent is classified before
+                // eligibility. Past this point `claim_refund` is reachable only for an
+                // accepted agreement, which is what makes the unconditional
+                // `decrement_active_escrow` below sound — a never-accepted agreement never
+                // held a slot in the provider's count, and releasing one would take it from
+                // a real obligation and let the provider unstake while still owing delivery.
+                //
+                // Refusing rather than branching also gives the buyer an honest error:
+                // `DisputeTimeoutNotElapsed` would say "wait longer", but waiting never makes
+                // this path work for a pending agreement. `cancel_pending` is open to that
+                // buyer right now for the same full amount, so this costs it nothing.
+                ensure!(
+                    Self::consent_state(&buyer, &provider, seq) == ConsentState::Accepted,
+                    Error::<T>::NotAccepted
+                );
                 let now = frame_system::Pallet::<T>::block_number();
                 let refundable = match a.status {
                     AgreementStatus::Created | AgreementStatus::Delivered => {
@@ -891,11 +917,7 @@ pub mod pallet {
         /// `ActiveEscrowCount` is stated once, in one place, instead of emerging from the
         /// order the `ensure!`s happen to sit in. Absence of an entry reads as accepted,
         /// which is what grandfathers pre-upgrade agreements without a migration.
-        fn consent_state(
-            buyer: &T::AccountId,
-            provider: &T::AccountId,
-            seq: u32,
-        ) -> ConsentState {
+        fn consent_state(buyer: &T::AccountId, provider: &T::AccountId, seq: u32) -> ConsentState {
             if PendingAcceptance::<T>::contains_key(buyer, (provider.clone(), seq)) {
                 ConsentState::Pending
             } else {

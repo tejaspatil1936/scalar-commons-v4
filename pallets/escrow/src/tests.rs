@@ -213,11 +213,23 @@ fn create(amount: u64) -> u32 {
     0u32 // seq 0 for first agreement
 }
 
+/// The provider consents. Since #180 an agreement only binds the provider once it has
+/// accepted, so every create→deliver flow needs this step; `record_delivery` refuses with
+/// `NotAccepted` without it.
+fn accept(buyer: u64, provider: u64, seq: u32) {
+    assert_ok!(Escrow::accept_agreement(
+        RuntimeOrigin::signed(provider),
+        buyer,
+        seq
+    ));
+}
+
 #[test]
 fn full_happy_path() {
     new_test_ext().execute_with(|| {
         register_both();
         create(1_000);
+        accept(ALICE, BOB, 0);
         // Advance past min delivery blocks
         frame_system::Pallet::<Test>::set_block_number(10);
         assert_ok!(Escrow::record_delivery(
@@ -301,6 +313,7 @@ fn record_delivery_rejects_provider_without_capability() {
             500,
             Some(7),
         ));
+        accept(ALICE, BOB, 0);
         // Provider drops the capability after the agreement is created.
         assert_ok!(Agents::set_capability(RuntimeOrigin::signed(BOB), 7, false));
         System::set_block_number(10); // past MinDeliveryBlocks(5)
@@ -357,6 +370,7 @@ fn cannot_deliver_before_min_blocks() {
     new_test_ext().execute_with(|| {
         register_both();
         create(1_000);
+        accept(ALICE, BOB, 0);
         // Block 0 — min delivery is 5 blocks
         assert_noop!(
             Escrow::record_delivery(RuntimeOrigin::signed(BOB), ALICE, 0, [2u8; 32]),
@@ -370,6 +384,7 @@ fn dispute_sets_status_and_reserves_bounty() {
     new_test_ext().execute_with(|| {
         register_both();
         create(1_000);
+        accept(ALICE, BOB, 0);
         frame_system::Pallet::<Test>::set_block_number(10);
         assert_ok!(Escrow::record_delivery(
             RuntimeOrigin::signed(BOB),
@@ -394,6 +409,7 @@ fn claim_refund_after_timeout() {
     new_test_ext().execute_with(|| {
         register_both();
         create(1_000);
+        accept(ALICE, BOB, 0);
         frame_system::Pallet::<Test>::set_block_number(10);
         assert_ok!(Escrow::record_delivery(
             RuntimeOrigin::signed(BOB),
@@ -421,6 +437,7 @@ fn provider_wins_oracle_settles_correctly() {
     new_test_ext().execute_with(|| {
         register_both();
         create(1_000);
+        accept(ALICE, BOB, 0);
         frame_system::Pallet::<Test>::set_block_number(10);
         assert_ok!(Escrow::record_delivery(
             RuntimeOrigin::signed(BOB),
@@ -531,6 +548,7 @@ fn extend_deadline_fails_after_delivery_recorded() {
             500,
             None,
         ));
+        accept(ALICE, BOB, 0);
         frame_system::Pallet::<Test>::set_block_number(10);
         assert_ok!(Escrow::record_delivery(
             RuntimeOrigin::signed(BOB),
@@ -598,6 +616,7 @@ fn e5_lifecycle_events_storage_and_balances_agree() {
         ));
         assert_eq!(Balances::reserved_balance(ALICE), alice_reserved0 + 1_000);
         assert_eq!(Balances::free_balance(ALICE), alice_free0 - 1_000);
+        accept(ALICE, BOB, 0);
         assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
         assert_eq!(ActiveAgreementCount::<Test>::get(), 1);
         assert_eq!(NextSeq::<Test>::get(ALICE, BOB), 1);
@@ -642,6 +661,13 @@ fn e5_lifecycle_events_storage_and_balances_agree() {
                     seq: 0,
                     amount: 1_000
                 },
+                // Since #180 consent is its own step in the lifecycle, between creation
+                // and delivery.
+                Event::AgreementAccepted {
+                    buyer: ALICE,
+                    provider: BOB,
+                    seq: 0
+                },
                 Event::DeliveryRecorded {
                     provider: BOB,
                     buyer: ALICE,
@@ -676,6 +702,7 @@ fn e6_completion_fee_is_routed_to_treasury() {
             500,
             None,
         ));
+        accept(ALICE, BOB, 0);
         System::set_block_number(10);
         assert_ok!(Escrow::record_delivery(
             RuntimeOrigin::signed(BOB),
@@ -717,6 +744,7 @@ fn e6_completion_fee_is_routed_to_treasury() {
 fn e6_zero_fee_sends_nothing_to_treasury() {
     new_test_ext().execute_with(|| {
         setup_agreement(1_000);
+        accept(ALICE, BOB, 0);
         System::set_block_number(10);
         assert_ok!(Escrow::record_delivery(
             RuntimeOrigin::signed(BOB),
@@ -782,6 +810,9 @@ fn e24_pair_cap_enforced_and_slot_frees_on_settlement() {
                 None,
             ));
         }
+        for seq in 0..5 {
+            accept(ALICE, BOB, seq);
+        }
         assert_eq!(Agreements::<Test>::get(ALICE, BOB).len(), 5);
         assert_eq!(Balances::reserved_balance(ALICE), reserved0 + 50);
         let events_before = last_escrow_events().len();
@@ -843,6 +874,7 @@ fn e24_pair_cap_enforced_and_slot_frees_on_settlement() {
 fn min_delivery_blocks_boundary() {
     new_test_ext().execute_with(|| {
         setup_agreement(1_000); // created_at = 1, so delivery opens at block 6
+        accept(ALICE, BOB, 0);
         System::set_block_number(5);
         assert_noop!(
             Escrow::record_delivery(RuntimeOrigin::signed(BOB), ALICE, 0, [2u8; 32]),
@@ -853,7 +885,8 @@ fn min_delivery_blocks_boundary() {
             (a.status, a.delivery_proof),
             (AgreementStatus::Created, None)
         );
-        assert_eq!(last_escrow_events().len(), 1); // only AgreementCreated
+        // AgreementCreated + AgreementAccepted, and crucially no DeliveryRecorded.
+        assert_eq!(last_escrow_events().len(), 2);
 
         System::set_block_number(6);
         assert_ok!(Escrow::record_delivery(
@@ -911,6 +944,7 @@ fn min_delivery_blocks_bounds_deliver_by_at_creation() {
 fn refund_after_buyer_response_window_returns_funds_and_clears_state() {
     new_test_ext().execute_with(|| {
         setup_agreement(1_000);
+        accept(ALICE, BOB, 0);
         let free_after_create = Balances::free_balance(ALICE);
         let reserved_after_create = Balances::reserved_balance(ALICE);
 
@@ -972,6 +1006,7 @@ fn refund_by_non_buyer_is_refused() {
 fn refund_of_disputed_agreement_waits_for_dispute_timeout() {
     new_test_ext().execute_with(|| {
         setup_agreement(1_000);
+        accept(ALICE, BOB, 0);
         System::set_block_number(10);
         assert_ok!(Escrow::record_delivery(
             RuntimeOrigin::signed(BOB),
@@ -1069,7 +1104,11 @@ fn e18e2_agreement_requires_provider_consent() {
             Error::<Test>::AgreementNotFound
         );
 
-        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        assert_ok!(Escrow::accept_agreement(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0
+        ));
         assert_eq!(pending_at(ALICE, BOB, 0), None);
         assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
         // Consent moves no funds: the reserve is unchanged by acceptance.
@@ -1127,7 +1166,11 @@ fn e18e2_victim_can_unstake_with_pending_agreements_open() {
         assert_ok!(Agents::request_unstake(RuntimeOrigin::signed(BOB)));
 
         // Consent is what binds: an accepted agreement does block the unstake.
-        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        assert_ok!(Escrow::accept_agreement(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0
+        ));
         assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
         System::set_block_number(200); // past the 100-block cooldown
         assert_noop!(
@@ -1152,7 +1195,11 @@ fn e18e2_provider_can_reject_pending_agreement_and_buyer_is_refunded() {
             Error::<Test>::AgreementNotFound
         );
 
-        assert_ok!(Escrow::reject_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        assert_ok!(Escrow::reject_agreement(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0
+        ));
         assert_eq!(Balances::free_balance(ALICE), free_before + 1_000);
         assert_eq!(Balances::reserved_balance(ALICE), 0);
         assert!(Agreements::<Test>::get(ALICE, BOB).is_empty());
@@ -1178,7 +1225,11 @@ fn e18e2_provider_can_reject_pending_agreement_and_buyer_is_refunded() {
             500,
             None,
         ));
-        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 1));
+        assert_ok!(Escrow::accept_agreement(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            1
+        ));
         assert_noop!(
             Escrow::reject_agreement(RuntimeOrigin::signed(BOB), ALICE, 1),
             Error::<Test>::NotPending
@@ -1227,7 +1278,11 @@ fn e18e2_buyer_can_cancel_pending_agreement() {
             500,
             None,
         ));
-        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 1));
+        assert_ok!(Escrow::accept_agreement(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            1
+        ));
         assert_noop!(
             Escrow::cancel_pending(RuntimeOrigin::signed(ALICE), BOB, 1),
             Error::<Test>::NotPending
@@ -1252,7 +1307,11 @@ fn e18e2_record_delivery_requires_acceptance() {
             Agreements::<Test>::get(ALICE, BOB)[0].status,
             AgreementStatus::Created
         );
-        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        assert_ok!(Escrow::accept_agreement(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0
+        ));
         assert_ok!(Escrow::record_delivery(
             RuntimeOrigin::signed(BOB),
             ALICE,
@@ -1274,9 +1333,16 @@ fn e18e2_unaccepted_agreement_refunds_the_buyer_in_full() {
     // Door 1 — the provider rejects.
     new_test_ext().execute_with(|| {
         setup_agreement(1_000);
-        let (free0, reserved0) = (Balances::free_balance(ALICE), Balances::reserved_balance(ALICE));
+        let (free0, reserved0) = (
+            Balances::free_balance(ALICE),
+            Balances::reserved_balance(ALICE),
+        );
         assert_eq!(reserved0, 1_000);
-        assert_ok!(Escrow::reject_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        assert_ok!(Escrow::reject_agreement(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0
+        ));
         assert_eq!(Balances::free_balance(ALICE), free0 + 1_000);
         assert_eq!(Balances::reserved_balance(ALICE), 0);
         assert_eq!(Balances::free_balance(TREASURY), 0);
@@ -1284,7 +1350,10 @@ fn e18e2_unaccepted_agreement_refunds_the_buyer_in_full() {
     // Door 2 — the buyer cancels.
     new_test_ext().execute_with(|| {
         setup_agreement(1_000);
-        let (free0, reserved0) = (Balances::free_balance(ALICE), Balances::reserved_balance(ALICE));
+        let (free0, reserved0) = (
+            Balances::free_balance(ALICE),
+            Balances::reserved_balance(ALICE),
+        );
         assert_eq!(reserved0, 1_000);
         assert_ok!(Escrow::cancel_pending(RuntimeOrigin::signed(ALICE), BOB, 0));
         assert_eq!(Balances::free_balance(ALICE), free0 + 1_000);
@@ -1294,7 +1363,10 @@ fn e18e2_unaccepted_agreement_refunds_the_buyer_in_full() {
     // Door 3 — anyone expires it after deliver_by + EXPIRY_GRACE.
     new_test_ext().execute_with(|| {
         setup_agreement(1_000);
-        let (free0, reserved0) = (Balances::free_balance(ALICE), Balances::reserved_balance(ALICE));
+        let (free0, reserved0) = (
+            Balances::free_balance(ALICE),
+            Balances::reserved_balance(ALICE),
+        );
         assert_eq!(reserved0, 1_000);
         System::set_block_number(511); // deliver_by(500) + GRACE(10) + 1
         assert_ok!(Escrow::expire_agreement(
@@ -1324,12 +1396,16 @@ fn e18e2_unaccepted_agreement_refunds_the_buyer_in_full() {
 fn e18e2_expire_agreement_is_permissionless_after_deadline() {
     new_test_ext().execute_with(|| {
         setup_agreement(1_000);
-        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        assert_ok!(Escrow::accept_agreement(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0
+        ));
         assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
         let free0 = Balances::free_balance(ALICE);
 
         System::set_block_number(511); // deliver_by(500) + GRACE(10) + 1
-        // CAROL is not registered as an agent and is party to nothing here.
+                                       // CAROL is not registered as an agent and is party to nothing here.
         assert_ok!(Escrow::expire_agreement(
             RuntimeOrigin::signed(CAROL),
             ALICE,
@@ -1363,7 +1439,11 @@ fn e18e2_expire_agreement_is_permissionless_after_deadline() {
 fn e18e2_expire_before_deadline_is_rejected() {
     new_test_ext().execute_with(|| {
         setup_agreement(1_000);
-        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        assert_ok!(Escrow::accept_agreement(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0
+        ));
         let reserved0 = Balances::reserved_balance(ALICE);
 
         for block in [1u64, 250, 500, 510] {
@@ -1396,7 +1476,11 @@ fn e18e2_expire_agreement_rejects_when_delivered() {
     // Delivered, awaiting the buyer's confirmation.
     new_test_ext().execute_with(|| {
         setup_agreement(1_000);
-        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        assert_ok!(Escrow::accept_agreement(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0
+        ));
         System::set_block_number(10);
         assert_ok!(Escrow::record_delivery(
             RuntimeOrigin::signed(BOB),
@@ -1419,7 +1503,11 @@ fn e18e2_expire_agreement_rejects_when_delivered() {
     // Delivered and then disputed — the oracle owns the outcome, not expiry.
     new_test_ext().execute_with(|| {
         setup_agreement(1_000);
-        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        assert_ok!(Escrow::accept_agreement(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0
+        ));
         System::set_block_number(10);
         assert_ok!(Escrow::record_delivery(
             RuntimeOrigin::signed(BOB),
@@ -1455,7 +1543,11 @@ fn e18e2_refund_cannot_be_claimed_twice_across_paths() {
     // (deliver_by + 50) is even available.
     new_test_ext().execute_with(|| {
         setup_agreement(1_000);
-        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        assert_ok!(Escrow::accept_agreement(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0
+        ));
         let free0 = Balances::free_balance(ALICE);
 
         System::set_block_number(511);
@@ -1481,7 +1573,11 @@ fn e18e2_refund_cannot_be_claimed_twice_across_paths() {
     // Order 2 — the buyer claims first; expiry then finds nothing.
     new_test_ext().execute_with(|| {
         setup_agreement(1_000);
-        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        assert_ok!(Escrow::accept_agreement(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0
+        ));
         let free0 = Balances::free_balance(ALICE);
 
         System::set_block_number(551);
@@ -1538,7 +1634,11 @@ fn e18e2_claim_refund_rejects_pending_agreement() {
             500,
             None,
         ));
-        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), CAROL, 0));
+        assert_ok!(Escrow::accept_agreement(
+            RuntimeOrigin::signed(BOB),
+            CAROL,
+            0
+        ));
         assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
 
         // ALICE, the attacker, opens an agreement BOB never accepted and waits out
@@ -1597,7 +1697,11 @@ fn e18e2_expire_pending_agreement_leaves_provider_count_alone() {
             500,
             None,
         ));
-        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), CAROL, 0));
+        assert_ok!(Escrow::accept_agreement(
+            RuntimeOrigin::signed(BOB),
+            CAROL,
+            0
+        ));
         assert_ok!(Escrow::create_agreement(
             RuntimeOrigin::signed(ALICE),
             BOB,
