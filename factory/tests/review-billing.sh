@@ -46,6 +46,36 @@ T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
 
 # ---------------------------------------------------------------------------
+# 0. Direct: load_billing_env actually scrubs the environment, not just the
+#    log. Sections 2/3 below exercise review.sh end to end, but its stub `gh`
+#    refuses before any lens spawns, so neither proves what environment a
+#    spawned `claude` would actually see — a regression that logs the warning
+#    but still exports the key would pass both. This calls load_billing_env
+#    directly and inspects the resulting environment, closing that gap.
+# ---------------------------------------------------------------------------
+printf '\n\033[1m=== load_billing_env actually clears the environment, not just the log ===\033[0m\n'
+
+ENVCHECK="$T/envcheck.txt"
+(
+  ANTHROPIC_API_KEY=sk-ant-should-be-cleared
+  ANTHROPIC_BASE_URL=https://dead-proxy.example
+  ANTHROPIC_AUTH_TOKEN=should-also-clear
+  export ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN
+  # shellcheck source=/dev/null
+  . "$FACTORY_DIR/lib/common.sh"
+  load_billing_env >/dev/null 2>&1
+  env
+) > "$ENVCHECK" 2>&1
+
+for var in ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN; do
+  if grep -q "^${var}=" "$ENVCHECK"; then
+    bad "$var is still exported after load_billing_env — a spawned claude would still see it"
+  else
+    ok "$var is gone from the environment after load_billing_env"
+  fi
+done
+
+# ---------------------------------------------------------------------------
 # 1. Structural: review.sh uses the shared helper, not a copy of it.
 # ---------------------------------------------------------------------------
 printf '\n\033[1m=== review.sh sources the shared billing preflight ===\033[0m\n'
@@ -82,15 +112,20 @@ fi
 printf '\n\033[1m=== with no API key reachable, review.sh proceeds on Max billing ===\033[0m\n'
 
 STUB="$T/bin"; mkdir -p "$STUB"
-SENTINEL="$T/claude-was-spawned"
-cat > "$STUB/claude" <<EOF
+# `claude` is present so PATH resolution succeeds, but it is never reached in
+# this section: the stub `gh` below always refuses, and review.sh fetches the
+# PR diff via gh before any lens spawns. That is what proves the billing
+# preflight is what let the run get this far, not a spawned lens.
+cat > "$STUB/claude" <<'EOF'
 #!/usr/bin/env bash
-touch "$SENTINEL"
-echo "VERDICT: PASS"
+echo "FATAL: claude should never be spawned in this test (gh always refuses first)" >&2
+exit 1
 EOF
 cat > "$STUB/gh" <<'EOF'
 #!/usr/bin/env bash
-# Present so have_gh() succeeds. Any real use is a test failure, so say so.
+# Present so have_gh() succeeds. Any real use fails deliberately, so a run
+# that gets past the billing preflight still fails — but for a DIFFERENT,
+# distinguishable reason (see the assertions below).
 echo "STUB gh called: $*" >&2
 exit 1
 EOF
@@ -103,6 +138,12 @@ env -i \
   HOME="$TESTHOME" \
   bash "$REVIEW" --dry-run 999 >"$OUT" 2>&1
 RC=$?
+
+if [ "$RC" -ne 0 ]; then
+  ok "review.sh exited non-zero ($RC) — failed on the stub gh, not on billing"
+else
+  bad "review.sh exited 0 despite the stub gh always refusing — something short-circuited"
+fi
 
 if grep -qi 'billing: Max subscription login' "$OUT"; then
   ok 'billing preflight logged Max subscription login with no key present'

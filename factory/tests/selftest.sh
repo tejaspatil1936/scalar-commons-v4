@@ -27,9 +27,12 @@ mkdir -p "$STUB" "$WORK"
 echo "do nothing; this is a harness self-test" > "$PROMPT"
 
 # Stub agent: never edits anything, so any gate that is red stays red. This is
-# exactly the "agent makes no progress" case the bounds must survive.
-cat > "$STUB/claude" <<'EOF'
+# exactly the "agent makes no progress" case the bounds must survive. It also
+# dumps its own received environment before each run, so a case (7b) can
+# assert on what a spawned claude actually sees, not just what got logged.
+cat > "$STUB/claude" <<EOF
 #!/usr/bin/env bash
+env > "$TMP/last-claude-env.txt"
 echo "STUB AGENT: pretending to work. I claim everything is fixed and perfect!"
 exit 0
 EOF
@@ -183,10 +186,18 @@ if run_case 7b; then
   hdr 7b "billing — a stray leftover key is cleared, never used"
   STRAY="$TMP/straykey"; mkdir -p "$STRAY/.factory"
   echo 'export ANTHROPIC_API_KEY=sk-ant-dead-proxy-stub' > "$STRAY/.factory/env"
+  rm -f "$TMP/last-claude-env.txt"
   HOME="$STRAY" "$LOOP" straycheck "$WORK" "$PROMPT" 'exit 1' 1 5 \
     >"$TMP/straycheck.out" 2>&1
   assert_grep 'clearing it so billing goes through the Max login' "$TMP/straycheck.out" "warns about and clears the stray key"
   assert_grep 'billing: Max subscription login' "$TMP/straycheck.out" "still proceeds on Max billing"
+  # The load-bearing check: not just that it logged, but that the claude
+  # process actually spawned never saw the key in its own environment.
+  if [ -f "$TMP/last-claude-env.txt" ] && ! grep -q '^ANTHROPIC_API_KEY=' "$TMP/last-claude-env.txt"; then
+    ok "the spawned claude's actual environment did not contain ANTHROPIC_API_KEY"
+  else
+    bad "the spawned claude's environment still contained ANTHROPIC_API_KEY (or was never captured)"
+  fi
 fi
 
 # --------------------------------------------------------------------------

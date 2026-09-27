@@ -106,11 +106,25 @@ looks_rate_limited() {
 # takes precedence and disables claude.ai connectors. So Max billing requires
 # the *absence* of a key, not its presence — the inverse of the old policy.
 #
-# This still fails closed on the thing that actually matters now: a stray key
-# left in the environment would silently switch billing back to a dead proxy
-# and every loop would die instantly (see the 217/219/223/225 incident,
-# 2026-09-27 ~01:51-02:36 UTC — exactly this signature). So this function
-# scrubs any inherited API-auth env vars rather than requiring one.
+# NOT A PREFLIGHT GUARANTEE ANY MORE, and the old "fails closed" framing does
+# not carry over honestly: there is no longer a condition this function
+# refuses to run under, because there is nothing left to check FOR (an OAuth
+# login is either on disk or it isn't, and probing for that here would just
+# be a second, redundant place for that check to go stale). What this
+# function still owns, and fails closed on in the sense that matters: a
+# leftover API-auth env var must never silently redirect billing at the
+# retired proxy (that exact failure mode killed the 217/219/223/225 tasks
+# mid-GATING, 2026-09-27 ~01:51-02:36 UTC — one real attempt, then three
+# instant, unparseable exits). If Max auth itself is unreachable, `claude -p`
+# fails loudly on its own and the caller's normal attempt/gate bounds handle
+# it — that failure path was already exercised and did not need duplicating
+# here.
+#
+# Scrub is scoped to this box's known auth surface: ANTHROPIC_API_KEY/
+# BASE_URL/AUTH_TOKEN, the three that route to a key or a proxy instead of
+# the Max login. It does NOT cover CLAUDE_CODE_USE_BEDROCK/VERTEX or an
+# apiKeyHelper in settings — this box uses neither, so they are out of scope
+# rather than silently handled; a box that does would need this extended.
 load_billing_env() {
   local envfile="$HOME/.factory/env"
   if [ -f "$envfile" ]; then
@@ -123,10 +137,13 @@ load_billing_env() {
     warn "stray API-auth env var set ($envfile or inherited) — clearing it so billing goes through the Max login, not a key/proxy."
   fi
   unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN
-  # Interactive-session markers are left ALONE now (the old policy stripped
-  # them to force API billing); the child claude process needs them absent-or-
-  # present exactly as this systemd/session environment provides them so it
-  # can find the Max OAuth credentials normally.
+  # Interactive-session markers ARE still stripped, same as the old policy:
+  # nothing about the Max-auth flip changes the reason to want a clean,
+  # non-nested session (OAuth credentials come from ~/.claude/, not from
+  # these markers — an earlier version of this comment claimed otherwise;
+  # that claim was wrong, not the strip itself).
+  unset CLAUDECODE CLAUDE_CODE_SESSION_ID CLAUDE_CODE_CHILD_SESSION \
+        CLAUDE_CODE_ENTRYPOINT CLAUDE_PID CLAUDE_EFFORT
   log "billing: Max subscription login (no ANTHROPIC_API_KEY/BASE_URL/AUTH_TOKEN in env)."
 }
 
