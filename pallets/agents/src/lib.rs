@@ -1055,8 +1055,37 @@ pub mod pallet {
         }
 
         /// Complete unstake after cooldown. Re-checks for active escrows.
+        ///
+        /// # Weight (#217)
+        /// This is a teardown: it removes every key it holds for the exiting agent, plus the
+        /// bounded appeal cleanup #195 added. Declaring 4 writes for that priced the exit
+        /// below what it costs the chain, which is backwards — a permissionless call should
+        /// never be cheaper than the storage it touches.
+        ///
+        /// First term, this pallet's own storage. 12 reads: `AgentStake`, `UnstakeAt`, block
+        /// number, `ActiveEscrowCount`, the `AgentStake` counter, `MAX_OPEN_APPEALS` (5) for
+        /// the `OpenAppeals` prefix walk, and one apiece for `Currency::remove_lock`
+        /// (`Locks`) and its account read. 18 writes: `AgentStake` value and counter,
+        /// `UnstakeAt`, `StakeRegisteredAt`, `CompletedAgreements`, `LastHeartbeat`,
+        /// `AgentMetadata`, `AgentCapabilities`, `VotingDelegations`, `PendingSlashAppeals`,
+        /// `OpenAppealCount`, `MAX_OPEN_APPEALS` (5) for the `OpenAppeals` `clear_prefix`,
+        /// and `Locks` + account for the lock release. The `sp_io::offchain_index::clear`
+        /// is not a state-trie write and rides the flat execution component.
+        ///
+        /// Second term, `AgentCollective::remove`, kept separate because it is the one cost
+        /// here that is *rank-linear* rather than flat, and a flat allowance would understate
+        /// it. The runtime wires this to `RankedCollective::do_remove_member_from_rank(who,
+        /// u16::MAX)`, which unwinds the member one rank at a time: per rank `MemberCount`
+        /// (read + write), `IdToIndex` and `IndexToId` (read, swap-insert and remove each),
+        /// i.e. 3 reads / 5 writes. `maybe_promote` caps agents at rank 3, so 4 levels =
+        /// 12 reads / 20 writes, plus the 2 reads of the iteration that ends the walk and
+        /// the final `Members` removal. A runtime wiring a collective with more ranks than
+        /// this one must revisit this term.
+        ///
+        /// Pinned as a floor by `declared_weight_complete_unstake_covers_appeal_cleanup`.
         #[pallet::call_index(3)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(4, 4)
+        #[pallet::weight(T::DbWeight::get().reads_writes(12, 18)
+            .saturating_add(T::DbWeight::get().reads_writes(14, 21))
             .saturating_add(Weight::from_parts(80_000_000, 0)))]
         pub fn complete_unstake(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin)?;
@@ -1328,8 +1357,17 @@ pub mod pallet {
         /// # Note
         /// This extrinsic records intent — actual slash reversal requires a
         /// governance referendum that calls a privileged reversal extrinsic.
+        ///
+        /// # Weight (#217)
+        /// 7 reads: `AgentStake`, `SlashRecords`, `OpenAppeals`, `OpenAppealCount`, block
+        /// number, `EraNumber`, `PendingSlashAppeals`. Every one of them is a guard or a
+        /// value the record needs, so all seven are on the success path.
+        ///
+        /// 3 writes: `PendingSlashAppeals` (first appeal only), `OpenAppeals`,
+        /// `OpenAppealCount` — the write count already matched, so only the reads moved.
+        /// Pinned as a floor by `declared_weight_slash_appeal_covers_its_reads`.
         #[pallet::call_index(9)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(5, 3)
+        #[pallet::weight(T::DbWeight::get().reads_writes(7, 3)
             .saturating_add(Weight::from_parts(50_000_000, 0)))]
         pub fn slash_appeal(
             origin: OriginFor<T>,
@@ -1399,8 +1437,29 @@ pub mod pallet {
         ///   5. Update AgentStake to the reduced amount
         ///
         /// Origin: Must be Root (governance Track 0 enactment).
+        ///
+        /// # Weight (#217)
+        /// 16 reads: `AgentStake`, the `AgentStake` counter, `EraNumber`,
+        /// `MAX_OPEN_APPEALS` (5) for the `OpenAppeals` prefix walk, `Locks` + account for
+        /// `set_lock`/`remove_lock`, account + `TotalIssuance` for `Currency::withdraw`,
+        /// `TotalIssuance` again for the burn half dropped below, the treasury account +
+        /// `TotalIssuance` for `SlashDestination::on_unbalanced`, and
+        /// `OnAgentSlashed::on_slashed`.
+        ///
+        /// 18 writes: `AgentStake` value and counter (the `remove` branch is the worst case —
+        /// it writes the counter, the `insert` branch does not), `PendingSlashAppeals`,
+        /// `OpenAppealCount`, `SlashRecords`, `MAX_OPEN_APPEALS` (5) for the `OpenAppeals`
+        /// `clear_prefix`, then the balance side: `Locks` + account for the lock change,
+        /// account + `TotalIssuance` for the withdraw, `TotalIssuance` for the burn-half
+        /// imbalance drop, treasury account + `TotalIssuance` for the treasury half, and
+        /// `AgentWeightSnapshot` for `on_slashed`.
+        ///
+        /// Root-gated, so this is not a fee surface — but it is still scheduled against a
+        /// block's weight budget, and #195's cleanup made the old 5/5 an understatement of
+        /// what a block must fit. Pinned as a floor by
+        /// `declared_weight_execute_slash_covers_appeal_cleanup`.
         #[pallet::call_index(10)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(5, 5)
+        #[pallet::weight(T::DbWeight::get().reads_writes(16, 18)
             .saturating_add(Weight::from_parts(100_000_000, 0)))]
         pub fn execute_slash(
             origin: OriginFor<T>,
