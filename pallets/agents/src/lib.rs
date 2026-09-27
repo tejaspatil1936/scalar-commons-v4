@@ -1675,10 +1675,8 @@ pub mod pallet {
             .saturating_add(Weight::from_parts(30_000_000, 0)))]
         pub fn set_messaging_key(origin: OriginFor<T>, key: [u8; 32]) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            ensure!(
-                AgentStake::<T>::contains_key(&who),
-                Error::<T>::NotRegistered
-            );
+            // `is_agent` is the same predicate pallet-messages uses for "registered".
+            ensure!(Self::is_agent(&who), Error::<T>::NotRegistered);
             MessagingKey::<T>::insert(&who, key);
             Self::deposit_event(Event::MessagingKeySet { who, key });
             Ok(())
@@ -1691,10 +1689,7 @@ pub mod pallet {
             .saturating_add(Weight::from_parts(20_000_000, 0)))]
         pub fn clear_messaging_key(origin: OriginFor<T>) -> DispatchResult {
             let who = ensure_signed(origin)?;
-            ensure!(
-                AgentStake::<T>::contains_key(&who),
-                Error::<T>::NotRegistered
-            );
+            ensure!(Self::is_agent(&who), Error::<T>::NotRegistered);
             ensure!(
                 MessagingKey::<T>::contains_key(&who),
                 Error::<T>::NoMessagingKey
