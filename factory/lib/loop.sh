@@ -217,15 +217,31 @@ while :; do
   REMAIN_SECS=$(( DEADLINE - NOW ))
   log "--- attempt $ATTEMPT/$MAX_ATTEMPTS (${REMAIN_SECS}s of wall budget left) ---"
 
+  # --- select model ---------------------------------------------------------
+  # opus for anything touching runtime/ or pallets/, sonnet otherwise. Model is
+  # chosen explicitly via --model rather than left to the CLI's default (LAB
+  # decision, 27 Sep 2026 Max-auth cutover). Before attempt 1, WORKDIR is a
+  # pristine worktree with no diff yet, so a tier:T1 issue (dispatch-lab.sh's
+  # own label for runtime/pallets work) is caught via the prompt file, which
+  # build_prompt always writes as "... (${tier})." on its first line.
+  MODEL=sonnet
+  if git -C "$WORKDIR" diff --name-only \
+       "$(git -C "$WORKDIR" merge-base HEAD "origin/${BASE_BRANCH:-master}" 2>/dev/null || echo HEAD)" \
+       2>/dev/null | grep -qE '^(runtime|pallets)/' \
+     || grep -q '(tier:T1)' "$PROMPTFILE" 2>/dev/null; then
+    MODEL=opus
+  fi
+
   # --- run the agent ------------------------------------------------------
   # Bound the agent by whatever wall budget remains, so a single hung call
   # cannot blow through max_minutes.
   AGENT_LOG="$LOG_DIR/${NAME}-attempt${ATTEMPT}.agent.log"
+  log "model: $MODEL"
   set +e
   (
     cd "$WORKDIR" || exit 1
     timeout --signal=TERM --kill-after=30s "${REMAIN_SECS}s" \
-      claude -p "$(cat "$PROMPTFILE")" --dangerously-skip-permissions
+      claude -p "$(cat "$PROMPTFILE")" --model "$MODEL" --dangerously-skip-permissions
   ) >"$AGENT_LOG" 2>&1
   AGENT_RC=$?
   set -e

@@ -5,23 +5,30 @@
 #
 # `lib/loop.sh` calls `load_billing_env` before it spends anything; `review.sh`
 # did not. Under systemd the reviewer therefore inherited neither
-# `~/.factory/env`'s PATH nor `ANTHROPIC_API_KEY`, and all six systemd-launched
-# reviews — 18 of 18 lenses — exited 127. Worse than the wasted run: once a
-# `claude` binary IS on PATH but no API key is, the CLI falls back to the
-# interactive OAuth login and bills the Max subscription, which
-# `lib/common.sh:99-110` exists specifically to forbid.
+# `~/.factory/env`'s PATH nor whatever billing env was current, and all six
+# systemd-launched reviews — 18 of 18 lenses — exited 127.
+#
+# POLICY FLIP (LAB decision 002 amendment, 27 Sep 2026 Max-subscription
+# cutover): this box's inference proxy is retired; `~/.factory/env` no longer
+# sets ANTHROPIC_API_KEY/ANTHROPIC_BASE_URL, and loops now bill the Claude Max
+# subscription on purpose, via `lib/common.sh:load_billing_env`. The OLD
+# policy (fail closed if no key reachable, to stop loops silently drawing on
+# the interactive subscription) is inverted: the interactive subscription IS
+# now the billing source, and a stray API key left in the environment is the
+# thing that gets scrubbed, because it would silently point billing at a dead
+# proxy (see the 217/219/223/225 incident, 2026-09-27 ~01:51-02:36 UTC).
 #
 # So there are two properties, and both are asserted here:
 #   1. review.sh calls load_billing_env — the same function loop.sh calls, not
 #      a private re-implementation that could drift.
-#   2. It calls it BEFORE any lens is spawned, and it FAILS CLOSED: with no key
-#      reachable, review.sh must exit non-zero having spawned nothing.
+#   2. It calls it BEFORE any lens is spawned, and it never lets a stray key
+#      reach the child process: present or absent, load_billing_env clears
+#      ANTHROPIC_API_KEY/BASE_URL/AUTH_TOKEN and proceeds on Max billing.
 #
 # Property 2 is the load-bearing one. A structural grep alone would pass if the
 # call sat after the lens loop, which would be no protection at all.
 #
-# No network, no API spend: `gh` and `claude` are stubs on PATH, and the run is
-# expected to die before either is used for real.
+# No network, no real API spend: `gh` and `claude` are stubs on PATH.
 
 set -uo pipefail
 
@@ -53,7 +60,7 @@ fi
 # already have happened on the wrong billing source.
 CALL_LINE="$(grep -n '^[[:space:]]*load_billing_env[[:space:]]*$' "$REVIEW" | head -1 | cut -d: -f1)"
 LENS_LINE="$(grep -n '^LENSES=' "$REVIEW" | head -1 | cut -d: -f1)"
-RUN_LINE="$(grep -n 'claude -p --dangerously-skip-permissions' "$REVIEW" | head -1 | cut -d: -f1)"
+RUN_LINE="$(grep -n 'claude -p --model opus --dangerously-skip-permissions' "$REVIEW" | head -1 | cut -d: -f1)"
 if [ -n "$CALL_LINE" ] && [ -n "$LENS_LINE" ] && [ "$CALL_LINE" -lt "$LENS_LINE" ]; then
   ok "load_billing_env at line $CALL_LINE precedes LENSES at line $LENS_LINE"
 else
@@ -66,13 +73,13 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Behavioural: no key reachable => review.sh dies, spawning nothing.
+# 2. Behavioural: no key reachable => Max billing, preflight does not block.
 #
-# The stub `claude` touches a sentinel. If the sentinel exists after the run,
-# review.sh spawned a lens without proving its billing source, which is the
-# exact failure this test is here to prevent.
+# review.sh is expected to fail later (the stub `gh` always refuses), but that
+# failure must come from gh, never from the billing preflight — Max login with
+# no key present is now the normal, expected case.
 # ---------------------------------------------------------------------------
-printf '\n\033[1m=== with no API key reachable, review.sh fails closed ===\033[0m\n'
+printf '\n\033[1m=== with no API key reachable, review.sh proceeds on Max billing ===\033[0m\n'
 
 STUB="$T/bin"; mkdir -p "$STUB"
 SENTINEL="$T/claude-was-spawned"
@@ -97,30 +104,24 @@ env -i \
   bash "$REVIEW" --dry-run 999 >"$OUT" 2>&1
 RC=$?
 
-if [ "$RC" -ne 0 ]; then
-  ok "review.sh exited non-zero ($RC) with no ANTHROPIC_API_KEY"
+if grep -qi 'billing: Max subscription login' "$OUT"; then
+  ok 'billing preflight logged Max subscription login with no key present'
 else
-  bad "review.sh exited 0 with no ANTHROPIC_API_KEY — it must fail closed"
+  bad "billing preflight did not run/log as expected; got: $(head -5 "$OUT" | tr '\n' ' ')"
 fi
 
 if grep -qi 'ANTHROPIC_API_KEY not set' "$OUT"; then
-  ok 'review.sh refused with the billing preflight message'
+  bad 'review.sh still refuses on a missing key — billing policy was not inverted'
 else
-  bad "review.sh did not print the billing preflight refusal; got: $(head -5 "$OUT" | tr '\n' ' ')"
-fi
-
-if [ -e "$SENTINEL" ]; then
-  bad 'review.sh spawned claude despite having no provable billing source'
-else
-  ok 'no lens was spawned'
+  ok 'review.sh did not refuse for lack of an API key'
 fi
 
 # ---------------------------------------------------------------------------
-# 3. With a key in ~/.factory/env, the preflight passes and the run proceeds
-#    past it (it then fails on the stub gh, which is fine and expected — the
-#    assertion is only that billing is no longer the thing stopping it).
+# 3. With a STRAY key in ~/.factory/env, load_billing_env clears it rather
+#    than using it — a leftover key must never silently redirect billing to a
+#    dead proxy (this is exactly how issue-217/219/223/225 died in GATING).
 # ---------------------------------------------------------------------------
-printf '\n\033[1m=== with ~/.factory/env present, the preflight passes ===\033[0m\n'
+printf '\n\033[1m=== with a stray key in ~/.factory/env, it is cleared, not used ===\033[0m\n'
 
 mkdir -p "$TESTHOME/.factory"
 echo 'export ANTHROPIC_API_KEY=sk-ant-billing-test-stub' > "$TESTHOME/.factory/env"
@@ -130,15 +131,15 @@ env -i \
   HOME="$TESTHOME" \
   bash "$REVIEW" --dry-run 999 >"$OUT2" 2>&1 || true
 
-if grep -q 'API billing enforced' "$OUT2"; then
-  ok 'billing preflight logged that the API key was loaded'
+if grep -qi 'clearing it so billing goes through the Max login' "$OUT2"; then
+  ok 'billing preflight warned and cleared the stray key'
 else
-  bad "billing preflight did not run; got: $(head -5 "$OUT2" | tr '\n' ' ')"
+  bad "stray key was not detected/cleared as expected; got: $(head -5 "$OUT2" | tr '\n' ' ')"
 fi
-if grep -qi 'ANTHROPIC_API_KEY not set' "$OUT2"; then
-  bad 'review.sh still refused even though ~/.factory/env supplied a key'
+if grep -qi 'billing: Max subscription login' "$OUT2"; then
+  ok 'review.sh proceeded on Max billing despite the stray key'
 else
-  ok 'review.sh no longer refuses on billing once the env file supplies a key'
+  bad "review.sh did not confirm Max billing after clearing the stray key"
 fi
 
 printf '\n\033[1m===== REVIEW-BILLING SUMMARY: %d passed, %d failed =====\033[0m\n' "$PASS" "$FAIL"

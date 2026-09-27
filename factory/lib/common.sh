@@ -97,17 +97,20 @@ looks_rate_limited() {
 }
 
 # ---- billing preflight ----------------------------------------------------
-# Loops MUST bill the API key, never the interactive Max subscription.
+# Loops bill the Claude Max subscription, not a metered API key (LAB decision
+# 002 amendment, 27 Sep 2026 Max-subscription cutover: this box no longer has
+# an ANTHROPIC_API_KEY/ANTHROPIC_BASE_URL — the inference proxy is retired).
 #
-# Verified behaviour (claude 2.1.220): when ANTHROPIC_API_KEY is set, the CLI
-# prints "claude.ai connectors are disabled because ANTHROPIC_API_KEY or
-# another auth source is set and takes precedence over your claude.ai login",
-# and an invalid key FAILS rather than falling back to OAuth. So a non-empty
-# key is sufficient to guarantee API billing.
+# Verified behaviour (claude 2.1.220): the CLI uses the claude.ai (Max) login
+# UNLESS ANTHROPIC_API_KEY (or another auth source) is set, in which case that
+# takes precedence and disables claude.ai connectors. So Max billing requires
+# the *absence* of a key, not its presence — the inverse of the old policy.
 #
-# This fails closed: no key, no loop. A loop that cannot prove its billing
-# source does not run at all, because the failure mode is silently draining
-# the interactive subscription.
+# This still fails closed on the thing that actually matters now: a stray key
+# left in the environment would silently switch billing back to a dead proxy
+# and every loop would die instantly (see the 217/219/223/225 incident,
+# 2026-09-27 ~01:51-02:36 UTC — exactly this signature). So this function
+# scrubs any inherited API-auth env vars rather than requiring one.
 load_billing_env() {
   local envfile="$HOME/.factory/env"
   if [ -f "$envfile" ]; then
@@ -116,16 +119,15 @@ load_billing_env() {
     . "$envfile"
     set +a
   fi
-  if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-    die "ANTHROPIC_API_KEY not set (expected in $envfile). Refusing to run: \
-loops must bill the API key, not the interactive Max login. See factory/README.md."
+  if [ -n "${ANTHROPIC_API_KEY:-}${ANTHROPIC_BASE_URL:-}${ANTHROPIC_AUTH_TOKEN:-}" ]; then
+    warn "stray API-auth env var set ($envfile or inherited) — clearing it so billing goes through the Max login, not a key/proxy."
   fi
-  export ANTHROPIC_API_KEY
-  # Strip inherited interactive-session markers so the child is a clean,
-  # API-billed, non-nested session.
-  unset CLAUDECODE CLAUDE_CODE_SESSION_ID CLAUDE_CODE_CHILD_SESSION \
-        CLAUDE_CODE_ENTRYPOINT CLAUDE_PID CLAUDE_EFFORT ANTHROPIC_AUTH_TOKEN
-  log "billing: ANTHROPIC_API_KEY loaded (…${ANTHROPIC_API_KEY: -6}); API billing enforced."
+  unset ANTHROPIC_API_KEY ANTHROPIC_BASE_URL ANTHROPIC_AUTH_TOKEN
+  # Interactive-session markers are left ALONE now (the old policy stripped
+  # them to force API billing); the child claude process needs them absent-or-
+  # present exactly as this systemd/session environment provides them so it
+  # can find the Max OAuth credentials normally.
+  log "billing: Max subscription login (no ANTHROPIC_API_KEY/BASE_URL/AUTH_TOKEN in env)."
 }
 
 # ---- guards ---------------------------------------------------------------
