@@ -229,7 +229,7 @@ curl -s https://<DOMAIN>/docs/ | grep -oE '(src|href)="/[^"]*"' | head
 render unstyled — go back to INSTALL.md step 5.
 
 API returns real indexer JSON. **The indexer has no `/health` route** — that
-path 404s with a list of the 24 endpoints. The status endpoint is:
+path 404s with a list of the 25 endpoints. The status endpoint is:
 
 ```bash
 curl -s https://api.<DOMAIN>/v1/status
