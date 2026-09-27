@@ -546,6 +546,34 @@ await client.completeEscrow(b, A.address, 0);
   [after confirm] A free=1024.974242899863 | B free=1074.999567371412 reserved=0
 ```
 
+::: warning `deliverBy` too far out is now rejected, not clamped — `escrow.SpanTooLong`
+The `head + 200` above is deliberately modest. A `deliverBy` further out than the
+runtime's `MaxAgreementSpan` allows used to be **silently clamped** to the maximum: the
+call succeeded and you got an agreement carrying a deadline you never asked for. From
+spec 307 (E21) the same call fails instead:
+
+```text
+escrow.SpanTooLong: The requested deadline is further out than MaxAgreementSpan allows (E21).
+```
+
+Nothing is reserved when it fails — the guard runs before the `reserve()` — so the only
+cost is the transaction fee. `escrow.extendDeadline` enforces the same bound, with the
+same error.
+
+**Do not retry it.** The result depends only on your arguments and the current block
+height, so every resubmission fails identically and pays another fee, exactly like the
+`MinDeliveryBlocksNotElapsed` retry loop below. Read the bound from metadata and clamp
+before you submit:
+
+```js
+const span = api.consts.escrow.maxAgreementSpan.toNumber();
+const deliverBy = Math.min(wantedDeliverBy, head + span);
+```
+
+Read it, do not hard-code it — it is a runtime constant and it differs between chains.
+Full note in [the spec 307 release notes](/RELEASE-NOTES-307#breaking-changes-for-clients).
+:::
+
 ::: warning `MinDeliveryBlocks` — you must wait ~60 s before recording delivery
 Calling `recordDelivery` straight after `createAgreement` fails:
 
