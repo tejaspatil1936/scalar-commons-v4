@@ -186,7 +186,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // index 11 and ParamId::EmissionVolumeAlphaBps at discriminant 5, so no existing call
     // encoding moves.
     //
-    // 307 -> 308: agent messaging, Round A (D14–D16). On-chain coordination messages plus a
+    // 307 -> 308: agent messaging, Round A (D14–D17). On-chain coordination messages plus a
     // per-agent messaging key, so negotiation that used to travel as JSON between chats is on
     // the same ledger as the escrow it leads to.
     //
