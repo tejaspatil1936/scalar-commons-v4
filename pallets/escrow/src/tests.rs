@@ -1016,6 +1016,697 @@ fn refund_of_disputed_agreement_waits_for_dispute_timeout() {
     });
 }
 
+// ── E18 / E2: provider consent and the permissionless exit (#180) ────────────
+//
+// Every test below asserts on emitted events and on reserved/free balances, never
+// only on a call's return value: a refund path that returned Ok(()) while moving
+// nothing would pass a return-value-only test.
+
+/// A third party who is neither buyer nor provider — used to prove `expire_agreement`
+/// is permissionless. Funded in `new_test_ext`, registered only where needed.
+const CAROL: u64 = 3;
+
+/// The pending-acceptance key for an agreement, spelled out once.
+fn pending_at(buyer: u64, provider: u64, seq: u32) -> Option<u64> {
+    PendingAcceptance::<Test>::get(buyer, (provider, seq))
+}
+
+/// Simulate an agreement that predates this change: created under the old rules, where
+/// `create_agreement` incremented the provider's count and wrote no pending entry.
+fn grandfather(buyer: u64, provider: u64, seq: u32) {
+    PendingAcceptance::<Test>::remove(buyer, (provider, seq));
+    pallet_agents::ActiveEscrowCount::<Test>::mutate(provider, |c| *c += 1);
+}
+
+/// E18 — an agreement does not bind the provider until the provider accepts. Until then
+/// it holds the buyer's funds but does not touch the provider's `ActiveEscrowCount`, and
+/// no delivery can be recorded against it.
+#[test]
+fn e18e2_agreement_requires_provider_consent() {
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+
+        // Created, not yet accepted: funds held, provider untouched.
+        assert_eq!(pending_at(ALICE, BOB, 0), Some(1));
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 0);
+        assert_eq!(Balances::reserved_balance(ALICE), 1_000);
+        assert_eq!(ActiveAgreementCount::<Test>::get(), 1);
+
+        // No delivery without consent.
+        System::set_block_number(10);
+        assert_noop!(
+            Escrow::record_delivery(RuntimeOrigin::signed(BOB), ALICE, 0, [2u8; 32]),
+            Error::<Test>::NotAccepted
+        );
+
+        // Only the provider of record may accept.
+        assert_noop!(
+            Escrow::accept_agreement(RuntimeOrigin::signed(CAROL), ALICE, 0),
+            Error::<Test>::AgreementNotFound
+        );
+        assert_noop!(
+            Escrow::accept_agreement(RuntimeOrigin::signed(ALICE), ALICE, 0),
+            Error::<Test>::AgreementNotFound
+        );
+
+        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        assert_eq!(pending_at(ALICE, BOB, 0), None);
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
+        // Consent moves no funds: the reserve is unchanged by acceptance.
+        assert_eq!(Balances::reserved_balance(ALICE), 1_000);
+        assert_eq!(
+            last_escrow_events().last(),
+            Some(&Event::AgreementAccepted {
+                buyer: ALICE,
+                provider: BOB,
+                seq: 0
+            })
+        );
+
+        // Accepting twice must not double-count the provider.
+        assert_noop!(
+            Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0),
+            Error::<Test>::NotPending
+        );
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
+
+        // With consent, delivery proceeds as before.
+        assert_ok!(Escrow::record_delivery(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            [2u8; 32]
+        ));
+    });
+}
+
+/// E18 — the attack this finding is about: pending agreements must not pin an agent's
+/// stake. A buyer opening agreements the provider never agreed to cannot block its unstake.
+#[test]
+fn e18e2_victim_can_unstake_with_pending_agreements_open() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        register_both();
+        // Three unconsented agreements against BOB, up to the bilateral cap of 5.
+        for _ in 0..3 {
+            assert_ok!(Escrow::create_agreement(
+                RuntimeOrigin::signed(ALICE),
+                BOB,
+                1_000,
+                [1u8; 32],
+                500,
+                None,
+            ));
+        }
+        assert_eq!(Balances::reserved_balance(ALICE), 3_000);
+        assert_eq!(ActiveAgreementCount::<Test>::get(), 3);
+        // None of them counts against the provider.
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 0);
+
+        // So the victim can still leave.
+        assert_ok!(Agents::request_unstake(RuntimeOrigin::signed(BOB)));
+
+        // Consent is what binds: an accepted agreement does block the unstake.
+        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
+        System::set_block_number(200); // past the 100-block cooldown
+        assert_noop!(
+            Agents::complete_unstake(RuntimeOrigin::signed(BOB)),
+            pallet_agents::Error::<Test>::HasActiveAgreements
+        );
+    });
+}
+
+/// E18 — a provider may decline an agreement it never accepted, and the buyer gets the
+/// whole reserve back. Declining is only possible while pending, so it cannot be used to
+/// walk away from a commitment already made.
+#[test]
+fn e18e2_provider_can_reject_pending_agreement_and_buyer_is_refunded() {
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        let free_before = Balances::free_balance(ALICE);
+
+        // A stranger cannot reject on the provider's behalf.
+        assert_noop!(
+            Escrow::reject_agreement(RuntimeOrigin::signed(CAROL), ALICE, 0),
+            Error::<Test>::AgreementNotFound
+        );
+
+        assert_ok!(Escrow::reject_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        assert_eq!(Balances::free_balance(ALICE), free_before + 1_000);
+        assert_eq!(Balances::reserved_balance(ALICE), 0);
+        assert!(Agreements::<Test>::get(ALICE, BOB).is_empty());
+        assert_eq!(pending_at(ALICE, BOB, 0), None);
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 0);
+        assert_eq!(ActiveAgreementCount::<Test>::get(), 0);
+        assert_eq!(
+            last_escrow_events().last(),
+            Some(&Event::AgreementRejected {
+                buyer: ALICE,
+                provider: BOB,
+                seq: 0,
+                amount: 1_000
+            })
+        );
+
+        // Once accepted, reject is closed off.
+        assert_ok!(Escrow::create_agreement(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            1_000,
+            [1u8; 32],
+            500,
+            None,
+        ));
+        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 1));
+        assert_noop!(
+            Escrow::reject_agreement(RuntimeOrigin::signed(BOB), ALICE, 1),
+            Error::<Test>::NotPending
+        );
+        assert_eq!(Balances::reserved_balance(ALICE), 1_000);
+    });
+}
+
+/// E18 — the buyer's own exit: funds are never held hostage by a silent provider, and the
+/// buyer need not wait for any deadline while the agreement is still unconsented.
+#[test]
+fn e18e2_buyer_can_cancel_pending_agreement() {
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        let free_before = Balances::free_balance(ALICE);
+
+        // Only the buyer of record; the provider cannot cancel through this door.
+        assert_noop!(
+            Escrow::cancel_pending(RuntimeOrigin::signed(CAROL), BOB, 0),
+            Error::<Test>::AgreementNotFound
+        );
+
+        // Immediately, well before deliver_by (500).
+        assert_ok!(Escrow::cancel_pending(RuntimeOrigin::signed(ALICE), BOB, 0));
+        assert_eq!(Balances::free_balance(ALICE), free_before + 1_000);
+        assert_eq!(Balances::reserved_balance(ALICE), 0);
+        assert!(Agreements::<Test>::get(ALICE, BOB).is_empty());
+        assert_eq!(pending_at(ALICE, BOB, 0), None);
+        assert_eq!(ActiveAgreementCount::<Test>::get(), 0);
+        assert_eq!(
+            last_escrow_events().last(),
+            Some(&Event::PendingCancelled {
+                buyer: ALICE,
+                provider: BOB,
+                seq: 0,
+                amount: 1_000
+            })
+        );
+
+        // After acceptance the buyer is committed and must use the normal paths.
+        assert_ok!(Escrow::create_agreement(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            1_000,
+            [1u8; 32],
+            500,
+            None,
+        ));
+        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 1));
+        assert_noop!(
+            Escrow::cancel_pending(RuntimeOrigin::signed(ALICE), BOB, 1),
+            Error::<Test>::NotPending
+        );
+        assert_eq!(Balances::reserved_balance(ALICE), 1_000);
+    });
+}
+
+/// E18 — `record_delivery` is gated on consent. Stated on its own because it is the guard
+/// that stops a provider from unilaterally converting a pending agreement into a claim.
+#[test]
+fn e18e2_record_delivery_requires_acceptance() {
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        System::set_block_number(10);
+        assert_noop!(
+            Escrow::record_delivery(RuntimeOrigin::signed(BOB), ALICE, 0, [2u8; 32]),
+            Error::<Test>::NotAccepted
+        );
+        // The refusal is not a side effect of status: the agreement is still Created.
+        assert_eq!(
+            Agreements::<Test>::get(ALICE, BOB)[0].status,
+            AgreementStatus::Created
+        );
+        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        assert_ok!(Escrow::record_delivery(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            [2u8; 32]
+        ));
+        assert_eq!(
+            Agreements::<Test>::get(ALICE, BOB)[0].status,
+            AgreementStatus::Delivered
+        );
+    });
+}
+
+/// E18 — a never-accepted agreement returns the buyer's reserve in full, through every
+/// door that closes it: provider reject, buyer cancel, and permissionless expiry. Full
+/// means full — no completion fee, no bounty, no dust left reserved.
+#[test]
+fn e18e2_unaccepted_agreement_refunds_the_buyer_in_full() {
+    // Door 1 — the provider rejects.
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        let (free0, reserved0) = (Balances::free_balance(ALICE), Balances::reserved_balance(ALICE));
+        assert_eq!(reserved0, 1_000);
+        assert_ok!(Escrow::reject_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        assert_eq!(Balances::free_balance(ALICE), free0 + 1_000);
+        assert_eq!(Balances::reserved_balance(ALICE), 0);
+        assert_eq!(Balances::free_balance(TREASURY), 0);
+    });
+    // Door 2 — the buyer cancels.
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        let (free0, reserved0) = (Balances::free_balance(ALICE), Balances::reserved_balance(ALICE));
+        assert_eq!(reserved0, 1_000);
+        assert_ok!(Escrow::cancel_pending(RuntimeOrigin::signed(ALICE), BOB, 0));
+        assert_eq!(Balances::free_balance(ALICE), free0 + 1_000);
+        assert_eq!(Balances::reserved_balance(ALICE), 0);
+        assert_eq!(Balances::free_balance(TREASURY), 0);
+    });
+    // Door 3 — anyone expires it after deliver_by + EXPIRY_GRACE.
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        let (free0, reserved0) = (Balances::free_balance(ALICE), Balances::reserved_balance(ALICE));
+        assert_eq!(reserved0, 1_000);
+        System::set_block_number(511); // deliver_by(500) + GRACE(10) + 1
+        assert_ok!(Escrow::expire_agreement(
+            RuntimeOrigin::signed(CAROL),
+            ALICE,
+            BOB,
+            0
+        ));
+        assert_eq!(Balances::free_balance(ALICE), free0 + 1_000);
+        assert_eq!(Balances::reserved_balance(ALICE), 0);
+        assert_eq!(Balances::free_balance(TREASURY), 0);
+        assert_eq!(
+            last_escrow_events().last(),
+            Some(&Event::AgreementExpired {
+                buyer: ALICE,
+                provider: BOB,
+                seq: 0,
+                amount: 1_000
+            })
+        );
+    });
+}
+
+/// E2 — liveness does not depend on a privileged or interested caller. A third party who
+/// is neither buyer nor provider closes a stuck agreement and the buyer is made whole.
+#[test]
+fn e18e2_expire_agreement_is_permissionless_after_deadline() {
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
+        let free0 = Balances::free_balance(ALICE);
+
+        System::set_block_number(511); // deliver_by(500) + GRACE(10) + 1
+        // CAROL is not registered as an agent and is party to nothing here.
+        assert_ok!(Escrow::expire_agreement(
+            RuntimeOrigin::signed(CAROL),
+            ALICE,
+            BOB,
+            0
+        ));
+
+        assert_eq!(Balances::free_balance(ALICE), free0 + 1_000);
+        assert_eq!(Balances::reserved_balance(ALICE), 0);
+        assert!(Agreements::<Test>::get(ALICE, BOB).is_empty());
+        // The accepted agreement released the provider's slot.
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 0);
+        assert_eq!(ActiveAgreementCount::<Test>::get(), 0);
+        assert_eq!(
+            last_escrow_events().last(),
+            Some(&Event::AgreementExpired {
+                buyer: ALICE,
+                provider: BOB,
+                seq: 0,
+                amount: 1_000
+            })
+        );
+        // Expiry earns the provider no escrow volume, so it cannot be farmed for emissions.
+        assert_eq!(pallet_agents::EraEscrowVolume::<Test>::get(BOB), 0);
+    });
+}
+
+/// E2 — the deadline is the whole guard, so its boundary is exact: expiry opens strictly
+/// after `deliver_by + EXPIRY_GRACE`, never at or before it.
+#[test]
+fn e18e2_expire_before_deadline_is_rejected() {
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        let reserved0 = Balances::reserved_balance(ALICE);
+
+        for block in [1u64, 250, 500, 510] {
+            System::set_block_number(block);
+            assert_noop!(
+                Escrow::expire_agreement(RuntimeOrigin::signed(CAROL), ALICE, BOB, 0),
+                Error::<Test>::AgreementNotExpired
+            );
+            // Nothing moved and nobody's books changed.
+            assert_eq!(Balances::reserved_balance(ALICE), reserved0);
+            assert_eq!(Agreements::<Test>::get(ALICE, BOB).len(), 1);
+            assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
+        }
+
+        System::set_block_number(511);
+        assert_ok!(Escrow::expire_agreement(
+            RuntimeOrigin::signed(CAROL),
+            ALICE,
+            BOB,
+            0
+        ));
+        assert_eq!(Balances::reserved_balance(ALICE), reserved0 - 1_000);
+    });
+}
+
+/// E2 — expiry must never strip a provider that did the work. A recorded delivery, whether
+/// it went on to be disputed or not, closes the expiry door permanently.
+#[test]
+fn e18e2_expire_agreement_rejects_when_delivered() {
+    // Delivered, awaiting the buyer's confirmation.
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        System::set_block_number(10);
+        assert_ok!(Escrow::record_delivery(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            [2u8; 32]
+        ));
+        let reserved0 = Balances::reserved_balance(ALICE);
+
+        System::set_block_number(5_000); // long past deliver_by + GRACE
+        assert_noop!(
+            Escrow::expire_agreement(RuntimeOrigin::signed(CAROL), ALICE, BOB, 0),
+            Error::<Test>::AlreadyDelivered
+        );
+        assert_eq!(Balances::reserved_balance(ALICE), reserved0);
+        assert_eq!(Agreements::<Test>::get(ALICE, BOB).len(), 1);
+        // The provider keeps its slot; it is still owed a settlement.
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
+    });
+    // Delivered and then disputed — the oracle owns the outcome, not expiry.
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        System::set_block_number(10);
+        assert_ok!(Escrow::record_delivery(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            [2u8; 32]
+        ));
+        assert_ok!(Escrow::dispute_delivery(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            0
+        ));
+        let reserved0 = Balances::reserved_balance(ALICE);
+        System::set_block_number(5_000);
+        assert_noop!(
+            Escrow::expire_agreement(RuntimeOrigin::signed(CAROL), ALICE, BOB, 0),
+            Error::<Test>::AlreadyDelivered
+        );
+        assert_eq!(Balances::reserved_balance(ALICE), reserved0);
+        assert_eq!(
+            Agreements::<Test>::get(ALICE, BOB)[0].status,
+            AgreementStatus::Disputed
+        );
+    });
+}
+
+/// The reserve is released exactly once, whichever refund door fires first. Asserted on
+/// reserved balances in both orders, because a second `unreserve` on an already-released
+/// reserve returns success while moving nothing and would pass a return-value-only test.
+#[test]
+fn e18e2_refund_cannot_be_claimed_twice_across_paths() {
+    // Order 1 — expiry (deliver_by + 10) closes the agreement before claim_refund
+    // (deliver_by + 50) is even available.
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        let free0 = Balances::free_balance(ALICE);
+
+        System::set_block_number(511);
+        assert_ok!(Escrow::expire_agreement(
+            RuntimeOrigin::signed(CAROL),
+            ALICE,
+            BOB,
+            0
+        ));
+        assert_eq!(Balances::free_balance(ALICE), free0 + 1_000);
+        assert_eq!(Balances::reserved_balance(ALICE), 0);
+
+        System::set_block_number(551); // claim_refund's window has now opened
+        assert_noop!(
+            Escrow::claim_refund(RuntimeOrigin::signed(ALICE), BOB, 0),
+            Error::<Test>::AgreementNotFound
+        );
+        // The second attempt paid nothing out.
+        assert_eq!(Balances::free_balance(ALICE), free0 + 1_000);
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 0);
+        assert_eq!(ActiveAgreementCount::<Test>::get(), 0);
+    });
+    // Order 2 — the buyer claims first; expiry then finds nothing.
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0));
+        let free0 = Balances::free_balance(ALICE);
+
+        System::set_block_number(551);
+        assert_ok!(Escrow::claim_refund(RuntimeOrigin::signed(ALICE), BOB, 0));
+        assert_eq!(Balances::free_balance(ALICE), free0 + 1_000);
+        assert_eq!(Balances::reserved_balance(ALICE), 0);
+
+        assert_noop!(
+            Escrow::expire_agreement(RuntimeOrigin::signed(CAROL), ALICE, BOB, 0),
+            Error::<Test>::AgreementNotFound
+        );
+        assert_eq!(Balances::free_balance(ALICE), free0 + 1_000);
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 0);
+        assert_eq!(ActiveAgreementCount::<Test>::get(), 0);
+    });
+    // Order 3 — a pending agreement cancelled by the buyer cannot then be expired.
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        let free0 = Balances::free_balance(ALICE);
+        assert_ok!(Escrow::cancel_pending(RuntimeOrigin::signed(ALICE), BOB, 0));
+        assert_eq!(Balances::free_balance(ALICE), free0 + 1_000);
+
+        System::set_block_number(511);
+        assert_noop!(
+            Escrow::expire_agreement(RuntimeOrigin::signed(CAROL), ALICE, BOB, 0),
+            Error::<Test>::AgreementNotFound
+        );
+        assert_noop!(
+            Escrow::reject_agreement(RuntimeOrigin::signed(BOB), ALICE, 0),
+            Error::<Test>::AgreementNotFound
+        );
+        assert_eq!(Balances::free_balance(ALICE), free0 + 1_000);
+        assert_eq!(Balances::reserved_balance(ALICE), 0);
+    });
+}
+
+/// The #204 blocker, as a test. `claim_refund` decrements the provider's
+/// `ActiveEscrowCount` unconditionally, which is only sound for an agreement the provider
+/// accepted. A sybil buyer must not be able to spend a refundable reserve to walk a
+/// victim's count down and unstake it out from under its real obligations.
+#[test]
+fn e18e2_claim_refund_rejects_pending_agreement() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        register_both();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(CAROL), 1_000));
+
+        // BOB has one real, accepted obligation, to CAROL.
+        assert_ok!(Escrow::create_agreement(
+            RuntimeOrigin::signed(CAROL),
+            BOB,
+            1_000,
+            [1u8; 32],
+            500,
+            None,
+        ));
+        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), CAROL, 0));
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
+
+        // ALICE, the attacker, opens an agreement BOB never accepted and waits out
+        // deliver_by + BuyerResponseWindow.
+        assert_ok!(Escrow::create_agreement(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            1_000,
+            [1u8; 32],
+            500,
+            None,
+        ));
+        System::set_block_number(551);
+
+        // Consent is classified before eligibility: the answer is NotAccepted, not
+        // DisputeTimeoutNotElapsed. Waiting longer would never help, and cancel_pending
+        // is available to ALICE right now for the same full amount.
+        assert_noop!(
+            Escrow::claim_refund(RuntimeOrigin::signed(ALICE), BOB, 0),
+            Error::<Test>::NotAccepted
+        );
+
+        // The victim's count is intact, so its unstake is still correctly blocked.
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
+        assert_noop!(
+            Agents::request_unstake(RuntimeOrigin::signed(BOB)),
+            pallet_agents::Error::<Test>::HasActiveAgreements
+        );
+        // And no pending entry was orphaned.
+        assert_eq!(pending_at(ALICE, BOB, 0), Some(1));
+        assert_eq!(Balances::reserved_balance(ALICE), 1_000);
+
+        // ALICE's own exit still works and takes nothing from BOB's books.
+        let free0 = Balances::free_balance(ALICE);
+        assert_ok!(Escrow::cancel_pending(RuntimeOrigin::signed(ALICE), BOB, 0));
+        assert_eq!(Balances::free_balance(ALICE), free0 + 1_000);
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
+    });
+}
+
+/// The same count-integrity concern on the expiry path: expiring a pending agreement must
+/// not consume a slot that belongs to one the provider did accept.
+#[test]
+fn e18e2_expire_pending_agreement_leaves_provider_count_alone() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        register_both();
+        assert_ok!(Agents::register(RuntimeOrigin::signed(CAROL), 1_000));
+
+        // One accepted agreement (CAROL→BOB) and one pending (ALICE→BOB).
+        assert_ok!(Escrow::create_agreement(
+            RuntimeOrigin::signed(CAROL),
+            BOB,
+            1_000,
+            [1u8; 32],
+            500,
+            None,
+        ));
+        assert_ok!(Escrow::accept_agreement(RuntimeOrigin::signed(BOB), CAROL, 0));
+        assert_ok!(Escrow::create_agreement(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            1_000,
+            [1u8; 32],
+            500,
+            None,
+        ));
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
+        assert_eq!(ActiveAgreementCount::<Test>::get(), 2);
+
+        System::set_block_number(511);
+        let free0 = Balances::free_balance(ALICE);
+        assert_ok!(Escrow::expire_agreement(
+            RuntimeOrigin::signed(CAROL),
+            ALICE,
+            BOB,
+            0
+        ));
+
+        assert_eq!(Balances::free_balance(ALICE), free0 + 1_000);
+        assert_eq!(Balances::reserved_balance(ALICE), 0);
+        // The accepted agreement's slot survives the pending one's expiry.
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
+        assert_eq!(ActiveAgreementCount::<Test>::get(), 1);
+        assert_eq!(pending_at(ALICE, BOB, 0), None);
+        // BOB still owes CAROL, so it cannot leave.
+        assert_noop!(
+            Agents::request_unstake(RuntimeOrigin::signed(BOB)),
+            pallet_agents::Error::<Test>::HasActiveAgreements
+        );
+    });
+}
+
+/// No migration: an agreement that predates `PendingAcceptance` has no entry, so absence
+/// of an entry must read as "accepted". This is what lets the change ship without touching
+/// storage layout or bumping `spec_version`.
+#[test]
+fn e18e2_grandfathered_agreement_without_entry_is_treated_as_accepted() {
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        // Rewrite the agreement into its pre-upgrade shape: no pending entry, and the
+        // provider's count already incremented, as the old `create_agreement` did.
+        grandfather(ALICE, BOB, 0);
+        assert_eq!(pending_at(ALICE, BOB, 0), None);
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
+
+        // It needs no consent, and none can be given.
+        assert_noop!(
+            Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0),
+            Error::<Test>::NotPending
+        );
+        // Nor can it be rejected or cancelled as if it were pending.
+        assert_noop!(
+            Escrow::reject_agreement(RuntimeOrigin::signed(BOB), ALICE, 0),
+            Error::<Test>::NotPending
+        );
+        assert_noop!(
+            Escrow::cancel_pending(RuntimeOrigin::signed(ALICE), BOB, 0),
+            Error::<Test>::NotPending
+        );
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
+
+        // It delivers and settles on the pre-upgrade path, untouched.
+        System::set_block_number(10);
+        assert_ok!(Escrow::record_delivery(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            [2u8; 32]
+        ));
+        let bob_free0 = Balances::free_balance(BOB);
+        assert_ok!(Escrow::confirm_delivery(
+            RuntimeOrigin::signed(ALICE),
+            BOB,
+            0
+        ));
+        assert_eq!(Balances::free_balance(BOB), bob_free0 + 1_000);
+        assert_eq!(Balances::reserved_balance(ALICE), 0);
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 0);
+    });
+}
+
+/// A grandfathered agreement also refunds through `claim_refund`, since absence of a
+/// pending entry means the consent check passes.
+#[test]
+fn e18e2_grandfathered_agreement_can_still_claim_refund() {
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        grandfather(ALICE, BOB, 0);
+        let free0 = Balances::free_balance(ALICE);
+
+        System::set_block_number(551); // deliver_by(500) + BuyerResponseWindow(50) + 1
+        assert_ok!(Escrow::claim_refund(RuntimeOrigin::signed(ALICE), BOB, 0));
+        assert_eq!(Balances::free_balance(ALICE), free0 + 1_000);
+        assert_eq!(Balances::reserved_balance(ALICE), 0);
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 0);
+        assert_eq!(
+            last_escrow_events().last(),
+            Some(&Event::RefundClaimed {
+                buyer: ALICE,
+                provider: BOB,
+                seq: 0,
+                amount: 1_000
+            })
+        );
+    });
+}
+
 // ── Governance-vote verifier mock (ROUND14) ──────────────────────────────────
 //
 // Replaces `GovVoteVerifier = ()`, whose impl returned `true` unconditionally and was

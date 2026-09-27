@@ -190,6 +190,59 @@ pub mod pallet {
     #[pallet::storage]
     pub type ActiveAgreementCount<T: Config> = StorageValue<_, u32, ValueQuery>;
 
+    /// Agreements created but not yet accepted by their provider (E18).
+    ///
+    /// Presence of an entry means "created, not yet consented to": the buyer's funds are
+    /// reserved, but the agreement does *not* occupy a slot in the provider's
+    /// `ActiveEscrowCount` and so cannot pin its stake. Before this, any buyer could freeze
+    /// any agent's entire stake indefinitely for the price of a refundable reserve, because
+    /// `agents.request_unstake` refuses while that count is non-zero. An agreement must not
+    /// bind a provider who never agreed to it.
+    ///
+    /// The polarity — absence means *accepted* — is what lets this ship with no migration:
+    /// every agreement that predates this map has no entry and is grandfathered as accepted.
+    /// A flag on `Agreement` would have been the obvious encoding and is exactly what we
+    /// cannot do, because it changes an existing storage layout.
+    ///
+    /// Key: buyer → (provider, seq). Value: the block the agreement was created at.
+    #[pallet::storage]
+    pub type PendingAcceptance<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Blake2_128Concat,
+        (T::AccountId, u32),
+        BlockNumberFor<T>,
+        OptionQuery,
+    >;
+
+    /// Blocks past `deliver_by` before anyone may expire an undelivered agreement (E2).
+    ///
+    /// The grace period exists so a provider that delivers in the same block the deadline
+    /// lands is not raced out of its payment by an expiry transaction. A pallet-level
+    /// `const` rather than a `Config` type deliberately: this change does not touch
+    /// `runtime/src/lib.rs`, so there is no runtime constant to add.
+    pub const EXPIRY_GRACE: u32 = 10;
+
+    /// Whether an agreement's provider has consented to it (E18).
+    ///
+    /// Every refund path classifies this *first*, before any timing arithmetic, because the
+    /// two arms differ in one economically load-bearing way: only an accepted agreement ever
+    /// entered the provider's `ActiveEscrowCount`, so only an accepted agreement may
+    /// decrement it on the way out. Decrementing for a never-accepted agreement would take a
+    /// slot belonging to the provider's real obligations and let it unstake while still owing
+    /// delivery — the E18 hole reopened from the other side.
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+    pub enum ConsentState {
+        /// A `PendingAcceptance` entry exists: created, never accepted, provider's count
+        /// never incremented. Exits via `cancel_pending`, `reject_agreement` or
+        /// `expire_agreement` — never via `claim_refund`.
+        Pending,
+        /// No entry: the provider accepted, or the agreement predates `PendingAcceptance`
+        /// and is grandfathered. The provider's count holds a slot that must be released.
+        Accepted,
+    }
+
     const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]
@@ -248,6 +301,37 @@ pub mod pallet {
             old_deadline: BlockNumberFor<T>,
             new_deadline: BlockNumberFor<T>,
         },
+        /// The provider consented to a pending agreement, which is the moment it starts
+        /// counting against the provider's `ActiveEscrowCount` (E18).
+        AgreementAccepted {
+            buyer: T::AccountId,
+            provider: T::AccountId,
+            seq: u32,
+        },
+        /// The provider declined an agreement it had not accepted; the buyer was refunded
+        /// in full.
+        AgreementRejected {
+            buyer: T::AccountId,
+            provider: T::AccountId,
+            seq: u32,
+            amount: BalanceOf<T>,
+        },
+        /// The buyer withdrew an agreement before the provider accepted it, so funds are
+        /// never held hostage by a silent provider.
+        PendingCancelled {
+            buyer: T::AccountId,
+            provider: T::AccountId,
+            seq: u32,
+            amount: BalanceOf<T>,
+        },
+        /// An undelivered agreement outlived `deliver_by + EXPIRY_GRACE` and was closed by
+        /// any caller; the buyer was refunded in full (E2).
+        AgreementExpired {
+            buyer: T::AccountId,
+            provider: T::AccountId,
+            seq: u32,
+            amount: BalanceOf<T>,
+        },
     }
 
     #[pallet::error]
@@ -270,6 +354,18 @@ pub mod pallet {
         ProviderLacksCapability,
         /// The requested deadline is further out than `MaxAgreementSpan` allows (E21).
         SpanTooLong,
+        /// The provider has not consented to this agreement yet, so this path is closed to
+        /// it (E18). A buyer holding a pending agreement should use `cancel_pending`, which
+        /// is available immediately and refunds the same full amount.
+        NotAccepted,
+        /// The agreement is not awaiting acceptance — it was already accepted, or it
+        /// predates `PendingAcceptance` and is grandfathered as accepted.
+        NotPending,
+        /// `deliver_by + EXPIRY_GRACE` has not passed, so the agreement is not expirable yet.
+        AgreementNotExpired,
+        /// A delivery is already recorded, so the provider did the work and the agreement
+        /// may not be expired out from under it.
+        AlreadyDelivered,
     }
 
     #[pallet::call]
@@ -601,6 +697,177 @@ pub mod pallet {
                 Ok(())
             })
         }
+
+        /// Provider consents to a pending agreement (E18).
+        ///
+        /// Consent is what makes an agreement bind: only from here does it occupy a slot in
+        /// the provider's `ActiveEscrowCount` and block its unstake. A buyer therefore can no
+        /// longer pin an agent's stake by opening agreements the agent never agreed to.
+        ///
+        /// The E1 capability check runs again here because acceptance, not creation, is the
+        /// provider's commitment to the skill: it must hold the capability at the moment it
+        /// takes the job on. Accepting after `deliver_by` is refused — it would pin the
+        /// provider's count for work that can no longer be delivered, and the agreement is
+        /// already headed for expiry.
+        #[pallet::call_index(6)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(4, 2)
+            .saturating_add(Weight::from_parts(60_000_000, 0)))]
+        pub fn accept_agreement(
+            origin: OriginFor<T>,
+            buyer: T::AccountId,
+            seq: u32,
+        ) -> DispatchResult {
+            let provider = ensure_signed(origin)?;
+            // Looked up under the signer's own key, so a stranger finds nothing.
+            let agreement = Agreements::<T>::get(&buyer, &provider)
+                .into_iter()
+                .find(|a| a.seq == seq)
+                .ok_or(Error::<T>::AgreementNotFound)?;
+            // Guards first, all of them, before the count moves below.
+            ensure!(
+                Self::consent_state(&buyer, &provider, seq) == ConsentState::Pending,
+                Error::<T>::NotPending
+            );
+            ensure!(
+                Self::provider_has_capability(&provider, agreement.capability_id),
+                Error::<T>::ProviderLacksCapability
+            );
+            let now = frame_system::Pallet::<T>::block_number();
+            ensure!(now <= agreement.deliver_by, Error::<T>::DeadlinePassed);
+
+            agents_pallet::Pallet::<T>::increment_active_escrow(&provider)?;
+            PendingAcceptance::<T>::remove(&buyer, (provider.clone(), seq));
+            Self::deposit_event(Event::AgreementAccepted {
+                buyer,
+                provider,
+                seq,
+            });
+            Ok(())
+        }
+
+        /// Provider declines an agreement it never accepted; the buyer's reserve is released
+        /// in full (E18).
+        ///
+        /// Valid only while pending, so it can never be used to walk away from a commitment
+        /// already made — once accepted, the provider is bound and must deliver, be disputed,
+        /// or let the agreement expire.
+        #[pallet::call_index(7)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(3, 4)
+            .saturating_add(Weight::from_parts(60_000_000, 0)))]
+        pub fn reject_agreement(
+            origin: OriginFor<T>,
+            buyer: T::AccountId,
+            seq: u32,
+        ) -> DispatchResult {
+            let provider = ensure_signed(origin)?;
+            let amount = Self::close_pending(&buyer, &provider, seq)?;
+            Self::deposit_event(Event::AgreementRejected {
+                buyer,
+                provider,
+                seq,
+                amount,
+            });
+            Ok(())
+        }
+
+        /// Buyer withdraws an agreement the provider has not accepted (E18).
+        ///
+        /// The buyer's counterpart to `reject_agreement`, and the reason refusing pending
+        /// agreements from `claim_refund` costs a buyer nothing: this door is open
+        /// immediately, with no deadline to wait out, and refunds the same full amount.
+        #[pallet::call_index(8)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(3, 4)
+            .saturating_add(Weight::from_parts(60_000_000, 0)))]
+        pub fn cancel_pending(
+            origin: OriginFor<T>,
+            provider: T::AccountId,
+            seq: u32,
+        ) -> DispatchResult {
+            let buyer = ensure_signed(origin)?;
+            let amount = Self::close_pending(&buyer, &provider, seq)?;
+            Self::deposit_event(Event::PendingCancelled {
+                buyer,
+                provider,
+                seq,
+                amount,
+            });
+            Ok(())
+        }
+
+        /// Closes an agreement nobody delivered on and refunds the buyer (E2).
+        ///
+        /// Permissionless by design, modelled on `oracle.expire_request`: an agreement whose
+        /// provider goes silent previously had no exit that did not depend on the buyer, so a
+        /// buyer that lost its key left funds reserved and the provider's count pinned
+        /// forever. Per first principle 3, no economically essential path may depend on a
+        /// privileged — or merely interested — caller, so any signed account may close a
+        /// visibly dead agreement. There is nothing to extract by doing so: the refund always
+        /// goes to the buyer of record, and expiry earns the provider no escrow volume, so it
+        /// cannot be farmed for emissions weight.
+        ///
+        /// Only after `deliver_by + EXPIRY_GRACE`, and never once a delivery is recorded, so
+        /// a provider that did the work is never raced out of its payment.
+        #[pallet::call_index(9)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(4, 5)
+            .saturating_add(Weight::from_parts(80_000_000, 0)))]
+        pub fn expire_agreement(
+            origin: OriginFor<T>,
+            buyer: T::AccountId,
+            provider: T::AccountId,
+            seq: u32,
+        ) -> DispatchResult {
+            // Permissionless: the caller is authenticated but otherwise unprivileged, and
+            // gains nothing from the call. Do not add an origin restriction here.
+            ensure_signed(origin)?;
+            let mut refund_amount = BalanceOf::<T>::zero();
+            Agreements::<T>::try_mutate(&buyer, &provider, |vec| {
+                let idx = vec
+                    .iter()
+                    .position(|a| a.seq == seq)
+                    .ok_or(Error::<T>::AgreementNotFound)?;
+                let agreement = &vec[idx];
+                // `Delivered` and `Disputed` both mean a delivery exists; the oracle and the
+                // buyer own those outcomes, not expiry.
+                ensure!(
+                    agreement.status == AgreementStatus::Created,
+                    Error::<T>::AlreadyDelivered
+                );
+                let now = frame_system::Pallet::<T>::block_number();
+                ensure!(
+                    now > agreement.deliver_by.saturating_add(EXPIRY_GRACE.into()),
+                    Error::<T>::AgreementNotExpired
+                );
+                // Classified before any funds move, and stated as a match so the two cases
+                // are named rather than left implicit in the order of the guards above.
+                let consent = Self::consent_state(&buyer, &provider, seq);
+
+                refund_amount = agreement.amount;
+                <T as agents_pallet::Config>::Currency::unreserve(&buyer, refund_amount);
+                match consent {
+                    // Never accepted: the provider's count never held a slot for this
+                    // agreement, so releasing one would steal it from a real obligation.
+                    ConsentState::Pending => {
+                        PendingAcceptance::<T>::remove(&buyer, (provider.clone(), seq));
+                    }
+                    // Accepted (or grandfathered): release the slot it occupied.
+                    ConsentState::Accepted => {
+                        agents_pallet::Pallet::<T>::decrement_active_escrow(&provider);
+                    }
+                }
+                ActiveAgreementCount::<T>::mutate(|c| *c = c.saturating_sub(1));
+                // Removal from `Agreements` is the once-only token: every refund door starts
+                // by looking the agreement up here, so no second door can pay out again.
+                vec.swap_remove(idx);
+                Ok::<(), DispatchError>(())
+            })?;
+            Self::deposit_event(Event::AgreementExpired {
+                buyer,
+                provider,
+                seq,
+                amount: refund_amount,
+            });
+            Ok(())
+        }
     }
 
     impl<T: Config> Pallet<T>
@@ -615,6 +882,54 @@ pub mod pallet {
                 None => true,
                 Some(cap) => agents_pallet::AgentCapabilities::<T>::get(provider).contains(&cap),
             }
+        }
+
+        /// Single point of truth for "has the provider consented to this agreement?" (E18).
+        ///
+        /// Both refund paths that can meet an unconsented agreement — `claim_refund` and
+        /// `expire_agreement` — classify through here, so the decision about the provider's
+        /// `ActiveEscrowCount` is stated once, in one place, instead of emerging from the
+        /// order the `ensure!`s happen to sit in. Absence of an entry reads as accepted,
+        /// which is what grandfathers pre-upgrade agreements without a migration.
+        fn consent_state(
+            buyer: &T::AccountId,
+            provider: &T::AccountId,
+            seq: u32,
+        ) -> ConsentState {
+            if PendingAcceptance::<T>::contains_key(buyer, (provider.clone(), seq)) {
+                ConsentState::Pending
+            } else {
+                ConsentState::Accepted
+            }
+        }
+
+        /// Shared exit for `reject_agreement` and `cancel_pending`: release the buyer's
+        /// reserve and close an agreement that is still pending.
+        ///
+        /// Valid only in the `ConsentState::Pending` arm, so the provider's count is
+        /// deliberately left alone — it never held a slot for this agreement. Every `ensure!`
+        /// runs before the `unreserve`.
+        fn close_pending(
+            buyer: &T::AccountId,
+            provider: &T::AccountId,
+            seq: u32,
+        ) -> Result<BalanceOf<T>, DispatchError> {
+            Agreements::<T>::try_mutate(buyer, provider, |vec| {
+                let idx = vec
+                    .iter()
+                    .position(|a| a.seq == seq)
+                    .ok_or(Error::<T>::AgreementNotFound)?;
+                ensure!(
+                    Self::consent_state(buyer, provider, seq) == ConsentState::Pending,
+                    Error::<T>::NotPending
+                );
+                let amount = vec[idx].amount;
+                <T as agents_pallet::Config>::Currency::unreserve(buyer, amount);
+                PendingAcceptance::<T>::remove(buyer, (provider.clone(), seq));
+                ActiveAgreementCount::<T>::mutate(|c| *c = c.saturating_sub(1));
+                vec.swap_remove(idx);
+                Ok(amount)
+            })
         }
 
         pub fn settle_dispute_from_oracle(
