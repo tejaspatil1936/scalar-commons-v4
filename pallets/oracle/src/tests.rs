@@ -42,7 +42,12 @@ impl frame_system::Config for Test {
     // BlockNumber is u64 in this mock, so these want ConstU64/ConstU16, not
     // ConstU32. Values unchanged: 250 blocks of hashes, SS58 prefix 42.
     type BlockHashCount = ConstU64<250>;
-    type DbWeight = ();
+    // Was `()`, whose `Get<RuntimeDbWeight>` impl yields zero for both read and
+    // write. The `finalise_weight_` tests compare declared weights, and against a
+    // zero DbWeight every such comparison is 0 >= 0 — true for any declaration,
+    // including an under-priced one. RocksDbWeight is what the runtime itself uses
+    // (runtime/src/lib.rs), so the mock now prices storage the same way.
+    type DbWeight = frame_support::weights::constants::RocksDbWeight;
     type Version = ();
     type PalletInfo = PalletInfo;
     type AccountData = pallet_balances::AccountData<u64>;
@@ -1027,4 +1032,332 @@ pub fn conclude_poll(poll: u32) {
 pub fn reset_gov_state() {
     HELD_VOTES.with(|v| v.borrow_mut().clear());
     ONGOING_POLLS.with(|p| p.borrow_mut().clear());
+}
+
+// ── finalise_request declared weight (#223) ──────────────────────────────────
+//
+// `finalise_request` is priced per call but works per response: it iterates
+// every response under the request, pays every winner out of the bounty and
+// rescores every respondent. `MaxResponsesPerRequest` bounds that at 200 on
+// chain (100 in this mock), so one flat declaration is roughly right at a
+// typical response count and badly wrong at the bound. Block production budgets
+// by the declaration, so an under-declared call sells execution the block never
+// reserved — the reason the declaration has to cover the worst case.
+//
+// The ledger below is counted independently of `lib.rs`: one row per storage
+// operation the body performs, attributed to the storage it touches. Two checks
+// tie it to reality in both directions:
+//
+//   * `finalise_weight_covers_the_worst_case_response_count` runs the real
+//     extrinsic at the bound and compares the rows owned by this pallet's
+//     storage against the keys the call actually changed. A per-response write
+//     added to the body without a matching row here fails there.
+//   * both tests assert the declared weight is a floor over the ledger sum, so
+//     a row added here that `lib.rs` does not price fails too.
+//
+// What the dynamic check cannot reach, stated rather than glossed:
+//
+//   * Reads, all of them. `TestExternalities` has no read counter, and the
+//     benchmarking host functions that do are `unimplemented!` on its trie
+//     backend, so every read row is source-derived.
+//   * `Owner::Foreign` writes. The currency rows could in principle be observed,
+//     but the `DisputeCallback` row cannot: this mock wires a recording double,
+//     not `pallet_escrow`, so escrow's real settle cost is unobservable from
+//     here at any response count. That row is a counted allowance (see the row
+//     itself), deliberately rounded up.
+//
+// The `Owner::Oracle` write rows carry the dynamic check, and they are the rows
+// that scale with the response count — which is the part #223 is about.
+
+/// Which storage a ledger row touches. Only `Oracle`-owned writes can be
+/// observed by diffing this pallet's storage prefix across the call.
+#[derive(PartialEq)]
+enum Owner {
+    Oracle,
+    Foreign,
+}
+
+/// One storage operation `finalise_request` performs: owner, what, reads, writes.
+type LedgerRow = (Owner, &'static str, u64, u64);
+
+/// Operations performed once per call, whatever the response count.
+const BASE_LEDGER: &[LedgerRow] = &[
+    (Owner::Oracle, "OracleRequests::get — the request", 1, 0),
+    (Owner::Foreign, "frame_system::block_number", 1, 0),
+    (
+        Owner::Oracle,
+        "OracleResults::insert — accepted answer",
+        0,
+        1,
+    ),
+    (
+        Owner::Oracle,
+        "EraFinalisedQuestions::mutate — era counter",
+        1,
+        1,
+    ),
+    (
+        Owner::Oracle,
+        "OracleRequests::remove — the request entry",
+        0,
+        1,
+    ),
+    (
+        Owner::Oracle,
+        "OracleRequests counter — CountedStorageMap decrement on remove",
+        1,
+        1,
+    ),
+    (
+        Owner::Foreign,
+        "repatriate_reserved — the creator's reserve, drawn down once",
+        1,
+        1,
+    ),
+    (
+        Owner::Foreign,
+        "DisputeCallback::on_dispute_resolved — escrow's settle path, counted \
+         allowance: ~6r/7w in escrow, ~7r/5w in add_era_escrow_volume, ~37r/2w \
+         in maybe_promote (best_score iterates MaxCapabilitiesPerAgent), ~2r/1w \
+         orchestrator credit, rounded up",
+        60,
+        20,
+    ),
+];
+
+/// Operations performed once per response under the request. The worst case is
+/// consensus reached with every respondent a winner: every response is then
+/// both paid and rescored.
+const PER_RESPONSE_LEDGER: &[LedgerRow] = &[
+    (
+        Owner::Oracle,
+        "OracleResponses::iter_prefix — yields this response",
+        1,
+        0,
+    ),
+    (
+        Owner::Foreign,
+        "repatriate_reserved — this winner's account",
+        1,
+        1,
+    ),
+    (
+        Owner::Oracle,
+        "OracleAccuracy::mutate — update_accuracy tally",
+        1,
+        1,
+    ),
+    (
+        Owner::Oracle,
+        "OracleAccuracy::get — update_accuracy re-reads the tally",
+        1,
+        0,
+    ),
+    (
+        Owner::Oracle,
+        "OracleScore::insert — update_accuracy derived score",
+        0,
+        1,
+    ),
+    (
+        Owner::Oracle,
+        "OracleResponses::clear_prefix — removes this response",
+        1,
+        1,
+    ),
+];
+
+fn ledger_sum(rows: &[LedgerRow], only: Option<Owner>) -> (u64, u64) {
+    rows.iter()
+        .filter(|(owner, ..)| only.as_ref().map(|o| o == owner).unwrap_or(true))
+        .fold((0, 0), |(r, w), (_, _, lr, lw)| (r + lr, w + lw))
+}
+
+/// Worst-case (reads, writes) the test counts for `responses` responses.
+fn counted_ops(responses: u64) -> (u64, u64) {
+    let (br, bw) = ledger_sum(BASE_LEDGER, None);
+    let (pr, pw) = ledger_sum(PER_RESPONSE_LEDGER, None);
+    (br + pr * responses, bw + pw * responses)
+}
+
+/// Writes the test counts against this pallet's own storage — the subset the
+/// dynamic check can observe.
+fn counted_oracle_writes(responses: u64) -> u64 {
+    let (_, bw) = ledger_sum(BASE_LEDGER, Some(Owner::Oracle));
+    let (_, pw) = ledger_sum(PER_RESPONSE_LEDGER, Some(Owner::Oracle));
+    bw + pw * responses
+}
+
+fn db_weight() -> frame_support::weights::RuntimeDbWeight {
+    use frame_support::traits::Get;
+    <<Test as frame_system::Config>::DbWeight as Get<frame_support::weights::RuntimeDbWeight>>::get(
+    )
+}
+
+fn max_responses() -> u64 {
+    use frame_support::traits::Get;
+    <<Test as crate::Config>::MaxResponsesPerRequest as Get<u32>>::get() as u64
+}
+
+/// Every storage key in the externality, with its value, so two snapshots can
+/// be diffed into "keys this call changed".
+fn storage_snapshot() -> std::collections::BTreeMap<Vec<u8>, Vec<u8>> {
+    let mut out = std::collections::BTreeMap::new();
+    let mut next = sp_io::storage::next_key(&[]);
+    while let Some(key) = next {
+        if let Some(value) = sp_io::storage::get(&key) {
+            out.insert(key.clone(), value.to_vec());
+        }
+        next = sp_io::storage::next_key(&key);
+    }
+    out
+}
+
+/// Count keys under the `Oracle` pallet prefix whose value differs between the
+/// two snapshots, including keys added and keys removed.
+fn changed_oracle_keys(
+    before: &std::collections::BTreeMap<Vec<u8>, Vec<u8>>,
+    after: &std::collections::BTreeMap<Vec<u8>, Vec<u8>>,
+) -> usize {
+    let prefix = sp_core::twox_128(b"Oracle");
+    let is_oracle = |k: &Vec<u8>| k.starts_with(&prefix);
+    let mut keys: std::collections::BTreeSet<&Vec<u8>> = std::collections::BTreeSet::new();
+    keys.extend(before.keys().filter(|k| is_oracle(k)));
+    keys.extend(after.keys().filter(|k| is_oracle(k)));
+    keys.into_iter()
+        .filter(|k| before.get(*k) != after.get(*k))
+        .count()
+}
+
+/// Fill `q_hash()` to exactly `MaxResponsesPerRequest` responses, all agreeing,
+/// and wind the clock past the challenge window so `finalise_request` is due.
+///
+/// The mock cannot register that many agents (`MaxAgents` = 100, ten
+/// registrations per block), so the responses are written straight to storage
+/// under synthetic accounts — the same device
+/// `batch_submit_response_over_cap_returns_error` uses.
+fn fill_request_to_bound(bounty: u64) -> u64 {
+    let n = max_responses();
+    register(ALICE);
+    assert_ok!(Oracle::create_oracle_request(
+        RuntimeOrigin::signed(ALICE),
+        q_hash(),
+        bounty,
+        ConsensusMode::Factual,
+        3,
+        67,
+        10,
+        5,
+        None,
+    ));
+    for i in 0..n {
+        OracleResponses::<Test>::insert(q_hash(), 1_000 + i, [7u8; 32]);
+    }
+    OracleRequests::<Test>::mutate(q_hash(), |r| {
+        let r = r.as_mut().unwrap();
+        r.response_count = n as u32;
+        r.status = OracleRequestStatus::Collecting;
+    });
+    frame_system::Pallet::<Test>::set_block_number(100);
+    n
+}
+
+#[test]
+fn finalise_weight_scales_with_max_responses() {
+    new_test_ext().execute_with(|| {
+        let bound = max_responses();
+        assert!(
+            bound > 1,
+            "the bound must exceed one for scaling to mean anything"
+        );
+        assert!(
+            db_weight().read > 0 && db_weight().write > 0,
+            "the mock's DbWeight must be non-zero or every weight comparison below is vacuous"
+        );
+
+        // The declaration prices exactly the operations the ledger counts, at
+        // the bound rather than at a typical response count.
+        let at_bound = Oracle::finalise_request_db_ops(bound as u32);
+        assert_eq!(
+            at_bound,
+            counted_ops(bound),
+            "declared (reads, writes) must equal the independently counted worst case"
+        );
+
+        // It has to move with the bound: pricing one fewer response must be
+        // strictly cheaper in both components, which no constant satisfies.
+        let one_less = Oracle::finalise_request_db_ops(bound as u32 - 1);
+        assert!(
+            at_bound.0 > one_less.0 && at_bound.1 > one_less.1,
+            "weight does not scale with the response count: {at_bound:?} vs {one_less:?}"
+        );
+
+        // Raising a weight is safe, lowering one is not (issue #223 §2). The
+        // count comes out far above the flat 10/10 this replaced, so it rises.
+        assert!(
+            at_bound.0 > 10 && at_bound.1 > 10,
+            "counted worst case {at_bound:?} is below the flat 10/10 it replaces — \
+             the declaration must not be lowered"
+        );
+
+        // And the declared Weight is a floor over the counted worst case.
+        let declared = Oracle::finalise_request_worst_case_weight();
+        let counted = db_weight().reads_writes(at_bound.0, at_bound.1);
+        assert!(
+            declared.all_gte(counted),
+            "declared {declared:?} does not cover counted worst case {counted:?}"
+        );
+    });
+}
+
+#[test]
+fn finalise_weight_covers_the_worst_case_response_count() {
+    new_test_ext().execute_with(|| {
+        frame_system::Pallet::<Test>::set_block_number(1); // events are not recorded at block 0
+        let n = fill_request_to_bound(100_000);
+
+        let before = storage_snapshot();
+        assert_ok!(Oracle::finalise_request(
+            RuntimeOrigin::signed(BOB),
+            q_hash()
+        ));
+        let after = storage_snapshot();
+
+        // The per-response work really did run once per response at the bound:
+        // every respondent was paid and rescored, so every response is a winner.
+        frame_system::Pallet::<Test>::assert_has_event(
+            Event::<Test>::OracleRequestFinalised {
+                id: q_hash(),
+                winning_hash: [7u8; 32],
+                respondents_paid: n as u32,
+            }
+            .into(),
+        );
+        let rescored = frame_system::Pallet::<Test>::events()
+            .into_iter()
+            .filter(|r| matches!(r.event, RuntimeEvent::Oracle(Event::ScoreUpdated { .. })))
+            .count();
+        assert_eq!(
+            rescored as u64, n,
+            "update_accuracy must run once per response"
+        );
+
+        // Dynamic check: the keys this pallet's storage actually changed must be
+        // exactly what the ledger's Oracle-owned write rows predict. A
+        // per-response write added to `finalise_request` without a row here
+        // lands as a mismatch, and the ledger feeds the declaration below.
+        assert_eq!(
+            changed_oracle_keys(&before, &after) as u64,
+            counted_oracle_writes(n),
+            "oracle storage keys changed by finalise_request do not match the counted ledger"
+        );
+
+        // The declaration is a floor over that counted worst case.
+        let (reads, writes) = counted_ops(n);
+        let declared = Oracle::finalise_request_worst_case_weight();
+        assert!(
+            declared.all_gte(db_weight().reads_writes(reads, writes)),
+            "declared {declared:?} does not cover {reads} reads / {writes} writes at the bound"
+        );
+    });
 }
