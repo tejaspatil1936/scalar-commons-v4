@@ -599,6 +599,10 @@ pub mod pallet {
 
     /// Executed slashes: (agent, era of the slash) → basis points slashed.
     ///
+    /// Several slashes in one era sum into one entry, clamped at 10_000 bps (100%). Each bps
+    /// is a share of the stake at that slash, so the sum is a record of what governance
+    /// decided, not the exact fraction of the era-start stake that was lost.
+    ///
     /// Written only by `execute_slash`. An appeal is a claim against a specific slash; without
     /// a record of the slash there is nothing to appeal, and an unchecked `slash_appeal` lets
     /// any registered account plant appeal records against slashes that never happened (E22).
@@ -1470,7 +1474,12 @@ pub mod pallet {
 
             // Record the slash so it can be appealed (E22). Written after the clear above:
             // appeals filed against earlier slashes are moot, this one is fresh.
-            SlashRecords::<T>::insert(&who, EraNumber::<T>::get(), bps);
+            // A second slash in the same era accumulates rather than overwrites (#216), so the
+            // record shows everything governance took that era. Clamped to 10_000 bps (100%,
+            // the BPS denominator): a raw sum above it is not a percentage anyone can read.
+            SlashRecords::<T>::mutate(&who, EraNumber::<T>::get(), |rec| {
+                *rec = Some(rec.unwrap_or(0).saturating_add(bps).min(10_000));
+            });
 
             // Notify emissions pallet to zero the weight snapshot.
             // This prevents the slashed agent from overclaiming using the stale
