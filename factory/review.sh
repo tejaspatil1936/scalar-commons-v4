@@ -342,6 +342,18 @@ fi
 
 [ -s "$WORK/allfiles.txt" ] || die "PR #$PR has an empty diff"
 
+# Which model the lenses run on, decided once from the diff and used by every
+# lens so all three judge the same way. See run_lens for the reasoning.
+# LENS_MODEL can be set in the environment to override.
+if [ -z "${LENS_MODEL:-}" ]; then
+  if grep -qE '^(runtime|pallets)/' "$WORK/allfiles.txt"; then
+    LENS_MODEL=opus
+  else
+    LENS_MODEL=sonnet
+  fi
+fi
+log "lens model: $LENS_MODEL ($(grep -cE '^(runtime|pallets)/' "$WORK/allfiles.txt" || true) of $(grep -c . "$WORK/allfiles.txt") changed path(s) under runtime/ or pallets/)"
+
 # ------------------------------------------------- bind the review to a SHA --
 # Record the exact commit these lenses are about to read. This is what makes
 # `agent-reviewed` mean "THIS diff passed" rather than "some review once
@@ -684,7 +696,20 @@ run_lens() {
   # A redirect passes a file descriptor, so prompt size is irrelevant to exec
   # and E2BIG cannot recur at any diff size. The caps below exist for
   # reviewability, NOT to keep an argv string under a limit.
-  ( cd "$WORK" && timeout "$REVIEW_LENS_TIMEOUT" claude -p --dangerously-skip-permissions ) \
+  #
+  # MODEL: sonnet, except opus when this diff touches runtime/ or pallets/ —
+  # the consensus and economic code, where the reviewer should not be weaker
+  # than the change it is judging. Chosen explicitly rather than left to the
+  # CLI default (LAB decision, 27 Sep 2026).
+  #
+  # It was briefly opus for EVERY lens. That was set when loops billed a
+  # metered API key, where the cost of three opus calls per review is linear
+  # and predictable. This box now bills a Max subscription, where the cost is a
+  # rate limit instead — three opus lenses per review hit one within hours on
+  # 27 Sep, and a rate limit pauses dispatch, every worker and every lens at
+  # once. Sonnet by default keeps the review cadence affordable; the diffs that
+  # actually warrant opus are named above.
+  ( cd "$WORK" && timeout "$REVIEW_LENS_TIMEOUT" claude -p --model "$LENS_MODEL" --dangerously-skip-permissions ) \
     < "$pf" > "$out" 2> "$err"
   rc=$?
   printf '%s\n' "$rc" > "$WORK/$name.rc"
