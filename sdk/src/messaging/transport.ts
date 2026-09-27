@@ -1,19 +1,27 @@
 /**
- * Transport bindings for signed envelopes (docs/reference/messaging.md §5).
+ * Transport bindings for `SignedMessage` bytes (docs/reference/messaging.md, "Transports").
  *
- * A transport only moves frames. It never decides whether a message is valid:
- * every frame, however it arrived, goes through `MessageInbox.receive`.
+ * A transport only moves bytes. It never decides whether a message is valid:
+ * every message, however it arrived, goes through `MessageInbox.receive`.
  *
- * (a) on-chain  — `pallet-messages::send`, frame inline (≤ 2 KiB) or hash-only;
- * (b) HTTPS     — POST of the frame to the recipient's registered service URI;
- * (c) statement store — not bound here until the spike's verdict is in.
+ * (a) on-chain  — `pallet-messages::send`, `payload = SCALE(SignedMessage)` ≤ 2048 bytes,
+ *                 the call's other arguments built *from* the envelope;
+ * (b) HTTPS     — POST of the same bytes to the recipient's registered service URI;
+ * (c) statement store — reserved, not part of envelope version 1.
  */
 import type { KeyringPair } from '@polkadot/keyring/types';
-import { u8aEq, u8aToHex } from '@polkadot/util';
+import { hexToU8a, u8aEq, u8aToHex } from '@polkadot/util';
 import { decodeAddress, encodeAddress } from '@polkadot/util-crypto';
 
 import type { SubmitResult } from '../submit.js';
-import { MAX_ONCHAIN_PAYLOAD, encodeFrame, type MessageKind, type SignedMessage } from './envelope.js';
+import {
+  MAX_ONCHAIN_PAYLOAD,
+  MESSAGE_KINDS,
+  encodeSignedMessage,
+  type MessageKind,
+  type OnChainCall,
+  type SignedMessage,
+} from './envelope.js';
 
 /** Anything that can carry a signed message to its recipient. */
 export interface Transport {
@@ -35,16 +43,19 @@ export interface MessageSubmitter {
 }
 
 /**
- * Binding (a): put the frame on chain with `messages.send`.
+ * Binding (a): put the message on chain with `messages.send`.
  *
- * `inline: false` sends a hash-only frame (envelope + signature, no payload):
- * the chain carries the commitment and the recipient receives the payload by
- * another path and passes it as `detachedPayload`.
+ * The call's `to`, `kind`, `agreement` and `payload_hash` are derived from the
+ * envelope and never taken separately — that construction is what rules out a
+ * sender signing one thing and submitting another.
  *
- * Both guards run before signing: the chain rejects frames above 2 KiB, and a
- * frame signed on chain by an account other than the envelope sender would be
- * refused by every recipient (`origin-mismatch`). Either way the fee is burnt
- * for nothing.
+ * `hashOnly: true` replaces the body with `Body::None`: the chain carries the
+ * signed commitment, and the content goes over another transport.
+ *
+ * Both guards run before signing: the chain rejects payloads above 2048 bytes,
+ * and a message submitted by an account other than the envelope sender would
+ * be refused by every recipient (`call-mismatch`). Either way the burnt fee
+ * would buy nothing.
  */
 export class OnChainTransport implements Transport {
   constructor(
@@ -53,15 +64,14 @@ export class OnChainTransport implements Transport {
     private readonly ss58Format = 42,
   ) {}
 
-  async send(message: SignedMessage, opts: { inline?: boolean } = {}): Promise<SubmitResult> {
-    const inline = opts.inline ?? true;
+  async send(message: SignedMessage, opts: { hashOnly?: boolean } = {}): Promise<SubmitResult> {
     if (!u8aEq(this.signer.publicKey, message.envelope.from)) {
-      throw new Error('on-chain signer is not the envelope sender; recipients would reject it as origin-mismatch');
+      throw new Error('on-chain signer is not the envelope sender; recipients would reject it as call-mismatch');
     }
-    const frame = encodeFrame(inline ? message : { ...message, payload: new Uint8Array() });
+    const frame = encodeSignedMessage(opts.hashOnly ? { ...message, body: { type: 'None' } } : message);
     if (frame.length > MAX_ONCHAIN_PAYLOAD) {
       throw new Error(
-        `frame is ${frame.length} bytes, pallet-messages accepts at most ${MAX_ONCHAIN_PAYLOAD}; send hash-only ({ inline: false })`,
+        `SignedMessage is ${frame.length} bytes, pallet-messages accepts at most ${MAX_ONCHAIN_PAYLOAD}; send it hash-only ({ hashOnly: true })`,
       );
     }
     const e = message.envelope;
@@ -108,17 +118,20 @@ export class HttpsTransport implements Transport {
     const res = await this.fetchImpl(uri, {
       method: 'POST',
       headers: { 'content-type': 'application/octet-stream' },
-      body: encodeFrame(message),
+      body: encodeSignedMessage(message),
     });
     if (!res.ok) throw new Error(`delivery to ${uri} failed: HTTP ${res.status}`);
   }
 }
 
-/** One frame addressed to the subscriber, as found in a finalized block. */
+/** One message addressed to the subscriber, as found in a finalized block. */
 export interface InboundFrame {
+  /** `SCALE(SignedMessage)` from the call's `payload`. */
   frame: Uint8Array;
-  /** Extrinsic signer (`MessageSent.from`); pass as `origin` to `MessageInbox.receive`. */
+  /** Extrinsic signer (`MessageSent.from`). */
   origin: string;
+  /** The `send` call's arguments; pass as `call` to `MessageInbox.receive` (rule 6). */
+  call: OnChainCall;
   blockNumber: number;
   blockHash: string;
   extrinsicIndex: number;
@@ -134,6 +147,7 @@ export interface SubscribeOptions {
 
 interface Codecish {
   toString(): string;
+  toJSON?(): unknown;
 }
 interface ChainApi {
   rpc: {
@@ -143,7 +157,7 @@ interface ChainApi {
       getBlock(hash: unknown): Promise<{
         block: {
           extrinsics: {
-            method: { section: string; method: string; args: { toU8a(bare?: boolean): Uint8Array }[] };
+            method: { section: string; method: string; args: (Codecish & { toU8a(bare?: boolean): Uint8Array })[] };
             signer: Codecish;
           }[];
         };
@@ -165,6 +179,33 @@ interface ChainApi {
 }
 
 /**
+ * Read `send(to, kind, agreement, payload_hash, payload)` arguments. Uses the
+ * codecs' JSON forms: `AccountId` → SS58, basic enum → variant name,
+ * `Option<(AccountId, u32)>` → `null | [ss58, n]`, `Option<[u8; 32]>` → `null | 0x…`.
+ */
+function decodeSendCall(
+  args: (Codecish & { toU8a(bare?: boolean): Uint8Array })[],
+  origin: string,
+): { call: OnChainCall; frame: Uint8Array } {
+  const [to, kind, agreement, payloadHash, payload] = args;
+  if (!to || !kind || !agreement || !payloadHash || !payload) throw new Error('expected 5 arguments');
+  const kindName = kind.toString();
+  if (!(MESSAGE_KINDS as readonly string[]).includes(kindName)) throw new Error(`unknown kind ${kindName}`);
+  const agr = (agreement.toJSON?.() ?? null) as [string, number] | null;
+  const hash = (payloadHash.toJSON?.() ?? null) as string | null;
+  return {
+    call: {
+      origin,
+      to: to.toString(),
+      kind: kindName as MessageKind,
+      agreement: agr === null ? null : { account: agr[0], seq: Number(agr[1]) },
+      payloadHash: hash === null ? null : hexToU8a(hash),
+    },
+    frame: payload.toU8a(true),
+  };
+}
+
+/**
  * Binding (a), receive side: watch finalized blocks for `messages.MessageSent`
  * addressed to `self` and hand each frame to `handler`.
  *
@@ -175,8 +216,8 @@ interface ChainApi {
  * read from the `messages.send` extrinsic the event's phase points at, and that
  * extrinsic must be signed by the event's `from`.
  *
- * Frames are delivered unverified: run them through `MessageInbox.receive`
- * with `origin` set.
+ * Messages are delivered unverified: run them through `MessageInbox.receive`
+ * with `call` set, so the call's arguments are checked against the envelope.
  */
 export async function subscribeMessages(
   apiLike: unknown,
@@ -211,13 +252,16 @@ export async function subscribeMessages(
         report(new Error(`block ${n}: MessageSent at extrinsic ${index} has no matching messages.send`));
         continue;
       }
-      const payloadArg = ext.method.args[4];
-      if (payloadArg === undefined) {
-        report(new Error(`block ${n}: messages.send at extrinsic ${index} has no payload argument`));
+      let call: OnChainCall;
+      let frame: Uint8Array;
+      try {
+        ({ call, frame } = decodeSendCall(ext.method.args, origin));
+      } catch (err) {
+        report(new Error(`block ${n}: messages.send at extrinsic ${index}: ${err instanceof Error ? err.message : String(err)}`));
         continue;
       }
       try {
-        await handler({ frame: payloadArg.toU8a(true), origin, blockNumber: n, blockHash: hash.toHex(), extrinsicIndex: index });
+        await handler({ frame, origin, call, blockNumber: n, blockHash: hash.toHex(), extrinsicIndex: index });
       } catch (err) {
         report(err);
       }

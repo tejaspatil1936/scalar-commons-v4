@@ -1,11 +1,11 @@
 /**
- * Messaging keys (D14) and payload encryption to them.
+ * Messaging keys (D14) and `Sealed` bodies encrypted to them.
  *
  * Every agent may publish one X25519 public key with `agents.set_messaging_key`.
- * Senders encrypt payloads to that key, so negotiation terms travel over a
- * public chain (or any relay) without being readable by anyone but the
- * counterparty. Authenticity does not come from this layer: the signed
- * envelope already binds the ciphertext's hash to the sender's account key.
+ * A `Sealed` body is a NaCl `box` from the sender's messaging key to the
+ * recipient's, so negotiation terms travel over a public chain without being
+ * readable by anyone but the two parties. The body carries the sender's key,
+ * which the recipient checks against `agents.messagingKey(from)`.
  *
  * Derivation — one secret to back up, not two:
  *
@@ -14,19 +14,17 @@
  * where `sr25519_secret_key` is the 64-byte expanded key the keyring derives
  * from the agent's mnemonic / URI (path and password applied). The hash is
  * one-way, so leaking the messaging key never leaks the account key; the
- * rotation index gives unrelated keys for `set_messaging_key` rotation without
- * a new mnemonic.
+ * rotation index gives unrelated keys for rotation without a new mnemonic.
  *
- * Sealing — anonymous-sender box, NaCl primitives:
+ * Encryption — NaCl `crypto_box` (libsodium `crypto_box_easy`), exactly:
  *
- *   ephemeral X25519 keypair (e, E); shared = X25519(e, recipient_pub)
- *   key  = blake2_256(b"ScalarMsg/seal/v1|" ++ shared ++ E ++ recipient_pub)
- *   body = 0x01 ++ E(32) ++ nonce(24) ++ XSalsa20-Poly1305(key, nonce, plaintext)
+ *   k          = HSalsa20(X25519(own_secret, their_public), 0^16)   // crypto_box_beforenm
+ *   ciphertext = XSalsa20-Poly1305(k, nonce, plaintext)             // crypto_secretbox: MAC(16) ‖ ct
  *
- * X25519 is `@noble/curves` (the implementation `@polkadot/util-crypto`
- * itself depends on); XSalsa20-Poly1305 is util-crypto's `naclEncrypt`
- * (`nacl.secretbox`). util-crypto 13/14 no longer ship `naclSeal`, so this is
- * the documented equivalent of libsodium's `crypto_box_seal`.
+ * X25519 is `@noble/curves`; XSalsa20-Poly1305 is `@polkadot/util-crypto`'s
+ * `naclEncrypt` (tweetnacl's secretbox). util-crypto 13/14 dropped `naclSeal`
+ * (the old tweetnacl `box`), so HSalsa20 is implemented here; the tests pin the
+ * NaCl reference vector and a libsodium-generated box.
  */
 import { x25519 } from '@noble/curves/ed25519';
 import { DEV_PHRASE } from '@polkadot/keyring';
@@ -42,16 +40,12 @@ import {
   sr25519PairFromSeed,
 } from '@polkadot/util-crypto';
 
-import { MessageRejected } from './envelope.js';
+import { MessageRejected, type Body } from './envelope.js';
 
 const KEY_DOMAIN = 'ScalarMsg/x25519/v1|';
-const SEAL_DOMAIN = 'ScalarMsg/seal/v1|';
 
-/** First byte of every sealed body. */
-export const SEAL_VERSION = 1;
-
-/** Bytes a sealed body adds to the plaintext: version + ephemeral key + nonce + Poly1305 tag. */
-export const SEAL_OVERHEAD = 1 + 32 + 24 + 16;
+/** Poly1305 tag bytes a `Sealed` ciphertext adds to the plaintext. */
+export const BOX_MAC_LENGTH = 16;
 
 /** An agent's X25519 messaging keypair, plus the account it was derived from. */
 export interface MessagingKeypair {
@@ -95,38 +89,66 @@ export function deriveMessagingKey(suri: string, opts: { rotation?: number } = {
   return { publicKey: x25519.getPublicKey(secretKey), secretKey, accountId: account.publicKey };
 }
 
-function shared(secret: Uint8Array, pub: Uint8Array): Uint8Array {
-  // noble rejects low-order points (all-zero shared secret); keep the check
-  // explicit so a future library change cannot silently weaken it.
-  const s = x25519.getSharedSecret(secret, pub);
-  if (s.every((b) => b === 0)) throw new Error('low-order X25519 public key');
-  return s;
+const rotl = (v: number, c: number) => (v << c) | (v >>> (32 - c));
+
+/** HSalsa20 core: 32-byte key, 16-byte input → 32-byte output (NaCl `crypto_core_hsalsa20`). */
+export function hsalsa20(key: Uint8Array, input: Uint8Array): Uint8Array {
+  if (key.length !== 32 || input.length !== 16) throw new Error('hsalsa20 needs a 32-byte key and a 16-byte input');
+  const kv = new DataView(key.buffer, key.byteOffset, 32);
+  const iv = new DataView(input.buffer, input.byteOffset, 16);
+  const k = (i: number) => kv.getUint32(i * 4, true);
+  const n = (i: number) => iv.getUint32(i * 4, true);
+  // "expand 32-byte k"
+  const x = [0x61707865, k(0), k(1), k(2), k(3), 0x3320646e, n(0), n(1), n(2), n(3), 0x79622d32, k(4), k(5), k(6), k(7), 0x6b206574];
+  const qr = (a: number, b: number, c: number, d: number) => {
+    x[b]! ^= rotl((x[a]! + x[d]!) | 0, 7);
+    x[c]! ^= rotl((x[b]! + x[a]!) | 0, 9);
+    x[d]! ^= rotl((x[c]! + x[b]!) | 0, 13);
+    x[a]! ^= rotl((x[d]! + x[c]!) | 0, 18);
+  };
+  for (let i = 0; i < 10; i++) {
+    qr(0, 4, 8, 12); qr(5, 9, 13, 1); qr(10, 14, 2, 6); qr(15, 3, 7, 11); // columns
+    qr(0, 1, 2, 3); qr(5, 6, 7, 4); qr(10, 11, 8, 9); qr(15, 12, 13, 14); // rows
+  }
+  const out = new Uint8Array(32);
+  const ov = new DataView(out.buffer);
+  [0, 5, 10, 15, 6, 7, 8, 9].forEach((w, i) => ov.setUint32(i * 4, x[w]! >>> 0, true));
+  return out;
 }
 
-function boxKey(sharedSecret: Uint8Array, ephemeralPub: Uint8Array, recipientPub: Uint8Array): Uint8Array {
-  return blake2AsU8a(u8aConcat(stringToU8a(SEAL_DOMAIN), sharedSecret, ephemeralPub, recipientPub), 256);
+/** `crypto_box_beforenm`: the shared secretbox key for a keypair and a peer public key. */
+export function boxBeforenm(peerPublicKey: Uint8Array, ownSecretKey: Uint8Array): Uint8Array {
+  if (peerPublicKey.length !== 32) throw new Error('messaging key must be 32 bytes');
+  const shared = x25519.getSharedSecret(ownSecretKey, peerPublicKey);
+  // noble rejects low-order points; keep the check explicit so a future
+  // library change cannot silently weaken it.
+  if (shared.every((b) => b === 0)) throw new Error('low-order X25519 public key');
+  return hsalsa20(shared, new Uint8Array(16));
 }
 
-/** Encrypt `plaintext` so only the holder of `recipientPublicKey`'s secret can read it. */
-export function sealTo(plaintext: Uint8Array, recipientPublicKey: Uint8Array): Uint8Array {
-  if (recipientPublicKey.length !== 32) throw new Error('recipient messaging key must be 32 bytes');
-  const ephemeralSecret = randomAsU8a(32);
-  const ephemeralPub = x25519.getPublicKey(ephemeralSecret);
-  const key = boxKey(shared(ephemeralSecret, recipientPublicKey), ephemeralPub, recipientPublicKey);
-  const { encrypted, nonce } = naclEncrypt(plaintext, key, randomAsU8a(24));
-  return u8aConcat([SEAL_VERSION], ephemeralPub, nonce, encrypted);
+/**
+ * Build a `Sealed` body: NaCl `box` of `plaintext` from `sender`'s messaging
+ * key to `recipientPublicKey`. `nonce` is random unless given (tests only).
+ */
+export function sealBody(
+  plaintext: Uint8Array,
+  sender: Pick<MessagingKeypair, 'publicKey' | 'secretKey'>,
+  recipientPublicKey: Uint8Array,
+  nonce: Uint8Array = randomAsU8a(24),
+): Extract<Body, { type: 'Sealed' }> {
+  if (nonce.length !== 24) throw new Error('box nonce must be 24 bytes');
+  const { encrypted } = naclEncrypt(plaintext, boxBeforenm(recipientPublicKey, sender.secretKey), nonce);
+  return { type: 'Sealed', senderKey: sender.publicKey, nonce, ciphertext: encrypted };
 }
 
-/** Decrypt a body produced by {@link sealTo}. Any failure is `MessageRejected('decrypt-failed')`. */
-export function openSealed(body: Uint8Array, keypair: Pick<MessagingKeypair, 'publicKey' | 'secretKey'>): Uint8Array {
-  if (body.length < SEAL_OVERHEAD) throw new MessageRejected('decrypt-failed', 'sealed body too short');
-  if (body[0] !== SEAL_VERSION) throw new MessageRejected('decrypt-failed', `unknown seal version ${body[0]}`);
-  const ephemeralPub = body.slice(1, 33);
-  const nonce = body.slice(33, 57);
+/** Open a `Sealed` body with the recipient's messaging keypair. Failure is `MessageRejected('decrypt-failed')`. */
+export function openBody(
+  body: Extract<Body, { type: 'Sealed' }>,
+  recipient: Pick<MessagingKeypair, 'secretKey'>,
+): Uint8Array {
   let plaintext: Uint8Array | null;
   try {
-    const key = boxKey(shared(keypair.secretKey, ephemeralPub), ephemeralPub, keypair.publicKey);
-    plaintext = naclDecrypt(body.slice(57), nonce, key);
+    plaintext = naclDecrypt(body.ciphertext, body.nonce, boxBeforenm(body.senderKey, recipient.secretKey));
   } catch (err) {
     throw new MessageRejected('decrypt-failed', err instanceof Error ? err.message : String(err));
   }

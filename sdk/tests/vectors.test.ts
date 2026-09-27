@@ -1,93 +1,126 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { hexToU8a, u8aToHex } from '@polkadot/util';
-import { blake2AsU8a, cryptoWaitReady, decodeAddress } from '@polkadot/util-crypto';
+import { cryptoWaitReady, decodeAddress } from '@polkadot/util-crypto';
 
 import {
   MessageInbox,
-  decodeFrame,
+  createMessage,
+  decodeSignedMessage,
   deriveMessagingKey,
+  encodeBody,
   encodeEnvelope,
-  envelopeSigningPayload,
-  openSealed,
-  type Envelope,
+  envelopeSigningHash,
+  openBody,
+  sealBody,
+  type Body,
   type MessageKind,
 } from '../src/index.js';
 
 /**
  * Re-verifies the committed vectors (tests/vectors/envelope.json) on every CI
  * run. Deterministic fields are recomputed byte for byte; the randomised sr25519
- * signatures and seals must verify / open. A change to the encoding, the
- * signing payload or the key derivation turns this red — which is the point:
- * other implementations are built against these bytes.
+ * signatures must verify. A change to the encoding, the signing hash, the key
+ * derivation or the box turns this red — which is the point: other
+ * implementations (the Rust reference in pallets/messages) are held to these bytes.
  */
 interface Vector {
   name: string;
   input: {
+    fromUri: string;
     from: string;
+    toUri: string;
     to: string;
     kind: MessageKind;
     agreement: { account: string; seq: number } | null;
     nonce: string;
     expiresAtBlock: number;
-    payload: string;
+    plaintext: string;
+    body: Body['type'];
+    boxNonce?: string;
   };
-  expected: { payloadHash: string; scale: string; signingPayload: string };
-  sample: { signature: string; frame: string };
+  expected: { payloadHash: string; scaleEnvelope: string; signingHash: string; scaleBody: string };
+  sample: { signature: string; signedMessage: string };
 }
 const file = JSON.parse(readFileSync(new URL('./vectors/envelope.json', import.meta.url), 'utf8')) as {
   genesisHash: string;
   signingDomain: string;
-  envelopes: Vector[];
+  messages: Vector[];
   messagingKeys: { suri: string; rotation: number; publicKey: string }[];
-  sealed: { recipientUri: string; plaintext: string; sample: string };
 };
 
 beforeAll(async () => {
   await cryptoWaitReady();
 });
 
-function envelopeOf(v: Vector): Envelope {
-  const payload = hexToU8a(v.input.payload);
-  return {
-    version: 1,
-    from: decodeAddress(v.input.from),
-    to: decodeAddress(v.input.to),
+/** Rebuild the message from the vector's inputs with a throwaway signature. */
+function rebuild(v: Vector) {
+  const plaintext = hexToU8a(v.input.plaintext);
+  const body: Body | undefined =
+    v.input.body === 'Sealed'
+      ? sealBody(plaintext, deriveMessagingKey(v.input.fromUri), deriveMessagingKey(v.input.toUri).publicKey, hexToU8a(v.input.boxNonce!))
+      : v.input.body === 'None'
+        ? { type: 'None' }
+        : undefined;
+  const signer = { type: 'sr25519' as const, publicKey: decodeAddress(v.input.from), sign: () => new Uint8Array(64) };
+  return createMessage(signer, {
+    to: v.input.to,
     kind: v.input.kind,
-    agreement: v.input.agreement
-      ? { account: decodeAddress(v.input.agreement.account), seq: v.input.agreement.seq }
-      : null,
+    plaintext,
+    body,
     nonce: BigInt(v.input.nonce),
     expiresAtBlock: v.input.expiresAtBlock,
-    payloadHash: blake2AsU8a(payload, 256),
-  };
+    genesisHash: file.genesisHash,
+    agreement: v.input.agreement,
+  });
 }
 
 describe('envelope vectors', () => {
-  it('cover every shape the spec allows', () => {
+  it('cover every body type, with and without an agreement, and the Rust reference vector', () => {
     expect(file.signingDomain).toBe('ScalarMsg/v1|');
-    expect(file.envelopes.length).toBeGreaterThanOrEqual(4);
-    expect(file.envelopes.some((v) => v.input.agreement !== null)).toBe(true);
-    expect(file.envelopes.some((v) => v.input.agreement === null)).toBe(true);
+    expect(new Set(file.messages.map((v) => v.input.body))).toEqual(new Set(['Plain', 'Sealed', 'None']));
+    expect(file.messages.some((v) => v.input.agreement === null)).toBe(true);
+    const rust = file.messages.find((v) => v.name === 'rust-reference-offer')!;
+    expect(rust.expected.signingHash).toBe('0xe5bba61ef4d05553662760a8ae8ff35576c165b88e4441ea5a96f9f9fd99d421');
   });
 
-  for (const v of file.envelopes) {
+  for (const v of file.messages) {
     describe(v.name, () => {
-      it('recomputes payload hash, SCALE bytes and signing payload exactly', () => {
-        const e = envelopeOf(v);
-        expect(u8aToHex(e.payloadHash)).toBe(v.expected.payloadHash);
-        expect(u8aToHex(encodeEnvelope(e))).toBe(v.expected.scale);
-        expect(u8aToHex(envelopeSigningPayload(e, file.genesisHash))).toBe(v.expected.signingPayload);
+      it('recomputes payload hash, SCALE envelope, signing hash and SCALE body exactly', () => {
+        const m = rebuild(v);
+        expect(u8aToHex(m.envelope.payloadHash)).toBe(v.expected.payloadHash);
+        expect(u8aToHex(encodeEnvelope(m.envelope))).toBe(v.expected.scaleEnvelope);
+        expect(u8aToHex(envelopeSigningHash(m.envelope, file.genesisHash))).toBe(v.expected.signingHash);
+        expect(u8aToHex(encodeBody(m.body))).toBe(v.expected.scaleBody);
       });
 
-      it('sample frame decodes to the same envelope and passes every verification rule', () => {
-        const frame = hexToU8a(v.sample.frame);
-        expect(decodeFrame(frame).envelope).toEqual(envelopeOf(v));
-        expect(u8aToHex(decodeFrame(frame).signature)).toBe(v.sample.signature);
-        const inbox = new MessageInbox({ self: v.input.to, genesisHash: file.genesisHash });
-        const got = inbox.receive(frame, v.input.expiresAtBlock, { origin: v.input.from });
+      it('sample SignedMessage decodes to the same parts and passes every verification rule', () => {
+        const bytes = hexToU8a(v.sample.signedMessage);
+        const decoded = decodeSignedMessage(bytes);
+        const m = rebuild(v);
+        expect(decoded.envelope).toEqual(m.envelope);
+        expect(decoded.body).toEqual(m.body);
+        expect(u8aToHex(decoded.signature)).toBe(v.sample.signature);
+
+        const recipientKey = deriveMessagingKey(v.input.toUri);
+        const inbox = new MessageInbox({
+          self: v.input.to,
+          genesisHash: file.genesisHash,
+          open: (b) => openBody(b, recipientKey),
+        });
+        const got = inbox.receive(bytes, v.input.expiresAtBlock, {
+          senderMessagingKey: deriveMessagingKey(v.input.fromUri).publicKey,
+          detachedPlaintext: hexToU8a(v.input.plaintext),
+          call: {
+            origin: v.input.from,
+            to: v.input.to,
+            kind: v.input.kind,
+            agreement: v.input.agreement,
+            payloadHash: hexToU8a(v.expected.payloadHash),
+          },
+        });
         expect(got.from).toBe(v.input.from);
-        expect(u8aToHex(got.payload)).toBe(v.input.payload);
+        expect(u8aToHex(got.plaintext)).toBe(v.input.plaintext);
       });
     });
   }
@@ -98,12 +131,5 @@ describe('envelope vectors', () => {
         k.publicKey,
       );
     }
-  });
-
-  it('sealed samples open with the recipient key', () => {
-    const key = deriveMessagingKey(file.sealed.recipientUri);
-    expect(u8aToHex(openSealed(hexToU8a(file.sealed.sample), key))).toBe(file.sealed.plaintext);
-    const notice = file.envelopes.find((v) => v.name === 'delivery-notice-sealed')!;
-    expect(new TextDecoder().decode(openSealed(hexToU8a(notice.input.payload), key))).toBe('{"report":"0x11"}');
   });
 });

@@ -2,17 +2,19 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { Keyring } from '@polkadot/keyring';
 import type { KeyringPair } from '@polkadot/keyring/types';
 import { stringToU8a, u8aToHex } from '@polkadot/util';
-import { cryptoWaitReady } from '@polkadot/util-crypto';
+import { cryptoWaitReady, encodeAddress } from '@polkadot/util-crypto';
 
 import {
   HttpsTransport,
   MAX_ONCHAIN_PAYLOAD,
+  MessageInbox,
   OnChainTransport,
   ScalarCommonsClient,
   createMessage,
-  encodeFrame,
+  encodeSignedMessage,
   subscribeMessages,
   type InboundFrame,
+  type SignedMessage,
 } from '../src/index.js';
 
 /**
@@ -33,11 +35,11 @@ beforeAll(async () => {
   carol = kr.addFromUri('//Charlie');
 });
 
-const message = (payload = stringToU8a('hello'), over: Record<string, unknown> = {}) =>
+const message = (plaintext = stringToU8a('hello'), over: Record<string, unknown> = {}) =>
   createMessage(alice, {
     to: bob.address,
     kind: 'Offer',
-    payload,
+    plaintext,
     nonce: 1n,
     expiresAtBlock: 100,
     genesisHash: GENESIS,
@@ -102,7 +104,7 @@ describe('ScalarCommonsClient messaging extrinsics', () => {
 });
 
 describe('OnChainTransport', () => {
-  it('submits messages.send(to, kind, agreement, payload_hash, frame)', async () => {
+  it('submits messages.send(to, kind, agreement, payload_hash, SCALE(SignedMessage)) built from the envelope', async () => {
     const { client, calls } = txApi();
     const m = message(stringToU8a('hello'), { agreement: { account: alice.address, seq: 4 } });
     const res = await new OnChainTransport(client, alice).send(m);
@@ -113,24 +115,29 @@ describe('OnChainTransport', () => {
     expect(kind).toBe('Offer');
     expect(agreement).toEqual([alice.address, 4]);
     expect(payloadHash).toBe(u8aToHex(m.envelope.payloadHash));
-    expect(frame).toBe(u8aToHex(encodeFrame(m)));
+    expect(frame).toBe(u8aToHex(encodeSignedMessage(m)));
   });
 
-  it('sends only envelope + signature in hash-only mode', async () => {
+  it('sends Body::None in hash-only mode: envelope + signature + 1 tag byte', async () => {
     const { client, calls } = txApi();
     const m = message(new Uint8Array(5_000));
-    await new OnChainTransport(client, alice).send(m, { inline: false });
-    expect((calls[0]!.args[4] as string).length).toBe(2 + 2 * (111 + 64));
+    await new OnChainTransport(client, alice).send(m, { hashOnly: true });
+    expect((calls[0]!.args[4] as string).length).toBe(2 + 2 * (111 + 64 + 1));
+    expect(calls[0]!.args[3]).toBe(u8aToHex(m.envelope.payloadHash));
   });
 
-  it('refuses an inline frame above 2 KiB before paying a fee', async () => {
+  it('fits exactly 2048 bytes: 1870 plain bytes without an agreement, 1834 with one', async () => {
     const { client, calls } = txApi();
-    const room = MAX_ONCHAIN_PAYLOAD - 111 - 64;
-    await expect(new OnChainTransport(client, alice).send(message(new Uint8Array(room)))).resolves.toBeTruthy();
-    await expect(new OnChainTransport(client, alice).send(message(new Uint8Array(room + 1)))).rejects.toThrow(
-      /2048/,
-    );
-    expect(calls).toHaveLength(1);
+    const t = new OnChainTransport(client, alice);
+    const agr = { agreement: { account: bob.address, seq: 3 } };
+    // 111|147 envelope + 64 signature + 1 Body tag + 2 compact length bytes.
+    expect(encodeSignedMessage(message(new Uint8Array(1870))).length).toBe(MAX_ONCHAIN_PAYLOAD);
+    expect(encodeSignedMessage(message(new Uint8Array(1834), agr)).length).toBe(MAX_ONCHAIN_PAYLOAD);
+    await expect(t.send(message(new Uint8Array(1870)))).resolves.toBeTruthy();
+    await expect(t.send(message(new Uint8Array(1834), agr))).resolves.toBeTruthy();
+    await expect(t.send(message(new Uint8Array(1871)))).rejects.toThrow(/2048/);
+    await expect(t.send(message(new Uint8Array(1835), agr))).rejects.toThrow(/hashOnly/);
+    expect(calls).toHaveLength(2);
   });
 
   it('refuses to sign the extrinsic with an account other than the envelope sender', async () => {
@@ -151,7 +158,7 @@ describe('HttpsTransport', () => {
     expect(url).toBe(`https://agent.example/${bob.address}/inbox`);
     expect(init.method).toBe('POST');
     expect((init.headers as Record<string, string>)['content-type']).toBe('application/octet-stream');
-    expect(u8aToHex(init.body as Uint8Array)).toBe(u8aToHex(encodeFrame(m)));
+    expect(u8aToHex(init.body as Uint8Array)).toBe(u8aToHex(encodeSignedMessage(m)));
   });
 
   it('fails loudly on a non-2xx answer', async () => {
@@ -175,7 +182,10 @@ interface MockExtrinsic {
   section: string;
   method: string;
   signer: string;
-  payload: Uint8Array;
+  /** The signed message the call carries; its envelope supplies the other call args. */
+  message?: SignedMessage;
+  /** Raw payload override (for junk payloads). */
+  payload?: Uint8Array;
 }
 interface MockBlock {
   extrinsics: MockExtrinsic[];
@@ -186,7 +196,19 @@ interface MockBlock {
 function chainApi(blocks: Map<number, MockBlock>) {
   let onHead: ((h: unknown) => void) | undefined;
   const hash = (n: number) => ({ toHex: () => `0x${n.toString(16).padStart(64, '0')}`, n });
-  const leaf = (v: unknown) => ({ toString: () => String(v) });
+  const leaf = (v: unknown) => ({ toString: () => String(v), toJSON: () => v });
+  // The polkadot-js JSON shapes of send's arguments.
+  const argsOf = (x: MockExtrinsic) => {
+    const e = x.message?.envelope;
+    const payload = x.payload ?? (x.message ? encodeSignedMessage(x.message) : new Uint8Array());
+    return [
+      leaf(e ? encodeAddress(e.to, 42) : bob.address),
+      leaf(e?.kind ?? 'Offer'),
+      leaf(e?.agreement ? [encodeAddress(e.agreement.account, 42), e.agreement.seq] : null),
+      leaf(e ? u8aToHex(e.payloadHash) : null),
+      { ...leaf(null), toU8a: (bare?: boolean) => (bare ? payload : new Uint8Array([0, ...payload])) },
+    ];
+  };
   const api = {
     rpc: {
       chain: {
@@ -200,11 +222,7 @@ function chainApi(blocks: Map<number, MockBlock>) {
         getBlock: async (h: { n: number }) => ({
           block: {
             extrinsics: (blocks.get(h.n)?.extrinsics ?? []).map((x) => ({
-              method: {
-                section: x.section,
-                method: x.method,
-                args: [0, 1, 2, 3, { toU8a: (bare?: boolean) => (bare ? x.payload : new Uint8Array([0, ...x.payload])) }],
-              },
+              method: { section: x.section, method: x.method, args: argsOf(x) },
               signer: leaf(x.signer),
             })),
           },
@@ -234,23 +252,27 @@ const sentEvent = (from: string, to: string, idx: number): [number, string, stri
   [from, to, 'Offer', null, '0x', 0, 0],
 ];
 
+const send = (message: SignedMessage, signer = alice.address): MockExtrinsic => ({
+  section: 'messages',
+  method: 'send',
+  signer,
+  message,
+});
+
 describe('subscribeMessages', () => {
-  it('delivers frames addressed to self, in block order, filling finality gaps', async () => {
-    const frameA = encodeFrame(message(stringToU8a('a')));
-    const frameB = encodeFrame(message(stringToU8a('b'), { nonce: 2n }));
+  it('delivers messages addressed to self, in block order, filling finality gaps', async () => {
+    const a = message(stringToU8a('a'));
+    const b = message(stringToU8a('b'), { nonce: 2n, agreement: { account: bob.address, seq: 1 } });
     const blocks = new Map<number, MockBlock>([
       [10, {
         extrinsics: [
-          { section: 'timestamp', method: 'set', signer: '', payload: new Uint8Array() },
-          { section: 'messages', method: 'send', signer: alice.address, payload: frameA },
-          { section: 'messages', method: 'send', signer: alice.address, payload: new Uint8Array([1]) },
+          { section: 'timestamp', method: 'set', signer: '' },
+          send(a),
+          send(message(stringToU8a('c'), { to: carol.address })),
         ],
         events: [sentEvent(alice.address, bob.address, 1), sentEvent(alice.address, carol.address, 2)],
       }],
-      [12, {
-        extrinsics: [{ section: 'messages', method: 'send', signer: alice.address, payload: frameB }],
-        events: [sentEvent(alice.address, bob.address, 0)],
-      }],
+      [12, { extrinsics: [send(b)], events: [sentEvent(alice.address, bob.address, 0)] }],
     ]);
     const { api, finalize } = chainApi(blocks);
     const got: InboundFrame[] = [];
@@ -265,17 +287,36 @@ describe('subscribeMessages', () => {
     await done;
     expect(got.map((g) => g.blockNumber)).toEqual([10, 12]);
     expect(got.map((g) => g.extrinsicIndex)).toEqual([1, 0]);
-    expect(u8aToHex(got[0]!.frame)).toBe(u8aToHex(frameA));
-    expect(u8aToHex(got[1]!.frame)).toBe(u8aToHex(frameB));
+    expect(u8aToHex(got[0]!.frame)).toBe(u8aToHex(encodeSignedMessage(a)));
     expect(got[0]!.origin).toBe(alice.address);
+    expect(got[1]!.call).toEqual({
+      origin: alice.address,
+      to: bob.address,
+      kind: 'Offer',
+      agreement: { account: bob.address, seq: 1 },
+      payloadHash: b.envelope.payloadHash,
+    });
+  });
+
+  it('hands MessageInbox everything it needs to verify rule 6 end to end', async () => {
+    const m = message(stringToU8a('terms'), { agreement: { account: bob.address, seq: 2 } });
+    const { api, finalize } = chainApi(
+      new Map([[3, { extrinsics: [send(m)], events: [sentEvent(alice.address, bob.address, 0)] }]]),
+    );
+    const inbox = new MessageInbox({ self: bob.address, genesisHash: GENESIS });
+    const received = new Promise<string>((resolve) => {
+      void subscribeMessages(api, bob.address, ({ frame, call, blockNumber }) => {
+        resolve(new TextDecoder().decode(inbox.receive(frame, blockNumber, { call }).plaintext));
+      }, { fromBlock: 3 });
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    finalize(3);
+    expect(await received).toBe('terms');
   });
 
   it('ignores an event whose extrinsic is not messages.send from the event sender', async () => {
     const blocks = new Map<number, MockBlock>([
-      [5, {
-        extrinsics: [{ section: 'messages', method: 'send', signer: carol.address, payload: new Uint8Array([1]) }],
-        events: [sentEvent(alice.address, bob.address, 0)],
-      }],
+      [5, { extrinsics: [send(message(), carol.address)], events: [sentEvent(alice.address, bob.address, 0)] }],
     ]);
     const { api, finalize } = chainApi(blocks);
     const handler = vi.fn();
@@ -288,12 +329,8 @@ describe('subscribeMessages', () => {
   });
 
   it('keeps the subscription alive when the handler throws, and unsubscribes on request', async () => {
-    const frame = encodeFrame(message());
     const blocks = new Map<number, MockBlock>([
-      [1, {
-        extrinsics: [{ section: 'messages', method: 'send', signer: alice.address, payload: frame }],
-        events: [sentEvent(alice.address, bob.address, 0)],
-      }],
+      [1, { extrinsics: [send(message())], events: [sentEvent(alice.address, bob.address, 0)] }],
     ]);
     const { api, finalize, subscribed } = chainApi(blocks);
     const onError = vi.fn();

@@ -1,26 +1,27 @@
 /**
- * The spec-308 signed message envelope (docs/reference/messaging.md).
+ * The spec-308 signed message envelope, version 1.
+ *
+ * Normative spec: `docs/reference/messaging.md` and its Rust reference,
+ * `pallets/messages/src/envelope.rs`. This module is the TypeScript mirror of
+ * that reference; `tests/envelope.test.ts` pins the Rust vectors byte for byte.
  *
  * Why an envelope at all, when `pallet-messages` already authenticates the
  * extrinsic signer: the same message must be verifiable when it arrives over
- * HTTPS or any other off-chain path, where there is no extrinsic. The envelope
- * is the transport-independent commitment — who, to whom, what kind, about
- * which agreement, which nonce, valid until when, and the hash of the exact
- * payload bytes — signed by the sender's account key.
- *
- * Mismatches between two agents' notions of "the same message" are made
- * impossible by construction: there is exactly one canonical encoding (SCALE of
- * a fixed struct), one signing payload, and the verifier recomputes both from
- * bytes it received rather than trusting any field it was told.
+ * HTTPS, where there is no extrinsic. The envelope is the transport-independent
+ * commitment — who, to whom, what kind, about which agreement, which nonce,
+ * valid until when, and the hash of the plaintext — signed by the sender's
+ * account key. And because every field the `send` call repeats must equal the
+ * envelope, *what an agent signs is what the chain carries*: mismatches between
+ * a sender and a strict verifier are impossible by construction.
  */
 import type { KeyringPair } from '@polkadot/keyring/types';
-import { hexToU8a, isHex, stringToU8a, u8aConcat, u8aEq, u8aToHex } from '@polkadot/util';
+import { compactFromU8a, compactToU8a, hexToU8a, isHex, stringToU8a, u8aConcat, u8aEq, u8aToHex } from '@polkadot/util';
 import { blake2AsU8a, decodeAddress, encodeAddress, sr25519Verify } from '@polkadot/util-crypto';
 
 /** Envelope format version this SDK produces and accepts. */
 export const ENVELOPE_VERSION = 1;
 
-/** Domain separator prepended to every signing payload (`b"ScalarMsg/v1|"`). */
+/** Domain separator (`b"ScalarMsg/v1|"`, 13 ASCII bytes) at the start of every signing preimage. */
 export const SIGNING_DOMAIN = 'ScalarMsg/v1|';
 
 /** Maximum `payload` bytes `pallet-messages::send` accepts (`BoundedVec<u8, ConstU32<2048>>`). */
@@ -49,13 +50,13 @@ export type MessageKind = (typeof MESSAGE_KINDS)[number];
 /** An account given as SS58 / hex string, or as the raw 32-byte AccountId. */
 export type AccountLike = string | Uint8Array;
 
-/** Reference to an escrow agreement: `(AccountId, u32)` as `pallet-messages` names it. */
+/** `(counterparty, escrow seq)` the message is about: `Option<(AccountId, u32)>`. */
 export interface AgreementRef {
   account: Uint8Array;
   seq: number;
 }
 
-/** The fixed envelope struct. All account and hash fields are raw 32-byte values. */
+/** The signed struct. Account and hash fields are raw 32-byte values. */
 export interface Envelope {
   version: number;
   from: Uint8Array;
@@ -66,29 +67,40 @@ export interface Envelope {
   nonce: bigint;
   /** Last block at which the message is still valid; u32. */
   expiresAtBlock: number;
-  /** blake2_256 of the delivered payload bytes. */
+  /** blake2_256 of the **plaintext** body. */
   payloadHash: Uint8Array;
 }
 
-/** An envelope, its sr25519 signature, and the payload it commits to. */
+/**
+ * The content that travels next to the envelope (`enum Body`):
+ * `None` = hash-only (content delivered elsewhere), `Plain` = plaintext,
+ * `Sealed` = NaCl `box` from the sender's messaging key to the recipient's.
+ */
+export type Body =
+  | { type: 'None' }
+  | { type: 'Plain'; bytes: Uint8Array }
+  | { type: 'Sealed'; senderKey: Uint8Array; nonce: Uint8Array; ciphertext: Uint8Array };
+
+/** `SignedMessage = SCALE((envelope, signature: [u8; 64], body: Body))`. */
 export interface SignedMessage {
   envelope: Envelope;
   signature: Uint8Array;
-  /** The delivered payload (ciphertext when sealed). Empty in a hash-only frame. */
-  payload: Uint8Array;
+  body: Body;
 }
 
 /** Why a message was refused. Stable strings: log them, branch on them. */
 export type RejectReason =
   | 'malformed'
   | 'unsupported-version'
-  | 'bad-signature'
   | 'wrong-recipient'
-  | 'origin-mismatch'
   | 'expired'
-  | 'payload-hash-mismatch'
   | 'replay'
-  | 'decrypt-failed';
+  | 'bad-signature'
+  | 'call-mismatch'
+  | 'content-missing'
+  | 'sender-key-mismatch'
+  | 'decrypt-failed'
+  | 'payload-hash-mismatch';
 
 /** A message that failed a verification rule. Nothing about it may be acted on. */
 export class MessageRejected extends Error {
@@ -103,6 +115,7 @@ export class MessageRejected extends Error {
 
 const U64_MAX = (1n << 64n) - 1n;
 const U32_MAX = 0xffff_ffff;
+const BODY_TAGS = { None: 0, Plain: 1, Sealed: 2 } as const;
 
 /** Resolve an {@link AccountLike} to its 32-byte AccountId. */
 export function toAccountId(who: AccountLike, what = 'account'): Uint8Array {
@@ -111,8 +124,8 @@ export function toAccountId(who: AccountLike, what = 'account'): Uint8Array {
   return bytes;
 }
 
-function need32(bytes: Uint8Array, what: string): Uint8Array {
-  if (bytes.length !== 32) throw new Error(`${what} must be 32 bytes, got ${bytes.length}`);
+function needLen(bytes: Uint8Array, n: number, what: string): Uint8Array {
+  if (bytes.length !== n) throw new Error(`${what} must be ${n} bytes, got ${bytes.length}`);
   return bytes;
 }
 
@@ -130,6 +143,11 @@ function u64le(n: bigint, what: string): Uint8Array {
   return out;
 }
 
+/** SCALE `Vec<u8>`: compact length prefix, then the bytes. */
+function vecU8(bytes: Uint8Array): Uint8Array {
+  return u8aConcat(compactToU8a(bytes.length), bytes);
+}
+
 /**
  * Canonical SCALE encoding of the envelope struct, field by field:
  * `u8 | [u8;32] | [u8;32] | u8 | Option<([u8;32], u32)> | u64 | u32 | [u8;32]`.
@@ -142,86 +160,149 @@ export function encodeEnvelope(e: Envelope): Uint8Array {
     throw new Error(`version must be a u8, got ${e.version}`);
   }
   const agreement = e.agreement
-    ? u8aConcat([1], need32(e.agreement.account, 'agreement.account'), u32le(e.agreement.seq, 'agreement.seq'))
+    ? u8aConcat([1], needLen(e.agreement.account, 32, 'agreement.account'), u32le(e.agreement.seq, 'agreement.seq'))
     : new Uint8Array([0]);
   return u8aConcat(
     [e.version],
-    need32(e.from, 'from'),
-    need32(e.to, 'to'),
+    needLen(e.from, 32, 'from'),
+    needLen(e.to, 32, 'to'),
     [kind],
     agreement,
     u64le(e.nonce, 'nonce'),
     u32le(e.expiresAtBlock, 'expiresAtBlock'),
-    need32(e.payloadHash, 'payloadHash'),
+    needLen(e.payloadHash, 32, 'payloadHash'),
   );
+}
+
+/** A cursor over SCALE bytes that fails loudly on truncation. */
+class Reader {
+  at = 0;
+  constructor(private readonly bytes: Uint8Array) {}
+  take(n: number): Uint8Array {
+    if (this.at + n > this.bytes.length) {
+      throw new Error(`too short: need ${this.at + n} bytes, have ${this.bytes.length}`);
+    }
+    const out = this.bytes.slice(this.at, this.at + n);
+    this.at += n;
+    return out;
+  }
+  u8(): number {
+    return this.take(1)[0]!;
+  }
+  u32(): number {
+    const b = this.take(4);
+    return new DataView(b.buffer, b.byteOffset, 4).getUint32(0, true);
+  }
+  u64(): bigint {
+    const b = this.take(8);
+    return new DataView(b.buffer, b.byteOffset, 8).getBigUint64(0, true);
+  }
+  vec(): Uint8Array {
+    const [offset, len] = compactFromU8a(this.bytes.subarray(this.at));
+    if (len.bitLength() > 32) throw new Error('Vec length out of range');
+    this.at += offset;
+    return this.take(len.toNumber());
+  }
+  get rest(): number {
+    return this.bytes.length - this.at;
+  }
+}
+
+function readEnvelope(r: Reader): Envelope {
+  const version = r.u8();
+  const from = r.take(32);
+  const to = r.take(32);
+  const kindIndex = r.u8();
+  const kind = MESSAGE_KINDS[kindIndex];
+  if (kind === undefined) throw new Error(`unknown message kind index ${kindIndex}`);
+  const tag = r.u8();
+  let agreement: AgreementRef | null;
+  if (tag === 0) agreement = null;
+  else if (tag === 1) agreement = { account: r.take(32), seq: r.u32() };
+  else throw new Error(`invalid agreement Option tag ${tag}`);
+  const nonce = r.u64();
+  const expiresAtBlock = r.u32();
+  const payloadHash = r.take(32);
+  return { version, from, to, kind, agreement, nonce, expiresAtBlock, payloadHash };
 }
 
 /** Decode an envelope from the start of `bytes`; `length` is how many bytes it used. */
 export function decodeEnvelope(bytes: Uint8Array): { envelope: Envelope; length: number } {
-  let at = 0;
-  const take = (n: number): Uint8Array => {
-    if (at + n > bytes.length) throw new Error(`envelope too short: need ${at + n} bytes, have ${bytes.length}`);
-    const out = bytes.slice(at, at + n);
-    at += n;
-    return out;
-  };
-  const view = (b: Uint8Array) => new DataView(b.buffer, b.byteOffset, b.byteLength);
-
-  const version = take(1)[0]!;
-  const from = take(32);
-  const to = take(32);
-  const kindIndex = take(1)[0]!;
-  const kind = MESSAGE_KINDS[kindIndex];
-  if (kind === undefined) throw new Error(`unknown message kind index ${kindIndex}`);
-  const tag = take(1)[0]!;
-  let agreement: AgreementRef | null;
-  if (tag === 0) agreement = null;
-  else if (tag === 1) agreement = { account: take(32), seq: view(take(4)).getUint32(0, true) };
-  else throw new Error(`invalid agreement Option tag ${tag}`);
-  const nonce = view(take(8)).getBigUint64(0, true);
-  const expiresAtBlock = view(take(4)).getUint32(0, true);
-  const payloadHash = take(32);
-  return { envelope: { version, from, to, kind, agreement, nonce, expiresAtBlock, payloadHash }, length: at };
+  const r = new Reader(bytes);
+  const envelope = readEnvelope(r);
+  return { envelope, length: r.at };
 }
 
-/**
- * The bytes the sender signs: `b"ScalarMsg/v1|" ++ genesis_hash ++ blake2_256(SCALE(envelope))`.
- *
- * The genesis hash binds a signature to one chain, so a message from the
- * testnet cannot be replayed onto a later network. The domain prefix keeps
- * these bytes disjoint from anything else an account key signs (extrinsic
- * payloads start with a call index, not ASCII `S`).
- */
-export function envelopeSigningPayload(e: Envelope, genesisHash: AccountLike): Uint8Array {
+/** SCALE of the `Body` enum. */
+export function encodeBody(body: Body): Uint8Array {
+  switch (body.type) {
+    case 'None':
+      return new Uint8Array([BODY_TAGS.None]);
+    case 'Plain':
+      return u8aConcat([BODY_TAGS.Plain], vecU8(body.bytes));
+    case 'Sealed':
+      return u8aConcat(
+        [BODY_TAGS.Sealed],
+        needLen(body.senderKey, 32, 'senderKey'),
+        needLen(body.nonce, 24, 'nonce'),
+        vecU8(body.ciphertext),
+      );
+  }
+}
+
+function readBody(r: Reader): Body {
+  const tag = r.u8();
+  if (tag === BODY_TAGS.None) return { type: 'None' };
+  if (tag === BODY_TAGS.Plain) return { type: 'Plain', bytes: r.vec() };
+  if (tag === BODY_TAGS.Sealed) return { type: 'Sealed', senderKey: r.take(32), nonce: r.take(24), ciphertext: r.vec() };
+  throw new Error(`invalid Body tag ${tag}`);
+}
+
+/** `SCALE((envelope, signature, body))` — the bytes every transport carries. */
+export function encodeSignedMessage(m: SignedMessage): Uint8Array {
+  return u8aConcat(encodeEnvelope(m.envelope), needLen(m.signature, SIGNATURE_LENGTH, 'signature'), encodeBody(m.body));
+}
+
+/** Decode a `SignedMessage`. Trailing bytes are an error: there is one encoding, not a prefix of one. */
+export function decodeSignedMessage(bytes: Uint8Array): SignedMessage {
+  const r = new Reader(bytes);
+  const envelope = readEnvelope(r);
+  const signature = r.take(SIGNATURE_LENGTH);
+  const body = readBody(r);
+  if (r.rest !== 0) throw new Error(`${r.rest} trailing bytes after SignedMessage`);
+  return { envelope, signature, body };
+}
+
+function genesisBytes(genesisHash: AccountLike): Uint8Array {
   if (typeof genesisHash === 'string' && !isHex(genesisHash)) throw new Error('genesis hash must be 0x-prefixed hex');
   const genesis = typeof genesisHash === 'string' ? hexToU8a(genesisHash) : genesisHash;
   if (genesis.length !== 32) throw new Error(`genesis hash must be 32 bytes, got ${genesis.length}`);
-  return u8aConcat(stringToU8a(SIGNING_DOMAIN), genesis, blake2AsU8a(encodeEnvelope(e), 256));
+  return genesis;
 }
 
-/** Frame = `SCALE(envelope) ++ signature(64) ++ payload`. The payload is the rest of the bytes. */
-export function encodeFrame(m: SignedMessage): Uint8Array {
-  if (m.signature.length !== SIGNATURE_LENGTH) throw new Error('signature must be 64 bytes');
-  return u8aConcat(encodeEnvelope(m.envelope), m.signature, m.payload);
-}
-
-/** Split a frame into envelope, signature and payload. Throws on malformed bytes. */
-export function decodeFrame(frame: Uint8Array): SignedMessage {
-  const { envelope, length } = decodeEnvelope(frame);
-  if (frame.length < length + SIGNATURE_LENGTH) throw new Error('frame too short for a signature');
-  return {
-    envelope,
-    signature: frame.slice(length, length + SIGNATURE_LENGTH),
-    payload: frame.slice(length + SIGNATURE_LENGTH),
-  };
+/**
+ * The 32 bytes the sender signs:
+ * `blake2_256(b"ScalarMsg/v1|" ‖ genesis_hash ‖ SCALE(envelope))`.
+ *
+ * The genesis hash binds a signature to one chain (including against a reset
+ * of this one); the domain prefix keeps it disjoint from transaction payloads
+ * and from every other protocol that signs with the same key.
+ */
+export function envelopeSigningHash(e: Envelope, genesisHash: AccountLike): Uint8Array {
+  return blake2AsU8a(u8aConcat(stringToU8a(SIGNING_DOMAIN), genesisBytes(genesisHash), encodeEnvelope(e)), 256);
 }
 
 /** What a sender supplies; `from` comes from the signing key. */
 export interface MessageInput {
   to: AccountLike;
   kind: MessageKind;
-  /** Delivered payload bytes (seal them first with `sealTo` for confidentiality). */
-  payload: Uint8Array;
+  /** The plaintext content; `payload_hash = blake2_256(plaintext)` whatever the body type. */
+  plaintext: Uint8Array;
+  /**
+   * How the content travels: `Plain` (default), `Sealed` (pass a body built
+   * with `sealBody`), or `None` for hash-only delivery.
+   */
+  body?: Body;
   nonce: bigint;
   expiresAtBlock: number;
   genesisHash: AccountLike;
@@ -249,10 +330,10 @@ export function createMessage(signer: MessageSigner, input: MessageInput): Signe
       : null,
     nonce: input.nonce,
     expiresAtBlock: input.expiresAtBlock,
-    payloadHash: blake2AsU8a(input.payload, 256),
+    payloadHash: blake2AsU8a(input.plaintext, 256),
   };
-  const signature = signer.sign(envelopeSigningPayload(envelope, input.genesisHash));
-  return { envelope, signature, payload: input.payload };
+  const signature = signer.sign(envelopeSigningHash(envelope, input.genesisHash));
+  return { envelope, signature, body: input.body ?? { type: 'Plain', bytes: input.plaintext } };
 }
 
 /**
@@ -310,16 +391,32 @@ export class OutboundNonces {
   }
 }
 
+/** The `messages.send` call a message arrived in (on-chain transport only). */
+export interface OnChainCall {
+  /** Extrinsic signer (`MessageSent.from`). */
+  origin: AccountLike;
+  to: AccountLike;
+  kind: MessageKind;
+  agreement: { account: AccountLike; seq: number } | null;
+  /** The call's `payload_hash` argument; `null` for `None`. */
+  payloadHash: Uint8Array | null;
+}
+
 /** A message that passed every verification rule. */
 export interface ReceivedMessage {
   /** Sender SS58 address (the verified signer). */
   from: string;
   kind: MessageKind;
   envelope: Envelope;
-  /** Delivered payload bytes, already checked against `payload_hash`. */
-  payload: Uint8Array;
+  /** How the content arrived. */
+  bodyType: Body['type'];
+  /** The plaintext, already checked against `payload_hash`. */
+  plaintext: Uint8Array;
   signature: Uint8Array;
 }
+
+/** Decrypts a `Sealed` body with the verifier's own messaging secret (see `openBody`). */
+export type BodyOpener = (body: Extract<Body, { type: 'Sealed' }>) => Uint8Array;
 
 export interface InboxOptions {
   /** The recipient: this inbox only accepts messages whose `to` is this account. */
@@ -327,84 +424,132 @@ export interface InboxOptions {
   genesisHash: AccountLike;
   /** Shared/persisted nonce state; a fresh tracker is used if omitted. */
   nonces?: NonceTracker;
+  /** Required to accept `Sealed` bodies. */
+  open?: BodyOpener;
   /** SS58 prefix used for `from` in results (Scalar Commons: 42). */
   ss58Format?: number;
 }
 
 export interface ReceiveOptions {
+  /** For on-chain delivery: the `messages.send` call that carried the message. */
+  call?: OnChainCall;
   /**
-   * For on-chain delivery: the extrinsic signer from `MessageSent.from`. The
-   * envelope sender must be the account that paid to put it on chain.
+   * The sender's published messaging key (`agents.messagingKey(from)`), looked
+   * up by the caller. Required for a `Sealed` body; `null` = none published.
    */
-  origin?: AccountLike;
-  /** Payload delivered separately from a hash-only frame (e.g. over HTTPS). */
-  detachedPayload?: Uint8Array;
+  senderMessagingKey?: Uint8Array | null;
+  /** For a `None` (hash-only) body: the content, delivered out of band. */
+  detachedPlaintext?: Uint8Array;
+}
+
+function sameAgreement(a: AgreementRef | null, b: OnChainCall['agreement']): boolean {
+  if (a === null || b === null) return a === null && b === null;
+  return a.seq === b.seq && u8aEq(a.account, toAccountId(b.account, 'call.agreement'));
 }
 
 /**
- * The receive side: decode a frame and apply every verification rule, in a
- * fixed order, before anything about the message is trusted:
+ * The receive side: decode `SignedMessage` bytes and apply every verification
+ * rule of the spec, in its order (cheap, non-cryptographic checks first):
  *
- * 1. version is supported;
+ * 1. `version == 1`;
  * 2. `to` is this inbox's account;
- * 3. the on-chain origin (if any) equals `from`;
- * 4. the sr25519 signature over the signing payload verifies against `from`
- *    (so the signer must equal `from`, and the genesis hash must match);
- * 5. `expires_at_block >= bestBlock`;
- * 6. `blake2_256(payload) == payload_hash`;
- * 7. `nonce` is strictly above the last accepted nonce for (from, to).
+ * 3. `expires_at_block >= bestBlock`;
+ * 4. `nonce` is strictly above the last accepted nonce for (from, to);
+ * 5. the sr25519 signature over the signing hash verifies against `from`
+ *    (so the signer must be `from`, and the genesis hash must match);
+ * 6. on-chain only: signer, `to`, `kind`, `agreement` and `payload_hash` of the
+ *    `send` call all equal the envelope;
+ * 7. the body yields the plaintext: `Plain` directly, `Sealed` only if its
+ *    `sender_key` is the sender's published messaging key and it decrypts,
+ *    `None` only with the content supplied out of band;
+ * 8. `blake2_256(plaintext) == payload_hash`.
  *
- * The nonce is committed only after all seven pass, so a rejected message
+ * The nonce is committed only after all eight pass, so a rejected message
  * never burns a nonce the genuine sender still needs.
  */
 export class MessageInbox {
   private readonly self: Uint8Array;
   private readonly genesis: AccountLike;
   readonly nonces: NonceTracker;
+  private readonly opener?: BodyOpener;
   private readonly ss58: number;
 
   constructor(opts: InboxOptions) {
     this.self = toAccountId(opts.self, 'self');
     this.genesis = opts.genesisHash;
     this.nonces = opts.nonces ?? new NonceTracker();
+    this.opener = opts.open;
     this.ss58 = opts.ss58Format ?? 42;
   }
 
-  receive(frame: Uint8Array, bestBlock: number | bigint, opts: ReceiveOptions = {}): ReceivedMessage {
+  receive(bytes: Uint8Array, bestBlock: number | bigint, opts: ReceiveOptions = {}): ReceivedMessage {
     let m: SignedMessage;
     try {
-      m = decodeFrame(frame);
+      m = decodeSignedMessage(bytes);
     } catch (err) {
       throw new MessageRejected('malformed', err instanceof Error ? err.message : String(err));
     }
     const e = m.envelope;
-    const payload = m.payload.length === 0 && opts.detachedPayload ? opts.detachedPayload : m.payload;
 
     if (e.version !== ENVELOPE_VERSION) {
       throw new MessageRejected('unsupported-version', `version ${e.version}, this SDK speaks ${ENVELOPE_VERSION}`);
     }
     if (!u8aEq(e.to, this.self)) throw new MessageRejected('wrong-recipient', 'envelope is addressed to another account');
-    if (opts.origin !== undefined && !u8aEq(toAccountId(opts.origin, 'origin'), e.from)) {
-      throw new MessageRejected('origin-mismatch', 'extrinsic signer is not the envelope sender');
+    if (BigInt(e.expiresAtBlock) < BigInt(bestBlock)) {
+      throw new MessageRejected('expired', `expired at block ${e.expiresAtBlock}, best is ${bestBlock}`);
     }
+    if (!this.nonces.isFresh(e.from, e.to, e.nonce)) {
+      throw new MessageRejected('replay', `nonce ${e.nonce} is not above the last accepted nonce`);
+    }
+
     let signed: boolean;
     try {
-      signed = sr25519Verify(envelopeSigningPayload(e, this.genesis), m.signature, e.from);
+      signed = sr25519Verify(envelopeSigningHash(e, this.genesis), m.signature, e.from);
     } catch {
       // A `from` that is not a valid sr25519 point throws instead of returning false.
       signed = false;
     }
     if (!signed) throw new MessageRejected('bad-signature', 'signature does not verify against `from` on this chain');
-    if (BigInt(e.expiresAtBlock) < BigInt(bestBlock)) {
-      throw new MessageRejected('expired', `expired at block ${e.expiresAtBlock}, best is ${bestBlock}`);
+
+    const call = opts.call;
+    if (call !== undefined) {
+      const mismatch =
+        (!u8aEq(toAccountId(call.origin, 'call.origin'), e.from) && 'signer') ||
+        (!u8aEq(toAccountId(call.to, 'call.to'), e.to) && 'to') ||
+        (call.kind !== e.kind && 'kind') ||
+        (!sameAgreement(e.agreement, call.agreement) && 'agreement') ||
+        ((call.payloadHash === null || !u8aEq(call.payloadHash, e.payloadHash)) && 'payload_hash');
+      if (mismatch) throw new MessageRejected('call-mismatch', `send call ${mismatch} differs from the envelope`);
     }
-    if (!u8aEq(blake2AsU8a(payload, 256), e.payloadHash)) {
-      throw new MessageRejected('payload-hash-mismatch', 'blake2_256(payload) != payload_hash');
+
+    let plaintext: Uint8Array;
+    const body = m.body;
+    if (body.type === 'Plain') {
+      plaintext = body.bytes;
+    } else if (body.type === 'None') {
+      if (opts.detachedPlaintext === undefined) {
+        throw new MessageRejected('content-missing', 'hash-only message: supply the content as detachedPlaintext');
+      }
+      plaintext = opts.detachedPlaintext;
+    } else {
+      if (!opts.senderMessagingKey || !u8aEq(opts.senderMessagingKey, body.senderKey)) {
+        throw new MessageRejected('sender-key-mismatch', "sender_key is not the sender's published messaging key");
+      }
+      if (this.opener === undefined) throw new MessageRejected('decrypt-failed', 'inbox has no messaging key');
+      plaintext = this.opener(body);
     }
-    if (!this.nonces.isFresh(e.from, e.to, e.nonce)) {
-      throw new MessageRejected('replay', `nonce ${e.nonce} is not above the last accepted nonce`);
+
+    if (!u8aEq(blake2AsU8a(plaintext, 256), e.payloadHash)) {
+      throw new MessageRejected('payload-hash-mismatch', 'blake2_256(plaintext) != payload_hash');
     }
     this.nonces.commit(e.from, e.to, e.nonce);
-    return { from: encodeAddress(e.from, this.ss58), kind: e.kind, envelope: e, payload, signature: m.signature };
+    return {
+      from: encodeAddress(e.from, this.ss58),
+      kind: e.kind,
+      envelope: e,
+      bodyType: body.type,
+      plaintext,
+      signature: m.signature,
+    };
   }
 }
