@@ -1,8 +1,9 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Keyring } from '@polkadot/keyring';
+import { u8aToHex } from '@polkadot/util';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
-import { ScalarCommonsClient, type Logger } from '@scalar-commons/sdk';
+import { ScalarCommonsClient, deriveMessagingKey, type Logger } from '@scalar-commons/sdk';
 import { Agent, type AgentState } from './agent.js';
 import { SdkChain } from './chain.js';
 import { loadConfig } from './config.js';
@@ -46,7 +47,9 @@ async function main(): Promise<void> {
   const client = await ScalarCommonsClient.connect(cfg.ws, { logger: stderrLogger });
   const chain = new SdkChain(client, pair);
   const state = loadState(statePath);
-  const agent = new Agent(chain, { ...cfg, address: pair.address }, emit, state);
+  // The X25519 messaging key is derived from the same secret: nothing new to back up.
+  const messagingKey = u8aToHex(deriveMessagingKey(cfg.secret).publicKey);
+  const agent = new Agent(chain, { ...cfg, address: pair.address, messagingKey }, emit, state);
 
   let stopping = false;
   const stop = (sig: string) => {
