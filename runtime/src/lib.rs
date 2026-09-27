@@ -185,7 +185,28 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     // transaction_version is NOT bumped: agents::link_funding_lineage is appended at call
     // index 11 and ParamId::EmissionVolumeAlphaBps at discriminant 5, so no existing call
     // encoding moves.
-    spec_version: 307,
+    //
+    // 307 -> 308: agent messaging, Round A (D14–D16). On-chain coordination messages plus a
+    // per-agent messaging key, so negotiation that used to travel as JSON between chats is on
+    // the same ledger as the escrow it leads to.
+    //
+    //   * pallet-agents: new `MessagingKey` map (optional X25519 public key per agent), two
+    //     extrinsics appended at call indices 13 (`set_messaging_key`) and 14
+    //     (`clear_messaging_key`), two events and one error appended last.
+    //   * pallet-messages (new, pallet index 42 — the next unused index; nothing is renumbered):
+    //     one extrinsic, `send`, whose payload is carried in the block and the event but never
+    //     stored. Its only state is the per-sender `NextNonce` and the `SentInBlock` rate-limit
+    //     counter.
+    //
+    // Storage layout changes, so the bump is mandatory. No migration, and no
+    // STORAGE_VERSION change on pallet-agents: every change is ADDITIVE — two brand-new maps
+    // in a brand-new pallet and one brand-new map in agents, all empty at the upgrade and
+    // all OptionQuery/ValueQuery-with-zero-default, so nothing existing is read differently.
+    // No genesis config is added, so the chain spec is untouched.
+    //
+    // transaction_version is NOT bumped: the new agents calls are appended after index 12 and
+    // the new pallet sits at a previously unused index, so no existing call encoding moves.
+    spec_version: 308,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1375,6 +1396,30 @@ impl pallet_orchestrator::Config for Runtime {
     type SupplyCap = EmissionsSupplyCap; // shared 100B CMN cap
 }
 
+// ─── pallet-messages (spec 308, D15) ──────────────────────────────────────────
+parameter_types! {
+    /// Burned per message on top of the weight fee: 0.02 CMN = CMN / 50. The floor price of
+    /// one extrinsic slot and one event, so that a flood of empty pings costs real CMN.
+    pub const MessagesBaseFee:    Balance = CMN / 50;
+    /// Burned per payload byte: 0.0001 CMN = CMN / 10_000. A full 2 KiB payload therefore
+    /// burns 0.02 + 2048 × 0.0001 = 0.2248 CMN, ~11x an empty message, so block space is
+    /// priced in proportion to what a sender consumes.
+    pub const MessagesPerByteFee: Balance = CMN / 10_000;
+    /// At most 4 messages per sender per block: one account cannot fill a block with
+    /// messages no matter how much it is willing to burn.
+    pub const MessagesMaxPerBlock: u32 = 4;
+}
+// These are constants, not auto-params. Hosting them in auto-params would mean a new ParamId
+// with ValueQuery storage that has to be seeded on the live chain — a migration, which this
+// additive-only upgrade rules out. Moving them under governance bounds is follow-up work.
+impl pallet_messages::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type BaseFee = MessagesBaseFee;
+    type PerByteFee = MessagesPerByteFee;
+    type MaxPerBlock = MessagesMaxPerBlock;
+    type WeightInfo = pallet_messages::PlaceholderWeights;
+}
+
 parameter_types! {
     pub const AutoInitialFeeBps:       u32 = 25;   // V4: 0.25% from genesis — treasury income + ring deterrent active
     // ROUND14: 4_000 -> 1_500 bps. Alpha is governance's share of the 10,000 bps activity
@@ -1526,6 +1571,10 @@ mod runtime {
     // was previously unused. See ROUND3.md "Governance decisions".
     #[runtime::pallet_index(41)]
     pub type RankedPolls = pallet_referenda<Instance2>;
+    // spec 308: on-chain coordination messages. Appended at 42, the next unused index;
+    // nothing above moves.
+    #[runtime::pallet_index(42)]
+    pub type Messages = pallet_messages;
 }
 
 // ─── Runtime API implementations ─────────────────────────────────────────────
@@ -1892,7 +1941,161 @@ mod tests {
     /// The version the upgrade is applied as. If this and `VERSION.spec_version`
     /// ever disagree the node will refuse the blob, so pin it.
     #[test]
-    fn spec_version_is_307() {
-        assert_eq!(VERSION.spec_version, 307);
+    fn spec_version_is_308() {
+        assert_eq!(VERSION.spec_version, 308);
+    }
+
+    /// No existing call moved, so transaction_version must not have moved either.
+    #[test]
+    fn transaction_version_is_unchanged() {
+        assert_eq!(VERSION.transaction_version, 1);
+    }
+
+    // ── spec 308: pallet-messages + messaging key (D14–D17) ──────────────────
+
+    use frame_support::{
+        dispatch::GetDispatchInfo,
+        traits::{Currency, PalletInfoAccess},
+    };
+    use parity_scale_codec::{Decode, Encode};
+    use sp_runtime::{traits::DispatchTransaction, BuildStorage};
+
+    fn account(n: u8) -> AccountId {
+        AccountId::new([n; 32])
+    }
+
+    fn messages_ext() -> sp_io::TestExternalities {
+        let mut storage = frame_system::GenesisConfig::<Runtime>::default()
+            .build_storage()
+            .unwrap();
+        pallet_balances::GenesisConfig::<Runtime> {
+            balances: vec![
+                (account(1), CMN.saturating_mul(100_000)),
+                (account(2), CMN.saturating_mul(100_000)),
+            ],
+            dev_accounts: None,
+        }
+        .assimilate_storage(&mut storage)
+        .unwrap();
+        let mut ext: sp_io::TestExternalities = storage.into();
+        ext.execute_with(|| {
+            System::set_block_number(1);
+            for n in [1u8, 2] {
+                frame_support::assert_ok!(Agents::register(
+                    RuntimeOrigin::signed(account(n)),
+                    AgentsMinStake::get()
+                ));
+            }
+        });
+        ext
+    }
+
+    fn send_call(len: usize) -> RuntimeCall {
+        RuntimeCall::Messages(pallet_messages::Call::send {
+            to: account(2),
+            kind: pallet_messages::MessageKind::Offer,
+            agreement: None,
+            payload_hash: Some([3u8; 32]),
+            payload: vec![0x5Au8; len].try_into().unwrap(),
+        })
+    }
+
+    /// The fee constants are exactly the D15 values: 0.02 CMN base, 0.0001 CMN per byte,
+    /// 4 per block — and a full 2 KiB message costs 0.2248 CMN.
+    #[test]
+    fn message_fee_constants_are_the_specified_values() {
+        let base: Balance = 20_000_000_000; // 0.02 CMN
+        let per_byte: Balance = 100_000_000; // 0.0001 CMN
+        assert_eq!(MessagesBaseFee::get(), base);
+        assert_eq!(MessagesPerByteFee::get(), per_byte);
+        assert_eq!(MessagesMaxPerBlock::get(), 4);
+        assert_eq!(pallet_messages::MAX_PAYLOAD_LEN, 2048);
+        let full: Balance = 224_800_000_000; // 0.2248 CMN
+        assert_eq!(pallet_messages::Pallet::<Runtime>::message_fee(2048), full);
+        assert_eq!(pallet_messages::Pallet::<Runtime>::message_fee(0), base);
+    }
+
+    /// Wired at index 42, and nothing that existed before moved.
+    #[test]
+    fn messages_pallet_is_wired_at_index_42() {
+        assert_eq!(<Messages as PalletInfoAccess>::index(), 42);
+        assert_eq!(<Agents as PalletInfoAccess>::index(), 26);
+        assert_eq!(<RankedPolls as PalletInfoAccess>::index(), 41);
+    }
+
+    /// The new calls encode where clients will expect them and round-trip through the real
+    /// `RuntimeCall`.
+    #[test]
+    fn new_calls_encode_at_their_indices_and_round_trip() {
+        let call = send_call(3);
+        let bytes = call.encode();
+        assert_eq!(&bytes[..2], &[42u8, 0u8], "Messages::send = (42, 0)");
+        assert_eq!(RuntimeCall::decode(&mut &bytes[..]).unwrap(), call);
+
+        let set = RuntimeCall::Agents(pallet_agents::Call::set_messaging_key { key: [7u8; 32] });
+        let bytes = set.encode();
+        assert_eq!(
+            &bytes[..2],
+            &[26u8, 13u8],
+            "Agents::set_messaging_key = (26, 13)"
+        );
+        assert_eq!(RuntimeCall::decode(&mut &bytes[..]).unwrap(), set);
+
+        let clear = RuntimeCall::Agents(pallet_agents::Call::clear_messaging_key {});
+        assert_eq!(&clear.encode()[..], &[26u8, 14u8]);
+    }
+
+    /// A 2049-byte payload does not decode as a runtime call.
+    #[test]
+    fn oversized_payload_does_not_decode_as_a_runtime_call() {
+        let mut bytes = send_call(2048).encode();
+        // Re-encode the trailing payload one byte longer: strip it and append a 2049 Vec.
+        let payload_encoded = vec![0x5Au8; 2048].encode();
+        bytes.truncate(bytes.len() - payload_encoded.len());
+        bytes.extend(vec![0x5Au8; 2049].encode());
+        assert!(RuntimeCall::decode(&mut &bytes[..]).is_err());
+    }
+
+    /// D17 end to end on the real runtime: the sender's balance drops by exactly
+    /// weight/length fee + BaseFee + PerByteFee × len, and the protocol part is burned.
+    #[test]
+    fn sender_pays_exactly_transaction_fee_plus_message_fee() {
+        messages_ext().execute_with(|| {
+            for len in [0usize, 1, 100, 2048] {
+                System::set_block_number(System::block_number().saturating_add(1));
+                let call = send_call(len);
+                let info = call.get_dispatch_info();
+                let encoded_len = call.encoded_size();
+                let tx_fee = TransactionPayment::compute_fee(encoded_len as u32, &info, 0);
+                let message_fee = MessagesBaseFee::get()
+                    .saturating_add(MessagesPerByteFee::get().saturating_mul(len as Balance));
+
+                let before = Balances::free_balance(account(1));
+                let issuance = <Balances as Currency<AccountId>>::total_issuance();
+                let result =
+                    pallet_transaction_payment::ChargeTransactionPayment::<Runtime>::from(0)
+                        .dispatch_transaction(
+                            RuntimeOrigin::signed(account(1)),
+                            call,
+                            &info,
+                            encoded_len,
+                            0,
+                        )
+                        .expect("valid transaction");
+                assert!(result.is_ok(), "send dispatched: {result:?}");
+
+                let paid = before.saturating_sub(Balances::free_balance(account(1)));
+                assert_eq!(
+                    paid,
+                    tx_fee.saturating_add(message_fee),
+                    "len {len}: tx fee {tx_fee} + message fee {message_fee}"
+                );
+                // Transaction fees are burned too (FungibleAdapter<Balances, ()>), so the whole
+                // charge leaves issuance.
+                let burned =
+                    issuance.saturating_sub(<Balances as Currency<AccountId>>::total_issuance());
+                assert_eq!(burned, paid, "len {len}: every planck charged is burned");
+            }
+        });
     }
 }
