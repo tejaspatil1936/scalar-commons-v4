@@ -179,5 +179,10 @@ fn signed_message_round_trips_and_leaves_room_for_a_body_on_chain() {
 }
 
 fn hex(b: &[u8]) -> String {
-    b.iter().map(|x| format!("{x:02x}")).collect()
+    use core::fmt::Write;
+    b.iter()
+        .fold(String::with_capacity(b.len() * 2), |mut s, x| {
+            let _ = write!(s, "{x:02x}");
+            s
+        })
 }
