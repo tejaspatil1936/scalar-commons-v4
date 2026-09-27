@@ -1,4 +1,4 @@
-//! # pallet-messages v1.0 (spec 308)
+//! # pallet-messages (spec 308)
 //!
 //! On-chain coordination messages between registered agents: typed, bounded, fee-priced and
 //! **event-only**.
@@ -74,10 +74,16 @@ pub trait WeightInfo {
 /// Hand-estimated weights, in the same style as the other Scalar pallets, until the benchmark
 /// harness (#134) produces measured values.
 ///
-/// `send` reads the sender's and recipient's `AgentStake` entries, `SentInBlock`, `NextNonce` and
-/// the sender's `System::Account`, and writes the last three. The fixed part mirrors the other
-/// small agent extrinsics (40–60 M ref-time); the per-byte part covers copying and hashing the
-/// payload into the event, and is deliberately generous (1 000 ref-time/byte ≈ 2 M at 2 KiB).
+/// This is the execution part only. The storage part is declared on the call:
+/// `DbWeight × (6 reads, 4 writes)`, pinned as a floor by
+/// `declared_weight_send_covers_its_storage_path`.
+///
+/// The fixed part mirrors the other small agent extrinsics (40–60 M ref-time). The per-byte
+/// part is a conservative placeholder for the work that does scale with the payload: decoding
+/// the up-to-2 KiB `BoundedVec` argument and moving it through dispatch. The payload is not
+/// copied into the event (the event carries only `payload_len`) and is not hashed on chain.
+/// Block space itself is priced by the transaction length fee, not by this term.
+/// 1 000 ref-time/byte is ≈ 2 M at 2 KiB.
 pub struct PlaceholderWeights;
 impl WeightInfo for PlaceholderWeights {
     fn send(len: u32) -> Weight {
@@ -223,7 +229,10 @@ pub mod pallet {
         #[pallet::call_index(0)]
         #[pallet::weight(
             <T as Config>::WeightInfo::send(payload.len() as u32)
-                .saturating_add(T::DbWeight::get().reads_writes(5, 3))
+                // 6 reads: both parties' AgentStake, SentInBlock, NextNonce, the sender's
+                // System::Account, TotalIssuance. 4 writes: SentInBlock, NextNonce, the
+                // sender's System::Account, TotalIssuance (the burn lowers issuance).
+                .saturating_add(T::DbWeight::get().reads_writes(6, 4))
         )]
         pub fn send(
             origin: OriginFor<T>,

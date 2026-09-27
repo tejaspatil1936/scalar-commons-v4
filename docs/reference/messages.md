@@ -206,12 +206,18 @@ benchmark harness (#134) produces measured values:
 
 ```text
 send(len) = 50_000_000 + 1_000 × len   ref-time
-          + DbWeight × (5 reads, 3 writes)
+          + DbWeight × (6 reads, 4 writes)
 ```
 
-The reads are both parties' `AgentStake`, `SentInBlock`, `NextNonce` and the sender's
-`System::Account`; the writes are the last three. The per-byte term covers copying the
-payload into the event and is deliberately generous (about 2 M ref-time at 2 KiB).
+The reads are both parties' `AgentStake`, `SentInBlock`, `NextNonce`, the sender's
+`System::Account` and `TotalIssuance`. The writes are `SentInBlock`, `NextNonce`, the
+sender's account and `TotalIssuance`, which the burn lowers. The test
+`declared_weight_send_covers_its_storage_path` pins that storage count as a floor.
+
+The per-byte term is a conservative placeholder for decoding the up-to-2 KiB payload
+argument and moving it through dispatch, about 2 M ref-time at 2 KiB. The payload is not
+copied into the event or hashed on chain. Block space is priced separately, by the
+transaction length fee.
 `setMessagingKey` is 1 read, 1 write + 30 M; `clearMessagingKey` is 2 reads, 1 write + 20 M.
 
 ## Gaming analysis

@@ -47,7 +47,9 @@ impl frame_system::Config for Test {
     type Block = Block;
     type RuntimeEvent = RuntimeEvent;
     type BlockHashCount = ConstU64<250>;
-    type DbWeight = ();
+    // Real Rocks numbers, not `()`: with a zero DbWeight every `reads_writes(..)` in a
+    // declaration is free, and the declared-weight floor test below would test nothing.
+    type DbWeight = frame_support::weights::constants::RocksDbWeight;
     type Version = ();
     type PalletInfo = PalletInfo;
     type AccountData = pallet_balances::AccountData<u64>;
@@ -625,4 +627,34 @@ fn payload_is_not_written_to_state() {
             );
         }
     });
+}
+
+// ─── Declared weight is a floor over the worst-case storage path ───────────────
+
+/// Same rule as pallet-agents' #217 floors: an under-declared extrinsic is underpriced, so
+/// the caller's fee buys less storage work than the chain performs.
+///
+/// 6 reads: sender `AgentStake`, recipient `AgentStake`, `SentInBlock`, `NextNonce`, the
+///   sender's `System::Account` for the withdraw, and `TotalIssuance` for the burn.
+/// 4 writes: `SentInBlock`, `NextNonce`, the sender's `System::Account`, `TotalIssuance`
+///   (dropping the withdrawn `NegativeImbalance` lowers issuance — that is the burn).
+#[test]
+fn declared_weight_send_covers_its_storage_path() {
+    let floor = <Test as frame_system::Config>::DbWeight::get().reads_writes(6, 4);
+    for len in [0usize, 2048] {
+        let declared = Call::<Test>::send {
+            to: BOB,
+            kind: MessageKind::Offer,
+            agreement: None,
+            payload_hash: None,
+            payload: payload(len),
+        }
+        .get_dispatch_info()
+        .call_weight;
+        assert!(
+            declared.all_gte(floor),
+            "send({len} bytes) declares {declared:?} but its storage path needs at least \
+             {floor:?}"
+        );
+    }
 }

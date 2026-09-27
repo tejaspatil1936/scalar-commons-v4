@@ -4,23 +4,24 @@ version = "4.0.0"
 edition = "2021"
 
 [dependencies]
-parity-scale-codec = { version = "3.6.12", default-features = false, features = ["derive"] }
-scale-info = { version = "2.11", default-features = false, features = ["derive"] }
-frame-support = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503", default-features = false }
-frame-system = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503", default-features = false }
-sp-runtime = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503", default-features = false }
+parity-scale-codec = { workspace = true }
+scale-info         = { workspace = true }
+frame-support      = { workspace = true }
+frame-system       = { workspace = true }
+sp-runtime         = { workspace = true }
 # Registration checks go through pallet-agents (`is_agent`), and the fee is withdrawn from
 # the agents' Currency so the two pallets can never disagree on the balance type.
-pallet-agents = { path = "../agents", default-features = false }
+pallet-agents      = { workspace = true }
 
-# Crates the test mock in src/tests.rs needs but the pallet itself does not.
+# Crates the test mock in src/tests.rs needs but the pallet itself does not. std is on here
+# because test runtimes execute natively.
 [dev-dependencies]
-# sp_core::H256 — frame_system::Config::Hash in the mock.
-sp-core = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
-# sp_io::TestExternalities — new_test_ext() return type.
-sp-io = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
-# pallet_balances — the mock's Currency and AccountData.
-pallet-balances = { git = "https://github.com/paritytech/polkadot-sdk", tag = "polkadot-stable2503" }
+# sp_core::H256 (frame_system::Config::Hash) and sr25519 dev keys for the envelope vectors.
+sp-core         = { workspace = true, features = ["std", "full_crypto"] }
+# sp_io::TestExternalities and the storage walk in `payload_is_not_written_to_state`.
+sp-io           = { workspace = true, features = ["std"] }
+# pallet_balances: the mock's Currency and AccountData.
+pallet-balances = { workspace = true, features = ["std"] }
 
 [features]
 default = ["std"]
