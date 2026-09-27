@@ -47,7 +47,11 @@ impl frame_system::Config for Test {
     type Block = Block;
     type RuntimeEvent = RuntimeEvent;
     type BlockHashCount = BlockHashCount;
-    type DbWeight = ();
+    // Real Rocks numbers, not `()`. With a zero DbWeight every `reads_writes(..)`
+    // collapses to zero and the declared-weight floors below (#217) would compare
+    // zero against zero — present but unable to ever fail. Pricing the mock the way
+    // the runtime prices it keeps those assertions load-bearing.
+    type DbWeight = frame_support::weights::constants::RocksDbWeight;
     type Version = ();
     type PalletInfo = PalletInfo;
     type AccountData = pallet_balances::AccountData<u64>;
@@ -1299,9 +1303,8 @@ fn v2_migration_backfills_last_heartbeat_for_pre_306_agents() {
             "precondition: a pre-306 agent is under the activity gate"
         );
 
-        // The mock sets `DbWeight = ()`, so the returned Weight is structurally zero here
-        // and asserting on it would test the mock rather than the migration. What the
-        // migration must be judged on is the state it leaves behind.
+        // Asserting on the returned Weight would test the mock's DbWeight rather than the
+        // migration. What the migration must be judged on is the state it leaves behind.
         let _ = <Pallet<Test> as Hooks<u64>>::on_runtime_upgrade();
 
         assert_eq!(StorageVersion::get::<Pallet<Test>>(), 2);
@@ -2663,4 +2666,111 @@ fn partial_slash_keeps_messaging_key() {
         assert!(AgentStake::<Test>::contains_key(ALICE));
         assert_eq!(MessagingKey::<Test>::get(ALICE), Some(KEY_A));
     });
+}
+
+// ── #217: declared weights are floors over the worst-case storage path ────────
+//
+// An under-declared extrinsic is underpriced: the caller's fee buys less storage
+// work than the chain actually performs, which makes the under-declared call the
+// profitable one to spam and lets a block overrun its real weight budget. #195
+// added bounded appeal cleanup to `complete_unstake` and `execute_slash` without
+// raising their declarations, so both were paying for fewer writes than they do.
+//
+// These tests pin the count as a *floor*, not an equality: declaring more than the
+// path needs is safe and stays legal here, while a declaration that no longer
+// covers the path fails — so a future edit that adds a write without touching the
+// weight is caught at this level rather than at a benchmark run that does not
+// exist yet.
+//
+// Counting convention, mirrored in the comment above each declaration in lib.rs:
+//   - one read / write per direct access to this pallet's own storage;
+//   - a `CountedStorageMap` mutation adds one counter read and one counter write;
+//   - `clear_prefix(.., MAX_OPEN_APPEALS, ..)` is MAX_OPEN_APPEALS reads plus
+//     MAX_OPEN_APPEALS writes, its bound being the whole point of the bound;
+//   - one read plus one write per call out through a `Config` associated type
+//     (`Currency`, `AgentCollective`, the `on_*` hooks) — the same coarse
+//     allowance the rest of this pallet's hand-declared weights already use.
+//     except where that allowance is demonstrably not a bound: the ranked-collective
+//     teardown in `complete_unstake` is rank-linear, so it is counted per rank from
+//     the runtime's `RankedCollectiveBridge` rather than flattened.
+//
+// Two things these floors deliberately do not pin, both because a hand-declared
+// weight has no honest value for them: `proof_size`, which stays 0 on both sides
+// until real benchmarks (#134 / #192 / #210) measure PoV, and the read/write
+// *structure* — `all_gte` compares total `ref_time`, so it catches a declaration
+// that got cheaper but not one that reshuffles reads into the flat component.
+
+/// The weight the runtime will actually charge for `call`, as declared by
+/// `#[pallet::weight(..)]`.
+fn declared_weight(call: crate::Call<Test>) -> frame_support::weights::Weight {
+    use frame_support::dispatch::GetDispatchInfo;
+    call.get_dispatch_info().call_weight
+}
+
+/// The counted worst-case storage cost, priced with the same `DbWeight` the
+/// declaration itself is priced with.
+fn worst_case_floor(reads: u64, writes: u64) -> frame_support::weights::Weight {
+    <Test as frame_system::Config>::DbWeight::get().reads_writes(reads, writes)
+}
+
+#[test]
+fn declared_weight_complete_unstake_covers_appeal_cleanup() {
+    // 26 reads: this pallet's 12 — AgentStake, UnstakeAt, block_number,
+    //   ActiveEscrowCount, the AgentStake counter, 5 × OpenAppeals `clear_prefix`,
+    //   Locks + account for remove_lock — plus 14 for AgentCollective::remove
+    //   (3 per rank × 4 ranks, plus the 2 that end the rank walk).
+    // 40 writes: this pallet's 19 — AgentStake value + counter, UnstakeAt,
+    //   StakeRegisteredAt, CompletedAgreements, LastHeartbeat, AgentMetadata,
+    //   AgentCapabilities, MessagingKey (spec 308), VotingDelegations, PendingSlashAppeals,
+    //   OpenAppealCount, 5 × OpenAppeals `clear_prefix`, Locks + account for
+    //   remove_lock — plus 21 for AgentCollective::remove (5 per rank × 4 ranks,
+    //   plus the final Members removal).
+    let floor = worst_case_floor(26, 40);
+    let declared = declared_weight(crate::Call::<Test>::complete_unstake {});
+    assert!(
+        declared.all_gte(floor),
+        "complete_unstake declares {declared:?} but its worst-case path needs at \
+         least {floor:?} — every branch it takes must be paid for"
+    );
+}
+
+#[test]
+fn declared_weight_execute_slash_covers_appeal_cleanup() {
+    // 17 reads: AgentStake, the AgentStake counter, EraNumber, MessagingKey (spec 308),
+    //   5 × OpenAppeals `clear_prefix`, Locks + account for set_lock/remove_lock,
+    //   account + TotalIssuance for withdraw, TotalIssuance for the burn-half
+    //   drop, treasury account + TotalIssuance for on_unbalanced, on_slashed.
+    // 19 writes: AgentStake value + counter, MessagingKey (spec 308), PendingSlashAppeals,
+    //   OpenAppealCount,
+    //   SlashRecords, 5 × OpenAppeals `clear_prefix`, and the balance side —
+    //   Locks + account, account + TotalIssuance, TotalIssuance for the burn,
+    //   treasury account + TotalIssuance, AgentWeightSnapshot for on_slashed.
+    let floor = worst_case_floor(17, 19);
+    let declared = declared_weight(crate::Call::<Test>::execute_slash {
+        who: ALICE,
+        bps: 10_000,
+    });
+    assert!(
+        declared.all_gte(floor),
+        "execute_slash declares {declared:?} but its worst-case path needs at \
+         least {floor:?} — the bounded appeal cleanup is part of the call"
+    );
+}
+
+#[test]
+fn declared_weight_slash_appeal_covers_its_reads() {
+    // 7 reads: AgentStake, SlashRecords, OpenAppeals, OpenAppealCount,
+    //   block_number, EraNumber, PendingSlashAppeals.
+    // 3 writes: PendingSlashAppeals, OpenAppeals, OpenAppealCount. The write count
+    //   already matched the declaration, so only the read count moved.
+    let floor = worst_case_floor(7, 3);
+    let declared = declared_weight(crate::Call::<Test>::slash_appeal {
+        slash_era: 0,
+        reason_hash: [0u8; 32],
+    });
+    assert!(
+        declared.all_gte(floor),
+        "slash_appeal declares {declared:?} but reads more than that: it needs at \
+         least {floor:?}"
+    );
 }
