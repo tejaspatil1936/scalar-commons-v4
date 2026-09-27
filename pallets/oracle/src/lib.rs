@@ -730,7 +730,11 @@ pub mod pallet {
                     bounty,
                     mode: ConsensusMode::Factual,
                     min_responses: 3,
-                    consensus_threshold: 67,
+                    // 66%, so that 2 of 3 (66.7%) still settles a dispute now
+                    // that the threshold rounds up. At 67% it would take all 3,
+                    // and since no consensus settles as buyer-wins, a single
+                    // dissenting respondent could hand the buyer any dispute.
+                    consensus_threshold: 66,
                     response_deadline: deadline,
                     challenge_window: T::MinChallengeWindow::get(),
                     required_capability: capability,
@@ -773,11 +777,22 @@ pub mod pallet {
                     counts.push((*hash, 1));
                 }
             }
-            let total = responses.len() as u32;
-            let required = ((total as u64 * threshold as u64) / 100) as u32;
+            let total = responses.len() as u64;
+            // `threshold` is a whole percentage (67 = 67%). Round the agreeing
+            // count *up*: `required` is the smallest count whose share of
+            // `total` is >= threshold%. Rounding down let 2 of 3 (66.7%) pass a
+            // 67% threshold — consensus at less agreement than the request named.
+            let required = total.saturating_mul(threshold as u64).saturating_add(99) / 100;
+            let required = u32::try_from(required).unwrap_or(u32::MAX).max(1);
+            // A tie for the top count is no consensus. Picking either tied
+            // outcome would fall back on storage order, which is fixed by key
+            // hashes and so computable in advance — an advantage to whoever can
+            // choose their answer hash. The no-consensus path refunds the creator.
+            let top = counts.iter().map(|(_, count)| *count).max().unwrap_or(0);
+            let top_is_unique = counts.iter().filter(|(_, count)| *count == top).count() == 1;
             let maybe_winning = counts
                 .iter()
-                .find(|(_, count)| *count >= required.max(1))
+                .find(|(_, count)| *count == top && top >= required && top_is_unique)
                 .map(|(h, _)| *h);
             let mut winners = sp_std::vec![];
             let mut losers = sp_std::vec![];
