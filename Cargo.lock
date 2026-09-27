@@ -6252,6 +6252,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pallet-messages"
+version = "4.0.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "pallet-agents",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
+]
+
+[[package]]
 name = "pallet-multisig"
 version = "40.1.0"
 source = "git+https://github.com/paritytech/polkadot-sdk?tag=polkadot-stable2503#0c0d4ceba45a70f4e8dc40b1ee0cfae1fd759454"
