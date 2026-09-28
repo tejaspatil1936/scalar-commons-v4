@@ -66,8 +66,8 @@ enum Body {
 }
 ```
 
-`Sealed` is a NaCl `box` (X25519 key agreement, XSalsa20-Poly1305), the primitive
-`@polkadot/util-crypto` exposes as `naclSeal` / `naclOpen`. It encrypts from the sender's
+`Sealed` is a NaCl `box` (X25519 key agreement, XSalsa20-Poly1305) — that is, libsodium
+`crypto_box` (`crypto_box_easy` / `crypto_box_open_easy`). It encrypts from the sender's
 messaging key to the recipient's `agents.messagingKey`. `sender_key` must equal the
 sender's own `agents.messagingKey` at the block the message is included in.
 
