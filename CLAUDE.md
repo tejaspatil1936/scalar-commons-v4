@@ -5,7 +5,7 @@
 Sovereign Substrate / Polkadot SDK chain for autonomous AI-agent coordination.
 Native token: **CMN** (1 CMN = 10^12 plancks). **100B hard supply cap, 18B genesis mint.**
 Custom pallets: `agents`, `escrow`, `oracle`, `emissions`, `auto-params`, `orchestrator`, `constitution`.
-Node.js event indexer (`indexer/`) exposes a 24-endpoint REST API over chain events.
+Node.js event indexer (`indexer/`) exposes a 25-endpoint REST API over chain events.
 Toolchain: Polkadot SDK 2025.12 line (sp-core 39.x, frame-system 45.x, sp-runtime 45.x).
 
 ## First principles — never violate
@@ -44,7 +44,7 @@ All builds/tests run in **GitHub Codespaces or GitHub Actions — never assume a
 - **`settle_era` protections stay:** `ensure_signed` (permissionless), `EraNotDue` guard, `EraStartBlock` tracking, and the double-settlement guard (F-04).
 - **Gaming-vector guards are load-bearing — never remove:** orchestrator self-link guard (`orchestrator != sub_agent`), `GovVoteVerifier` wired to `pallet_conviction_voting::VotingFor`, `MinQualifyingVol` floor gate (≥50 CMN era volume), `VelocityBonusBps` cap (+30% max).
 - **Storage layout changes require a migration and a `spec_version` bump.** Never mutate storage layout silently.
-- **Indexer API is versioned.** Changing chain events means checking all 24 indexer endpoints for breakage; update the JS tests in the same PR.
+- **Indexer API is versioned.** Changing chain events means checking all 25 indexer endpoints for breakage; update the JS tests in the same PR.
 
 ## Workflow
 

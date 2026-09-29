@@ -68,7 +68,7 @@ No `daemon-reload` needed for an env-file edit — only for a unit-file edit.
 
 ## indexer — `127.0.0.1:8080`
 
-Subscribes to finalized blocks on alice and serves the versioned 24-endpoint
+Subscribes to finalized blocks on alice and serves the versioned 25-endpoint
 `/v1` REST surface over what it has stored.
 
 - Runs `indexer/src/index.ts` directly under `--experimental-strip-types`; there
