@@ -2480,6 +2480,194 @@ fn e22_unstake_clears_every_open_appeal() {
     });
 }
 
+// ── spec 308 (D14): messaging key ─────────────────────────────────────────────
+
+const KEY_A: [u8; 32] = [0xA1; 32];
+const KEY_B: [u8; 32] = [0xB2; 32];
+
+#[test]
+fn set_messaging_key_stores_key_and_emits_event() {
+    new_test_ext().execute_with(|| {
+        frame_system::Pallet::<Test>::set_block_number(1);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_eq!(MessagingKey::<Test>::get(ALICE), None);
+        assert_ok!(Agents::set_messaging_key(
+            RuntimeOrigin::signed(ALICE),
+            KEY_A
+        ));
+        assert_eq!(MessagingKey::<Test>::get(ALICE), Some(KEY_A));
+        frame_system::Pallet::<Test>::assert_last_event(
+            Event::MessagingKeySet {
+                who: ALICE,
+                key: KEY_A,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn set_messaging_key_again_rotates_it() {
+    new_test_ext().execute_with(|| {
+        frame_system::Pallet::<Test>::set_block_number(1);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::set_messaging_key(
+            RuntimeOrigin::signed(ALICE),
+            KEY_A
+        ));
+        assert_ok!(Agents::set_messaging_key(
+            RuntimeOrigin::signed(ALICE),
+            KEY_B
+        ));
+        assert_eq!(MessagingKey::<Test>::get(ALICE), Some(KEY_B));
+        frame_system::Pallet::<Test>::assert_last_event(
+            Event::MessagingKeySet {
+                who: ALICE,
+                key: KEY_B,
+            }
+            .into(),
+        );
+    });
+}
+
+#[test]
+fn set_messaging_key_takes_no_deposit() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        let free = Balances::free_balance(ALICE);
+        let reserved = Balances::reserved_balance(ALICE);
+        assert_ok!(Agents::set_messaging_key(
+            RuntimeOrigin::signed(ALICE),
+            KEY_A
+        ));
+        assert_eq!(Balances::free_balance(ALICE), free);
+        assert_eq!(Balances::reserved_balance(ALICE), reserved);
+    });
+}
+
+#[test]
+fn set_messaging_key_rejected_for_unregistered_account() {
+    new_test_ext().execute_with(|| {
+        assert_noop!(
+            Agents::set_messaging_key(RuntimeOrigin::signed(BOB), KEY_A),
+            Error::<Test>::NotRegistered
+        );
+        assert_eq!(MessagingKey::<Test>::get(BOB), None);
+    });
+}
+
+#[test]
+fn clear_messaging_key_removes_key_and_emits_event() {
+    new_test_ext().execute_with(|| {
+        frame_system::Pallet::<Test>::set_block_number(1);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::set_messaging_key(
+            RuntimeOrigin::signed(ALICE),
+            KEY_A
+        ));
+        assert_ok!(Agents::clear_messaging_key(RuntimeOrigin::signed(ALICE)));
+        assert_eq!(MessagingKey::<Test>::get(ALICE), None);
+        frame_system::Pallet::<Test>::assert_last_event(
+            Event::MessagingKeyCleared { who: ALICE }.into(),
+        );
+    });
+}
+
+#[test]
+fn clear_messaging_key_rejected_for_unregistered_account() {
+    new_test_ext().execute_with(|| {
+        assert_noop!(
+            Agents::clear_messaging_key(RuntimeOrigin::signed(BOB)),
+            Error::<Test>::NotRegistered
+        );
+    });
+}
+
+#[test]
+fn clear_messaging_key_without_a_key_is_an_error_not_a_silent_event() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_noop!(
+            Agents::clear_messaging_key(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::NoMessagingKey
+        );
+    });
+}
+
+#[test]
+fn one_agent_cannot_touch_another_agents_key() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::register(RuntimeOrigin::signed(BOB), 1_000));
+        assert_ok!(Agents::set_messaging_key(
+            RuntimeOrigin::signed(ALICE),
+            KEY_A
+        ));
+        assert_ok!(Agents::set_messaging_key(RuntimeOrigin::signed(BOB), KEY_B));
+        assert_ok!(Agents::clear_messaging_key(RuntimeOrigin::signed(BOB)));
+        assert_eq!(MessagingKey::<Test>::get(ALICE), Some(KEY_A));
+        assert_eq!(MessagingKey::<Test>::get(BOB), None);
+    });
+}
+
+#[test]
+fn complete_unstake_clears_messaging_key() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::set_messaging_key(
+            RuntimeOrigin::signed(ALICE),
+            KEY_A
+        ));
+        assert_ok!(Agents::request_unstake(RuntimeOrigin::signed(ALICE)));
+        frame_system::Pallet::<Test>::set_block_number(101);
+        assert_ok!(Agents::complete_unstake(RuntimeOrigin::signed(ALICE)));
+        assert_eq!(
+            MessagingKey::<Test>::get(ALICE),
+            None,
+            "a departed agent must not leave a key counterparties would still encrypt to"
+        );
+    });
+}
+
+#[test]
+fn slash_eviction_clears_messaging_key_and_says_so() {
+    new_test_ext().execute_with(|| {
+        frame_system::Pallet::<Test>::set_block_number(1);
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_ok!(Agents::set_messaging_key(
+            RuntimeOrigin::signed(ALICE),
+            KEY_A
+        ));
+        // 100% slash takes stake below MinStake: ALICE stops being an agent...
+        assert_ok!(Agents::execute_slash(RuntimeOrigin::root(), ALICE, 10_000));
+        assert!(!AgentStake::<Test>::contains_key(ALICE));
+        // ...so her key must not outlive the registration. Otherwise it stays published for
+        // a non-agent she can no longer clear (clear requires registration), and silently
+        // reappears if she registers again.
+        assert_eq!(MessagingKey::<Test>::get(ALICE), None);
+        assert!(frame_system::Pallet::<Test>::events()
+            .iter()
+            .any(|r| r.event == RuntimeEvent::Agents(Event::MessagingKeyCleared { who: ALICE })));
+        // Re-registering does not resurrect it.
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 1_000));
+        assert_eq!(MessagingKey::<Test>::get(ALICE), None);
+    });
+}
+
+#[test]
+fn partial_slash_keeps_messaging_key() {
+    new_test_ext().execute_with(|| {
+        assert_ok!(Agents::register(RuntimeOrigin::signed(ALICE), 10_000));
+        assert_ok!(Agents::set_messaging_key(
+            RuntimeOrigin::signed(ALICE),
+            KEY_A
+        ));
+        assert_ok!(Agents::execute_slash(RuntimeOrigin::root(), ALICE, 1_000)); // 10%
+        assert!(AgentStake::<Test>::contains_key(ALICE));
+        assert_eq!(MessagingKey::<Test>::get(ALICE), Some(KEY_A));
+    });
+}
+
 // ── #217: declared weights are floors over the worst-case storage path ────────
 //
 // An under-declared extrinsic is underpriced: the caller's fee buys less storage
@@ -2531,13 +2719,13 @@ fn declared_weight_complete_unstake_covers_appeal_cleanup() {
     //   ActiveEscrowCount, the AgentStake counter, 5 × OpenAppeals `clear_prefix`,
     //   Locks + account for remove_lock — plus 14 for AgentCollective::remove
     //   (3 per rank × 4 ranks, plus the 2 that end the rank walk).
-    // 39 writes: this pallet's 18 — AgentStake value + counter, UnstakeAt,
+    // 40 writes: this pallet's 19 — AgentStake value + counter, UnstakeAt,
     //   StakeRegisteredAt, CompletedAgreements, LastHeartbeat, AgentMetadata,
-    //   AgentCapabilities, VotingDelegations, PendingSlashAppeals,
+    //   AgentCapabilities, MessagingKey (spec 308), VotingDelegations, PendingSlashAppeals,
     //   OpenAppealCount, 5 × OpenAppeals `clear_prefix`, Locks + account for
     //   remove_lock — plus 21 for AgentCollective::remove (5 per rank × 4 ranks,
     //   plus the final Members removal).
-    let floor = worst_case_floor(26, 39);
+    let floor = worst_case_floor(26, 40);
     let declared = declared_weight(crate::Call::<Test>::complete_unstake {});
     assert!(
         declared.all_gte(floor),
@@ -2548,15 +2736,16 @@ fn declared_weight_complete_unstake_covers_appeal_cleanup() {
 
 #[test]
 fn declared_weight_execute_slash_covers_appeal_cleanup() {
-    // 16 reads: AgentStake, the AgentStake counter, EraNumber,
+    // 17 reads: AgentStake, the AgentStake counter, EraNumber, MessagingKey (spec 308),
     //   5 × OpenAppeals `clear_prefix`, Locks + account for set_lock/remove_lock,
     //   account + TotalIssuance for withdraw, TotalIssuance for the burn-half
     //   drop, treasury account + TotalIssuance for on_unbalanced, on_slashed.
-    // 18 writes: AgentStake value + counter, PendingSlashAppeals, OpenAppealCount,
+    // 19 writes: AgentStake value + counter, MessagingKey (spec 308), PendingSlashAppeals,
+    //   OpenAppealCount,
     //   SlashRecords, 5 × OpenAppeals `clear_prefix`, and the balance side —
     //   Locks + account, account + TotalIssuance, TotalIssuance for the burn,
     //   treasury account + TotalIssuance, AgentWeightSnapshot for on_slashed.
-    let floor = worst_case_floor(16, 18);
+    let floor = worst_case_floor(17, 19);
     let declared = declared_weight(crate::Call::<Test>::execute_slash {
         who: ALICE,
         bps: 10_000,

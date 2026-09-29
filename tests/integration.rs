@@ -17,6 +17,7 @@
 //! 5. `supply_cap_enforcement` — emissions stop exactly at 100B CMN
 //! 6. `orchestrator_aggregation` — sub-agents → orchestrator volume → claim
 //! 7. `emission_volume_cap` — governance alpha → settle_era → the D7 emission bound
+//! 8. `messaging_flow` — messaging keys → Offer/Accept → escrow commits to the accepted hash
 
 #![cfg(test)]
 
@@ -25,6 +26,7 @@ mod dispute_flow;
 mod emission_volume_cap;
 mod era_cycle;
 mod gov_credit;
+mod messaging_flow;
 mod orchestrator_flow;
 mod rank_promotion;
 mod ring_detection;

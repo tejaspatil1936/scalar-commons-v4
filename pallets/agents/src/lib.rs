@@ -653,6 +653,25 @@ pub mod pallet {
         ValueQuery,
     >;
 
+    /// spec 308 (D14): an agent's X25519 public key for end-to-end encrypted messages.
+    ///
+    /// Agents coordinate through `pallet-messages`, whose payloads are public block data. A
+    /// counterparty that wants confidential terms needs a key to encrypt to that it can trust is
+    /// the agent's own; publishing it here, writable only by the registered agent itself, gives
+    /// every counterparty the same answer without a separate key directory. Optional: an agent
+    /// with no key can still send and receive plaintext and hash-only messages.
+    ///
+    /// No deposit: the entry is a fixed 32 bytes, at most one per registered agent, so it is
+    /// bounded by `MaxAgents` and already paid for by the registration burn. Removed whenever
+    /// the account stops being an agent — `complete_unstake`, or an `execute_slash` that takes
+    /// stake below `MinStake` — so no key is ever published for a non-agent.
+    ///
+    /// Additive storage: existing agents simply have no entry, so no migration and no
+    /// `STORAGE_VERSION` bump are needed.
+    #[pallet::storage]
+    pub type MessagingKey<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, [u8; 32], OptionQuery>;
+
     // ─── StorageVersion ──────────────────────────────────────────────────────
     /// Bumped 1 -> 2 for spec 306: `EraPairVolume` and `LineageParent` are new, and the
     /// v2 migration backfills `LastHeartbeat` for agents that registered before D8 (#161).
@@ -846,6 +865,18 @@ pub mod pallet {
             burn: BalanceOf<T>,
             treasury: BalanceOf<T>,
         },
+        /// spec 308 (D14): an agent published or rotated its X25519 messaging key. Emitted on
+        /// every set, including a rotation, so a counterparty watching events never encrypts
+        /// to a stale key.
+        MessagingKeySet {
+            who: T::AccountId,
+            key: [u8; 32],
+        },
+        /// spec 308 (D14): an agent withdrew its messaging key; counterparties must stop
+        /// encrypting to the old one.
+        MessagingKeyCleared {
+            who: T::AccountId,
+        },
     }
 
     // ─── Errors ──────────────────────────────────────────────────────────────
@@ -897,6 +928,8 @@ pub mod pallet {
         NoSuchSlash,
         /// The agent already has `MAX_OPEN_APPEALS` appeals open.
         TooManyOpenAppeals,
+        /// `clear_messaging_key` was called by an agent that has no messaging key set.
+        NoMessagingKey,
     }
 
     // ─── Calls ───────────────────────────────────────────────────────────────
@@ -1086,9 +1119,11 @@ pub mod pallet {
         /// the final `Members` removal. A runtime wiring a collective with more ranks than
         /// this one must revisit this term.
         ///
+        /// spec 308 adds one write to the first term: the `MessagingKey` removal.
+        ///
         /// Pinned as a floor by `declared_weight_complete_unstake_covers_appeal_cleanup`.
         #[pallet::call_index(3)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(12, 18)
+        #[pallet::weight(T::DbWeight::get().reads_writes(12, 19)
             .saturating_add(T::DbWeight::get().reads_writes(14, 21))
             .saturating_add(Weight::from_parts(80_000_000, 0)))]
         pub fn complete_unstake(origin: OriginFor<T>) -> DispatchResult {
@@ -1112,6 +1147,7 @@ pub mod pallet {
             LastHeartbeat::<T>::remove(&who);
             AgentMetadata::<T>::remove(&who);
             AgentCapabilities::<T>::remove(&who);
+            MessagingKey::<T>::remove(&who);
             VotingDelegations::<T>::remove(&who);
             PendingSlashAppeals::<T>::remove(&who);
             let _ = OpenAppeals::<T>::clear_prefix(&who, MAX_OPEN_APPEALS, None);
@@ -1460,10 +1496,11 @@ pub mod pallet {
         ///
         /// Root-gated, so this is not a fee surface — but it is still scheduled against a
         /// block's weight budget, and #195's cleanup made the old 5/5 an understatement of
-        /// what a block must fit. Pinned as a floor by
+        /// what a block must fit. spec 308 adds one read and one write: the
+        /// `MessagingKey::take` on the eviction branch. Pinned as a floor by
         /// `declared_weight_execute_slash_covers_appeal_cleanup`.
         #[pallet::call_index(10)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(16, 18)
+        #[pallet::weight(T::DbWeight::get().reads_writes(17, 19)
             .saturating_add(Weight::from_parts(100_000_000, 0)))]
         pub fn execute_slash(
             origin: OriginFor<T>,
@@ -1517,6 +1554,13 @@ pub mod pallet {
                 AgentStake::<T>::insert(&who, new_stake);
             } else {
                 AgentStake::<T>::remove(&who);
+                // spec 308: an evicted account is no longer an agent, so it must not keep a
+                // published messaging key. It could not clear it itself (clearing requires
+                // registration), and the key would silently reappear on re-registration
+                // without a fresh MessagingKeySet for counterparties to notice.
+                if MessagingKey::<T>::take(&who).is_some() {
+                    Self::deposit_event(Event::MessagingKeyCleared { who: who.clone() });
+                }
             }
 
             // Step 4: 50/50 split — treasury receives half, half burned on drop.
@@ -1616,6 +1660,42 @@ pub mod pallet {
             );
             LineageParent::<T>::remove(&who);
             Self::deposit_event(Event::FundingLineageUnlinked { who });
+            Ok(())
+        }
+
+        /// spec 308 (D14): publish or rotate this agent's 32-byte X25519 messaging public key.
+        ///
+        /// Only a registered agent may call it, so every key on chain belongs to an account
+        /// that has burned a registration fee and locked stake — a key directory that is as
+        /// sybil-resistant as the agent set itself. Calling it again replaces the key
+        /// (rotation); there is no cooldown because a compromised key must be replaceable
+        /// immediately. No deposit and no fee beyond the transaction fee: see `MessagingKey`.
+        #[pallet::call_index(13)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(1, 1)
+            .saturating_add(Weight::from_parts(30_000_000, 0)))]
+        pub fn set_messaging_key(origin: OriginFor<T>, key: [u8; 32]) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            // `is_agent` is the same predicate pallet-messages uses for "registered".
+            ensure!(Self::is_agent(&who), Error::<T>::NotRegistered);
+            MessagingKey::<T>::insert(&who, key);
+            Self::deposit_event(Event::MessagingKeySet { who, key });
+            Ok(())
+        }
+
+        /// spec 308 (D14): remove this agent's messaging key. After this, counterparties
+        /// have nothing to encrypt to and fall back to plaintext or hash-only messages.
+        #[pallet::call_index(14)]
+        #[pallet::weight(T::DbWeight::get().reads_writes(2, 1)
+            .saturating_add(Weight::from_parts(20_000_000, 0)))]
+        pub fn clear_messaging_key(origin: OriginFor<T>) -> DispatchResult {
+            let who = ensure_signed(origin)?;
+            ensure!(Self::is_agent(&who), Error::<T>::NotRegistered);
+            ensure!(
+                MessagingKey::<T>::contains_key(&who),
+                Error::<T>::NoMessagingKey
+            );
+            MessagingKey::<T>::remove(&who);
+            Self::deposit_event(Event::MessagingKeyCleared { who });
             Ok(())
         }
     } // end #[pallet::call]
