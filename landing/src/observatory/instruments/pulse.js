@@ -585,7 +585,7 @@ export function init(root, ctx) {
   function onStatus(record) {
     // Polling fallback: /v1/status has no headers, so bars are placed by the poll time alone.
     if (!record.ok) {
-      setMode('down', 'Not updating — the last request failed');
+      setMode('down', 'Not updating · last request failed');
       ctx.readout.showError(targets.best, record);
       ctx.readout.showError(targets.finalized, record);
       ctx.readout.showError(targets.lag, record);
@@ -601,7 +601,7 @@ export function init(root, ctx) {
       const fin = stream.finalize(finalized, ctx.now());
       headRecord = record;
       finalRecord = record;
-      if (mode === 'polling') setMode('polling', 'Polling every 6 s — live stream unavailable');
+      if (mode === 'polling') setMode('polling', 'Polling · live stream unavailable');
       ctx.bus.emit('head', { record, number: best, header: null, author: null, forked: false, arrivedAt: ctx.now() });
       ctx.bus.emit('finalized', { record, number: finalized });
       showReadouts();
@@ -620,7 +620,7 @@ export function init(root, ctx) {
 
   function startPolling() {
     if (stopPolling) return;
-    setMode('polling', 'Polling every 6 s — live stream unavailable');
+    setMode('polling', 'Polling · live stream unavailable');
     stopPolling = ctx.watch('status', onStatus, STATUS_POLL_MS);
   }
 

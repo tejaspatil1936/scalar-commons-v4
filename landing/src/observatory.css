@@ -283,7 +283,9 @@ pre {
    view: the state word, who is sealing, the finality lag, the height. The
    provenance sits at the line's end, in mono, as under every reading. */
 
-.statusbar {
+/* `.statusbar.reading`: the bar carries the reading class so the readout can
+   find its slots, and must not take the reading tile's padding and rule. */
+.statusbar.reading {
   position: sticky;
   top: 0;
   z-index: 3;
@@ -292,9 +294,13 @@ pre {
   align-items: baseline;
   gap: 0.15rem 0.5rem;
   max-width: none;
+  /* The bar's height is reserved for its longest state, so a state change
+     never moves the page beneath it (the first screen's layout shift). */
+  min-height: 2.15rem;
   margin: 0;
   padding: 0.4rem var(--gutter);
   background: var(--bg);
+  border-top: 0;
   border-bottom: 1px solid var(--border);
   font-size: 0.8125rem;
   line-height: 1.4;
@@ -345,7 +351,15 @@ pre {
   color: var(--border);
 }
 
+/* The height's slot never wraps: a failure reads "unavailable…" here, with
+   the full reason under the hero's own reading, so a state change cannot
+   change the bar's height. */
 .statusbar .sb-block {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   color: var(--text);
 }
 
@@ -363,16 +377,32 @@ pre {
   font-size: 0.625rem;
 }
 
-.statusbar .reading-value.is-error .unavailable,
-.statusbar .reading-value .error {
+.statusbar .reading-value.is-error .unavailable {
   display: inline;
   margin: 0;
   font-size: 0.8125rem;
 }
 
+/* The reason a height could not be read stays in the accessibility tree
+   here, but takes no room on the bar: the hero's own reading, one screen
+   below, prints it in full, and a bar that grows with its message would
+   move the whole page beneath it. */
+.statusbar .reading-value .error {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 @media (max-width: 39.99rem) {
-  .statusbar {
+  .statusbar.reading {
     gap: 0 0.4rem;
+    min-height: 3.4rem;
     padding: 0.3rem var(--gutter);
     font-size: 0.75rem;
     line-height: 1.35;
@@ -595,6 +625,7 @@ h2 {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  min-height: 1.25rem;
   margin: 0 0 0.5rem;
   font-size: 0.75rem;
   font-weight: 600;
@@ -809,9 +840,18 @@ h2 {
 /* One sentence under the river: the rhythm and the time to finality. */
 .pulse-sentence {
   max-width: none;
+  /* Room for the sentence and its provenance line before either arrives, so
+     the readings beneath do not move when they do. */
+  min-height: 3.5rem;
   margin: 0.5rem 0 0;
   padding: 0;
   border: 0;
+}
+
+@media (max-width: 39.99rem) {
+  .pulse-sentence {
+    min-height: 5.25rem;
+  }
 }
 
 .pulse-sentence .reading-value {
@@ -1593,7 +1633,7 @@ html[data-present] .validator-list {
   display: none;
 }
 
-html[data-present] .statusbar {
+html[data-present] .statusbar.reading {
   position: fixed;
   top: 0;
   left: 0;
