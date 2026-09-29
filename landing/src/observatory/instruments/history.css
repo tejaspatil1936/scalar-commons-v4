@@ -1,0 +1,27 @@
+/* 05 · history strips — what the design system's .plot-* rules do not cover,
+   and where this instrument departs from them. Tokens only.
+
+   Everything in these strips is history, polled once a minute: none of it is
+   live data, so none of it takes the live accent. Emphasis is by ink weight. */
+
+/* Baselines and the 6 s target must be readable as marks (3:1 against the plate). */
+.strip-plot .plot-tick {
+  stroke: var(--text-dim);
+}
+
+/* The era still open: an outline, not a filled bar, since its count is not final. */
+.strip-plot .plot-bar.is-open {
+  fill: var(--grid);
+  stroke: var(--text-dim);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+
+/* A note inside a plot keeps legible where a line crosses it: a plate-coloured halo of ink, not a shadow. */
+.strip-plot .plot-note {
+  letter-spacing: 0.02em;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
