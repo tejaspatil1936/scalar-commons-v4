@@ -20,6 +20,7 @@ export type Route =
   | { readonly kind: 'block'; readonly ref: BlockRef }
   | { readonly kind: 'extrinsic'; readonly ref: BlockRef; readonly index: number }
   | { readonly kind: 'account'; readonly address: string }
+  | { readonly kind: 'activity'; readonly agent: string | null; readonly offset: number }
   | { readonly kind: 'badRequest'; readonly message: string }
   | { readonly kind: 'notFound' };
 
@@ -96,6 +97,10 @@ export function parseRoute(url: string): Route {
 
   const [head, first, second] = segments;
 
+  if (head === 'activity' && segments.length === 1) {
+    return parseActivity(parsed.searchParams);
+  }
+
   if (head === 'block' && segments.length === 2 && first !== undefined) {
     const raw = decodeSegment(first);
     if (raw === null) {
@@ -139,6 +144,36 @@ export function parseRoute(url: string): Route {
   return { kind: 'notFound' };
 }
 
+/**
+ * The largest `?offset=` the activity page accepts.
+ *
+ * Past it there is no page a reader would click through to, and a bounded value
+ * keeps a hand-typed offset from being forwarded to the indexer as a number it
+ * has to reject.
+ */
+const MAX_ACTIVITY_OFFSET = 1_000_000;
+
+/**
+ * Reads the activity page's query: an optional agent and an optional offset.
+ *
+ * `URLSearchParams` has already percent-decoded the values. An empty agent is
+ * what the filter form submits when cleared, so it means "every agent"; a value
+ * that is not an address is refused rather than forwarded, because an empty feed
+ * for a typo would read as "this agent has done nothing".
+ */
+function parseActivity(params: URLSearchParams): Route {
+  const rawAgent = (params.get('agent') ?? '').trim();
+  if (rawAgent !== '' && !isAddress(rawAgent)) {
+    return { kind: 'badRequest', message: `not a valid SS58 account address: ${rawAgent}` };
+  }
+  const rawOffset = params.get('offset') ?? '0';
+  const offset = Number(rawOffset);
+  if (!BLOCK_NUMBER.test(rawOffset) || offset > MAX_ACTIVITY_OFFSET) {
+    return { kind: 'badRequest', message: `not an activity offset: ${rawOffset}` };
+  }
+  return { kind: 'activity', agent: rawAgent === '' ? null : rawAgent, offset };
+}
+
 /** Renders a block reference back into its URL segment. */
 export function blockRefSegment(ref: BlockRef): string {
   switch (ref.kind) {
@@ -159,4 +194,13 @@ export function extrinsicPath(ref: BlockRef, index: number): string {
 
 export function accountPath(address: string): string {
   return `/account/${address}`;
+}
+
+/** The activity feed, optionally filtered to one agent and paged back from the newest. */
+export function activityPath(agent: string | null = null, offset = 0): string {
+  const params = new URLSearchParams();
+  if (agent !== null) params.set('agent', agent);
+  if (offset > 0) params.set('offset', String(offset));
+  const query = params.toString();
+  return query === '' ? '/activity' : `/activity?${query}`;
 }
