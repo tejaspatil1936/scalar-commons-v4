@@ -12,8 +12,19 @@
  */
 
 import { escapeHtml, formatBalance, formatTimestamp, shortHash } from './format.js';
-import { accountPath, blockPath, extrinsicPath } from './routes.js';
-import type { AccountView, BlockView, ChainInfo, EventView, ExtrinsicView, HomeView, Outcome } from './types.js';
+import { accountPath, activityPath, blockPath, extrinsicPath } from './routes.js';
+import type {
+  AccountView,
+  ActivityEntry,
+  ActivityField,
+  ActivityView,
+  BlockView,
+  ChainInfo,
+  EventView,
+  ExtrinsicView,
+  HomeView,
+  Outcome,
+} from './types.js';
 
 const STYLES = `
 :root { color-scheme: dark; --bg:#0d1117; --raised:#151b23; --border:#2a3340; --text:#e8edf3;
@@ -27,6 +38,16 @@ header { display:flex; flex-wrap:wrap; gap:1rem; align-items:baseline; justify-c
 .wordmark { font-size:.8125rem; font-weight:600; letter-spacing:.16em; text-transform:uppercase;
   color:var(--accent); text-decoration:none; }
 .chain { color:var(--dim); font-size:.8125rem; }
+nav a { font-size:.8125rem; margin-right:1rem; }
+.kind { display:inline-block; padding:0 .45rem; border:1px solid var(--border); border-radius:.25rem;
+  font-size:.75rem; white-space:nowrap; color:var(--accent); }
+.kind.slash, .kind.dispute { color:var(--bad); }
+.kind.heartbeat { color:var(--dim); }
+form.filter { display:flex; flex-wrap:wrap; gap:.5rem; margin:1rem 0; }
+form.filter input { flex:1 1 24rem; min-width:0; padding:.4rem .6rem; background:var(--raised); color:var(--text);
+  border:1px solid var(--border); border-radius:.25rem; font:inherit; font-size:.875rem; }
+form.filter button { padding:.4rem .9rem; background:var(--raised); color:var(--accent);
+  border:1px solid var(--border); border-radius:.25rem; font:inherit; font-size:.875rem; cursor:pointer; }
 a { color:var(--accent); }
 h1 { font-size:1.5rem; margin:2rem 0 .5rem; }
 h2 { font-size:1rem; margin:2rem 0 .5rem; color:var(--dim); text-transform:uppercase; letter-spacing:.08em; }
@@ -43,8 +64,19 @@ th { color:var(--dim); font-weight:600; }
 footer { padding-top:2rem; color:var(--dim); font-size:.8125rem; }
 `;
 
-/** Wraps a page body in the shared chrome. `chain` is null before a connection exists. */
-function layout(title: string, chain: ChainInfo | null, body: string): string {
+/**
+ * Wraps a page body in the shared chrome. `chain` is null before a connection exists.
+ *
+ * `refreshSeconds` makes the page reload itself — the one way a server-rendered,
+ * script-free page stays live.
+ */
+function layout(
+  title: string,
+  chain: ChainInfo | null,
+  body: string,
+  refreshSeconds?: number,
+  footer = "Read directly from the node's runtime metadata. Nothing on this page is cached or hand-written.",
+): string {
   const identity = chain
     ? `${escapeHtml(chain.chain)} · ${escapeHtml(chain.specName)}/${chain.specVersion} · ${escapeHtml(
         chain.tokenSymbol,
@@ -54,19 +86,22 @@ function layout(title: string, chain: ChainInfo | null, body: string): string {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1">${
+    refreshSeconds === undefined ? '' : `\n<meta http-equiv="refresh" content="${refreshSeconds}">`
+  }
 <title>${escapeHtml(title)}</title>
 <style>${STYLES}</style>
 </head>
 <body>
 <header>
   <a class="wordmark" href="/">Scalar Commons Explorer</a>
+  <nav><a href="${activityPath()}">Agent activity</a></nav>
   <span class="chain">${identity}</span>
 </header>
 <main>
 ${body}
 </main>
-<footer>Read directly from the node's runtime metadata. Nothing on this page is cached or hand-written.</footer>
+<footer>${escapeHtml(footer)}</footer>
 </body>
 </html>
 `;
@@ -135,7 +170,8 @@ ${kvTable([
   ['SS58 format', String(view.chain.ss58Format)],
   ['Genesis hash', `<span class="mono">${escapeHtml(view.chain.genesisHash)}</span>`],
   ['Head', `${blockLinkByNumber(view.head.number)} ${blockLinkByHash(view.head.hash)}`],
-])}`;
+])}
+<p><a href="${activityPath()}">Agent activity</a> — messages, registrations, heartbeats, agreements, disputes, oracle votes and slashes, newest first.</p>`;
 
   return layout('Scalar Commons Explorer', view.chain, body);
 }
@@ -261,6 +297,131 @@ ${kvTable([
 ])}`;
 
   return layout('Account', chain, body);
+}
+
+/**
+ * How often the newest page of the activity feed reloads itself.
+ *
+ * Two block times: the indexer only follows finalized blocks, so reloading
+ * faster than blocks finalize would mostly redraw the same rows.
+ */
+export const ACTIVITY_REFRESH_SECONDS = 12;
+
+/** The indexer's kind names, as a reader would say them. Unknown kinds are shown as served. */
+const KIND_LABELS: Readonly<Record<string, string>> = {
+  message: 'message',
+  registration: 'registration',
+  heartbeat: 'heartbeat',
+  agreement: 'agreement',
+  dispute: 'dispute',
+  oracle_vote: 'oracle vote',
+  slash: 'slash',
+};
+
+function kindBadge(kind: string): string {
+  const label = KIND_LABELS[kind] ?? kind;
+  return `<span class="kind ${escapeHtml(kind)}">${escapeHtml(label)}</span>`;
+}
+
+/** An agent: a link to their own activity, plus the hop into their account view. */
+function agentLink(address: string): string {
+  return `<a class="mono" href="${escapeHtml(activityPath(address))}">${escapeHtml(address)}</a> <a href="${escapeHtml(
+    accountPath(address),
+  )}" title="account">↗</a>`;
+}
+
+function activityFieldValue(field: ActivityField, chain: ChainInfo): string {
+  switch (field.kind) {
+    case 'account':
+      return `<a class="mono" href="${escapeHtml(activityPath(field.value))}">${escapeHtml(field.value)}</a>`;
+    case 'balance':
+      return escapeHtml(formatBalance(BigInt(field.value), chain.tokenDecimals, chain.tokenSymbol));
+    case 'plain':
+      return escapeHtml(field.value);
+  }
+}
+
+function activityRow(entry: ActivityEntry, chain: ChainInfo): string {
+  const where =
+    entry.extrinsicIndex === null
+      ? `${blockLinkByNumber(entry.blockNumber)}`
+      : `${blockLinkByNumber(entry.blockNumber)} · <a href="${escapeHtml(
+          extrinsicPath({ kind: 'number', number: entry.blockNumber }, entry.extrinsicIndex),
+        )}">${entry.blockNumber}-${entry.extrinsicIndex}</a>`;
+  // Accounts are already listed under Agents; the field table keeps them so
+  // their role (buyer, provider, who) is still readable.
+  const fields = entry.fields
+    .map((field) => `${escapeHtml(field.name)}: ${activityFieldValue(field, chain)}`)
+    .join('<br>');
+  const agents =
+    entry.agents.length === 0 ? '<span class="empty">none named</span>' : entry.agents.map(agentLink).join('<br>');
+  return `<tr id="${escapeHtml(entry.id)}">
+  <td>${where}<br><span class="empty">${escapeHtml(entry.id)} · ${escapeHtml(formatTimestamp(entry.timestampMs))}</span></td>
+  <td>${kindBadge(entry.kind)}<br>${escapeHtml(`${entry.section}.${entry.method}`)}</td>
+  <td>${agents}</td>
+  <td>${fields === '' ? '<span class="empty">—</span>' : fields}</td>
+</tr>`;
+}
+
+/**
+ * The agent-activity feed: one stream of what agents did, newest first.
+ *
+ * The newest page reloads itself; an older page does not, because a reader
+ * paging back through history is reading, and a reload would shift the window
+ * under them as new rows push the old ones down.
+ */
+export function renderActivity(view: ActivityView, chain: ChainInfo): string {
+  const scope =
+    view.agent === null
+      ? 'every agent'
+      : `<span class="mono">${escapeHtml(view.agent)}</span> (<a href="${escapeHtml(
+          accountPath(view.agent),
+        )}">account</a> · <a href="${escapeHtml(activityPath())}">show every agent</a>)`;
+
+  const form = `<form class="filter" method="get" action="/activity">
+  <input type="text" name="agent" placeholder="Filter by agent address (SS58)" value="${escapeHtml(
+    view.agent ?? '',
+  )}" autocomplete="off" spellcheck="false">
+  <button type="submit">Filter</button>
+</form>`;
+
+  const table =
+    view.entries.length === 0
+      ? `<p class="empty">No agent activity ${
+          view.offset > 0 ? 'this far back' : 'in the indexed history'
+        }${view.agent === null ? '' : ' for this agent'}.</p>`
+      : `<table><thead><tr><th>When</th><th>Activity</th><th>Agents</th><th>Details</th></tr></thead>
+<tbody>
+${view.entries.map((entry) => activityRow(entry, chain)).join('\n')}
+</tbody></table>`;
+
+  const pager: string[] = [];
+  if (view.offset > 0) {
+    pager.push(`<a href="${escapeHtml(activityPath(view.agent))}">Newest</a>`);
+  }
+  if (view.offset + view.entries.length < view.total) {
+    pager.push(`<a href="${escapeHtml(activityPath(view.agent, view.offset + view.limit))}">Older →</a>`);
+  }
+
+  const reach =
+    view.historyFrom === null
+      ? 'The indexer holds no blocks yet.'
+      : `History reaches back to block ${view.historyFrom}, the oldest the indexer holds.`;
+  const live = view.offset === 0 ? ` This page refreshes every ${ACTIVITY_REFRESH_SECONDS}s.` : '';
+
+  const body = `<h1>Agent activity</h1>
+<p>Showing ${scope}: ${view.total} event${view.total === 1 ? '' : 's'}, newest first. ${escapeHtml(reach)}${live}</p>
+${form}
+${table}
+${pager.length === 0 ? '' : `<p>${pager.join(' · ')}</p>`}`;
+
+  return layout(
+    'Agent activity',
+    chain,
+    body,
+    view.offset === 0 ? ACTIVITY_REFRESH_SECONDS : undefined,
+    "Activity read from the indexer's index of finalized blocks; field types from the node's runtime metadata.",
+  );
 }
 
 /** An error page. The reason is chain- or user-supplied, so it is escaped like any other value. */

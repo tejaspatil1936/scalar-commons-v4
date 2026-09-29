@@ -20,12 +20,14 @@ interface State {
   asBuyer: AgreementView[];
   agents: string[];
   failOn: string | null;
+  messaging: boolean;
+  onChainKey: string | null;
 }
 
 function fake(init: Partial<State> = {}): Fake {
   const s: State = {
     head: 1000n, registered: true, lastHb: 900n, accept: false, pending: 0n,
-    asProvider: [], asBuyer: [], agents: [ME], failOn: null, ...init,
+    asProvider: [], asBuyer: [], agents: [ME], failOn: null, messaging: false, onChainKey: null, ...init,
   };
   const calls: string[] = [];
   const rec = (name: string, ...args: unknown[]) => {
@@ -53,6 +55,9 @@ function fake(init: Partial<State> = {}): Fake {
     createAgreement: (p, a, h, d) => rec('create', p, a, d),
     confirmDelivery: (p, q) => rec('confirm', p, q),
     claim: () => rec('claim'),
+    supportsMessaging: () => s.messaging,
+    messagingKeyOf: async () => s.onChainKey,
+    setMessagingKey: (k) => rec('messaging-key', k),
   };
 }
 
@@ -287,5 +292,43 @@ describe('logging', () => {
     const names = events.map((e) => e.event);
     expect(names).toContain('register');
     expect(names).toContain('heartbeat');
+  });
+});
+
+describe('messaging key (spec 308)', () => {
+  const KEY = '0x' + 'ab'.repeat(32);
+
+  it('publishes the derived key when the runtime supports it and none is on chain', async () => {
+    const c = fake({ messaging: true });
+    const { agent, events } = make(c, { messagingKey: KEY });
+    await agent.tick();
+    expect(c.calls).toContain(`messaging-key:${KEY}`);
+    expect(events).toContainEqual(expect.objectContaining({ event: 'messaging-key', key: KEY, previous: null }));
+  });
+
+  it('rotates a stale on-chain key, and does nothing when it already matches', async () => {
+    const stale = fake({ messaging: true, onChainKey: '0x' + '01'.repeat(32) });
+    await make(stale, { messagingKey: KEY }).agent.tick();
+    expect(stale.calls).toContain(`messaging-key:${KEY}`);
+
+    const current = fake({ messaging: true, onChainKey: KEY });
+    await make(current, { messagingKey: KEY }).agent.tick();
+    expect(current.calls.some((x) => x.startsWith('messaging-key'))).toBe(false);
+  });
+
+  it('skips on a runtime without messaging, or when no key is configured', async () => {
+    const old = fake({ messaging: false });
+    await make(old, { messagingKey: KEY }).agent.tick();
+    const none = fake({ messaging: true });
+    await make(none).agent.tick();
+    expect([...old.calls, ...none.calls].some((x) => x.startsWith('messaging-key'))).toBe(false);
+  });
+
+  it('is failure-isolated: a failed publish does not stop the rest of the tick', async () => {
+    const c = fake({ messaging: true, failOn: 'messaging-key', pending: 5n });
+    const { agent, events } = make(c, { messagingKey: KEY });
+    await agent.tick();
+    expect(c.calls).toContain('claim');
+    expect(events).toContainEqual(expect.objectContaining({ event: 'error', step: 'messaging-key' }));
   });
 });

@@ -8,6 +8,7 @@ import type { KeyringPair } from '@polkadot/keyring/types';
 import type { AccountInfo, EventRecord } from '@polkadot/types/interfaces';
 import { cryptoWaitReady, mnemonicGenerate } from '@polkadot/util-crypto';
 
+import { createIndexerClient } from '../src/activity.js';
 import { connectExplorerChain, type ExplorerChain } from '../src/chain.js';
 import { createExplorerServer } from '../src/server.js';
 
@@ -106,7 +107,11 @@ beforeAll(async () => {
   });
 
   chain = await connectExplorerChain({ rpcEndpoint: RPC_ENDPOINT });
-  server = createExplorerServer({ chain });
+  server = createExplorerServer({
+    chain,
+    // Only /activity reads it; this suite exercises the node-backed views.
+    activity: createIndexerClient({ baseUrl: process.env.EXPLORER_INDEXER_URL ?? 'http://127.0.0.1:8080' }),
+  });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 

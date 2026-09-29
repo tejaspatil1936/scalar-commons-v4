@@ -59,6 +59,7 @@ export default defineConfig({
           { text: 'Run a validator', link: '/guide/run-a-validator' },
           { text: 'Testnet tester guide', link: '/guide/testnet-tester-guide' },
           { text: 'SDK usage', link: '/guide/sdk' },
+          { text: 'Messaging with the SDK', link: '/guide/messaging-sdk' },
         ],
       },
       {

@@ -120,6 +120,25 @@ export interface EventQuery extends Page {
   order?: 'asc' | 'desc';
 }
 
+/**
+ * One `(pallet, event)` pair to match, or a whole pallet when `method` is null.
+ *
+ * Structurally the same as `activity.ts`'s `ActivitySource`, declared here so
+ * the store stays free of any knowledge of what the feed means by "activity".
+ */
+export interface EventMatch {
+  readonly section: string;
+  readonly method: string | null;
+}
+
+/** Filters accepted by {@link IndexerStore.listActivity}. */
+export interface ActivityQuery extends Page {
+  /** Events to include. An empty list matches nothing. */
+  sources: readonly EventMatch[];
+  /** Restrict to events naming this account. */
+  account?: string;
+}
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS blocks (
   number           INTEGER PRIMARY KEY,
@@ -502,6 +521,47 @@ export class IndexerStore {
       )
       .all(...params, query.limit, query.offset) as Record<string, unknown>[];
     return { total, items: rows.map((row) => this.asEvent(row)) };
+  }
+
+  /**
+   * Events matching any of `sources`, newest first, each with its block's time.
+   *
+   * The ordering is the one `/v1/events` uses — block, then position in the
+   * block's event record — so a feed and an event list over the same window
+   * agree about what came first.
+   */
+  listActivity(query: ActivityQuery): PageResult<EventRow & { timestampMs: number | null }> {
+    if (query.sources.length === 0) {
+      return { total: 0, items: [] };
+    }
+    const params: (string | number)[] = [];
+    const clauses = query.sources.map((source) => {
+      params.push(source.section);
+      if (source.method === null) return 'e.section = ?';
+      params.push(source.method);
+      return '(e.section = ? AND e.method = ?)';
+    });
+    const filters = [`(${clauses.join(' OR ')})`];
+    if (query.account !== undefined) {
+      filters.push('EXISTS (SELECT 1 FROM event_accounts ea WHERE ea.event_id = e.id AND ea.address = ?)');
+      params.push(query.account);
+    }
+    const where = `WHERE ${filters.join(' AND ')}`;
+
+    const total = asNumber(
+      (this.db.prepare(`SELECT COUNT(*) AS c FROM events e ${where}`).get(...params) as Record<string, unknown>).c,
+    );
+    const rows = this.db
+      .prepare(
+        `SELECT e.*, b.timestamp_ms AS block_timestamp_ms FROM events e
+         LEFT JOIN blocks b ON b.number = e.block_number
+         ${where} ORDER BY e.block_number DESC, e.idx DESC LIMIT ? OFFSET ?`,
+      )
+      .all(...params, query.limit, query.offset) as Record<string, unknown>[];
+    return {
+      total,
+      items: rows.map((row) => ({ ...this.asEvent(row), timestampMs: asNullableNumber(row.block_timestamp_ms) })),
+    };
   }
 
   getEvent(id: string): EventRow | null {
