@@ -18,6 +18,8 @@
 // shared by the whole page. JSON-RPC calls ride the same socket. Everything
 // pauses while the tab is hidden.
 
+import { storageKey } from './scale.js';
+
 export const API_ORIGIN = 'https://api.scalarnet.io';
 export const RPC_URL = 'wss://rpc.scalarnet.io';
 export const EXPLORER_ORIGIN = 'https://explorer.scalarnet.io';
@@ -28,11 +30,11 @@ export const GITHUB_COMMITS_URL =
 export const INDEXER_MAX_LIMIT = 200;
 export const FETCH_TIMEOUT_MS = 8_000;
 
-/** twox128(pallet) ++ twox128(item) for the plain storage values read raw. */
+/** The plain storage values read raw off the node, located by their names (see scale.js). */
 export const STORAGE_KEYS = {
-  sessionValidators: '0xcec5070d609dd3497f72bde07fc96ba088dcde934c658227ee1dfafcd6e16903',
-  sessionQueuedKeys: '0xcec5070d609dd3497f72bde07fc96ba0e0cdd062e6eaf24295ad4ccfc41d4609',
-  babeAuthorities: '0x1cb6f36e027abb2091cfb5110ab5087f5e0621c4869aa60c02be9adcc98a0d1d',
+  sessionValidators: storageKey('Session', 'Validators'),
+  sessionQueuedKeys: storageKey('Session', 'QueuedKeys'),
+  babeAuthorities: storageKey('Babe', 'Authorities'),
 };
 
 const rpc = (method, params, label, readings = []) => ({ kind: 'rpc', method, params, label, readings });

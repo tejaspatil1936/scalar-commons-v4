@@ -9,6 +9,7 @@
 // slots, never a value — test/observatory.test.mjs holds it to that.
 
 import { escapeHtml, renderNav } from './render.mjs';
+import { storageKey } from './observatory/scale.js';
 
 export const API_HOST = 'api.scalarnet.io';
 export const RPC_WSS = 'wss://rpc.scalarnet.io';
@@ -19,8 +20,8 @@ export const REPO_URL = 'https://github.com/tejaspatil1936/scalar-commons-v4';
 // /extrinsic and /account), so agent links go to the account page that exists.
 export const EXPLORER_URL = 'https://explorer.scalarnet.io/';
 
-/** Storage key of Session.Validators: twox128("Session") ++ twox128("Validators"). */
-const SESSION_VALIDATORS_KEY = '0xcec5070d609dd3497f72bde07fc96ba088dcde934c658227ee1dfafcd6e16903';
+/** Where Session.Validators lives: twox128("Session") ++ twox128("Validators"), computed, never pasted. */
+const SESSION_VALIDATORS_KEY = storageKey('Session', 'Validators');
 
 const skeleton = (inline = false) =>
   `<span class="skeleton${inline ? ' skeleton-inline' : ''}" aria-hidden="true"></span><span class="visually-hidden">Loading</span>`;

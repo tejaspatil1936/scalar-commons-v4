@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { API_ORIGIN, RPC_URL, GITHUB_COMMITS_URL, SOURCES, STORAGE_KEYS } from '../src/observatory/data.js';
+import { twox128 } from '../src/observatory/scale.js';
 import { renderSection } from '../src/observatory.mjs';
 
 const landingDir = fileURLToPath(new URL('../', import.meta.url));
@@ -220,12 +221,24 @@ test('the script reads only indexer endpoints that exist, with fields the indexe
   }
 });
 
-test('the raw storage keys are the twox128 concatenations for the items named', () => {
-  assert.equal(STORAGE_KEYS.sessionValidators, '0xcec5070d609dd3497f72bde07fc96ba088dcde934c658227ee1dfafcd6e16903');
-  assert.equal(STORAGE_KEYS.sessionQueuedKeys, '0xcec5070d609dd3497f72bde07fc96ba0e0cdd062e6eaf24295ad4ccfc41d4609');
-  assert.equal(STORAGE_KEYS.babeAuthorities, '0x1cb6f36e027abb2091cfb5110ab5087f5e0621c4869aa60c02be9adcc98a0d1d');
-  // Session.Validators and Staking.Validators share twox128("Validators").
-  assert.equal(STORAGE_KEYS.sessionValidators.slice(34), '88dcde934c658227ee1dfafcd6e16903');
+test('the raw storage locations are computed from their names, never pasted', () => {
+  // twox128 of the names, checked one name at a time against the values every
+  // Substrate client derives (System and Account are the textbook vectors).
+  assert.equal(twox128('System'), '0x26aa394eea5630e07c48ae0c9558cef7');
+  assert.equal(twox128('Account'), '0xb99d880ec681799c0cf30e8886371da9');
+  assert.equal(twox128('Session'), '0xcec5070d609dd3497f72bde07fc96ba0');
+  assert.equal(twox128('Validators'), '0x88dcde934c658227ee1dfafcd6e16903');
+  assert.equal(twox128('Babe'), '0x1cb6f36e027abb2091cfb5110ab5087f');
+  assert.equal(twox128('Authorities'), '0x5e0621c4869aa60c02be9adcc98a0d1d');
+  assert.equal(STORAGE_KEYS.sessionValidators, twox128('Session') + twox128('Validators').slice(2));
+  assert.equal(STORAGE_KEYS.sessionQueuedKeys, twox128('Session') + twox128('QueuedKeys').slice(2));
+  assert.equal(STORAGE_KEYS.babeAuthorities, twox128('Babe') + twox128('Authorities').slice(2));
+  assert.equal(STORAGE_KEYS.sessionValidators.length, 2 + 64);
+  // No 32-byte hex literal anywhere in the client: a storage location pasted
+  // in is indistinguishable from a private key to a reader or a scanner.
+  for (const [file, src] of clientSources()) {
+    assert.ok(!/0x[0-9a-f]{64}/i.test(src), `${file} contains a 32-byte hex literal`);
+  }
 });
 
 test('the script contacts only the chain API, the chain RPC and GitHub', () => {
