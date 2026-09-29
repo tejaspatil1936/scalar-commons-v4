@@ -51,6 +51,36 @@
   src: url("fonts/source-sans-3-latin-wght-italic.woff2") format("woff2-variations");
 }
 
+/* Fallback faces with the web fonts' metrics, so the swap from a system face
+   to the real one moves nothing. Overrides computed from the font files
+   (frequency-weighted lowercase advance widths against Arial / Courier New /
+   Times New Roman, hhea ascent and descent). Liberation faces carry the same
+   metrics as the Microsoft ones on Linux. */
+@font-face {
+  font-family: "Source Sans 3 Fallback";
+  src: local("Arial"), local("Liberation Sans"), local("Helvetica");
+  size-adjust: 90.24%;
+  ascent-override: 113.48%;
+  descent-override: 44.33%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "IBM Plex Mono Fallback";
+  src: local("Courier New"), local("Liberation Mono"), local("Courier");
+  size-adjust: 100%;
+  ascent-override: 102.5%;
+  descent-override: 27.5%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "Instrument Serif Fallback";
+  src: local("Times New Roman"), local("Liberation Serif"), local("Times");
+  size-adjust: 84.64%;
+  ascent-override: 116.96%;
+  descent-override: 36.62%;
+  line-gap-override: 0%;
+}
+
 :root {
   color-scheme: dark light;
   --bg: #0d1117;
@@ -66,9 +96,9 @@
   --active: #6fd3c7;
   --disputed: #e8c46a;
   --slashed: #f0716a;
-  --font-serif: "Instrument Serif", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  --font-sans: "Source Sans 3", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-serif: "Instrument Serif", "Instrument Serif Fallback", Georgia, serif;
+  --font-mono: "IBM Plex Mono", "IBM Plex Mono Fallback", ui-monospace, Menlo, Consolas, monospace;
+  --font-sans: "Source Sans 3", "Source Sans 3 Fallback", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --gutter: 1rem;
   --grid-step: 2rem;
 }
@@ -556,6 +586,16 @@ h2 {
   color: var(--slashed);
 }
 
+.reading-value .sub {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--text);
+  text-shadow: none;
+}
+
 .reading-value .error {
   display: block;
   margin-top: 0.35rem;
@@ -1020,9 +1060,22 @@ h2 {
   color: var(--text-dim);
 }
 
+.rail-align-start .rail-spec,
+.rail-align-start .rail-meta {
+  transform: none;
+}
+
+.rail-align-end .rail-spec,
+.rail-align-end .rail-meta {
+  transform: translateX(-100%);
+}
+
 @media (max-width: 39.99rem) {
   .rail-meta {
     display: none;
+  }
+  .rail-spec {
+    font-size: 1.375rem;
   }
 }
 

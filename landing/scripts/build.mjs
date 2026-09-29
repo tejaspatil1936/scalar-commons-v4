@@ -13,7 +13,7 @@
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { build } from 'esbuild';
+import { build, transform } from 'esbuild';
 import { content } from '../src/content.mjs';
 import { sourceClaims } from '../src/source-claims.mjs';
 import { renderPage } from '../src/render.mjs';
@@ -39,8 +39,11 @@ copyFileSync(here('../src/styles.css'), join(outDir, 'styles.css'));
 // are also copied out so the page can link to the raw file it was built from.
 const history = readJson('../runtime-history.json');
 const posture = readJson('../public/posture.json');
-writeFileSync(join(outDir, 'observatory.html'), renderObservatory({ history, posture }));
-writeFileSync(join(outDir, 'observatory.css'), observatoryCss());
+// The stylesheet ships minified, inlined in the page for first paint and as a
+// file for reading; the source in src/ stays the readable copy.
+const css = (await transform(observatoryCss(), { loader: 'css', minify: true })).code.trim();
+writeFileSync(join(outDir, 'observatory.html'), renderObservatory({ history, posture, css }));
+writeFileSync(join(outDir, 'observatory.css'), css);
 copyFileSync(here('../runtime-history.json'), join(outDir, 'runtime-history.json'));
 copyFileSync(here('../public/posture.json'), join(outDir, 'posture.json'));
 

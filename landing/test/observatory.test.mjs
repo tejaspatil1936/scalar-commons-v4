@@ -65,7 +65,9 @@ test('the build emits the observatory page, its bundle, stylesheet, fonts and re
   }
   assert.match(page, /^<!doctype html>/i);
   assert.match(page, /<script type="module" src="observatory\.js"><\/script>/);
-  assert.match(page, /<link rel="stylesheet" href="observatory\.css">/);
+  // The stylesheet is inlined for first paint; the same bytes ship as a file.
+  const css = readFileSync(join(out, 'observatory.css'), 'utf8');
+  assert.ok(page.includes(`<style>${css}</style>`), 'observatory.html must inline observatory.css verbatim');
   // Served as /observatory by nginx `try_files $uri.html` and by GitHub Pages,
   // so every asset reference is relative to the site root.
   assert.ok(!/(?:src|href)="\/(?!\/)/.test(page), 'observatory.html must not use root-absolute paths');
@@ -167,7 +169,7 @@ test('the upgrade record: 305, 306, 307 applied, 309 scheduled, each agreeing wi
 
 test('the upgrade rail renders every row with its hash in full, copyable, and a chain confirmation slot', () => {
   for (const upgrade of history.upgrades) {
-    assert.match(page, new RegExp(`<li class="rail-marker rail-${upgrade.status}" style="--x:[0-9.]+%" data-spec="${upgrade.specVersion}"`));
+    assert.match(page, new RegExp(`<li class="rail-marker rail-${upgrade.status}[^"]*" style="--x:[0-9.]+%" data-spec="${upgrade.specVersion}"`));
     assert.match(page, new RegExp(`<li class="upgrade" data-spec="${upgrade.specVersion}" data-status="${upgrade.status}"`));
     if (upgrade.wasm) {
       assert.ok(page.includes(upgrade.wasm.sha256), `sha256 for ${upgrade.specVersion} not rendered in full`);

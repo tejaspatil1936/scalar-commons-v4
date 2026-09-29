@@ -257,8 +257,8 @@ function railMarkers(history) {
   // Two upgrades a day apart on a rail that spans weeks would print on top of
   // each other, so markers are pushed right to keep a minimum gap: the rail
   // keeps its order and rough proportion, and every label stays legible.
-  const x = (block) => 4 + ((block - min) / Math.max(1, max - min)) * 74;
-  const MIN_GAP = 11;
+  const x = (block) => 5 + ((block - min) / Math.max(1, max - min)) * 73;
+  const MIN_GAP = 16;
   const positions = new Map();
   let last = -Infinity;
   for (const u of history.upgrades) {
@@ -271,10 +271,12 @@ function railMarkers(history) {
     .map((u) => {
       const applied = u.status === 'applied';
       const left = positions.get(u.specVersion);
-      return `          <li class="rail-marker rail-${escapeHtml(u.status)}" style="--x:${left.toFixed(2)}%" data-spec="${u.specVersion}" data-status="${escapeHtml(u.status)}"${applied ? ` data-block="${u.appliedAtBlock}"` : ''}>
+      // Labels near either edge hang inward so nothing prints off the rail.
+      const align = left < 10 ? ' rail-align-start' : left > 90 ? ' rail-align-end' : '';
+      return `          <li class="rail-marker rail-${escapeHtml(u.status)}${align}" style="--x:${left.toFixed(2)}%" data-spec="${u.specVersion}" data-status="${escapeHtml(u.status)}"${applied ? ` data-block="${u.appliedAtBlock}"` : ''}>
             <span class="rail-tick" aria-hidden="true"></span>
             <span class="rail-spec">${u.specVersion}</span>
-            <span class="rail-meta mono">${applied ? `${escapeHtml(u.date)} · #${escapeHtml(u.appliedAtBlock.toLocaleString('en-US'))}` : 'scheduled'}</span>
+            <span class="rail-meta mono">${applied ? `#${escapeHtml(u.appliedAtBlock.toLocaleString('en-US'))}` : 'scheduled'}</span>
           </li>`;
     })
     .join('\n');
@@ -313,7 +315,7 @@ function upgradesSection(history) {
     head: `${reading({ key: 'specVersion', label: 'Rules in force now', note: 'The runtime version the network is running.' })}
 ${reading({ key: 'lastUpgrade', label: 'Last change took effect', note: 'The block at which the current rules began.' })}
 `,
-    instrument: `      <div class="rail" role="img" aria-label="Runtime upgrades placed along the chain by block height">
+    instrument: `      <div class="rail" role="img" aria-label="Runtime upgrades in block order along the chain, spaced to stay legible">
         <span class="rail-line" aria-hidden="true"></span>
         <ol class="rail-markers">
 ${railMarkers(history)}
@@ -451,17 +453,23 @@ export function renderSection(name, data) {
   return render(data);
 }
 
-export function renderHead({ title, description, scripts = true }) {
+/**
+ * The document head. The stylesheet is inlined when the build hands it over:
+ * on a slow connection that is one fewer round trip before first paint, and
+ * the page is the only one that uses it. The same CSS is still written out as
+ * observatory.css so it can be read on its own.
+ */
+export function renderHead({ title, description, css = null, scripts = true }) {
+  const styles = css === null ? '<link rel="stylesheet" href="observatory.css">' : `<style>${css.replace(/<\/style/gi, '<\\/style')}</style>`;
   return `<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(description)}">
 <meta name="color-scheme" content="dark light">
 <link rel="preload" href="fonts/instrument-serif-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="fonts/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="fonts/source-sans-3-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/ibm-plex-mono-latin-500-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preconnect" href="https://${API_HOST}" crossorigin>
-<link rel="stylesheet" href="observatory.css">
+${styles}
 ${scripts ? '<script type="module" src="observatory.js"></script>' : ''}`;
 }
 
@@ -473,8 +481,11 @@ const HOW_TO_READ = [
   ['Dispute', 'An agreement whose delivery the buyer has contested. It waits on an oracle ruling before payment moves.'],
 ];
 
-/** The whole page, as a string. `history` is runtime-history.json; `posture` is public/posture.json. */
-export function renderObservatory({ history, posture }) {
+/**
+ * The whole page, as a string. `history` is runtime-history.json; `posture`
+ * is public/posture.json; `css` is the assembled stylesheet to inline.
+ */
+export function renderObservatory({ history, posture, css = null }) {
   const howTo = HOW_TO_READ.map(
     ([term, def]) => `          <div><dt>${escapeHtml(term)}</dt><dd>${escapeHtml(def)}</dd></div>`,
   ).join('\n');
@@ -486,6 +497,7 @@ ${renderHead({
   title: 'Observatory — Scalar Commons',
   description:
     'Live instruments on the Scalar Commons public test network: blocks arriving, the payout clock, the agents and their contracts, the validators, and the history — every figure fetched in your browser with its source beneath it.',
+  css,
 })}
 </head>
 <body>
@@ -527,11 +539,11 @@ ${Object.keys(SECTIONS)
 }
 
 /** A page holding one section, for the dev harness. */
-export function renderHarness(name, { history, posture }) {
+export function renderHarness(name, { history, posture, css = null }) {
   return `<!doctype html>
 <html lang="en">
 <head>
-${renderHead({ title: `Harness — ${name}`, description: `Instrument harness for ${name}.` })}
+${renderHead({ title: `Harness — ${name}`, description: `Instrument harness for ${name}.`, css })}
 </head>
 <body>
 <main class="harness">

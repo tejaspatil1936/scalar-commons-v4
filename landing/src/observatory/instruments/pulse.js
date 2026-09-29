@@ -198,11 +198,12 @@ export function init(root, ctx) {
     if (blocksRecord && cadence) {
       const finality = stream.finalitySeconds(cadence);
       const within = finality
-        ? ` · final within ${finality.measured ? '' : 'about '}${Math.round(finality.seconds)} s`
+        ? `final within ${finality.measured ? '' : 'about '}${Math.round(finality.seconds)} s`
         : '';
       ctx.readout.showValue(targets.cadence, blocksRecord, {
         value: cadence.perMinute.toFixed(1),
-        unit: ` blocks per minute${within}`,
+        unit: ' blocks per minute',
+        sub: within,
         extra: `${cadence.blocks} block times${liveCount ? `, ${liveCount} observed live` : ''}${
           finality?.measured ? ' · finality measured' : ''
         }`,
@@ -249,7 +250,7 @@ export function init(root, ctx) {
       markerX = markerT < 1 && markerFrom !== null ? markerFrom + (markerTo - markerFrom) * markerT : boundary;
       markerTo = boundary;
       g.fillStyle = colour('settled');
-      g.globalAlpha = 0.09;
+      g.globalAlpha = ctx.theme.isDark() ? 0.13 : 0.1;
       g.fillRect(0, baseline - tickHeight - 18, Math.max(0, markerX), tickHeight + 22);
       g.globalAlpha = 1;
       g.strokeStyle = colour('settled');
@@ -312,7 +313,9 @@ export function init(root, ctx) {
       g.stroke();
       g.shadowBlur = 0;
       g.globalAlpha = 1;
-      if (k === 0 || k % labelEvery === 0) {
+      // A label needs room on both sides; one that would be cut by the plate's
+      // edge is left off rather than printed half.
+      if ((k === 0 || k % labelEvery === 0) && x > 28) {
         g.fillStyle = k === 0 ? colour('text') : colour('text-dim');
         g.font = `${k === 0 ? 500 : 400} 11px ${font}`;
         g.fillText(ctx.format.formatInteger(block.number), x, baseline + 8);

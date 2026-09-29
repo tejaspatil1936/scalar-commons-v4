@@ -54,14 +54,6 @@ export function provenance(target, record, extra = '') {
   prov.append(` · ${utcTime(record.at)}${extra ? ` · ${extra}` : ''}`);
 }
 
-function releasePrevious(slot) {
-  const previous = slot.querySelector('a.num');
-  if (previous?.href?.startsWith('blob:') && !previous.dataset.keep) {
-    // Another reading may share the record; the WeakMap keeps one URL per
-    // record, so only revoke when this slot held the last reference.
-  }
-}
-
 /** Counts from the previous integer to the new one over 200 ms, if motion is allowed. */
 function tick(digits, from, to, motion) {
   if (!motion || motion.reduced() || document.hidden || !(to > from) || to - from > 100_000) {
@@ -78,13 +70,12 @@ function tick(digits, from, to, motion) {
  * `prefix` and `unit` sit around the figure; `extra` is appended to the
  * provenance line. `record` is the response the figure was read from.
  */
-export function showValue(target, record, { value, prefix = '', unit = '', extra = '', motion = null }) {
+export function showValue(target, record, { value, prefix = '', unit = '', sub = '', extra = '', motion = null }) {
   if (!target) return;
   const slot = target.querySelector('.reading-value');
   const before = slot.dataset.number;
   slot.classList.remove('is-loading', 'is-error', 'is-absent');
   slot.classList.add('is-live');
-  releasePrevious(slot);
 
   const digits = document.createElement('span');
   digits.className = 'digits';
@@ -97,6 +88,14 @@ export function showValue(target, record, { value, prefix = '', unit = '', extra
     u.className = 'unit';
     u.textContent = unit;
     slot.append(u);
+  }
+  if (sub) {
+    // A second line under the figure, in the reading's own voice: a derived
+    // quantity that belongs with the figure rather than with its provenance.
+    const s = document.createElement('span');
+    s.className = 'sub';
+    s.textContent = sub;
+    slot.append(s);
   }
 
   if (typeof value === 'number') {

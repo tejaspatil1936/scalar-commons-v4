@@ -48,8 +48,9 @@ const port = Number(flag('--port', 8770));
 mkdirSync(join(outDir, 'fonts'), { recursive: true });
 const history = readJson('../runtime-history.json');
 const posture = readJson('../public/posture.json');
-writeFileSync(join(outDir, 'index.html'), renderHarness(name, { history, posture }));
-writeFileSync(join(outDir, 'observatory.css'), observatoryCss());
+const css = observatoryCss();
+writeFileSync(join(outDir, 'index.html'), renderHarness(name, { history, posture, css }));
+writeFileSync(join(outDir, 'observatory.css'), css);
 for (const [source, file] of FONTS) copyFileSync(here(`../node_modules/${source}`), join(outDir, 'fonts', file));
 
 await build({
