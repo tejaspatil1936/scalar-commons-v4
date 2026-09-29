@@ -82,6 +82,8 @@ pallet-emissions   = { workspace = true }
 pallet-auto-params         = { workspace = true }
 pallet-nomination-pools    = { workspace = true }
 pallet-orchestrator = { workspace = true }
+# spec 308: on-chain coordination messages (D15).
+pallet-messages     = { workspace = true }
 # V4: governance safety pallets (whitelist enables TC fast-track, safe-mode is emergency brake)
 pallet-whitelist        = { workspace = true }
 pallet-safe-mode        = { workspace = true }
@@ -130,6 +132,7 @@ std = [
     "pallet-agents/std", "pallet-escrow/std", "pallet-oracle/std",
     "pallet-emissions/std", "pallet-auto-params/std",
     "pallet-orchestrator/std",
+    "pallet-messages/std",
     "sp-version/std",
     "pallet-authorship/std",
     "pallet-transaction-payment-rpc-runtime-api/std",
@@ -197,10 +200,12 @@ runtime-benchmarks = [
     "pallet-emissions/runtime-benchmarks",
     "pallet-auto-params/runtime-benchmarks",
     "pallet-orchestrator/runtime-benchmarks",
+    "pallet-messages/runtime-benchmarks",
     "pallet-constitution/runtime-benchmarks",
 ]
 try-runtime = [
     "frame-support/try-runtime", "frame-system/try-runtime",
     "frame-executive/try-runtime",
     "pallet-agents/try-runtime", "pallet-emissions/try-runtime",
+    "pallet-messages/try-runtime",
 ]

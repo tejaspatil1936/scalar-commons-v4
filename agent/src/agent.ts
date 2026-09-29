@@ -61,6 +61,7 @@ export class Agent {
     if (registered === undefined) return;
     await this.step('heartbeat', () => this.maybeHeartbeat(registered === 'new'));
     if (this.metadataPending) await this.step('metadata', () => this.updateMetadata());
+    await this.step('messaging-key', () => this.ensureMessagingKey());
     const { mode } = this.config;
     if (mode === 'provider' || mode === 'both') await this.step('provider', () => this.provide());
     if (mode === 'buyer' || mode === 'both') await this.step('buyer', () => this.buy());
@@ -87,6 +88,23 @@ export class Agent {
     const tx = await this.chain.setMetadata(this.config.name);
     this.metadataPending = false;
     if (tx !== null) this.emit('metadata', { name: this.config.name, tx });
+  }
+
+  /**
+   * Keep the derived messaging key published (D14). Registered agents only —
+   * this runs after `ensureRegistered` — and only on spec 308+ runtimes. The
+   * key is a pure function of the agent secret, so a mismatch means the chain
+   * holds a stale or foreign key: senders would encrypt to a key this agent
+   * cannot open. Publishing is fee-only (no deposit), and one read per tick
+   * keeps it from repeating once the chain agrees.
+   */
+  private async ensureMessagingKey(): Promise<void> {
+    const key = this.config.messagingKey;
+    if (key === undefined || !this.chain.supportsMessaging()) return;
+    const previous = await this.chain.messagingKeyOf(this.config.address);
+    if (previous !== null && previous.toLowerCase() === key.toLowerCase()) return;
+    const tx = await this.chain.setMessagingKey(key);
+    this.emit('messaging-key', { key, previous, tx });
   }
 
   /**

@@ -1,5 +1,6 @@
 import type { AddressOrPair } from '@polkadot/api/types';
 import type { Codec } from '@polkadot/types/types';
+import { hexToU8a, u8aToHex } from '@polkadot/util';
 import { ScalarCommonsClient } from '@scalar-commons/sdk';
 import type { AgreementView, Chain } from './types.js';
 
@@ -147,5 +148,18 @@ export class SdkChain implements Chain {
 
   async claim(): Promise<string> {
     return (await this.client.claim(this.signer)).txHash;
+  }
+
+  supportsMessaging(): boolean {
+    return typeof this.api.tx.agents?.setMessagingKey === 'function' && typeof this.api.tx.messages?.send === 'function';
+  }
+
+  async messagingKeyOf(address: string): Promise<string | null> {
+    const key = await this.client.messagingKeyOf(address);
+    return key === null ? null : u8aToHex(key);
+  }
+
+  async setMessagingKey(publicKey: string): Promise<string> {
+    return (await this.client.setMessagingKey(this.signer, hexToU8a(publicKey))).txHash;
   }
 }

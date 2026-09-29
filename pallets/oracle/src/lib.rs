@@ -44,6 +44,11 @@ pub mod pallet {
         fn submit_response() -> Weight {
             Weight::from_parts(120000000, 0)
         }
+        // Not the live declaration for `finalise_request`: `Config` has no
+        // `WeightInfo`, and the extrinsic declares
+        // `Pallet::finalise_request_worst_case_weight()`, which scales with
+        // `MaxResponsesPerRequest`. This flat figure is ~60x below it. Wiring
+        // `WeightInfo` into `Config` must not adopt this value as-is.
         fn finalise_request() -> Weight {
             Weight::from_parts(500000000, 0)
         }
@@ -245,6 +250,99 @@ pub mod pallet {
         DuplicateRequest,
     }
 
+    // ── finalise_request worst-case weight (#223) ────────────────────────────
+    //
+    // `finalise_request` does work proportional to the number of responses under
+    // the request, and `MaxResponsesPerRequest` bounds that number. The
+    // declaration below is therefore built from the bound and from the
+    // per-response storage operations the body actually performs, rather than
+    // from one flat figure that happens to fit a typical request.
+    //
+    // The counts are audited from the other side by the `finalise_weight_`
+    // tests in `tests.rs`, which run the extrinsic at the bound and compare the
+    // storage this pallet actually changed against the same ledger.
+
+    /// Storage reads `finalise_request` performs once per call in this pallet and
+    /// in the currency, whatever the response count: the request entry and the
+    /// `CountedStorageMap` counter it decrements, the block number the challenge
+    /// window is checked against, the era-counter bump, and the creator's reserve
+    /// the bounty is paid from.
+    ///
+    /// The dispute callback is counted separately, in
+    /// `FINALISE_DISPUTE_CALLBACK_READS`, because it is another pallet's cost.
+    pub const FINALISE_BASE_READS: u64 = 5;
+
+    /// Storage writes `finalise_request` performs once per call in this pallet and
+    /// in the currency: the accepted answer, the era counter, the request entry
+    /// and its counter, and the creator's drawn-down reserve.
+    pub const FINALISE_BASE_WRITES: u64 = 5;
+
+    /// Allowance for `T::DisputeCallback::on_dispute_resolved`, which runs when the
+    /// finalised request carries a `DisputeContext`.
+    ///
+    /// An *allowance*, not a count: `DisputeCallback` is an associated type, so
+    /// this pallet cannot see what it costs, and the runtime's implementation —
+    /// `pallet_escrow::settle_dispute_from_oracle` — fans out across three more
+    /// pallets. Counting the runtime wiring gives, worst case: escrow's own ops
+    /// ~6r/7w (`Agreements`, the slashed dispute fee, the treasury credit, the
+    /// repatriation, `ActiveEscrowCount`, `DisputeToAgreement`,
+    /// `ActiveAgreementCount`); `pallet_agents::add_era_escrow_volume` ~7r/5w;
+    /// `maybe_promote` up to ~37r/2w, dominated by `OracleScoreGate::best_score`
+    /// iterating one agent's `OracleScore` prefix (`MaxCapabilitiesPerAgent`, 32);
+    /// and the orchestrator volume credit ~2r/1w. That is ~52r/15w, rounded up
+    /// here.
+    ///
+    /// Rounded *up* deliberately. A wrong allowance in this direction overprices
+    /// the ordinary, dispute-free finalisation by ~1.5 ms of declared weight; the
+    /// other direction under-declares the one path that also carries the full
+    /// per-response cost, which is the defect this whole declaration exists to
+    /// close. The durable fix is for `DisputeCallback` to declare its own weight
+    /// so the number stops being a hand-count that can drift — that is a trait
+    /// change, tracked separately.
+    pub const FINALISE_DISPUTE_CALLBACK_READS: u64 = 60;
+
+    /// Write allowance for `T::DisputeCallback::on_dispute_resolved`. See
+    /// `FINALISE_DISPUTE_CALLBACK_READS` for the derivation and for why it is
+    /// rounded up rather than counted exactly.
+    pub const FINALISE_DISPUTE_CALLBACK_WRITES: u64 = 20;
+
+    /// Storage reads `finalise_request` performs for *each* response under the
+    /// request: the `OracleResponses` entry the prefix iterator yields, the
+    /// winner's account the bounty share is credited to, the two
+    /// `OracleAccuracy` reads `update_accuracy` makes — one to tally, one to
+    /// derive the score from the new tally — and the entry `clear_prefix`
+    /// removes on cleanup.
+    ///
+    /// Counted per response because the work *is* per response. A request filled
+    /// to `MaxResponsesPerRequest` performs all of it that many times, and block
+    /// production budgets by the declared weight, not by what a call turns out
+    /// to cost: a declaration priced for a typical request lets whoever fills a
+    /// request to the bound buy execution the block never reserved, and enough
+    /// such calls in one block push real execution past the block limit.
+    pub const FINALISE_READS_PER_RESPONSE: u64 = 5;
+
+    /// Storage writes `finalise_request` performs for each response: the
+    /// winner's account, the `OracleAccuracy` tally, the `OracleScore` derived
+    /// from it, and the `OracleResponses` entry removed on cleanup.
+    pub const FINALISE_WRITES_PER_RESPONSE: u64 = 4;
+
+    /// Non-DB execution cost of `finalise_request`, carried over unchanged from
+    /// the flat declaration this replaced.
+    ///
+    /// Deliberately still flat, though the compute it covers is not: the loop
+    /// deposits one `ScoreUpdated` event per response, clones an `AccountId` per
+    /// response, and tallies distinct answers in `compute_factual_consensus` at
+    /// `O(distinct²)`. #223 is a finding about the storage count, and turning
+    /// this into a per-response figure without a benchmark to measure it would be
+    /// a guess wearing a measurement's clothes — `benchmarks.rs` is an empty
+    /// scaffold and `Config` has no `WeightInfo`, so there is no measurement path
+    /// yet. What keeps the declaration a ceiling in the meantime is the DB term:
+    /// at the bound it prices ~105 ms of storage against well under a millisecond
+    /// of real compute. That slack is load-bearing, so it is stated rather than
+    /// assumed — raising `MaxResponsesPerRequest` or growing the loop body should
+    /// revisit it.
+    pub const FINALISE_COMPUTE_WEIGHT: Weight = Weight::from_parts(500_000_000, 0);
+
     #[pallet::call]
     impl<T: Config> Pallet<T>
     where
@@ -374,8 +472,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(2)]
-        #[pallet::weight(T::DbWeight::get().reads_writes(10, 10)
-            .saturating_add(Weight::from_parts(500_000_000, 0)))]
+        #[pallet::weight(Pallet::<T>::finalise_request_worst_case_weight())]
         pub fn finalise_request(origin: OriginFor<T>, request_id: [u8; 32]) -> DispatchResult {
             ensure_signed(origin)?;
             let req = OracleRequests::<T>::get(request_id).ok_or(Error::<T>::RequestNotFound)?;
@@ -544,6 +641,56 @@ pub mod pallet {
                 skipped,
             });
             Ok(())
+        }
+    }
+
+    impl<T: Config> Pallet<T> {
+        /// Worst-case `(reads, writes)` `finalise_request` performs for a request
+        /// that collected `responses` responses.
+        ///
+        /// The worst case is consensus reached with every respondent in the
+        /// winning set *and* a `DisputeContext` present: each response is then
+        /// both paid out of the bounty and rescored — strictly more storage work
+        /// than a split where some respondents only get rescored — and the
+        /// dispute callback runs on top. Both worst cases are priced
+        /// unconditionally, so the figure holds for every input.
+        pub fn finalise_request_db_ops(responses: u32) -> (u64, u64) {
+            let n = responses as u64;
+            (
+                FINALISE_BASE_READS
+                    .saturating_add(FINALISE_DISPUTE_CALLBACK_READS)
+                    .saturating_add(FINALISE_READS_PER_RESPONSE.saturating_mul(n)),
+                FINALISE_BASE_WRITES
+                    .saturating_add(FINALISE_DISPUTE_CALLBACK_WRITES)
+                    .saturating_add(FINALISE_WRITES_PER_RESPONSE.saturating_mul(n)),
+            )
+        }
+
+        /// Declared weight for `finalise_request`, derived from
+        /// `MaxResponsesPerRequest` instead of from a typical response count.
+        ///
+        /// Finalising a small request overpays, and that is the correct direction
+        /// to err: the opposite error is a caller filling a request to the bound
+        /// and being charged as if they had not.
+        ///
+        /// The invariant this rests on: every response `finalise_request` iterates
+        /// arrived through `submit_response`, which refuses past
+        /// `MaxResponsesPerRequest` with `ResponseLimitReached`, so the
+        /// `OracleResponses` prefix for a live request holds at most that many
+        /// entries. That is an invariant of the request lifecycle, not something
+        /// storage enforces, and it is currently *not* airtight:
+        /// `post_dispute_question_internal` inserts over its derived
+        /// `question_hash` with no `DuplicateRequest` guard and without clearing
+        /// the response prefix, so a request pre-created at a predicted dispute id
+        /// can be overwritten with `response_count` reset to zero while its
+        /// responses survive underneath. Closing that needs a guard in the dispute
+        /// path rather than a bigger number here — tracked separately; noted so
+        /// the declaration is not read as stronger than it is.
+        pub fn finalise_request_worst_case_weight() -> Weight {
+            let (reads, writes) = Self::finalise_request_db_ops(T::MaxResponsesPerRequest::get());
+            T::DbWeight::get()
+                .reads_writes(reads, writes)
+                .saturating_add(FINALISE_COMPUTE_WEIGHT)
         }
     }
 
