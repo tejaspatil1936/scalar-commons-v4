@@ -42,6 +42,11 @@ describe('classifyActivity', () => {
   });
 
   it('takes every event of a messaging pallet as a message', () => {
+    // `messages` is the section that actually shipped, in runtime 309 (#242).
+    // It is asserted first and by its real event name, because this test used
+    // to assert only the two names that were GUESSED before the pallet existed
+    // — so it passed for weeks while the feed matched nothing on a live chain.
+    expect(classifyActivity('messages', 'MessageSent')).toBe('message');
     expect(classifyActivity('messaging', 'MessageSent')).toBe('message');
     expect(classifyActivity('agentMessaging', 'Anything')).toBe('message');
   });

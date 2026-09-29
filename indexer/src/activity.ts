@@ -44,10 +44,20 @@ export interface ActivitySource {
 /**
  * Every event the feed takes, and the kind each is reported as.
  *
- * Messaging is matched by pallet rather than by event: agent-to-agent messaging
- * has no pallet in this runtime yet, and when one lands under either name its
- * events join the feed without an indexer release. Until then these two sources
- * match nothing, and the `message` kind is simply empty.
+ * Messaging is matched by pallet rather than by event, so every event a
+ * messaging pallet emits joins the feed without an indexer release.
+ *
+ * The pallet landed in runtime **309** (PR #242) and its section is `messages`.
+ * This list was written before it existed and guessed at `messaging` and
+ * `agentMessaging`; neither is what shipped, so the feed silently reported zero
+ * messages against a chain that had them. Found by sending a real message
+ * through the SDK on dev-real and watching `/v1/activity` stay empty, which is
+ * also the only way it could have been found — a wrong section name matches
+ * nothing and raises nothing, in the indexer or in its tests.
+ *
+ * The two guessed names are kept alongside the real one. They cost one array
+ * entry each, and the failure they protect against is exactly the one that just
+ * happened: a rename on the runtime side that nothing here would notice.
  *
  * Oracle votes are the two ways an agent answers a request — singly or in a
  * batch. Request creation, finalisation and expiry are about the request, not
@@ -55,6 +65,7 @@ export interface ActivitySource {
  * itself: an appeal is the agent's side of the same proceeding.
  */
 export const ACTIVITY_SOURCES: readonly ActivitySource[] = [
+  { kind: 'message', section: 'messages', method: null },
   { kind: 'message', section: 'messaging', method: null },
   { kind: 'message', section: 'agentMessaging', method: null },
   { kind: 'registration', section: 'agents', method: 'AgentRegistered' },
