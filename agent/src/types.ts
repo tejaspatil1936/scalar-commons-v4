@@ -53,6 +53,13 @@ export interface Chain {
   ): Promise<string>;
   confirmDelivery(provider: string, seq: number): Promise<string>;
   claim(): Promise<string>;
+
+  /** Whether the runtime exposes `agents.setMessagingKey` and `messages.send` (spec 308+). */
+  supportsMessaging(): boolean;
+  /** The X25519 messaging key `address` published (`0x…`), or `null`. */
+  messagingKeyOf(address: string): Promise<string | null>;
+  /** Publish (or rotate to) `publicKey`, a `0x…` 32-byte X25519 key. */
+  setMessagingKey(publicKey: string): Promise<string>;
 }
 
 /** One JSONL record: every agent action is one line of this shape. */
@@ -85,4 +92,9 @@ export interface AgentConfig {
   buyerMaxOpen: number;
   /** Buyer mode: blocks from now until `deliverBy`. */
   buyerDeliverWithin: bigint;
+  /**
+   * X25519 messaging public key (`0x…`) derived from the agent secret. When set
+   * and the runtime supports messaging, the agent keeps it published on chain.
+   */
+  messagingKey?: string;
 }

@@ -1,8 +1,9 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Keyring } from '@polkadot/keyring';
+import { u8aToHex } from '@polkadot/util';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
-import { ScalarCommonsClient, type Logger } from '@scalar-commons/sdk';
+import { ScalarCommonsClient, deriveMessagingKey, type Logger } from '@scalar-commons/sdk';
 import { Agent, type AgentState } from './agent.js';
 import { SdkChain } from './chain.js';
 import { loadConfig } from './config.js';
@@ -46,7 +47,32 @@ async function main(): Promise<void> {
   const client = await ScalarCommonsClient.connect(cfg.ws, { logger: stderrLogger });
   const chain = new SdkChain(client, pair);
   const state = loadState(statePath);
-  const agent = new Agent(chain, { ...cfg, address: pair.address }, emit, state);
+  // The X25519 messaging key is derived from the same secret: nothing new to
+  // back up.
+  //
+  // Derivation is allowed to FAIL without stopping the agent. `deriveMessagingKey`
+  // accepts a mnemonic, a 32-byte hex seed or a dev `//URI`; the keyring that
+  // built `pair` two lines above accepts more than that — a short raw string, for
+  // instance, which it pads. So an agent whose secret has always worked would
+  // otherwise start crashing at launch the moment this feature was added, on
+  // every runtime including the ones with no messaging pallet at all.
+  //
+  // `Agent.ensureMessagingKey` already treats `undefined` as "this agent does not
+  // publish a messaging key" and skips, exactly as it skips on a pre-309 runtime.
+  // Routing the failure into that existing path keeps the feature optional, which
+  // is what it was designed to be.
+  let messagingKey: string | undefined;
+  try {
+    messagingKey = u8aToHex(deriveMessagingKey(cfg.secret).publicKey);
+  } catch (err) {
+    // Emitted, never swallowed: an agent silently not publishing a key is a
+    // support question nobody can answer from the logs.
+    emit('messaging-key-unavailable', {
+      reason: err instanceof Error ? err.message : String(err),
+      effect: 'this agent will not publish a messaging key; everything else runs normally',
+    });
+  }
+  const agent = new Agent(chain, { ...cfg, address: pair.address, messagingKey }, emit, state);
 
   let stopping = false;
   const stop = (sig: string) => {
