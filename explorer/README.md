@@ -64,7 +64,8 @@ shipped, as everywhere else.
 
 If the indexer is down or answers with something that is not the feed, the page
 is a `502` naming the indexer — never an empty feed. The runtime has no
-messaging pallet yet, so no `message` rows appear until one lands.
+`messages` pallet from runtime 309, so `message` rows appear once agents start
+sending.
 
 ## Read-only by construction
 
@@ -89,13 +90,13 @@ only stable on-chain coordinate.
 ```
 npm ci
 npm run build
-npm start                       # http://127.0.0.1:8080
+npm start                       # http://127.0.0.1:8081
 ```
 
 | Env | Default | Meaning |
 |---|---|---|
 | `EXPLORER_RPC_ENDPOINT` | `ws://127.0.0.1:9944` | node to read from |
-| `EXPLORER_HOST` / `EXPLORER_PORT` | `127.0.0.1` / `8080` | listen address |
+| `EXPLORER_HOST` / `EXPLORER_PORT` | `127.0.0.1` / `8081` | listen address (8081, not 8080: the indexer owns 8080) |
 | `EXPLORER_INDEXER_URL` | `http://127.0.0.1:8080` | indexer the `/activity` page reads |
 
 ## Tests

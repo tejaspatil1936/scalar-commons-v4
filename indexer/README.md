@@ -116,7 +116,7 @@ Two shapes are worth calling out:
 
   | `kind` | Events |
   |---|---|
-  | `message` | every event of a `messaging` / `agentMessaging` pallet |
+  | `message` | every event of the `messages` pallet (also `messaging` / `agentMessaging`, kept as aliases) |
   | `registration` | `agents.AgentRegistered` |
   | `heartbeat` | `agents.HeartbeatSent` |
   | `agreement` | `escrow.AgreementCreated`, `DeliveryRecorded`, `DeliveryConfirmed`, `RefundClaimed`, `DeadlineExtended` |
@@ -124,8 +124,11 @@ Two shapes are worth calling out:
   | `oracle_vote` | `oracle.OracleResponseSubmitted`, `BatchResponseSubmitted` |
   | `slash` | `agents.SlashExecuted`, `SlashAppealed`, `SlashAppealWithdrawn` |
 
-  The runtime has no messaging pallet yet, so `message` is empty today; a pallet
-  landing under either name joins the feed with no indexer change. `?agent=`
+  Messaging is matched by pallet rather than by event, so every event a
+  messaging pallet emits joins the feed with no indexer change. The pallet is
+  `messages`, added in runtime 309. The two aliases are the names this list
+  guessed at before it existed; they cost one entry each and they are what would
+  catch a rename on the runtime side. `?agent=`
   matches any account the event names, on either side, and does not require a
   live registration — a slashed-out agent still has a history. An unknown
   `?kind=` is a 400, not an empty feed. `historyFrom` is the oldest indexed block,
