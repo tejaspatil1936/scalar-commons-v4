@@ -445,6 +445,7 @@ export function init(root, ctx) {
       }
       const s = (n) => n.toFixed(1);
       ctx.readout.showValue(strip.target, record, {
+        live: false,
         value: s(stats.last),
         unit: ' s',
         extra:
@@ -523,6 +524,7 @@ export function init(root, ctx) {
         .filter(Boolean)
         .join(' · ');
       ctx.readout.showValue(strip.target, record, {
+        live: false,
         value: lastSettled.count,
         unit: ` in era ${formatInteger(lastSettled.era)}`,
         extra,
@@ -566,6 +568,7 @@ export function init(root, ctx) {
       const last = series[series.length - 1];
       const allZero = series.every((e) => e.cmn === 0);
       ctx.readout.showValue(strip.target, record, {
+        live: false,
         value: formatCmn(last.plancks),
         unit: ' CMN',
         // Empty bars are the record, not a missing one: the sentence sits where it is read.
@@ -659,6 +662,7 @@ export function init(root, ctx) {
         const left = `#${formatInteger(series.start)}`;
         const departures = series.unstakes === 0 ? 'none has left' : `${formatInteger(series.unstakes)} left`;
         ctx.readout.showValue(strip.target, agents, {
+        live: false,
           value: totalNow,
           unit: totalNow === 1 ? ' agent' : ' agents',
           motion: ctx.motion,

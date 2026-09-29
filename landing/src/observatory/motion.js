@@ -24,7 +24,8 @@ export function createMotion(win = window) {
       const began = win.performance.now();
       const step = (now) => {
         if (cancelled) return;
-        const t = Math.min(1, (now - began) / ms);
+        // The first frame's timestamp can precede the instant the tween began.
+        const t = Math.min(1, Math.max(0, (now - began) / ms));
         frame(ease(t));
         if (t < 1) win.requestAnimationFrame(step);
         else done?.();

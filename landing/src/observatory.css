@@ -260,6 +260,10 @@ pre {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-content: start;
   }
+  /* Five readings on one row under the constellation, never four and an orphan. */
+  #constellation .readings {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
   footer > * {
     grid-column: 4 / -1;
   }
@@ -720,11 +724,12 @@ h2 {
   margin: 0 0 0.35rem;
 }
 
+/* The key is a faithful sample of the plate: open 1 px, disputed 2 px, settled 1 px dashed. */
 .swatch {
   flex: none;
   width: 1.25rem;
   height: 0;
-  border-top: 2px solid var(--text);
+  border-top: 1px solid var(--text);
   transform: translateY(-0.2em);
 }
 
@@ -734,6 +739,7 @@ h2 {
 
 .swatch-disputed {
   border-color: var(--disputed);
+  border-top-width: 2px;
 }
 
 .swatch-settled {
@@ -807,9 +813,11 @@ h2 {
 
 /* ── 04 validator ring ────────────────────────────────────────────────── */
 
+/* The ring may take the whole instrument column (≈ 26 rem at 1440 px) so the
+   address labels have room at a legible size; narrower, it draws compact. */
 .ring-host {
   width: 100%;
-  max-width: 20rem;
+  max-width: 26rem;
   aspect-ratio: 1;
   margin: 0 auto;
 }
@@ -855,10 +863,10 @@ h2 {
   opacity: 0;
 }
 
+/* Finality votes: a group of hairline ticks, one per sampled round. */
 .ring .ring-votes {
   fill: none;
-  stroke: var(--live);
-  stroke-width: 3;
+  stroke-width: 1;
 }
 
 .ring .ring-label {
@@ -925,7 +933,7 @@ h2 {
 }
 
 .strip figcaption {
-  display: contents;
+  margin: 0;
 }
 
 .strip-plot {
@@ -955,22 +963,24 @@ h2 {
   fill: var(--text-dim);
 }
 
+/* Strips are polled history, not live data: emphasis is by ink weight, never the live accent. */
 .strip-plot .plot-bar.is-last {
-  fill: var(--live);
+  fill: var(--text);
 }
 
 .strip-plot .plot-axis {
-  stroke: var(--border);
+  stroke: var(--text-dim);
   stroke-width: 1;
 }
 
 .strip-plot .plot-dot {
-  fill: var(--live);
+  fill: var(--text);
 }
 
 .strip-plot .plot-label {
   font-family: var(--font-mono);
-  font-size: 0.625rem;
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums lining-nums;
   fill: var(--text-dim);
 }
 

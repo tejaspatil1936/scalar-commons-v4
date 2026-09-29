@@ -930,7 +930,7 @@ export function init(root, ctx) {
 
   function explorerLink(address) {
     const a = document.createElement('a');
-    a.href = `${ctx.EXPLORER_ORIGIN}/account/${address}`;
+    a.href = `${ctx.EXPLORER_ORIGIN}/activity?agent=${encodeURIComponent(address)}`;
     a.target = '_blank';
     a.rel = 'noopener';
     return a;
@@ -1105,7 +1105,9 @@ export function init(root, ctx) {
       showTip(node);
       return;
     }
-    if (!node.ghost) window.open(`${ctx.EXPLORER_ORIGIN}/account/${node.id}`, '_blank', 'noopener');
+    if (!node.ghost) {
+      window.open(`${ctx.EXPLORER_ORIGIN}/activity?agent=${encodeURIComponent(node.id)}`, '_blank', 'noopener');
+    }
   });
 
   // ── data ──

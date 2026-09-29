@@ -196,12 +196,13 @@ test('the script reads only indexer endpoints that exist, with fields the indexe
     if (limit !== null) assert.ok(Number(limit) <= 200, `source "${name}" asks for limit=${limit}; the indexer caps at 200`);
   }
   const indexer = api + readRepoFile('indexer/src/chainState.ts') + readRepoFile('indexer/src/store.ts');
-  const paths = clientSources().flatMap(([, src]) => [...src.matchAll(/field\([^,]+, '([^']+)'\)/g)].map((m) => m[1]));
+  // `field(data, '…')` and any reader built on it (`erasField(item, '…')`).
+  const paths = clientSources().flatMap(([, src]) => [...src.matchAll(/[fF]ield\([^,]+, '([^']+)'\)/g)].map((m) => m[1]));
   assert.ok(paths.length >= 15, `expected the instruments to read fields through field(), found ${paths.length}`);
   for (const path of new Set(paths)) {
     for (const segment of path.split('.').filter((s) => !/^\d+$/.test(s))) {
       // JSON-RPC and GitHub envelopes are not the indexer's; their keys are checked where they are read.
-      if (['result', 'commit', 'committer', 'date', 'sha', 'html_url', 'peers', 'isSyncing', 'best', 'prevotes', 'precommits', 'missing', 'round', 'setId', 'totalWeight', 'thresholdWeight', 'currentWeight'].includes(segment)) continue;
+      if (['result', 'commit', 'committer', 'date', 'sha', 'html_url', 'peers', 'isSyncing', 'best', 'background', 'prevotes', 'precommits', 'missing', 'round', 'setId', 'totalWeight', 'thresholdWeight', 'currentWeight'].includes(segment)) continue;
       assert.ok(new RegExp(`\\b${segment}\\b`).test(indexer), `field "${path}" — "${segment}" is not in the indexer source`);
     }
   }

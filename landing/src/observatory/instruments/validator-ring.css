@@ -3,13 +3,6 @@
    block, and the states the design system's .ring rules do not cover. Tokens
    only. */
 
-/* The ring may take the whole instrument column (≈ 26rem at 1440 px) so the
-   address labels have room at a legible size; below that the ring is drawn
-   compact (index labels only) and never spills off the plate. */
-.ring-host {
-  max-width: 26rem;
-}
-
 /* Text on the ring is drawn at a constant rendered size whatever the ring's
    scale: the instrument sets --ring-scale (rendered px per SVG unit) on the
    svg, and every font size is divided by it. */
@@ -58,11 +51,6 @@
 }
 
 /* Vote ticks: one hairline per sampled round, lit where the vote was seen. */
-.ring .ring-votes {
-  stroke-width: 1;
-  fill: none;
-}
-
 .ring .ring-vote-tick {
   stroke: var(--border);
   stroke-width: 1;

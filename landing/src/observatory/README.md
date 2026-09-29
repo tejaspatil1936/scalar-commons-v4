@@ -52,7 +52,7 @@ and `ctx` is created by `context.js`:
 | `ctx.fitCanvas(canvas, onResize)` | sizes a canvas to its CSS box at device resolution; returns `() => { context, width, height, dpr }` |
 | `ctx.history`, `ctx.posture` | the two checked-in records embedded in the page |
 | `ctx.announce(text)` | polite screen-reader status |
-| `ctx.EXPLORER_ORIGIN` | `https://explorer.scalarnet.io` — agent links go to `/account/<address>` |
+| `ctx.EXPLORER_ORIGIN` | `https://explorer.scalarnet.io` — agent links go to `/activity?agent=<address>`, validators to `/account/<address>` |
 
 An instrument owns exactly three files: `instruments/<name>.js`,
 `instruments/<name>.css` (appended to the shipped stylesheet after the design

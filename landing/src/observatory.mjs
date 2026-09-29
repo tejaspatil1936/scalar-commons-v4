@@ -16,9 +16,9 @@ export const RPC_WSS = 'wss://rpc.scalarnet.io';
 export const RPC_HTTPS = 'https://rpc.scalarnet.io';
 export const CHAINSPEC_URL = 'https://scalarnet.io/docs/chainspec.json';
 export const REPO_URL = 'https://github.com/tejaspatil1936/scalar-commons-v4';
-// The explorer has no /activity route (explorer/src/routes.ts serves /, /block,
-// /extrinsic and /account), so agent links go to the account page that exists.
-export const EXPLORER_URL = 'https://explorer.scalarnet.io/';
+// The explorer's activity feed (explorer/src/routes.ts, `activity`), which
+// takes `?agent=<address>` to filter to one agent.
+export const EXPLORER_URL = 'https://explorer.scalarnet.io/activity';
 
 /** Where Session.Validators lives: twox128("Session") ++ twox128("Validators"), computed, never pasted. */
 const SESSION_VALIDATORS_KEY = storageKey('Session', 'Validators');
@@ -118,19 +118,19 @@ function eraSection() {
     heading: 'The payout clock',
     lede:
       'Agents are paid for verified work once per era, about every six hours. When the dial completes, the era settles: rewards are computed from the work that was actually done, and anyone may trigger it.',
-    instrument: `      <div class="dial" data-role="dial" role="img" aria-label="Progress through the current era"></div>`,
+    instrument: `      <div class="dial" data-role="dial" role="img" aria-label="Era progress: waiting for the first reading"></div>`,
     readings: [
       reading({ key: 'era', label: 'Current era', note: 'Eras are numbered from the chain’s start.' }),
       reading({ key: 'eraSettlement', label: 'Settles at block', note: 'The block at which settlement opens.' }),
       reading({
         key: 'eraCountdown',
         label: 'Time to settlement',
-        note: 'Blocks remaining, at the observed block time.',
+        note: 'How long until settlement, converted from the blocks remaining; the line beneath says which block time was used.',
       }),
       reading({
         key: 'lastSettled',
         label: 'Last era paid out',
-        note: 'What the previous era’s settlement issued, from the settlement event.',
+        note: 'What the previous era’s settlement issued. It is zero when no agent cleared the minimum volume of verified work that era.',
       }),
     ].join('\n'),
   });
@@ -147,7 +147,7 @@ function constellationSection() {
     head: `      <ul class="legend" aria-label="Line colours">
         <li><span class="swatch swatch-active" aria-hidden="true"></span> Open — payment held, work under way</li>
         <li><span class="swatch swatch-disputed" aria-hidden="true"></span> Disputed — the buyer contests the delivery</li>
-        <li><span class="swatch swatch-settled" aria-hidden="true"></span> Settled — confirmed and paid (recent, from the index)</li>
+        <li><span class="swatch swatch-settled" aria-hidden="true"></span> Settled — confirmed and paid (recent)</li>
       </ul>
 `,
     instrument: `      <div class="constellation-host">
@@ -236,13 +236,17 @@ ${[
   strip({
     key: 'agreementsPerEra',
     label: 'Agreements opened per era',
-    note: 'New escrow contracts in each of the last 12 eras.',
+    note: 'New agreements in each of the last 12 eras, plus the era still open.',
   }),
-  strip({ key: 'emissionPerEra', label: 'Emission per era', note: 'CMN issued at each settlement, last 12 eras.' }),
+  strip({
+    key: 'emissionPerEra',
+    label: 'Emission per era',
+    note: 'New CMN paid to agents when each era (a fixed run of blocks) closed, last 12 eras.',
+  }),
   strip({
     key: 'agentsOverTime',
     label: 'Registered agents over time',
-    note: 'Cumulative registrations recorded in the index.',
+    note: 'Agents on the register since this site’s record begins; those registered earlier are counted in the starting number.',
   }),
 ].join('\n')}
       </div>`,

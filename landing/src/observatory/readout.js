@@ -46,12 +46,29 @@ export function provenance(target, record, extra = '') {
     a.href = record.link;
     a.target = '_blank';
     a.rel = 'noopener';
-    a.textContent = record.label;
+    a.append(...wrappableLabel(record.label));
     prov.append(a);
   } else {
-    prov.append(record.label);
+    prov.append(...wrappableLabel(record.label));
   }
   prov.append(` · ${utcTime(record.at)}${extra ? ` · ${extra}` : ''}`);
+}
+
+/**
+ * An endpoint label as text nodes with a break opportunity after each `?`
+ * and `&`, so a long query wraps at its parameters rather than mid-word.
+ */
+export function wrappableLabel(label) {
+  const parts = [];
+  let start = 0;
+  for (let i = 0; i < label.length; i += 1) {
+    if (label[i] === '?' || label[i] === '&') {
+      parts.push(document.createTextNode(label.slice(start, i + 1)), document.createElement('wbr'));
+      start = i + 1;
+    }
+  }
+  parts.push(document.createTextNode(label.slice(start)));
+  return parts;
 }
 
 /** Counts from the previous integer to the new one over 200 ms, if motion is allowed. */
@@ -67,15 +84,28 @@ function tick(digits, from, to, motion) {
 
 /**
  * Shows a figure. `value` is a number (ticked when it rises) or a string.
- * `prefix` and `unit` sit around the figure; `extra` is appended to the
- * provenance line. `record` is the response the figure was read from.
+ * `prefix` and `unit` sit around the figure; `sub` is a second line under it;
+ * `extra` is appended to the provenance line. `record` is the response the
+ * figure was read from. `live: false` marks a historical figure, which takes
+ * no glow. When nothing visible changed, only the provenance line is
+ * refreshed, so a polite live region is not re-announced every poll.
  */
-export function showValue(target, record, { value, prefix = '', unit = '', sub = '', extra = '', motion = null }) {
+export function showValue(target, record, { value, prefix = '', unit = '', sub = '', extra = '', motion = null, live = true }) {
   if (!target) return;
   const slot = target.querySelector('.reading-value');
+  const shown = `${prefix}\u0000${value}\u0000${unit}\u0000${sub}`;
+  if (slot.dataset.shown === shown && slot.querySelector('a.num, .digits')) {
+    // Same figure: relink the raw bytes to the new record and refresh provenance.
+    const link = slot.querySelector('a.num');
+    const url = snapshotUrl(record);
+    if (link && url) link.href = url;
+    provenance(target, record, extra);
+    return;
+  }
+  slot.dataset.shown = shown;
   const before = slot.dataset.number;
   slot.classList.remove('is-loading', 'is-error', 'is-absent');
-  slot.classList.add('is-live');
+  slot.classList.toggle('is-live', live);
 
   const digits = document.createElement('span');
   digits.className = 'digits';
@@ -117,6 +147,7 @@ export function showError(target, record, reason = record?.error ?? 'unavailable
   slot.classList.remove('is-loading', 'is-absent', 'is-live');
   slot.classList.add('is-error');
   delete slot.dataset.number;
+  delete slot.dataset.shown;
   const word = document.createElement('span');
   word.className = 'unavailable';
   word.textContent = 'unavailable';
@@ -135,6 +166,7 @@ export function showAbsent(target, record, reason) {
   slot.classList.remove('is-loading', 'is-error', 'is-live');
   slot.classList.add('is-absent');
   delete slot.dataset.number;
+  delete slot.dataset.shown;
   const dash = document.createElement('span');
   dash.className = 'digits';
   dash.textContent = '—';
