@@ -1,39 +1,69 @@
-// Builds the static landing page into dist/ (or $LANDING_OUT_DIR).
+// Builds the static site into dist/ (or $LANDING_OUT_DIR).
 //
-// Deliberately dependency-free: the gate for this site is `npm ci && npm run
-// build`, and the fewer moving parts stand between a fresh clone and a rendered
-// page, the fewer ways that gate has to fail for reasons that have nothing to do
-// with the page. @polkadot/api is a devDependency used only by the scripts that
-// read the chain — never by the build.
+// The landing page build is deliberately dependency-free: the gate for this
+// site is `npm ci && npm run build`, and the fewer moving parts stand between
+// a fresh clone and a rendered page, the fewer ways that gate has to fail for
+// reasons that have nothing to do with the page. @polkadot/api is a
+// devDependency used only by the scripts that read the chain.
+//
+// /observatory is the exception, and the one place a bundler is used: its
+// instruments are drawn with d3-force, d3-scale and d3-shape, and esbuild
+// bundles just those modules with the page's own script into one file. The
+// landing page itself still ships no script at all.
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { build } from 'esbuild';
 import { content } from '../src/content.mjs';
 import { sourceClaims } from '../src/source-claims.mjs';
 import { renderPage } from '../src/render.mjs';
 import { renderObservatory } from '../src/observatory.mjs';
+import { FONTS, observatoryCss } from '../src/observatory-assets.mjs';
 
-const facts = JSON.parse(readFileSync(new URL('../chain-facts.json', import.meta.url), 'utf8'));
+const here = (relative) => fileURLToPath(new URL(relative, import.meta.url));
+const readJson = (relative) => JSON.parse(readFileSync(here(relative), 'utf8'));
+
+const facts = readJson('../chain-facts.json');
 
 // renderPage throws on an unresolvable placeholder, so a page that would state a
 // figure the chain never reported fails the build instead of shipping.
 const html = renderPage({ facts, content, sourceClaims });
 
-const outDir = process.env.LANDING_OUT_DIR ?? fileURLToPath(new URL('../dist', import.meta.url));
+const outDir = process.env.LANDING_OUT_DIR ?? here('../dist');
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'index.html'), html);
-copyFileSync(fileURLToPath(new URL('../src/styles.css', import.meta.url)), join(outDir, 'styles.css'));
+copyFileSync(here('../src/styles.css'), join(outDir, 'styles.css'));
 
 // /observatory: a static frame whose live figures the reader's browser fetches.
-// The one set of figures it is built with is the checked-in upgrade record.
-const history = JSON.parse(readFileSync(new URL('../runtime-history.json', import.meta.url), 'utf8'));
-writeFileSync(join(outDir, 'observatory.html'), renderObservatory({ history }));
-for (const asset of ['observatory.js', 'observatory.css']) {
-  copyFileSync(fileURLToPath(new URL(`../src/${asset}`, import.meta.url)), join(outDir, asset));
+// The two sets of figures it is built with are checked-in records, and both
+// are also copied out so the page can link to the raw file it was built from.
+const history = readJson('../runtime-history.json');
+const posture = readJson('../public/posture.json');
+writeFileSync(join(outDir, 'observatory.html'), renderObservatory({ history, posture }));
+writeFileSync(join(outDir, 'observatory.css'), observatoryCss());
+copyFileSync(here('../runtime-history.json'), join(outDir, 'runtime-history.json'));
+copyFileSync(here('../public/posture.json'), join(outDir, 'posture.json'));
+
+mkdirSync(join(outDir, 'fonts'), { recursive: true });
+for (const [source, name] of FONTS) {
+  copyFileSync(here(`../node_modules/${source}`), join(outDir, 'fonts', name));
 }
+
+const bundle = await build({
+  entryPoints: [here('../src/observatory/main.js')],
+  bundle: true,
+  minify: true,
+  format: 'esm',
+  target: ['es2022', 'chrome100', 'safari16', 'firefox100'],
+  outfile: join(outDir, 'observatory.js'),
+  legalComments: 'none',
+  metafile: true,
+  logLevel: 'silent',
+});
+const bundleBytes = Object.values(bundle.metafile.outputs)[0]?.bytes ?? 0;
 
 console.log(
   `built ${outDir}/index.html (${(html.length / 1024).toFixed(1)} kB) from ${facts.provenance.specName} spec ` +
     `${facts.provenance.specVersion}, metadata v${facts.provenance.metadataVersion}, block ` +
-    `#${facts.provenance.readAtBlock}`,
+    `#${facts.provenance.readAtBlock}; observatory.js ${(bundleBytes / 1024).toFixed(1)} kB`,
 );

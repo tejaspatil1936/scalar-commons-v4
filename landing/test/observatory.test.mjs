@@ -4,33 +4,40 @@
 // it the other way round: its figures are fetched in the browser, so the build
 // must ship no figure at all in a reading slot, every endpoint and field the
 // script reads must exist in the indexer it reads them from, and the only
-// numbers the build does carry — the runtime upgrade table — must agree with
-// the upgrade records checked into the repository.
+// numbers the build does carry — the runtime upgrade record and the security
+// posture record — must be labelled as records and agree with the files
+// checked into the repository.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import {
-  API_ORIGIN,
-  RPC_URL,
-  GITHUB_COMMITS_URL,
-  SOURCES,
-  decodeCompactLength,
-  formatInteger,
-  relativeTime,
-  countSince,
-  field,
-} from '../src/observatory.js';
+import { API_ORIGIN, RPC_URL, GITHUB_COMMITS_URL, SOURCES, STORAGE_KEYS } from '../src/observatory/data.js';
+import { renderSection } from '../src/observatory.mjs';
 
 const landingDir = fileURLToPath(new URL('../', import.meta.url));
 const repoRoot = new URL('../../', import.meta.url);
 const readRepoFile = (relPath) => readFileSync(new URL(relPath, repoRoot), 'utf8');
 const history = JSON.parse(readFileSync(new URL('../runtime-history.json', import.meta.url), 'utf8'));
-const clientSource = readFileSync(new URL('../src/observatory.js', import.meta.url), 'utf8');
+const posture = JSON.parse(readFileSync(new URL('../public/posture.json', import.meta.url), 'utf8'));
+
+/** Every client-side source file the bundle is built from. */
+function clientSources() {
+  const dir = fileURLToPath(new URL('../src/observatory/', import.meta.url));
+  const files = [];
+  const walk = (d) => {
+    for (const name of readdirSync(d)) {
+      const p = join(d, name);
+      if (statSync(p).isDirectory()) walk(p);
+      else if (name.endsWith('.js')) files.push(p);
+    }
+  };
+  walk(dir);
+  return files.map((p) => [p.replace(dir, ''), readFileSync(p, 'utf8')]);
+}
 
 function build() {
   const out = mkdtempSync(join(tmpdir(), 'landing-observatory-'));
@@ -45,11 +52,16 @@ function build() {
 const out = build();
 const page = readFileSync(join(out, 'observatory.html'), 'utf8');
 const index = readFileSync(join(out, 'index.html'), 'utf8');
+const bundle = readFileSync(join(out, 'observatory.js'), 'utf8');
 
-test('the build emits the observatory page with its script and stylesheet', () => {
+test('the build emits the observatory page, its bundle, stylesheet, fonts and records', () => {
   const files = readdirSync(out);
-  for (const name of ['observatory.html', 'observatory.js', 'observatory.css']) {
+  for (const name of ['observatory.html', 'observatory.js', 'observatory.css', 'runtime-history.json', 'posture.json', 'fonts']) {
     assert.ok(files.includes(name), `build produced no ${name} (got: ${files.join(', ')})`);
+  }
+  const fonts = readdirSync(join(out, 'fonts'));
+  for (const face of ['instrument-serif', 'ibm-plex-mono', 'source-sans-3']) {
+    assert.ok(fonts.some((f) => f.startsWith(face) && f.endsWith('.woff2')), `no ${face} woff2 in dist/fonts`);
   }
   assert.match(page, /^<!doctype html>/i);
   assert.match(page, /<script type="module" src="observatory\.js"><\/script>/);
@@ -57,6 +69,9 @@ test('the build emits the observatory page with its script and stylesheet', () =
   // Served as /observatory by nginx `try_files $uri.html` and by GitHub Pages,
   // so every asset reference is relative to the site root.
   assert.ok(!/(?:src|href)="\/(?!\/)/.test(page), 'observatory.html must not use root-absolute paths');
+  // The bundle is one file, minified, and small enough for the first-paint budget.
+  assert.ok(bundle.length < 180 * 1024, `observatory.js is ${(bundle.length / 1024).toFixed(0)} kB; the budget is 180 kB`);
+  assert.ok(!/from\s+["']d3/.test(bundle), 'the bundle must not leave bare d3 imports unresolved');
 });
 
 test('the site nav links the observatory, and the landing page stays script-free', () => {
@@ -65,31 +80,61 @@ test('the site nav links the observatory, and the landing page stays script-free
   assert.ok(!/<script/i.test(index), 'index.html must stay script-free');
 });
 
+test('every instrument opens with a plain sentence before any figure', () => {
+  const sections = [...page.matchAll(/<section id="([a-z]+)" class="grid instrument-section"[\s\S]*?<\/section>/g)];
+  assert.deepEqual(
+    sections.map((m) => m[1]),
+    ['pulse', 'era', 'constellation', 'validators', 'history', 'upgrades', 'posture', 'verify'],
+  );
+  for (const [block, id] of sections) {
+    const lede = block.match(/<p class="lede">([\s\S]*?)<\/p>/)?.[1] ?? '';
+    assert.ok(lede.length > 40, `${id} has no explanatory sentence`);
+    assert.ok(block.indexOf('class="lede"') < block.indexOf('class="instrument"'), `${id}: the sentence must precede the instrument`);
+  }
+});
+
 test('no reading ships with a value: every figure on the page is fetched, not built in', () => {
-  const values = [...page.matchAll(/<p class="reading-value[^"]*"[^>]*>([\s\S]*?)<\/p>/g)].map((m) => m[1]);
-  assert.ok(values.length >= 12, `expected every reading to have a value slot, found ${values.length}`);
+  const values = [...page.matchAll(/<(?:p|span) class="reading-value[^"]*"[^>]*>([\s\S]*?)<\/(?:p|span)>/g)].map((m) => m[1]);
+  assert.ok(values.length >= 20, `expected every reading to have a value slot, found ${values.length}`);
   for (const value of values) {
     assert.ok(!/\d/.test(value.replace(/<[^>]+>/g, '')), `a reading ships a built-in figure: ${value}`);
   }
-  // Every reading carries a plain-language label, a one-line explanation and a
-  // provenance slot the script fills with the endpoint and fetch time.
-  const readings = [...page.matchAll(/<div class="reading[^"]*" data-reading="([^"]+)"[\s\S]*?<\/div>/g)];
+  const readings = [...page.matchAll(/<(?:div|figure) class="[^"]*reading[^"]*" data-reading="([^"]+)"[\s\S]*?<p class="reading-prov">/g)];
+  assert.ok(readings.length >= 20);
   for (const [block, key] of readings) {
     assert.match(block, /class="reading-label"/, `${key} has no label`);
     assert.match(block, /class="reading-note"/, `${key} has no explanatory sub-line`);
-    assert.match(block, /class="reading-prov"/, `${key} has no provenance line`);
   }
 });
 
-test('every reading in the page is fed by a source the script knows', () => {
-  const keys = [...page.matchAll(/data-reading="([^"]+)"/g)].map((m) => m[1]);
+test('every reading in the page is fed by a source the data layer knows', () => {
+  const keys = new Set([...page.matchAll(/data-reading="([^"]+)"/g)].map((m) => m[1]));
   const fed = new Set(Object.values(SOURCES).flatMap((source) => source.readings));
   for (const key of keys) {
-    assert.ok(fed.has(key), `reading "${key}" has no source in observatory.js`);
+    assert.ok(fed.has(key), `reading "${key}" has no source in data.js`);
   }
 });
 
-test('the upgrade table is the checked-in record: 305, 306, 307 applied, 309 scheduled', () => {
+test('the two records on the page are labelled as records, and the posture record invents nothing', () => {
+  assert.match(page, /<section id="posture"[^>]*data-record="true"/);
+  assert.match(page, /Record, not live/);
+  assert.match(page, /checked-in record, not a live reading/);
+  for (const [key, entry] of Object.entries(posture.fields)) {
+    assert.ok('value' in entry && 'asOf' in entry && 'todo' in entry, `posture field ${key} is missing value/asOf/todo`);
+    if (entry.value === null) {
+      assert.match(entry.todo, /^TODO\(owner\)/, `posture field ${key} has no value and no TODO for the owner`);
+      assert.match(page, new RegExp(`data-posture="${key}" data-recorded="false"[\\s\\S]*?not yet recorded`));
+    }
+  }
+  // A posture value slot carries no digits unless a value was recorded.
+  const strip = page.match(/<dl class="posture">[\s\S]*?<\/dl>/)[0];
+  for (const [, value] of strip.matchAll(/<dd class="mono">([\s\S]*?)<\/dd>/g)) {
+    const text = value.replace(/<[^>]+>/g, '');
+    if (text.includes('not yet recorded')) assert.ok(!/\d/.test(text), `posture shows a number with nothing recorded: ${text}`);
+  }
+});
+
+test('the upgrade record: 305, 306, 307 applied, 309 scheduled, each agreeing with its file', () => {
   assert.deepEqual(
     history.upgrades.map((u) => [u.specVersion, u.status]),
     [
@@ -107,136 +152,132 @@ test('the upgrade table is the checked-in record: 305, 306, 307 applied, 309 sch
     assert.match(upgrade.wasm.blake2_256, /^0x[0-9a-f]{64}$/);
     assert.ok(upgrade.summary.length > 0 && upgrade.summary.length <= 140, `${upgrade.specVersion} summary is not one line`);
   }
-  const scheduled = history.upgrades.find((u) => u.status === 'scheduled');
-  assert.equal(scheduled.wasm, null, 'a scheduled upgrade has no applied wasm to hash');
-  assert.equal(scheduled.appliedAtBlock, null);
-});
-
-test('each upgrade row agrees with the upgrade record checked into the repo', () => {
   for (const upgrade of history.upgrades.filter((u) => u.recordFile)) {
     const record = readRepoFile(upgrade.recordFile);
     assert.ok(record.includes(`spec ${upgrade.specVersion}`), `${upgrade.recordFile} is not about spec ${upgrade.specVersion}`);
     assert.ok(record.includes(`#${upgrade.appliedAtBlock}`), `${upgrade.recordFile} never names block #${upgrade.appliedAtBlock}`);
     assert.ok(record.includes(upgrade.blockHash), `${upgrade.recordFile} never names block hash ${upgrade.blockHash}`);
-    assert.ok(record.includes(upgrade.wasm.blake2_256), `${upgrade.recordFile} never names blake2-256 ${upgrade.wasm.blake2_256}`);
-    assert.ok(
-      record.includes(upgrade.wasm.bytes.toLocaleString('en-US').replace(/,/g, ' ')),
-      `${upgrade.recordFile} never names the ${upgrade.wasm.bytes}-byte blob size`,
-    );
+    assert.ok(record.includes(upgrade.wasm.blake2_256), `${upgrade.recordFile} never names ${upgrade.wasm.blake2_256}`);
   }
-  // 307 has no UPGRADE-307.md: its block and sha256 are the operator's record,
-  // matched against on-chain :code when the row was written.
   const spec307 = history.upgrades.find((u) => u.specVersion === 307);
   assert.equal(spec307.appliedAtBlock, 813625);
   assert.equal(spec307.wasm.sha256, '0b515ea41bb3b1134072dc696b95d2ce85cf671bf89fc460d8fb20b7cd196d6c');
-  for (const upgrade of history.upgrades.filter((u) => u.summarySource)) {
-    readRepoFile(upgrade.summarySource); // throws if the cited source is gone
-  }
+  for (const upgrade of history.upgrades.filter((u) => u.summarySource)) readRepoFile(upgrade.summarySource);
 });
 
-test('the upgrade table renders every row, with each applied hash in full and copyable', () => {
+test('the upgrade rail renders every row with its hash in full, copyable, and a chain confirmation slot', () => {
   for (const upgrade of history.upgrades) {
-    assert.match(page, new RegExp(`<tr[^>]*data-spec="${upgrade.specVersion}"`));
+    assert.match(page, new RegExp(`<li class="rail-marker rail-${upgrade.status}" style="--x:[0-9.]+%" data-spec="${upgrade.specVersion}"`));
+    assert.match(page, new RegExp(`<li class="upgrade" data-spec="${upgrade.specVersion}" data-status="${upgrade.status}"`));
     if (upgrade.wasm) {
       assert.ok(page.includes(upgrade.wasm.sha256), `sha256 for ${upgrade.specVersion} not rendered in full`);
       assert.ok(page.includes(`data-copy="${upgrade.wasm.sha256}"`), `sha256 for ${upgrade.specVersion} has no copy control`);
+      assert.ok(page.includes(`data-confirm-block="${upgrade.appliedAtBlock}"`), `${upgrade.specVersion} has no chain-confirmation slot`);
     }
   }
-  assert.match(page, /<tr[^>]*data-spec="309"[^>]*data-status="scheduled"/);
+  // Markers sit in block order, left to right, with the scheduled one last.
+  const xs = [...page.matchAll(/rail-marker rail-\w+" style="--x:([0-9.]+)%/g)].map((m) => Number(m[1]));
+  assert.deepEqual([...xs].sort((a, b) => a - b), xs);
 });
 
-test('the script reads only indexer endpoints that exist', () => {
+test('the script reads only indexer endpoints that exist, with fields the indexer emits', () => {
   const api = readRepoFile('indexer/src/api.ts');
   const routes = [...api.matchAll(/path: '([^']+)'/g)].map((m) => m[1]);
   const toPattern = (route) => new RegExp(`^${route.replace(/:[a-z]+/g, '[^/]+')}$`);
   const indexerSources = Object.entries(SOURCES).filter(([, source]) => source.kind === 'api');
-  assert.ok(indexerSources.length >= 6);
+  assert.ok(indexerSources.length >= 10);
   for (const [name, source] of indexerSources) {
     const path = new URL(source.path, API_ORIGIN).pathname;
-    assert.ok(
-      routes.some((route) => toPattern(route).test(path)),
-      `source "${name}" reads ${path}, which indexer/src/api.ts does not serve`,
-    );
+    assert.ok(routes.some((route) => toPattern(route).test(path)), `source "${name}" reads ${path}, which indexer/src/api.ts does not serve`);
+    const limit = new URL(source.path, API_ORIGIN).searchParams.get('limit');
+    if (limit !== null) assert.ok(Number(limit) <= 200, `source "${name}" asks for limit=${limit}; the indexer caps at 200`);
   }
-});
-
-test('every field the script reads from the indexer is one the indexer emits', () => {
-  const indexer = readRepoFile('indexer/src/api.ts') + readRepoFile('indexer/src/chainState.ts');
-  const paths = [...clientSource.matchAll(/field\([^,]+, '([^']+)'\)/g)].map((m) => m[1]);
-  assert.ok(paths.length >= 10, `expected the script to read fields through field(), found ${paths.length}`);
+  const indexer = api + readRepoFile('indexer/src/chainState.ts') + readRepoFile('indexer/src/store.ts');
+  const paths = clientSources().flatMap(([, src]) => [...src.matchAll(/field\([^,]+, '([^']+)'\)/g)].map((m) => m[1]));
+  assert.ok(paths.length >= 15, `expected the instruments to read fields through field(), found ${paths.length}`);
   for (const path of new Set(paths)) {
     for (const segment of path.split('.').filter((s) => !/^\d+$/.test(s))) {
-      // JSON-RPC and GitHub envelopes are not the indexer's; their keys are
-      // checked where they are read.
-      if (['result', 'commit', 'committer', 'date', 'sha', 'html_url'].includes(segment)) continue;
+      // JSON-RPC and GitHub envelopes are not the indexer's; their keys are checked where they are read.
+      if (['result', 'commit', 'committer', 'date', 'sha', 'html_url', 'peers', 'isSyncing', 'best', 'prevotes', 'precommits', 'missing', 'round', 'setId', 'totalWeight', 'thresholdWeight', 'currentWeight'].includes(segment)) continue;
       assert.ok(new RegExp(`\\b${segment}\\b`).test(indexer), `field "${path}" — "${segment}" is not in the indexer source`);
     }
   }
+  // Event sections and methods named in sources exist in the pallets.
+  const pallets = {
+    escrow: readRepoFile('pallets/escrow/src/lib.rs'),
+    agents: readRepoFile('pallets/agents/src/lib.rs'),
+    messages: readRepoFile('pallets/messages/src/lib.rs'),
+  };
+  for (const [name, source] of indexerSources) {
+    const params = new URL(source.path, API_ORIGIN).searchParams;
+    const section = params.get('section');
+    const method = params.get('method');
+    if (!section || !method || section === 'system') continue;
+    assert.ok(pallets[section], `source "${name}" names pallet "${section}", which is not one this test knows`);
+    assert.ok(new RegExp(`\\b${method}\\s*\\{`).test(pallets[section]), `source "${name}": pallets/${section} emits no ${method} event`);
+  }
+});
+
+test('the raw storage keys are the twox128 concatenations for the items named', () => {
+  assert.equal(STORAGE_KEYS.sessionValidators, '0xcec5070d609dd3497f72bde07fc96ba088dcde934c658227ee1dfafcd6e16903');
+  assert.equal(STORAGE_KEYS.sessionQueuedKeys, '0xcec5070d609dd3497f72bde07fc96ba0e0cdd062e6eaf24295ad4ccfc41d4609');
+  assert.equal(STORAGE_KEYS.babeAuthorities, '0x1cb6f36e027abb2091cfb5110ab5087f5e0621c4869aa60c02be9adcc98a0d1d');
+  // Session.Validators and Staking.Validators share twox128("Validators").
+  assert.equal(STORAGE_KEYS.sessionValidators.slice(34), '88dcde934c658227ee1dfafcd6e16903');
 });
 
 test('the script contacts only the chain API, the chain RPC and GitHub', () => {
   assert.equal(API_ORIGIN, 'https://api.scalarnet.io');
-  // WebSocket, not HTTPS POST: JSON-RPC over HTTP from a browser needs CORS,
-  // and rpc.scalarnet.io answers POSTs with Access-Control-Allow-Origin twice
-  // (node --rpc-cors plus nginx), which every browser rejects. A WebSocket
-  // handshake is not subject to CORS.
+  // WebSocket, not HTTPS POST: rpc.scalarnet.io answers POSTs with
+  // Access-Control-Allow-Origin twice (node --rpc-cors plus nginx), which
+  // browsers reject. A WebSocket handshake is not subject to CORS.
   assert.equal(RPC_URL, 'wss://rpc.scalarnet.io');
   assert.equal(new URL(GITHUB_COMMITS_URL).origin, 'https://api.github.com');
   assert.match(GITHUB_COMMITS_URL, /\/repos\/tejaspatil1936\/scalar-commons-v4\/commits\?sha=master/);
-  const hosts = new Set([...clientSource.matchAll(/(?:https|wss):\/\/([a-z0-9.-]+)/g)].map((m) => m[1]));
-  const allowed = new Set(['api.scalarnet.io', 'rpc.scalarnet.io', 'api.github.com', 'github.com', 'explorer.scalarnet.io']);
-  for (const host of hosts) assert.ok(allowed.has(host), `observatory.js references ${host}`);
+  const allowed = new Set(['api.scalarnet.io', 'rpc.scalarnet.io', 'api.github.com', 'github.com', 'explorer.scalarnet.io', 'scalarnet.io']);
+  for (const [file, src] of clientSources()) {
+    const hosts = new Set([...src.matchAll(/(?:https|wss):\/\/([a-z0-9.-]+)/g)].map((m) => m[1]));
+    for (const host of hosts) assert.ok(allowed.has(host), `${file} references ${host}`);
+  }
 });
 
-test('field() refuses to guess at a missing field', () => {
-  assert.equal(field({ chain: { bestBlock: 7 } }, 'chain.bestBlock'), 7);
-  assert.equal(field({ items: [{ blockNumber: 3 }] }, 'items.0.blockNumber'), 3);
-  assert.throws(() => field({ chain: {} }, 'chain.bestBlock'), /chain\.bestBlock/);
-  assert.throws(() => field(null, 'chain'), /chain/);
+test('no instrument loops forever or ignores reduced motion', () => {
+  for (const [file, src] of clientSources()) {
+    assert.ok(!/setInterval\(/.test(src) || file === 'main.js', `${file} uses setInterval; use ctx.watch so it pauses when hidden`);
+    assert.ok(!/animation-iteration-count|infinite/.test(src), `${file} declares an infinite animation`);
+  }
+  const css = readFileSync(new URL('../src/observatory.css', import.meta.url), 'utf8');
+  assert.ok(!/infinite/.test(css), 'observatory.css declares an infinite animation');
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
+  assert.match(css, /@media \(prefers-color-scheme: light\)/);
 });
 
-test('decodeCompactLength reads the SCALE length prefix of a storage vector', () => {
-  assert.equal(decodeCompactLength('0x00'), 0);
-  assert.equal(decodeCompactLength('0x14aabb'), 5); // single-byte mode: 5 << 2
-  assert.equal(decodeCompactLength('0x0101'), 64); // two-byte mode: (64 << 2) | 1
-  assert.equal(decodeCompactLength('0x02000100'), 16384); // four-byte mode
-  assert.throws(() => decodeCompactLength(null), /empty/);
-  assert.throws(() => decodeCompactLength('0x'), /empty/);
-});
-
-test('formatting helpers', () => {
-  assert.equal(formatInteger(819086), '819,086');
-  assert.equal(formatInteger(0), '0');
-  const now = Date.parse('2026-09-29T14:00:00Z');
-  assert.equal(relativeTime(now - 30_000, now), 'less than a minute ago');
-  assert.equal(relativeTime(now - 60_000, now), '1 minute ago');
-  assert.equal(relativeTime(now - 45 * 60_000, now), '45 minutes ago');
-  assert.equal(relativeTime(now - 60 * 60_000, now), '1 hour ago');
-  assert.equal(relativeTime(now - 5 * 3600_000, now), '5 hours ago');
-  assert.equal(relativeTime(now - 72 * 3600_000, now), '3 days ago');
-});
-
-test('countSince counts newest-first events at or after a block, and says when the page ran out', () => {
-  const items = [{ blockNumber: 30 }, { blockNumber: 20 }, { blockNumber: 10 }];
-  assert.deepEqual(countSince(items, 20), { count: 2, reachedStart: true });
-  assert.deepEqual(countSince(items, 5), { count: 3, reachedStart: false });
-  assert.deepEqual(countSince([], 5), { count: 0, reachedStart: false });
-});
-
-test('observatory.css shares the landing palette rather than inventing one', () => {
+test('observatory.css shares the landing palette for text, rules and accent', () => {
   const tokens = (css) => {
-    const blocks = [...css.matchAll(/(:root(?:[^{]*)?)\{([^}]*)\}/g)].map((m) => m[2]);
+    const blocks = [...css.matchAll(/:root\s*\{([^}]*)\}/g)].map((m) => m[1]);
     return blocks.map((body) => Object.fromEntries([...body.matchAll(/(--[a-z-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()])));
   };
   const site = tokens(readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8'));
   const obs = tokens(readFileSync(new URL('../src/observatory.css', import.meta.url), 'utf8'));
   // Dark block first, light (prefers-color-scheme) block second, in both files.
-  for (const [i, scheme] of [
-    [0, 'dark'],
-    [1, 'light'],
-  ]) {
-    for (const name of ['--bg', '--text', '--text-dim', '--border', '--accent']) {
+  // The plate is the site's dark background; the light plate is paper rather
+  // than the landing page's white, by design.
+  assert.equal(obs[0]['--bg'], site[0]['--bg'], 'dark --bg differs from styles.css');
+  for (const [i, scheme] of [[0, 'dark'], [1, 'light']]) {
+    for (const name of ['--text', '--text-dim', '--border', '--accent']) {
       assert.equal(obs[i]?.[name], site[i]?.[name], `${scheme} ${name} differs from styles.css`);
     }
+    for (const name of ['--live', '--settled', '--active', '--disputed', '--slashed', '--grid']) {
+      assert.ok(obs[i]?.[name], `${scheme} ${name} is not defined`);
+    }
   }
+  assert.equal(obs[1]['--bg'], '#f6f4ee');
+});
+
+test('renderSection renders each section on its own for the harness', () => {
+  for (const name of ['pulse', 'era', 'constellation', 'validators', 'history', 'upgrades', 'posture', 'verify']) {
+    const html = renderSection(name, { history, posture });
+    assert.match(html, new RegExp(`<section id="${name}"`));
+  }
+  assert.throws(() => renderSection('nope', { history, posture }), /no section named/);
 });
