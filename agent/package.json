@@ -10,7 +10,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/main.js",
-    "test": "vitest run"
+    "test": "vitest run",
+    "messaging-demo": "node dist/message-demo.js"
   },
   "dependencies": {
     "@polkadot/api": "^15.0.0",
