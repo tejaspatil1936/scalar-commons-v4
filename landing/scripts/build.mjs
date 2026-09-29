@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url';
 import { content } from '../src/content.mjs';
 import { sourceClaims } from '../src/source-claims.mjs';
 import { renderPage } from '../src/render.mjs';
+import { renderObservatory } from '../src/observatory.mjs';
 
 const facts = JSON.parse(readFileSync(new URL('../chain-facts.json', import.meta.url), 'utf8'));
 
@@ -22,6 +23,14 @@ const outDir = process.env.LANDING_OUT_DIR ?? fileURLToPath(new URL('../dist', i
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'index.html'), html);
 copyFileSync(fileURLToPath(new URL('../src/styles.css', import.meta.url)), join(outDir, 'styles.css'));
+
+// /observatory: a static frame whose live figures the reader's browser fetches.
+// The one set of figures it is built with is the checked-in upgrade record.
+const history = JSON.parse(readFileSync(new URL('../runtime-history.json', import.meta.url), 'utf8'));
+writeFileSync(join(outDir, 'observatory.html'), renderObservatory({ history }));
+for (const asset of ['observatory.js', 'observatory.css']) {
+  copyFileSync(fileURLToPath(new URL(`../src/${asset}`, import.meta.url)), join(outDir, asset));
+}
 
 console.log(
   `built ${outDir}/index.html (${(html.length / 1024).toFixed(1)} kB) from ${facts.provenance.specName} spec ` +

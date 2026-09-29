@@ -1,8 +1,9 @@
 # landing — the public Scalar Commons site
 
 A static marketing page: what the chain is (coordination infrastructure for
-autonomous AI agents), the token model, and where to go next. No framework, no
-client-side JavaScript, one CSS file.
+autonomous AI agents), the token model, and where to go next. No framework. The landing page itself
+ships no client-side JavaScript. The one script on the site belongs to
+`/observatory` (below).
 
 ```sh
 npm ci --no-audit --no-fund
@@ -38,6 +39,33 @@ unbuilt labelled `planned`.
 
 The build itself is dependency-free. `@polkadot/api` is a devDependency used
 only by the two chain scripts, never by `npm run build`.
+
+## /observatory — the live page
+
+`npm run build` also emits `observatory.html`, `observatory.js` and
+`observatory.css`. nginx serves it at `/observatory` through
+`try_files $uri.html`. The landing page states figures that were read at build
+time. The observatory is its live counterpart: the build ships **no** figure in
+any reading slot, and the reader's browser fetches every value from
+`api.scalarnet.io`, `wss://rpc.scalarnet.io` or the GitHub API. Each value has
+the endpoint and UTC fetch time printed under it, and links to the exact bytes
+of the response it came from. A failed fetch shows `unavailable` and the reason,
+never the previous value.
+
+| File | What it holds |
+|---|---|
+| `src/observatory.mjs` | Build-time frame: labels, explanations, empty slots, the upgrade table, the verification commands. |
+| `src/observatory.js` | The only client-side script on the site. Reads responses through `field()`, which throws on a missing key rather than defaulting. |
+| `runtime-history.json` | The upgrade table: the one checked-in record the page is built with. Each applied row carries the sha256 and blake2-256 of the on-chain `:code` at its upgrade block. |
+
+`test/observatory.test.mjs` checks that no reading ships with a value, that
+every indexer route and field the script reads exists in `indexer/src`, that
+every upgrade row agrees with its `UPGRADE-*.md` record, and that the page
+shares this site's palette.
+
+When a runtime upgrade is applied, add its row to `runtime-history.json`,
+including the hashes of the on-chain `:code` at the upgrade block (the
+"Verify it yourself" section shows the command).
 
 ## Refreshing the chain facts
 
