@@ -183,8 +183,23 @@ const main = async () => {
   wasmHash = blake2AsHex(wasm, 256);
 
   // The target spec_version comes from the blob unless the operator named one.
+  //
+  // The parse error is BOUND AND PRINTED, never swallowed. The first version
+  // wrote `catch { embeddedSpec = null; }`, which made three different things
+  // indistinguishable: a blob with no runtime_version section, a truncated or
+  // corrupt one, and a bug in the section walk. With --expect-spec supplied,
+  // that null then skipped the mismatch check entirely (`embeddedSpec !== null &&`)
+  // and the script carried on toward a root submission — so the safety check
+  // this PR exists to add silently stopped checking, with the cause discarded.
+  // Caught by the standing-rule lens on this PR's own review.
   let embeddedSpec = null;
-  try { embeddedSpec = specVersionFromBlob(wasm); } catch { embeddedSpec = null; }
+  let embeddedSpecError = null;
+  try {
+    embeddedSpec = specVersionFromBlob(wasm);
+  } catch (err) {
+    embeddedSpecError = err instanceof Error ? err.message : String(err);
+    console.error(`WARNING: could not parse the runtime_version section: ${embeddedSpecError}`);
+  }
   if (expectSpec === null) {
     if (embeddedSpec === null) {
       console.error('FATAL: cannot read spec_version out of this blob, so the upgrade target');
@@ -204,10 +219,30 @@ const main = async () => {
     console.error('       One of the two is wrong, and submitting would apply a runtime you did');
     console.error('       not intend. Nothing has been submitted.');
     process.exit(1);
+  } else if (embeddedSpec === null) {
+    // --expect-spec was given but the blob's own version could not be read.
+    // Refuse, whether the parser threw or simply found no section.
+    //
+    // This is the fail-open path the standing-rule lens found, and testing the
+    // first fix widened it: a TRUNCATED blob does not throw, it returns null —
+    // so refusing only on an exception still let a 200 KB fragment through on
+    // the strength of a hand-typed flag.
+    //
+    // Collapsing both into one refusal is also the correct rule on the merits.
+    // Every real Substrate runtime carries a runtime_version custom section; it
+    // is how the chain itself decides whether to accept the upgrade. A blob
+    // without a readable one is not a runtime worth applying, and `--expect-spec`
+    // is a claim about the blob that nothing has checked. This matches what the
+    // script already does when the flag is ABSENT (`:189-195`) — there was no
+    // good reason for supplying a number to buy a weaker check.
+    console.error(`FATAL: --expect-spec ${expectSpec} was given, but this blob's own`);
+    console.error(`       spec_version could not be read${embeddedSpecError ? `: ${embeddedSpecError}` : ' (no runtime_version section).'}`);
+    console.error('       The flag is a claim about the blob and nothing has verified it, so');
+    console.error('       submitting would apply an unverified runtime. Nothing was submitted.');
+    console.error(`       Check the file with: node scripts/read-wasm-version.mjs ${wasmPath}`);
+    process.exit(1);
   } else {
-    specSource = embeddedSpec === null
-      ? '--expect-spec (blob has no readable version)'
-      : '--expect-spec, and it matches the blob';
+    specSource = '--expect-spec, and it matches the blob';
   }
   }
 
