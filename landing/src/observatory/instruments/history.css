@@ -1,0 +1,24 @@
+/* 05 · history strips — the marks the design system's .plot-* rules do not
+   cover: the "so far" bar of the era in progress, the tick under each bar
+   and the small notes inside a plot. Tokens only. */
+
+/* The era in progress: an outline, not a filled bar, since its count is not final. */
+.strip-plot .plot-bar.is-open {
+  fill: var(--grid);
+  stroke: var(--text-dim);
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+}
+
+.strip-plot .plot-tick {
+  stroke: var(--text-dim);
+}
+
+.strip-plot .plot-label {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.strip-plot .plot-note {
+  font-size: 0.5625rem;
+  letter-spacing: 0.02em;
+}

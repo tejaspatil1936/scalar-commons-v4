@@ -1,0 +1,94 @@
+/* 04 · validator ring — the hairline ticks, the mono caption under the count,
+   the per-validator vote arcs and the states the design system's .ring rules
+   do not cover. Tokens only. */
+
+.ring .ring-tick {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.ring .ring-caption {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  letter-spacing: 0.14em;
+  fill: var(--text-dim);
+  text-anchor: middle;
+}
+
+.ring .ring-label {
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.ring .ring-label-index {
+  fill: var(--text);
+  font-weight: 500;
+}
+
+.ring .ring-label-addr {
+  font-size: 0.625rem;
+  fill: var(--text-dim);
+}
+
+/* The short address beside each point only where there is room for it. */
+@media (max-width: 63.99rem) {
+  .ring .ring-label-addr {
+    display: none;
+  }
+}
+
+.ring .ring-node.is-queued .ring-label-addr {
+  font-style: italic;
+}
+
+.ring .ring-votes {
+  stroke-linecap: butt;
+  opacity: 0.9;
+}
+
+.ring .ring-halo {
+  pointer-events: none;
+}
+
+/* The count is drawn dim until a set is read; the accent is for live points only. */
+.ring[data-state="unavailable"] .ring-centre {
+  fill: var(--text-dim);
+}
+
+.validator-list .v-addr {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.validator-list .v-addr a {
+  color: var(--text);
+  text-decoration-color: var(--border);
+}
+
+.validator-list .v-addr a:hover {
+  text-decoration-color: var(--accent);
+}
+
+.validator-list .v-mark {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.validator-list li.is-queued .v-index,
+.validator-list li.is-unmapped .v-index {
+  color: var(--text-dim);
+}
+
+.validator-list li.is-unmapped .v-addr {
+  color: var(--text-dim);
+}
+
+.validator-list li.v-unavailable .v-meta {
+  color: var(--slashed);
+}
+
+.ring-status {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}

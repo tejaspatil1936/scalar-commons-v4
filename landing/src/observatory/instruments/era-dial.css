@@ -1,0 +1,46 @@
+/* 02 · era dial — the graduations, the small captions and the states the
+   design system's .dial rules do not cover. Tokens only. */
+
+.dial .dial-mark {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.dial .dial-mark-major {
+  stroke: var(--text-dim);
+}
+
+.dial .dial-percent {
+  fill: var(--live);
+}
+
+.dial .dial-settles,
+.dial .dial-blocks {
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+.dial .dial-blocks {
+  font-size: 0.625rem;
+}
+
+/* Complete: the caption becomes two lines and the settlement mark is drawn in the accent. */
+.dial[data-state="due"] .dial-tick {
+  stroke: var(--live);
+  stroke-width: 2;
+}
+
+.dial[data-state="due"] .dial-word {
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+/* Waiting or unavailable: no accent anywhere, since there is no live figure. */
+.dial[data-state="waiting"] .dial-percent,
+.dial[data-state="unavailable"] .dial-percent {
+  fill: var(--text-dim);
+}
+
+.dial[data-state="unavailable"] .dial-settles {
+  fill: var(--slashed);
+}
