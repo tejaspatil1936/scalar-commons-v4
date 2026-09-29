@@ -69,6 +69,7 @@ construct_runtime!(
         Emissions:    pallet_emissions,
         AutoParams:   pallet_auto_params,
         Orchestrator: pallet_orchestrator,
+        Messages:     pallet_messages,
     }
 );
 
@@ -382,6 +383,20 @@ impl pallet_orchestrator::Config for TestRuntime {
     type LinkApprovalWindow = ConstU64<100>;
     type MaxPendingProposals = ConstU32<20>;
     type SupplyCap = SupplyCapIntTest;
+}
+
+// ── Messages Config (spec 308) ────────────────────────────────────────────────
+
+/// Runtime values scaled to this harness's u64 balances: 0.02 CMN and 0.0001 CMN.
+pub const MESSAGE_BASE_FEE: u64 = CMN / 50;
+pub const MESSAGE_PER_BYTE_FEE: u64 = CMN / 10_000;
+
+impl pallet_messages::Config for TestRuntime {
+    type RuntimeEvent = RuntimeEvent;
+    type BaseFee = ConstU64<MESSAGE_BASE_FEE>;
+    type PerByteFee = ConstU64<MESSAGE_PER_BYTE_FEE>;
+    type MaxPerBlock = ConstU32<4>;
+    type WeightInfo = pallet_messages::PlaceholderWeights;
 }
 
 // ── Test genesis ──────────────────────────────────────────────────────────────
