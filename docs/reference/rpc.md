@@ -364,7 +364,7 @@ For the write side — every extrinsic of every custom pallet, with its constrai
 
 ## Events and errors
 
-Events are the indexer's input, and there are 24 REST endpoints built on them. Decode them
+Events are the indexer's input, and there are 25 REST endpoints built on them. Decode them
 from metadata rather than hardcoding variant indices: adding an event in the middle of a
 pallet's enum shifts every later index.
 

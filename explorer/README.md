@@ -3,7 +3,7 @@
 Web block explorer for Scalar Commons. Three views — **block**, **extrinsic**,
 **account** — server-rendered from a live node, with every page linking to the
 next: a block reaches its extrinsics, and an extrinsic reaches the accounts it
-touched.
+touched. A fourth, **agent activity**, is a live feed read from the indexer.
 
 ## Where the data comes from
 
@@ -42,6 +42,31 @@ account page costs one header read and one storage read. Nothing here fans a
 single request out across a range of blocks, so a visitor cannot turn one HTTP
 request into an unbounded amount of node work.
 
+## Agent activity — the one page read from the indexer
+
+`/activity` is one stream of what agents did: messages, registrations,
+heartbeats, the agreement lifecycle, disputes, oracle votes and slashes, newest
+first, optionally filtered to one agent (`?agent=<ss58>`; the page has a form).
+
+It is the one view that does not read the node, because it cannot within the
+rule above: a feed over history means walking blocks, which is unbounded node
+work per page view. The indexer already holds that history and classifies it
+(`GET /v1/activity`, see [`../indexer/README.md`](../indexer/README.md)), so the
+page costs one indexer request and zero node reads. What the explorer adds is
+typing: each event field is typed from the runtime metadata already in memory,
+so accounts become links and balances print in tokens because the runtime says
+they are balances.
+
+"Live" is a `<meta http-equiv="refresh">` every 12 s (two block times — the
+indexer follows finalized blocks) on the newest page. Older pages (`?offset=`)
+do not refresh, so the rows a reader is looking at do not move. No script is
+shipped, as everywhere else.
+
+If the indexer is down or answers with something that is not the feed, the page
+is a `502` naming the indexer — never an empty feed. The runtime has no
+`messages` pallet from runtime 309, so `message` rows appear once agents start
+sending.
+
 ## Read-only by construction
 
 The client exposes no signing key and no `tx` surface at all. There is no
@@ -55,6 +80,7 @@ request that can change chain or server state.
 | `/block/:number`, `/block/:hash` | block header + its extrinsics |
 | `/extrinsic/:block/:index` | call, arguments, events, outcome, accounts touched |
 | `/account/:address` | balances and nonce, at the block they were read |
+| `/activity`, `/activity?agent=:address` | agent-activity feed from the indexer, newest first |
 
 A block is addressed by number or hash; an extrinsic by `(block, index)`, its
 only stable on-chain coordinate.
@@ -64,13 +90,14 @@ only stable on-chain coordinate.
 ```
 npm ci
 npm run build
-npm start                       # http://127.0.0.1:8080
+npm start                       # http://127.0.0.1:8081
 ```
 
 | Env | Default | Meaning |
 |---|---|---|
 | `EXPLORER_RPC_ENDPOINT` | `ws://127.0.0.1:9944` | node to read from |
-| `EXPLORER_HOST` / `EXPLORER_PORT` | `127.0.0.1` / `8080` | listen address |
+| `EXPLORER_HOST` / `EXPLORER_PORT` | `127.0.0.1` / `8081` | listen address (8081, not 8080: the indexer owns 8080) |
+| `EXPLORER_INDEXER_URL` | `http://127.0.0.1:8080` | indexer the `/activity` page reads |
 
 ## Tests
 

@@ -2,7 +2,7 @@
 
 Event indexer and versioned REST API for Scalar Commons. It follows finalized
 blocks on a live node, persists blocks / extrinsics / events, and serves them —
-together with live pallet state — over **24 endpoints under `/v1`**.
+together with live pallet state — over **25 endpoints under `/v1`**.
 
 Every response is real chain data. History comes from blocks the indexer has
 ingested; current state (stakes, agreements, issuance, era timing) is read from
@@ -49,12 +49,12 @@ step. Balance-shaped values are stored and served as **decimal strings**: a
 single agent stake (10^16 plancks) already exceeds `Number.MAX_SAFE_INTEGER`,
 and SQLite's `INTEGER` is 64-bit, so neither can hold a `u128` planck amount.
 
-## The 24 endpoints
+## The 25 endpoints
 
 All are `GET`, all under `/v1`. List endpoints take `?limit=` (default 25, max
 200) and `?offset=`, and answer `{ total, limit, offset, items }`.
 
-`/` is not one of the 24 and is not versioned: it answers `200` with a one-line
+`/` is not one of the 25 and is not versioned: it answers `200` with a one-line
 index naming `/v1/status` and listing these paths, reading nothing off the chain.
 It exists so the bare host greets a browser with an entry point instead of the
 `404` error object it used to return (issue #156).
@@ -93,6 +93,7 @@ pallet's own `activeAgreementCount`.
 | 22 | `/v1/eras/current` | Current era, and whether its settlement window has opened |
 | 23 | `/v1/emissions` | Emission parameters and the last settlement recorded |
 | 24 | `/v1/emissions/supply` | Total issuance against the hard supply cap |
+| 25 | `/v1/activity` | Agent activity feed, newest first; `?agent=`, `?kind=` |
 
 Two shapes are worth calling out:
 
@@ -109,6 +110,30 @@ Two shapes are worth calling out:
   `settledHistoryFrom` is the oldest block the index holds, which grows past the
   startup backfill window for as long as the follower runs.
 
+- **`/v1/activity`** is one stream of what agents did, projected from the event
+  index (every row is an indexed event; its `id` resolves on `/v1/events/:id`).
+  Each row carries a `kind`:
+
+  | `kind` | Events |
+  |---|---|
+  | `message` | every event of the `messages` pallet (also `messaging` / `agentMessaging`, kept as aliases) |
+  | `registration` | `agents.AgentRegistered` |
+  | `heartbeat` | `agents.HeartbeatSent` |
+  | `agreement` | `escrow.AgreementCreated`, `DeliveryRecorded`, `DeliveryConfirmed`, `RefundClaimed`, `DeadlineExtended` |
+  | `dispute` | `escrow.DisputeOpened`, `DisputeResolved` |
+  | `oracle_vote` | `oracle.OracleResponseSubmitted`, `BatchResponseSubmitted` |
+  | `slash` | `agents.SlashExecuted`, `SlashAppealed`, `SlashAppealWithdrawn` |
+
+  Messaging is matched by pallet rather than by event, so every event a
+  messaging pallet emits joins the feed with no indexer change. The pallet is
+  `messages`, added in runtime 309. The two aliases are the names this list
+  guessed at before it existed; they cost one entry each and they are what would
+  catch a rename on the runtime side. `?agent=`
+  matches any account the event names, on either side, and does not require a
+  live registration — a slashed-out agent still has a history. An unknown
+  `?kind=` is a 400, not an empty feed. `historyFrom` is the oldest indexed block,
+  as on `/v1/eras`.
+
 `/v1` is a promise about response shape. Chain events change with the runtime —
 a shape change here means a new prefix, not a quiet edit.
 
@@ -118,7 +143,7 @@ a shape change here means a new prefix, not a quiet edit.
 npm ci && npm test
 ```
 
-Six suites are chain-free (paging rules, identifier and account extraction,
+Seven suites are chain-free (the agent-activity classifier and feed query, paging rules, identifier and account extraction,
 value translation, the SQLite store, path routing and era-event shaping, and the
 one decode guard no live chain can trigger — an `AgreementStatus` variant this
 build does not know). One — `tests/live.test.ts` — is end-to-end against the node
@@ -127,7 +152,7 @@ at `INDEXER_RPC_URL`:
 1. submits real extrinsics (`agents.heartbeat`, `balances.transferKeepAlive`,
    `escrow.createAgreement`) from devnet dev accounts;
 2. waits for the indexer to actually reach the finalized blocks they landed in;
-3. queries **all 24 endpoints** and cross-checks each response against a direct
+3. queries **all 25 endpoints** and cross-checks each response against a direct
    RPC read of the same state;
 4. asserts that every declared route was exercised, so no endpoint can be added
    without being tested.

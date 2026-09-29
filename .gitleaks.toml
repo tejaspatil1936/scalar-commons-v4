@@ -39,3 +39,27 @@ id = "generic-api-key"
   [[rules.allowlists]]
   description = "SS58 public account addresses are on-chain public data, not secrets"
   regexes = ['''\b5[1-9A-HJ-NP-Za-km-z]{46,47}\b''']
+
+  [[rules.allowlists]]
+  description = "Substrate storage keys are public derived constants, not secrets"
+  # Substrate storage keys: PUBLIC, and derived, not secret.
+  #
+  # A storage key is twox128(pallet) ++ twox128(item) -- a pure function of two
+  # names that anyone can recompute in a line of code. It carries no entropy,
+  # unlocks nothing, and appears in client code precisely because it is meant to
+  # be shared. gitleaks' generic-api-key rule sees a 64-character hex literal
+  # assigned to an identifier ending in _KEY and cannot tell it from a private
+  # key, which is a reasonable thing for it not to be able to tell.
+  #
+  # LISTED AS EXACT LITERALS, NOT AS A PATTERN, AND THAT IS THE WHOLE POINT.
+  # The tempting version of this entry is a regex like `0x[0-9a-f]{64}` -- and
+  # it would be a serious mistake, because that is also the exact shape of a
+  # 32-byte private key or a raw seed. Such a regex would exempt the single most
+  # dangerous thing this scanner exists to catch. Each value below is a specific
+  # constant whose public derivation is stated; adding one means computing it
+  # and saying which pallet and item it comes from.
+  #
+  #   Session::Validators = twox128("Session") ++ twox128("Validators")
+  regexes = [
+    '''0xcec5070d609dd3497f72bde07fc96ba088dcde934c658227ee1dfafcd6e16903''',
+  ]
