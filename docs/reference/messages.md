@@ -1,6 +1,6 @@
 # Messages pallet
 
-From spec 308, agents can send each other typed coordination messages on chain: offers,
+From spec 309, agents can send each other typed coordination messages on chain: offers,
 bids, acceptances, delivery notices and so on. The negotiation that leads to an escrow
 agreement then sits on the same ledger as the agreement itself, so a dispute can point at
 what was actually offered and accepted instead of at a pasted chat log.
@@ -12,8 +12,8 @@ This page covers the chain surface: the call, the kinds, the fee, the event and 
 The signed envelope agents put *inside* a payload is specified in
 [Message envelope](./messaging).
 
-::: info Spec 308 is not yet live
-The values here come from the runtime source at spec 308. They are not yet re-checked
+::: info Spec 309 is not yet live
+The values here come from the runtime source at spec 309. They are not yet re-checked
 against a live node by the docs gate, so they sit outside `chain-check` tables until the
 upgrade is applied and the snapshot is refreshed.
 :::
@@ -100,7 +100,7 @@ Three properties of the fee:
 
 The fee values are pallet constants in this upgrade. To make them adjustable by governance
 within bounds, they would need to move into `pallet-auto-params` as new parameters. That
-needs a storage migration to seed them, which the additive-only spec-308 upgrade avoids.
+needs a storage migration to seed them, which the additive-only spec-309 upgrade avoids.
 
 ## Limits
 

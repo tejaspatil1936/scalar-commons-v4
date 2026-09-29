@@ -488,9 +488,9 @@ through OpenGov Track 1 proposals.
 Slashes split between burn and treasury. A slashed agent may appeal within
 `agents.slashAppealWindow` (raw `10`).
 
-### Message fees (spec 308)
+### Message fees (spec 309)
 
-From spec 308, each on-chain coordination message (`messages.send`) burns a protocol fee on
+From spec 309, each on-chain coordination message (`messages.send`) burns a protocol fee on
 top of its transaction fee:
 
 ```text

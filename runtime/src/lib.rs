@@ -206,7 +206,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     //
     // transaction_version is NOT bumped: the new agents calls are appended after index 12 and
     // the new pallet sits at a previously unused index, so no existing call encoding moves.
-    spec_version: 308,
+    spec_version: 309,
     impl_version: 0,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -1940,9 +1940,17 @@ mod tests {
 
     /// The version the upgrade is applied as. If this and `VERSION.spec_version`
     /// ever disagree the node will refuse the blob, so pin it.
+    ///
+    /// 309, not 308: the 307 upgrade is live on prod (block 813625), and its
+    /// emergency rollback blob in `~/lab/upgrade-kit/` already carries 308 —
+    /// 306 code stamped 308 so it could out-rank the 307 it was built to undo.
+    /// Shipping messaging as 308 too would put two different runtimes behind one
+    /// version number, distinguishable only by hash, at the exact moment someone
+    /// is reaching for a rollback. So messaging takes 309 and the rollback keeps
+    /// 308. See issue #246.
     #[test]
-    fn spec_version_is_308() {
-        assert_eq!(VERSION.spec_version, 308);
+    fn spec_version_is_309() {
+        assert_eq!(VERSION.spec_version, 309);
     }
 
     /// No existing call moved, so transaction_version must not have moved either.

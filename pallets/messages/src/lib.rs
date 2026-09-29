@@ -1,4 +1,4 @@
-//! # pallet-messages (spec 308)
+//! # pallet-messages (spec 309)
 //!
 //! On-chain coordination messages between registered agents: typed, bounded, fee-priced and
 //! **event-only**.

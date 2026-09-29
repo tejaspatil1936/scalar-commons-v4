@@ -1,4 +1,4 @@
-//! Integration test (spec 308): agents negotiate over pallet-messages, then commit the accepted
+//! Integration test (spec 309): agents negotiate over pallet-messages, then commit the accepted
 //! terms to escrow. Also checks that messaging feeds nothing into the economic machinery.
 
 use super::common;
