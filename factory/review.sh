@@ -355,12 +355,22 @@ fi
 #
 # An unknown value is fatal, never a fallback to a default: falling back would
 # mean a typo silently reviews with something other than what was asked for.
+#
+# EXACT comparison, not a `case` substring match. The substring form accepted
+# LENS_MODEL="opus sonnet" -- the pattern `*" opus sonnet "*` matches the
+# allow-list string itself -- and then passed that whole string to --model as a
+# single bogus value. Caught by the spec-conformance lens on this PR's review;
+# an allow-list that can be satisfied by concatenating its own entries is not an
+# allow-list.
 LENS_MODEL_ALLOWED="opus sonnet"
 if [ -n "${LENS_MODEL:-}" ]; then
-  case " $LENS_MODEL_ALLOWED " in
-    *" $LENS_MODEL "*) log "lens model overridden from the environment: $LENS_MODEL" ;;
-    *) die "LENS_MODEL=$LENS_MODEL is not one of: $LENS_MODEL_ALLOWED" ;;
-  esac
+  _lm_ok=0
+  for _lm in $LENS_MODEL_ALLOWED; do
+    [ "$LENS_MODEL" = "$_lm" ] && { _lm_ok=1; break; }
+  done
+  [ "$_lm_ok" = "1" ] || die "LENS_MODEL=$LENS_MODEL is not one of: $LENS_MODEL_ALLOWED"
+  log "lens model overridden from the environment: $LENS_MODEL"
+  unset _lm _lm_ok
 else
   if grep -qE '^(runtime|pallets)/' "$WORK/allfiles.txt"; then
     LENS_MODEL=opus
@@ -777,9 +787,23 @@ ERRORS=0
 # A FAIL or PASS is never retried: re-running a lens that already judged, hoping
 # for a different answer, is exactly the "keep rolling until it goes green"
 # behaviour the standing rule forbids.
+#
+# Both knobs are validated the SAME way, and a bad value is fatal.
+#
+# The first version silently coerced a non-numeric REVIEW_LENS_RETRIES to 2
+# while asserting "an unknown value is fatal, never a fallback" three lines
+# above, and left REVIEW_LENS_RETRY_SLEEP unvalidated entirely -- where a
+# non-numeric value makes `sleep` fail inside the retry loop. Both were pointed
+# out by the spec-conformance lens. A rule the file states about itself should
+# hold everywhere in the file.
 : "${REVIEW_LENS_RETRIES:=2}"
-case "$REVIEW_LENS_RETRIES" in ''|*[!0-9]*) REVIEW_LENS_RETRIES=2 ;; esac
 : "${REVIEW_LENS_RETRY_SLEEP:=15}"
+case "$REVIEW_LENS_RETRIES" in ''|*[!0-9]*)
+  die "REVIEW_LENS_RETRIES=$REVIEW_LENS_RETRIES is not a non-negative integer" ;;
+esac
+case "$REVIEW_LENS_RETRY_SLEEP" in ''|*[!0-9]*)
+  die "REVIEW_LENS_RETRY_SLEEP=$REVIEW_LENS_RETRY_SLEEP is not a non-negative integer" ;;
+esac
 
 for l in "${LENSES[@]}"; do
   attempt=0
@@ -867,6 +891,8 @@ COMMENT="$WORK/comment.md"
     printf '> **INCONCLUSIVE.** %s lens/lenses did not produce a judgement after up to\n' "$ERRORS"
     printf '> %s retr%s each, so this PR has **not** been reviewed and is **not** merged.\n' \
       "$REVIEW_LENS_RETRIES" "$([ "$REVIEW_LENS_RETRIES" = 1 ] && echo y || echo ies)"
+    printf '> A lens that reaches a verdict is never retried — only one that fails to\n'
+    printf '> produce one, so a retry can never turn a FAIL into a PASS.\n'
     printf '>\n'
     printf '> It is not labelled %sagent-reviewed%s — a reviewer that cannot review does\n' "$BT" "$BT"
     printf '> not pass.\n'
@@ -885,6 +911,11 @@ COMMENT="$WORK/comment.md"
       printf '> infrastructure failure. Read the objections below first — the ERROR above\n'
       printf '> means the review is ALSO incomplete, so the objections may not be all of\n'
       printf '> them.\n'
+      printf '>\n'
+      printf '> %sgates/reviews-on-head.sh%s refuses this PR on every merge pass regardless,\n' "$BT" "$BT"
+      printf '> because the review did not complete. Fixing the cause of the ERROR and\n'
+      printf '> re-running %sfactory/review.sh %s%s gets a complete review; the FAIL still\n' "$BT" "$PR" "$BT"
+      printf '> has to be answered on its merits.\n'
     else
       printf '> It is deliberately **not** labelled %sneeds-human%s either: that\n' "$BT" "$BT"
       printf '> label is reserved for a real FAIL, where a lens ran and objected. An\n'
