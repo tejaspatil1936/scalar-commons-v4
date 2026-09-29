@@ -311,6 +311,22 @@ fi
 
 [ -s "$WORK/allfiles.txt" ] || die "PR #$PR has an empty diff"
 
+# ------------------------------------------------------------ the model -----
+# One decision for all three lenses, taken from the complete changed-file list
+# (not the possibly-truncated review diff): a review is three readings of one
+# diff, and three lenses on different models would not be three readings of the
+# same thing. The rule is pick_model()'s — sonnet, escalating to opus when the
+# diff touches runtime/ or pallets/.
+#
+# This is the review that gates the merge of that diff, which is why the
+# escalation sits here rather than on the authoring side alone. An adversarial
+# reading of a pallet diff is the last thing standing between a gaming vector
+# and a finalized block, and it is strictly harder work than writing the diff
+# was: the author knows what they meant, the reviewer has to find what they did
+# not mean.
+LENS_MODEL="$(pick_model "$WORK/allfiles.txt")"
+log "review model: $LENS_MODEL (the same model for all three lenses)"
+
 # ------------------------------------------------- bind the review to a SHA --
 # Record the exact commit these lenses are about to read. This is what makes
 # `agent-reviewed` mean "THIS diff passed" rather than "some review once
@@ -640,7 +656,7 @@ run_lens() {
     return 0
   fi
 
-  log "running lens: $name ($(wc -l < "$pf")-line prompt, $(wc -c < "$pf") bytes)"
+  log "running lens: $name on $LENS_MODEL ($(wc -l < "$pf")-line prompt, $(wc -c < "$pf") bytes)"
 
   # Fresh process, fresh context, run OUTSIDE the repo so no CLAUDE.md or repo
   # files leak in. --dangerously-skip-permissions keeps it non-interactive; the
@@ -653,7 +669,8 @@ run_lens() {
   # A redirect passes a file descriptor, so prompt size is irrelevant to exec
   # and E2BIG cannot recur at any diff size. The caps below exist for
   # reviewability, NOT to keep an argv string under a limit.
-  ( cd "$WORK" && timeout "$REVIEW_LENS_TIMEOUT" claude -p --dangerously-skip-permissions ) \
+  ( cd "$WORK" && timeout "$REVIEW_LENS_TIMEOUT" \
+      claude -p --dangerously-skip-permissions --model "$LENS_MODEL" ) \
     < "$pf" > "$out" 2> "$err"
   rc=$?
   printf '%s\n' "$rc" > "$WORK/$name.rc"

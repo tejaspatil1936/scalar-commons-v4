@@ -226,6 +226,85 @@ effective_parallel() {
   if is_night; then echo "$MAX_PARALLEL"; else echo "$DAY_MAX_PARALLEL"; fi
 }
 
+# ---- model routing --------------------------------------------------------
+# Which model runs a given `claude -p`, decided by what the work can break.
+#
+# Every spawn in this system used to inherit whatever the CLI defaulted to.
+# That made the most consequential choice in the whole loop — the model writing
+# and reviewing consensus code — an implicit property of a CLI release, and it
+# left no record of which model produced which commit.
+#
+# The rule is deliberately narrow, because a rule with many clauses is a rule
+# nobody can predict:
+#
+#   default            sonnet
+#   runtime/ pallets/  opus
+#
+# Those two directories are the chain. A wrong line in `indexer/` is a bad API
+# response someone notices; a wrong line in `pallets/emissions` mints tokens, and
+# there is no patch release for a block that has been finalized. Everything else
+# in this repo is recoverable by a follow-up commit, so it gets the cheaper
+# model and the budget goes where the blast radius is.
+#
+# Cost-wise this is not a rounding error, which is why the escalation is scoped
+# to paths rather than to tiers or labels: a label is set by whoever opened the
+# issue, and this decision should not be settable by the thing being judged.
+FACTORY_MODEL_DEFAULT="${FACTORY_MODEL_DEFAULT:-sonnet}"
+FACTORY_MODEL_CRITICAL="${FACTORY_MODEL_CRITICAL:-opus}"
+
+# Anchored at the start of a repo-relative path. `^runtime/` and not `runtime/`
+# because the loose form also matches `vendor/other-chain/runtime/src/lib.rs`
+# and `node/src/runtime_spec.rs`, and a predicate that fires on unrelated files
+# stops being read as meaning anything.
+FACTORY_CRITICAL_PATH_RE="${FACTORY_CRITICAL_PATH_RE:-^(runtime|pallets)/}"
+
+# paths_are_critical   (repo-relative paths, one per line, on stdin)
+# Exit 0 if ANY path is consensus/economic code. Exit 1 otherwise.
+#
+# Any, not all: a PR that edits fifty docs and one line of `pallets/escrow` is a
+# pallet PR that happens to have documentation in it.
+paths_are_critical() {
+  grep -qE "$FACTORY_CRITICAL_PATH_RE"
+}
+
+# pick_model [changed-paths-file] [prompt-file] -> model name on stdout
+#
+# Two signals, because neither alone covers the run:
+#
+#   - The changed-paths file is the truth, and it is what review.sh has: the
+#     diff exists and says exactly where the work landed.
+#   - The prompt is a WEAKER signal used by loop.sh, and it exists for one case
+#     the first signal cannot cover at all. On attempt 1 the worktree diff is
+#     empty — the agent has not written anything yet — so the only evidence of
+#     where the work is going to land is the instruction it was handed. Reading
+#     the prompt can over-escalate (a task that merely mentions a pallet in
+#     passing), and that is the direction to err in: over-escalating costs
+#     money, under-escalating puts the cheap model on the chain.
+#
+# FACTORY_MODEL, if set, wins outright. That is for an operator running one task
+# by hand; nothing in the automatic path sets it.
+pick_model() {
+  local paths_file="${1:-}" prompt_file="${2:-}"
+
+  if [ -n "${FACTORY_MODEL:-}" ]; then
+    printf '%s\n' "$FACTORY_MODEL"; return 0
+  fi
+
+  if [ -n "$paths_file" ] && [ -s "$paths_file" ] \
+     && paths_are_critical < "$paths_file"; then
+    printf '%s\n' "$FACTORY_MODEL_CRITICAL"; return 0
+  fi
+
+  # In prose the paths are not line-anchored, so match them as words: the
+  # anchored regex above would never fire inside a sentence.
+  if [ -n "$prompt_file" ] && [ -f "$prompt_file" ] \
+     && grep -qE '(^|[^A-Za-z0-9_/-])(runtime|pallets)/' "$prompt_file"; then
+    printf '%s\n' "$FACTORY_MODEL_CRITICAL"; return 0
+  fi
+
+  printf '%s\n' "$FACTORY_MODEL_DEFAULT"
+}
+
 # ---- gh helper ------------------------------------------------------------
 gh_repo_args() {
   if [ -n "${FACTORY_REPO:-}" ]; then printf -- '-R\n%s\n' "$FACTORY_REPO"; fi
