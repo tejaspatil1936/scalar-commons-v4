@@ -1,8 +1,9 @@
 # landing — the public Scalar Commons site
 
 A static marketing page: what the chain is (coordination infrastructure for
-autonomous AI agents), the token model, and where to go next. No framework, no
-client-side JavaScript, one CSS file.
+autonomous AI agents), the token model, and where to go next. No framework. The landing page itself
+ships no client-side JavaScript. The one script on the site belongs to
+`/observatory` (below).
 
 ```sh
 npm ci --no-audit --no-fund
@@ -36,8 +37,51 @@ figures, sales, audits, halvings) never appears, and that the four required
 destinations — docs, explorer, faucet, repo — are all linked with anything
 unbuilt labelled `planned`.
 
-The build itself is dependency-free. `@polkadot/api` is a devDependency used
-only by the two chain scripts, never by `npm run build`.
+The landing page build is dependency-free. `@polkadot/api` is a devDependency
+used only by the two chain scripts, never by `npm run build`. The one bundler
+in the build is `esbuild`, used only for `/observatory` (below), whose
+instruments are drawn with `d3-force`, `d3-scale` and `d3-shape`.
+
+## /observatory — the live instruments
+
+`npm run build` also emits `observatory.html` (with its stylesheet inlined),
+`observatory.js` (one esbuild bundle), `observatory.css`, `fonts/`, and the two
+records the page is built with. nginx serves it at `/observatory` through
+`try_files $uri.html`. The landing page states figures that were read at build
+time. The observatory is its live counterpart: the build ships **no** figure in
+any reading slot, and the reader's browser fetches every value from
+`api.scalarnet.io`, `wss://rpc.scalarnet.io` or the GitHub API. Each value has
+the endpoint and UTC fetch time printed under it, and links to the exact bytes
+of the response it came from. A failed fetch shows `unavailable` and the reason,
+never the previous value.
+
+| File | What it holds |
+|---|---|
+| `src/observatory.mjs` | Build-time frame: one section per instrument with a plain sentence before it, empty reading slots, the upgrade rail, the posture strip, the verification commands. Also `renderSection` for the harness. |
+| `src/observatory.css` | The design system: the plate, the reticle grid, the three self-hosted faces, the tokens. Each instrument's own rules live beside it in `src/observatory/instruments/<name>.css` and are appended at build time. |
+| `src/observatory/` | The client. `context.js` gives every instrument one WebSocket (calls and subscriptions, paused when the tab is hidden), deduplicated polling, provenance records, motion and theme; `instruments/*.js` draw. See `src/observatory/README.md` for the contract. |
+| `runtime-history.json` | The upgrade record. Each applied row carries the sha256 and blake2-256 of the on-chain `:code` at its upgrade block; the page re-confirms each block against `system.CodeUpdated` events live. |
+| `public/posture.json` | The security-posture record, written by the operators. A `null` value renders as "not yet recorded"; nothing here is ever read from the chain. |
+
+Develop one instrument on its own, against the live services:
+
+```sh
+npm run dev:instrument -- era --no-serve --out /tmp/h-era   # the harness page for one section
+node --test test/instruments/era-dial.test.mjs              # its unit tests
+```
+
+`test/observatory.test.mjs` checks that no reading ships with a value, that
+every instrument opens with a sentence, that every indexer route, field and
+event the client reads exists in `indexer/src` and the pallets, that the two
+records are labelled as records and agree with the files they cite, that no
+instrument polls with `setInterval` or animates forever, and that the page
+shares this site's palette. `test/observatory-lib.test.mjs` covers the SCALE
+and SS58 decoders, formatting, the data layer and the hero's stream model.
+
+When a runtime upgrade is applied, add its row to `runtime-history.json`,
+including the hashes of the on-chain `:code` at the upgrade block (the
+"Verify it yourself" section shows the command). When a posture value is
+established, fill it in `public/posture.json` with its date.
 
 ## Refreshing the chain facts
 

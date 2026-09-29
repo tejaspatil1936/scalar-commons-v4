@@ -60,6 +60,10 @@ id = "generic-api-key"
   # and saying which pallet and item it comes from.
   #
   #   Session::Validators = twox128("Session") ++ twox128("Validators")
+  #   Session::QueuedKeys = twox128("Session") ++ twox128("QueuedKeys")
+  #     (carried as a literal by two commits of the observatory page before it
+  #     computed its storage keys from the names; landing/src/observatory/scale.js)
   regexes = [
     '''0xcec5070d609dd3497f72bde07fc96ba088dcde934c658227ee1dfafcd6e16903''',
+    '''0xcec5070d609dd3497f72bde07fc96ba0e0cdd062e6eaf24295ad4ccfc41d4609''',
   ]
