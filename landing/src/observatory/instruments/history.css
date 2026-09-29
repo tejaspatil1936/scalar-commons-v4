@@ -25,3 +25,27 @@
   stroke-width: 3px;
   stroke-linejoin: round;
 }
+
+/* The block-time target band: a tint the line is read against, with hairline
+   edges. Inside the band is on target; a flat line inside it is precision. */
+.strip-plot .plot-band {
+  fill: var(--settled);
+  opacity: 0.16;
+}
+
+.strip-plot .plot-band-edge {
+  stroke: var(--border);
+}
+
+/* The per-era figure under a running total: thinner and dimmer than the total. */
+.strip-plot .plot-line-secondary {
+  stroke: var(--text-dim);
+  stroke-width: 1;
+  opacity: 0.8;
+}
+
+/* The running total's continuation into the era still open: provisional, so dashed. */
+.strip-plot .plot-line-open {
+  stroke: var(--text-dim);
+  stroke-dasharray: 3 3;
+}

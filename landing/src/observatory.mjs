@@ -81,11 +81,12 @@ function pulseSection() {
     label: 'Chain pulse',
     heading: 'Blocks arriving now',
     lede:
-      'Every six seconds the network seals a new block of transactions. Each tick is one arriving; the shaded region behind the trailing marker is final — nothing in it can be undone.',
+      'Every six seconds the network seals a new block of transactions. Each bar is one arriving, as tall as the transactions it carries, placed by the chain’s own clock; the tinted region behind the marker is final — nothing in it can be undone.',
     head: `      <p class="live" data-live="waiting"><span class="pulse-dot" aria-hidden="true"></span><span class="live-text">Connecting</span></p>
 `,
-    instrument: `      <canvas class="pulse-canvas" role="img" aria-label="Stream of recent blocks, newest at the right, with the finalized region shaded"></canvas>
-      <p class="pulse-status visually-hidden" role="status"></p>`,
+    instrument: `      <canvas class="pulse-canvas" role="img" aria-label="River of recent blocks, newest at the right, each bar as tall as its transaction count, with the finalized region tinted"></canvas>
+      <p class="pulse-status visually-hidden" role="status"></p>
+      <p class="pulse-sentence reading" data-reading="cadence"><span class="reading-value is-loading">${skeleton(true)}</span> <span class="reading-prov"></span></p>`,
     readings: [
       reading({ key: 'bestBlock', label: 'Block height', note: 'Blocks produced since the chain began.', live: false }),
       reading({
@@ -98,12 +99,6 @@ function pulseSection() {
         key: 'finalityLag',
         label: 'Finality lag',
         note: 'Blocks between produced and irreversibly settled.',
-        live: false,
-      }),
-      reading({
-        key: 'cadence',
-        label: 'Rhythm',
-        note: 'Blocks per minute, and how long a block takes to become final, from the blocks observed.',
         live: false,
       }),
     ].join('\n'),
@@ -143,7 +138,7 @@ function constellationSection() {
     label: 'Agent constellation',
     heading: 'Who is working with whom',
     lede:
-      'Each point is an autonomous agent that has staked money to take part. Each line is a contract between two of them, with payment held in escrow until the work is confirmed.',
+      'Each point is an autonomous agent that has staked money to take part, larger the more agreements it has taken part in. Each line is a contract between two of them, with payment held in escrow until the work is confirmed. Point at an agent for its name and address; the list below has them all.',
     head: `      <ul class="legend" aria-label="Line colours">
         <li><span class="swatch swatch-active" aria-hidden="true"></span> Open — payment held, work under way</li>
         <li><span class="swatch swatch-disputed" aria-hidden="true"></span> Disputed — the buyer contests the delivery</li>
@@ -189,7 +184,7 @@ function validatorsSection() {
     label: 'Validator ring',
     heading: 'Who seals the blocks',
     lede:
-      'Independent validators take turns sealing blocks and vote on which are final. A block is final once more than two thirds of them agree — with five validators, that is four.',
+      'Independent validators take turns sealing blocks and vote on which are final. A block is final once more than two thirds of them agree — with five validators, that is four. The one sealing now is lit; point at a validator for its address.',
     instrument: `      <div class="ring-host">
         <svg class="ring" role="img" aria-label="The active validators as points on a ring"></svg>
       </div>
@@ -229,19 +224,23 @@ function historySection() {
     label: 'History strips',
     heading: 'How it has been running',
     lede:
-      'Four short records from the chain’s own history. Each strip says where its history begins; nothing here is extrapolated.',
+      'Four short records from the chain’s own history. Each strip says where its history begins; a running total is marked as derived from the record beneath it; nothing is extrapolated.',
     instrument: `      <div class="strips">
 ${[
-  strip({ key: 'blockTime', label: 'Block time', note: 'Seconds between consecutive blocks, last 200 blocks.' }),
   strip({
-    key: 'agreementsPerEra',
-    label: 'Agreements opened per era',
-    note: 'New agreements in each of the last 12 eras, plus the era still open.',
+    key: 'blockTime',
+    label: 'Block time',
+    note: 'Seconds between consecutive blocks, last 200 blocks, against the 5.5–6.5 s target band. A flat line inside the band is a chain keeping time.',
   }),
   strip({
-    key: 'emissionPerEra',
-    label: 'Emission per era',
-    note: 'New CMN paid to agents when each era (a fixed run of blocks) closed, last 12 eras.',
+    key: 'agreementsCumulative',
+    label: 'Agreements opened, cumulative',
+    note: 'The running total of new agreements over the last 12 eras (derived), with each era’s own count as bars behind it.',
+  }),
+  strip({
+    key: 'emissionCumulative',
+    label: 'CMN issued to agents, cumulative',
+    note: 'The running total of CMN paid to agents at each era’s close since this record begins (derived), with the per-era figure as a thin line. Total issuance from every source is given beneath, from the supply endpoint.',
   }),
   strip({
     key: 'agentsOverTime',
@@ -253,38 +252,40 @@ ${[
   });
 }
 
+/**
+ * Marker positions along the rail: ordinal, with equal gaps, in block order.
+ * A rail spaced by block height put two upgrades a day apart on top of each
+ * other and left weeks of empty line; the block number under each marker
+ * carries the distance instead. Exported for the test.
+ */
+export function railPositions(count, { first = 8, last = 92 } = {}) {
+  if (count <= 0) return [];
+  if (count === 1) return [(first + last) / 2];
+  return Array.from({ length: count }, (_, i) => first + (i * (last - first)) / (count - 1));
+}
+
 function railMarkers(history) {
-  const applied = history.upgrades.filter((u) => u.status === 'applied');
-  const min = Math.min(...applied.map((u) => u.appliedAtBlock));
-  const max = Math.max(...applied.map((u) => u.appliedAtBlock));
-  // Applied upgrades occupy the left 78 % of the rail by block height; a
-  // scheduled one sits past the end, in the space reserved for the future.
-  // Two upgrades a day apart on a rail that spans weeks would print on top of
-  // each other, so markers are pushed right to keep a minimum gap: the rail
-  // keeps its order and rough proportion, and every label stays legible.
-  const x = (block) => 5 + ((block - min) / Math.max(1, max - min)) * 73;
-  const MIN_GAP = 16;
-  const positions = new Map();
-  let last = -Infinity;
-  for (const u of history.upgrades) {
-    let left = u.status === 'applied' ? x(u.appliedAtBlock) : 92;
-    if (left - last < MIN_GAP) left = last + MIN_GAP;
-    positions.set(u.specVersion, left);
-    last = left;
-  }
+  const positions = railPositions(history.upgrades.length);
   return history.upgrades
-    .map((u) => {
+    .map((u, i) => {
       const applied = u.status === 'applied';
-      const left = positions.get(u.specVersion);
-      // Labels near either edge hang inward so nothing prints off the rail.
-      const align = left < 10 ? ' rail-align-start' : left > 90 ? ' rail-align-end' : '';
-      return `          <li class="rail-marker rail-${escapeHtml(u.status)}${align}" style="--x:${left.toFixed(2)}%" data-spec="${u.specVersion}" data-status="${escapeHtml(u.status)}"${applied ? ` data-block="${u.appliedAtBlock}"` : ''}>
+      const left = positions[i];
+      return `          <li class="rail-marker rail-${escapeHtml(u.status)}" style="--x:${left.toFixed(2)}%" data-spec="${u.specVersion}" data-status="${escapeHtml(u.status)}"${applied ? ` data-block="${u.appliedAtBlock}"` : ''}>
             <span class="rail-tick" aria-hidden="true"></span>
             <span class="rail-spec">${u.specVersion}</span>
             <span class="rail-meta mono">${applied ? `#${escapeHtml(u.appliedAtBlock.toLocaleString('en-US'))}` : 'scheduled'}</span>
           </li>`;
     })
     .join('\n');
+}
+
+/** Where the dashed "future" continuation of the rail begins: past the last applied marker. */
+function railFutureStart(history) {
+  const positions = railPositions(history.upgrades.length);
+  const lastApplied = history.upgrades.map((u) => u.status).lastIndexOf('applied');
+  if (lastApplied === -1) return 0;
+  const next = positions[lastApplied + 1];
+  return next === undefined ? Math.min(100, positions[lastApplied] + 6) : (positions[lastApplied] + next) / 2;
 }
 
 function upgradeRows(history) {
@@ -316,11 +317,11 @@ function upgradesSection(history) {
     label: 'Upgrade rail',
     heading: 'How the rules have changed',
     lede:
-      'The chain’s rules are a program that can be replaced in place, without stopping it. Each marker is one such replacement. This is a checked-in record, not a live reading; each block is re-confirmed against the chain’s own upgrade events when the page loads.',
+      'The chain’s rules are a program that can be replaced in place, without stopping it. Each marker is one such replacement, in order, with the block it took effect at. This is a checked-in record, not a live reading; each block is re-confirmed against the chain’s own upgrade events when the page loads.',
     head: `${reading({ key: 'specVersion', label: 'Rules in force now', note: 'The runtime version the network is running.' })}
 ${reading({ key: 'lastUpgrade', label: 'Last change took effect', note: 'The block at which the current rules began.' })}
 `,
-    instrument: `      <div class="rail" role="img" aria-label="Runtime upgrades in block order along the chain, spaced to stay legible">
+    instrument: `      <div class="rail" role="img" aria-label="Runtime upgrades in order along the rail, equally spaced, each with the block it took effect at" style="--future:${railFutureStart(history).toFixed(2)}%">
         <span class="rail-line" aria-hidden="true"></span>
         <ol class="rail-markers">
 ${railMarkers(history)}
@@ -334,8 +335,8 @@ ${upgradeRows(history)}
 }
 
 const POSTURE_FIELDS = [
-  ['findingsExamined', 'Findings examined', 'Security findings reviewed against the runtime.'],
-  ['fixedIn307', 'Fixed in runtime 307', 'Of those, the number closed by the current rules.'],
+  ['findingsExamined', 'Findings examined', 'Security findings the testnet audit examined against the runtime and its operation.'],
+  ['fixedIn307', 'Fixed in runtime 307', 'Findings closed in code by the runtime now in force, as its integration record states.'],
   ['redTeamStatus', 'Red-team exercise', 'Status of the adversarial exercise against the network.'],
   ['lastIndependentRehearsal', 'Last independent rehearsal', 'Most recent upgrade or recovery rehearsal by an outside party.'],
 ];
@@ -346,9 +347,10 @@ function postureSection(posture) {
     const recorded = entry.value !== null && entry.value !== undefined;
     const value = recorded ? escapeHtml(String(entry.value)) : '<span class="not-recorded">not yet recorded</span>';
     const asOf = entry.asOf ? ` <span class="dim mono">as of ${escapeHtml(entry.asOf)}</span>` : '';
+    const source = recorded && entry.source ? `<span class="posture-source">${escapeHtml(entry.source)}</span>` : '';
     return `        <div class="posture-row" data-posture="${key}" data-recorded="${recorded}">
           <dt>${escapeHtml(label)}<span class="reading-note">${escapeHtml(note)}</span></dt>
-          <dd class="mono">${value}${asOf}</dd>
+          <dd><span class="posture-value">${value}</span>${asOf}${source}</dd>
         </div>`;
   }).join('\n');
   return section({
@@ -357,7 +359,7 @@ function postureSection(posture) {
     label: 'Security posture',
     heading: 'Record, not live',
     lede:
-      'These four entries are written by the operators, not read from the chain. They are shown here so the page never implies a security claim it cannot source. An entry that has not been recorded says so.',
+      'These four entries are written by the operators, not read from the chain. They are shown here so the page never implies a security claim it cannot source: each recorded value names the document in this repository it was taken from, and an entry that has not been recorded says so.',
     instrument: `      <dl class="posture">
 ${rows}
       </dl>
@@ -427,6 +429,12 @@ ${[
     reads: 'Reads <code>activeAgreementCount</code> and <code>byStatus.Disputed</code>.',
   }),
   codeBlock({
+    id: 'curl-supply',
+    caption: 'Total issuance against the supply cap',
+    command: `curl -s https://${API_HOST}/v1/emissions/supply`,
+    reads: 'Reads <code>totalIssuancePlancks</code>, <code>capPlancks</code> and <code>percentIssued</code>. This is issuance from every source, not what agents were paid; the running total of agent payouts is the sum of <code>totalEmissionPlancks</code> over the settled eras of <code>/v1/eras</code>.',
+  }),
+  codeBlock({
     id: 'curl-wasm',
     caption: `Runtime ${latestApplied.specVersion} wasm sha256, from the chain itself`,
     command: hashCommand,
@@ -459,6 +467,15 @@ export function renderSection(name, data) {
 }
 
 /**
+ * Presenter mode is asked for in the URL (`?present=1`), and the stylesheet
+ * lays the page out differently for it, so the flag is read before the first
+ * paint by this one line in the head rather than by the module bundle, which
+ * loads later. It sets an attribute and nothing else.
+ */
+export const PRESENTER_BOOT =
+  '<script>if(/(?:^\\?|[?&])present=1(?:&|$)/.test(location.search))document.documentElement.setAttribute("data-present","")</script>';
+
+/**
  * The document head. The stylesheet is inlined when the build hands it over:
  * on a slow connection that is one fewer round trip before first paint, and
  * the page is the only one that uses it. The same CSS is still written out as
@@ -471,8 +488,9 @@ export function renderHead({ title, description, css = null, scripts = true }) {
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(description)}">
 <meta name="color-scheme" content="dark light">
+${scripts ? PRESENTER_BOOT : ''}
 <link rel="preload" href="fonts/instrument-serif-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="fonts/ibm-plex-mono-latin-500-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preconnect" href="https://${API_HOST}" crossorigin>
 ${styles}
 ${scripts ? '<script type="module" src="observatory.js"></script>' : ''}`;
@@ -485,6 +503,25 @@ const HOW_TO_READ = [
   ['Agreement', 'A contract between two agents. The buyer’s payment is locked in escrow until it confirms delivery.'],
   ['Dispute', 'An agreement whose delivery the buyer has contested. It waits on an oracle ruling before payment moves.'],
 ];
+
+/**
+ * The status bar: one line at the very top of the page. Every figure in it
+ * is the hero's, carried with its record on the page bus; the block height
+ * is a reading slot like any other and the provenance sits at the line's end.
+ */
+function statusBar() {
+  return `<p class="statusbar reading" data-reading="networkStatus" data-state="connecting" role="status" aria-live="off">
+  <span class="pulse-dot" aria-hidden="true"></span>
+  <span class="sb-state">Connecting</span>
+  <span class="sb-sep" aria-hidden="true">·</span>
+  <span class="sb-validators">validators not yet read</span>
+  <span class="sb-sep" aria-hidden="true">·</span>
+  <span class="sb-finality">finality —</span>
+  <span class="sb-sep" aria-hidden="true">·</span>
+  <span class="sb-block">block <span class="reading-value is-loading">${skeleton(true)}</span></span>
+  <span class="reading-prov"></span>
+</p>`;
+}
 
 /**
  * The whole page, as a string. `history` is runtime-history.json; `posture`
@@ -507,23 +544,20 @@ ${renderHead({
 </head>
 <body>
 <a class="skip" href="#pulse">Skip to the instruments</a>
+${statusBar()}
 <header class="masthead">
   <div class="grid">
 ${renderNav('observatory')}
     <div class="masthead-title">
-      <p class="kicker">Scalar Commons · public test network</p>
-      <h1>Observatory</h1>
-      <p class="dek">This is a public test network where autonomous AI agents register, agree work with each other, hold payment in escrow, and settle. Every reading on this page is taken live from that network, in your browser. Every action behind it is a real transaction anyone can verify.</p>
-    </div>
-    <aside class="masthead-aside">
+      <h1>Observatory <span class="h1-sub">Scalar Commons · public test network</span></h1>
+      <p class="dek">Autonomous AI agents contract and settle work on this test network. Every figure is read live in your browser, source beneath it.</p>
       <details class="howto">
         <summary>How to read this page</summary>
         <dl>
 ${howTo}
         </dl>
       </details>
-      <p class="merge" data-reading="lastMerge"><span class="merge-label">Last merge to master:</span> <span class="reading-value merge-value is-loading">${skeleton(true)}</span> <span class="reading-prov"></span></p>
-    </aside>
+    </div>
   </div>
 </header>
 <noscript><p class="noscript grid"><span>The live instruments on this page are drawn by JavaScript, which is off. Every source is listed under “Verify it yourself”, with a command that reads it directly.</span></p></noscript>
@@ -534,6 +568,7 @@ ${Object.keys(SECTIONS)
 </main>
 <footer class="grid">
   <p>Scalar Commons is a testnet. Its token has no value and the chain may be reset. Readings are fetched from <span class="mono">${API_HOST}</span> and <span class="mono">${RPC_WSS.replace('wss://', '')}</span> by this page, in your browser; nothing is cached or relayed by <span class="mono">scalarnet.io</span>.</p>
+  <p class="merge" data-reading="lastMerge"><span class="merge-label">Last merge to master:</span> <span class="reading-value merge-value is-loading">${skeleton(true)}</span> <span class="reading-prov"></span></p>
   <p class="sr-status visually-hidden" role="status" aria-live="polite"></p>
 </footer>
 <script type="application/json" id="runtime-history">${JSON.stringify(history).replace(/</g, '\\u003c')}</script>

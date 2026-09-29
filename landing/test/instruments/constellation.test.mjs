@@ -14,6 +14,7 @@ import {
   ISOLATED_ALPHA,
   LABEL_MAX_CHARS,
   LABEL_MAX_NODES,
+  activityOf,
   buildEdges,
   bundleLayout,
   diffEdges,
@@ -143,25 +144,30 @@ test('an agent with no lines is a lone point of degree zero', () => {
   assert.equal(nodes.get(B).degree, 0);
 });
 
-test('nodeRadius grows with the square root of stake, between 3 and 11 px, and scales with crowding', () => {
-  assert.equal(nodeRadius(10_000, 10_000), 11);
-  assert.equal(nodeRadius(2_500, 10_000), 3 + 8 * 0.5, 'a quarter of the stake is half the radius step');
-  assert.equal(nodeRadius(0, 10_000), 3);
-  assert.equal(nodeRadius(10_000, 0), 11, 'with no scale to speak of every point is full size');
-  assert.equal(nodeRadius(20_000, 10_000), 11, 'never beyond the range');
-  assert.equal(nodeRadius(10_000, 10_000, 0.5), 5.5);
+test('nodeRadius grows with the square root of activity, between 3 and 12 px, and scales with crowding', () => {
+  assert.equal(nodeRadius(100, 100), 12);
+  assert.equal(nodeRadius(25, 100), 3 + 9 * 0.5, 'a quarter of the activity is half the radius step');
+  assert.equal(nodeRadius(0, 100), 3);
+  assert.equal(nodeRadius(100, 0), 12, 'with no scale to speak of every point is full size');
+  assert.equal(nodeRadius(200, 100), 12, 'never beyond the range');
+  assert.equal(nodeRadius(100, 100, 0.5), 6);
   assert.ok(GHOST_RADIUS < nodeRadius(0, 1), 'a party that has left is drawn smaller than any agent');
+  // Activity is the chain's completed-as-provider counter plus the lines drawn to the agent now.
+  assert.equal(activityOf({ completedAgreements: 182 }, 3), 185);
+  assert.equal(activityOf({ completedAgreements: 0 }, 0), 0);
+  assert.equal(activityOf({}, 2), 2, 'a missing counter counts as none, never NaN');
 });
 
 test('labels need a 64 rem viewport and at most 120 points; radii shrink and lone points fade beyond that', () => {
-  assert.deepEqual(labelPolicy(1440, 34), { labels: true, radiusFactor: 1, isolatedAlpha: 1 });
+  // Address labels are never drawn on the plate: they show on hover or tap, and in the list.
+  assert.deepEqual(labelPolicy(1440, 34), { labels: false, radiusFactor: 1, isolatedAlpha: 1 });
   assert.deepEqual(labelPolicy(1023, 34), { labels: false, radiusFactor: 1, isolatedAlpha: 1 });
-  assert.deepEqual(labelPolicy(1024, LABEL_MAX_NODES), { labels: true, radiusFactor: 1, isolatedAlpha: 1 });
+  assert.deepEqual(labelPolicy(1024, LABEL_MAX_NODES), { labels: false, radiusFactor: 1, isolatedAlpha: 1 });
   assert.deepEqual(labelPolicy(1440, LABEL_MAX_NODES + 1), { labels: false, radiusFactor: 0.7, isolatedAlpha: 1 });
   assert.deepEqual(labelPolicy(1440, FADE_ISOLATED_ABOVE), { labels: false, radiusFactor: 0.7, isolatedAlpha: 1 });
   assert.deepEqual(labelPolicy(1440, FADE_ISOLATED_ABOVE + 1), { labels: false, radiusFactor: 0.5, isolatedAlpha: ISOLATED_ALPHA });
   assert.deepEqual(labelPolicy(1440, 500), { labels: false, radiusFactor: 0.5, isolatedAlpha: ISOLATED_ALPHA });
-  assert.equal(labelPolicy(1200, 34, 20).labels, false, 'the threshold follows the root font size');
+  assert.equal(labelPolicy(1200, 34, 20).labels, false);
 });
 
 test('parallel agreements fan out symmetrically and never wider than a band', () => {

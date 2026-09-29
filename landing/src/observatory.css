@@ -1,10 +1,13 @@
 /* /observatory — the design system for the instruments.
    The plate: a deep, not-pure black with a hairline reticle grid behind each
    instrument; on light, a warm paper with ink. Type: Instrument Serif for
-   headings and the large numerals inside instruments, IBM Plex Mono with
-   tabular lining figures for every readout, Source Sans 3 for reading. One
-   luminous accent, reserved for live data; four semantic colours for states.
-   Hairlines, dots and type — no gradients, no shadows, no pills, no icons.
+   headings and every figure — the hero readouts, the dial, the ring's count —
+   with each digit set in its own cell for tabular alignment (the face has no
+   tabular figures of its own); IBM Plex Mono, light and small, only for
+   provenance, hashes and addresses; Source Sans 3 for reading, at a measure
+   of sixty characters. One luminous accent, reserved for live data; four
+   semantic colours for states. Hairlines, dots and type — no gradients, no
+   shadows, no pills, no icons.
    The dark and light values of --text, --text-dim, --border and --accent match
    styles.css (test/observatory.test.mjs keeps them in step). */
 
@@ -16,25 +19,11 @@
   src: url("fonts/instrument-serif-latin-400-normal.woff2") format("woff2");
 }
 @font-face {
-  font-family: "Instrument Serif";
-  font-style: italic;
-  font-weight: 400;
-  font-display: swap;
-  src: url("fonts/instrument-serif-latin-400-italic.woff2") format("woff2");
-}
-@font-face {
   font-family: "IBM Plex Mono";
   font-style: normal;
   font-weight: 400;
   font-display: swap;
   src: url("fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
-}
-@font-face {
-  font-family: "IBM Plex Mono";
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url("fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
 }
 @font-face {
   font-family: "Source Sans 3";
@@ -101,6 +90,7 @@
   --font-sans: "Source Sans 3", "Source Sans 3 Fallback", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --gutter: 1rem;
   --grid-step: 2rem;
+  --measure: 60ch;
 }
 
 @media (prefers-color-scheme: light) {
@@ -135,7 +125,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 400 1.0625rem / 1.55 var(--font-sans);
+  font: 400 1.125rem / 1.55 var(--font-sans);
   overflow-wrap: break-word;
 }
 
@@ -166,10 +156,24 @@ h2 {
   font-family: var(--font-serif);
 }
 
+/* Reading text never runs past sixty characters. */
+p,
+dd,
+li,
+.lede,
+.dek,
+.instrument-note,
+.reading-note {
+  max-width: var(--measure);
+}
+
+/* Monospace is for provenance, hashes and addresses only: light, one step
+   below the text around it. */
 .mono,
 code,
 pre {
   font-family: var(--font-mono);
+  font-weight: 400;
   font-variant-numeric: tabular-nums lining-nums;
 }
 
@@ -193,6 +197,7 @@ pre {
   position: absolute;
   left: var(--gutter);
   top: -3rem;
+  z-index: 4;
   padding: 0.5rem 0.75rem;
   background: var(--bg);
   border: 1px solid var(--accent);
@@ -230,10 +235,7 @@ pre {
     grid-template-columns: repeat(12, minmax(0, 1fr));
   }
   .masthead-title {
-    grid-column: 1 / span 7;
-  }
-  .masthead-aside {
-    grid-column: 9 / -1;
+    grid-column: 1 / -1;
   }
   .instrument-section .section-head {
     grid-column: 1 / span 3;
@@ -249,6 +251,9 @@ pre {
   #pulse .instrument,
   #pulse .readings {
     grid-column: 1 / -1;
+  }
+  #pulse .readings {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   #era .instrument,
   #validators .instrument {
@@ -273,17 +278,127 @@ pre {
   grid-column: 1 / -1;
 }
 
+/* ── status bar ───────────────────────────────────────────────────────────
+   One slim line at the very top, sticky so the live dot is never out of
+   view: the state word, who is sealing, the finality lag, the height. The
+   provenance sits at the line's end, in mono, as under every reading. */
+
+.statusbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.15rem 0.5rem;
+  max-width: none;
+  margin: 0;
+  padding: 0.4rem var(--gutter);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.statusbar .pulse-dot {
+  align-self: center;
+}
+
+.statusbar .sb-state {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
+.statusbar[data-state="network-normal"] .sb-state {
+  color: var(--live);
+}
+
+.statusbar[data-state="finality-lagging"] .sb-state,
+.statusbar[data-state="blocks-late"] .sb-state,
+.statusbar[data-state="polling"] .sb-state {
+  color: var(--disputed);
+}
+
+.statusbar[data-state="not-updating"] .sb-state {
+  color: var(--slashed);
+}
+
+.statusbar[data-state="network-normal"] .pulse-dot {
+  color: var(--live);
+  background: var(--live);
+}
+
+.statusbar[data-state="finality-lagging"] .pulse-dot,
+.statusbar[data-state="blocks-late"] .pulse-dot,
+.statusbar[data-state="polling"] .pulse-dot {
+  color: var(--disputed);
+  background: var(--disputed);
+}
+
+.statusbar[data-state="not-updating"] .pulse-dot {
+  color: var(--slashed);
+}
+
+.statusbar .sb-sep {
+  color: var(--border);
+}
+
+.statusbar .sb-block {
+  color: var(--text);
+}
+
+/* The height is a hero readout: the display serif, in digit cells, inline. */
+.statusbar .reading-value {
+  display: inline;
+  margin: 0;
+  font-size: 1.0625rem;
+  line-height: 1;
+  color: var(--text);
+}
+
+.statusbar .reading-prov {
+  margin: 0 0 0 auto;
+  font-size: 0.625rem;
+}
+
+.statusbar .reading-value.is-error .unavailable,
+.statusbar .reading-value .error {
+  display: inline;
+  margin: 0;
+  font-size: 0.8125rem;
+}
+
+@media (max-width: 39.99rem) {
+  .statusbar {
+    gap: 0 0.4rem;
+    padding: 0.3rem var(--gutter);
+    font-size: 0.75rem;
+    line-height: 1.35;
+  }
+  .statusbar .reading-value {
+    font-size: 0.9375rem;
+  }
+  .statusbar .reading-prov {
+    flex-basis: 100%;
+    margin: 0;
+    font-size: 0.5625rem;
+    line-height: 1.3;
+  }
+}
+
 /* ── masthead ─────────────────────────────────────────────────────────── */
 
 .masthead {
-  padding: 1.5rem 0 2rem;
+  padding: 0.5rem 0 0.5rem;
 }
 
 .site-nav ul {
   display: flex;
   flex-wrap: wrap;
   gap: 0.25rem 1.5rem;
-  margin: 0 0 3.5rem;
+  margin: 0 0 0.75rem;
   padding: 0;
   list-style: none;
   font-size: 0.9375rem;
@@ -291,7 +406,7 @@ pre {
 
 .site-nav a {
   display: inline-block;
-  padding: 0.5rem 0;
+  padding: 0.35rem 0;
   color: var(--text-dim);
   text-decoration: none;
 }
@@ -316,41 +431,57 @@ pre {
 
 .instrument-label .mono {
   margin-right: 0.35em;
-  font-weight: 400;
   letter-spacing: 0.1em;
 }
 
+/* The title on one line: the name in the serif, the network beside it. */
 h1 {
-  margin: 0 0 1.25rem;
-  font-size: clamp(3.25rem, 2.2rem + 4.5vw, 6.5rem);
-  line-height: 0.95;
-  letter-spacing: -0.02em;
+  margin: 0 0 0.35rem;
+  font-size: clamp(2rem, 1.5rem + 1.8vw, 2.75rem);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+  text-wrap: nowrap;
+}
+
+.h1-sub {
+  margin-left: 0.5em;
+  font-family: var(--font-sans);
+  font-size: 0.4em;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  vertical-align: 0.25em;
+  color: var(--text-dim);
+}
+
+@media (max-width: 39.99rem) {
+  h1 {
+    text-wrap: balance;
+  }
+  .h1-sub {
+    display: block;
+    margin: 0.25rem 0 0;
+  }
 }
 
 .dek {
-  max-width: 38rem;
-  margin: 0;
-  font-size: clamp(1.125rem, 1rem + 0.5vw, 1.375rem);
+  margin: 0 0 0.5rem;
+  font-size: clamp(1.0625rem, 1rem + 0.35vw, 1.25rem);
   line-height: 1.45;
   color: var(--text-dim);
   text-wrap: pretty;
 }
 
-.masthead-aside {
-  margin-top: 2rem;
-  font-size: 0.9375rem;
-}
-
 .howto {
-  padding: 0.75rem 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  padding: 0.25rem 0 0;
+  font-size: 0.9375rem;
 }
 
 .howto summary {
   cursor: pointer;
   font-weight: 600;
   letter-spacing: 0.02em;
+  color: var(--text-dim);
 }
 
 .howto dl {
@@ -378,24 +509,6 @@ h1 {
   color: var(--text-dim);
 }
 
-.merge {
-  margin: 1rem 0 0;
-}
-
-.merge-label {
-  color: var(--text-dim);
-}
-
-.merge .reading-value {
-  font-family: var(--font-mono);
-  font-weight: 500;
-}
-
-.merge .reading-prov {
-  display: block;
-  margin-top: 0.25rem;
-}
-
 .noscript span {
   grid-column: 1 / -1;
   padding: 1rem 0;
@@ -406,7 +519,7 @@ h1 {
 /* ── sections ─────────────────────────────────────────────────────────── */
 
 .instrument-section {
-  padding-block: 1.25rem 3.5rem;
+  padding-block: 1rem 3.5rem;
 }
 
 .instrument-section::before {
@@ -417,6 +530,14 @@ h1 {
   margin-bottom: 1.25rem;
 }
 
+#pulse {
+  padding-top: 0.5rem;
+}
+
+#pulse::before {
+  margin-bottom: 0.75rem;
+}
+
 h2 {
   margin: 0 0 0.75rem;
   font-size: clamp(1.875rem, 1.5rem + 1.2vw, 2.75rem);
@@ -424,12 +545,20 @@ h2 {
   letter-spacing: -0.01em;
 }
 
+#pulse h2 {
+  margin-bottom: 0.4rem;
+}
+
 .lede {
   margin: 0 0 1.25rem;
-  font-size: 1rem;
+  font-size: 1.0625rem;
   line-height: 1.5;
   color: var(--text-dim);
   text-wrap: pretty;
+}
+
+#pulse .lede {
+  margin-bottom: 0.5rem;
 }
 
 /* The reticle: hairlines every --grid-step behind an instrument. */
@@ -449,7 +578,7 @@ h2 {
 
 .instrument-note {
   margin: 0.75rem 0 0;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   line-height: 1.5;
   color: var(--text-dim);
 }
@@ -466,7 +595,7 @@ h2 {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin: 0 0 0.75rem;
+  margin: 0 0 0.5rem;
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.1em;
@@ -501,7 +630,7 @@ h2 {
 
 @keyframes beat {
   from {
-    box-shadow: 0 0 0 0 var(--live);
+    box-shadow: 0 0 0 0 currentColor;
   }
   to {
     box-shadow: 0 0 0 0.5rem transparent;
@@ -531,27 +660,39 @@ h2 {
 .reading-label {
   margin: 0;
   font-family: var(--font-sans);
-  font-size: 0.9375rem;
+  font-size: 1rem;
   font-weight: 600;
   line-height: 1.3;
 }
 
 .reading-note {
   margin: 0.15rem 0 0.75rem;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   line-height: 1.4;
   color: var(--text-dim);
 }
 
+/* Figures are set in the display serif. The face has no tabular figures, so
+   each digit sits in a cell one `ch` wide (its widest digit, the zero) and a
+   figure that counts up moves nothing beside it. */
 .reading-value {
   margin: 0;
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums lining-nums;
-  font-weight: 500;
-  font-size: clamp(1.75rem, 1.5rem + 1vw, 2.5rem);
-  line-height: 1.1;
-  letter-spacing: -0.01em;
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: clamp(2rem, 1.6rem + 1.4vw, 3rem);
+  line-height: 1.05;
+  letter-spacing: -0.005em;
   color: var(--text);
+}
+
+.dc {
+  display: inline-block;
+  width: 1ch;
+  text-align: center;
+}
+
+#pulse .readings .reading-value {
+  font-size: clamp(2.5rem, 2rem + 2.2vw, 4.25rem);
 }
 
 .reading-value.is-live .digits {
@@ -563,7 +704,7 @@ h2 {
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-decoration-color: var(--border);
-  text-underline-offset: 0.14em;
+  text-underline-offset: 0.12em;
 }
 
 .reading-value .num:hover {
@@ -571,9 +712,9 @@ h2 {
 }
 
 .reading-value .unit {
-  margin-left: 0.2em;
+  margin-left: 0.25em;
   font-family: var(--font-sans);
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
   font-weight: 400;
   letter-spacing: 0;
   color: var(--text-dim);
@@ -581,6 +722,7 @@ h2 {
 
 .reading-value.is-error .unavailable,
 .reading-value.is-absent .digits {
+  font-family: var(--font-sans);
   font-size: 1.25rem;
   letter-spacing: 0;
   text-shadow: none;
@@ -592,9 +734,12 @@ h2 {
 
 .reading-value .sub {
   display: block;
-  margin-top: 0.3rem;
-  font-size: 0.8125rem;
+  max-width: var(--measure);
+  margin-top: 0.35rem;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
   font-weight: 400;
+  line-height: 1.4;
   letter-spacing: 0;
   color: var(--text);
   text-shadow: none;
@@ -603,7 +748,8 @@ h2 {
 .reading-value .error {
   display: block;
   margin-top: 0.35rem;
-  font-size: 0.75rem;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
   font-weight: 400;
   line-height: 1.4;
   letter-spacing: 0;
@@ -611,10 +757,13 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+/* Provenance: mono, light, a step below the note around it. */
 .reading-prov {
+  max-width: none;
   margin: 0.5rem 0 0;
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-weight: 400;
+  font-size: 0.625rem;
   line-height: 1.5;
   color: var(--text-dim);
   overflow-wrap: anywhere;
@@ -655,6 +804,25 @@ h2 {
   .pulse-canvas {
     height: 14rem;
   }
+}
+
+/* One sentence under the river: the rhythm and the time to finality. */
+.pulse-sentence {
+  max-width: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.pulse-sentence .reading-value {
+  display: inline;
+  font-size: clamp(1.25rem, 1.1rem + 0.6vw, 1.625rem);
+  line-height: 1.3;
+}
+
+.pulse-sentence .reading-prov {
+  display: block;
+  margin-top: 0.25rem;
 }
 
 /* ── 02 era dial ──────────────────────────────────────────────────────── */
@@ -710,10 +878,11 @@ h2 {
 /* ── 03 constellation ─────────────────────────────────────────────────── */
 
 .legend {
+  max-width: none;
   margin: 0 0 1rem;
   padding: 0;
   list-style: none;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   color: var(--text-dim);
 }
 
@@ -782,12 +951,12 @@ h2 {
 }
 
 .constellation-tip strong {
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .constellation-list {
   margin-top: 0.75rem;
-  font-size: 0.875rem;
+  font-size: 0.9375rem;
 }
 
 .constellation-list summary {
@@ -796,6 +965,7 @@ h2 {
 }
 
 .agent-list {
+  max-width: none;
   margin: 0.5rem 0 0;
   padding: 0;
   list-style: none;
@@ -806,6 +976,7 @@ h2 {
 }
 
 .agent-list li {
+  max-width: none;
   break-inside: avoid;
   padding: 0.25rem 0;
   border-top: 1px solid var(--border);
@@ -813,8 +984,6 @@ h2 {
 
 /* ── 04 validator ring ────────────────────────────────────────────────── */
 
-/* The ring may take the whole instrument column (≈ 26 rem at 1440 px) so the
-   address labels have room at a legible size; narrower, it draws compact. */
 .ring-host {
   width: 100%;
   max-width: 26rem;
@@ -870,7 +1039,7 @@ h2 {
 }
 
 .ring .ring-label {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 0.6875rem;
   fill: var(--text-dim);
 }
@@ -883,6 +1052,7 @@ h2 {
 }
 
 .validator-list {
+  max-width: none;
   margin: 1rem 0 0;
   padding: 0;
   list-style: none;
@@ -892,19 +1062,23 @@ h2 {
 }
 
 .validator-list li {
+  max-width: none;
   display: grid;
-  grid-template-columns: 1.25rem minmax(0, 1fr);
+  grid-template-columns: 5.5rem minmax(0, 1fr);
   gap: 0.25rem 0.5rem;
   padding: 0.4rem 0;
   border-top: 1px solid var(--border);
 }
 
 .validator-list .v-index {
-  color: var(--text-dim);
+  font-family: var(--font-sans);
+  color: var(--text);
 }
 
 .validator-list .v-meta {
   grid-column: 2;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
   color: var(--text-dim);
 }
 
@@ -985,7 +1159,7 @@ h2 {
 }
 
 .strip .reading-value {
-  font-size: 1.375rem;
+  font-size: 1.625rem;
 }
 
 /* ── 06 upgrade rail ──────────────────────────────────────────────────── */
@@ -1008,7 +1182,7 @@ h2 {
   /* The future: a dashed continuation past the last applied upgrade. */
   content: "";
   position: absolute;
-  left: 82%;
+  left: var(--future, 82%);
   right: 0;
   top: -1px;
   border-top: 1px dashed var(--text-dim);
@@ -1016,6 +1190,7 @@ h2 {
 }
 
 .rail-markers {
+  max-width: none;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1026,6 +1201,7 @@ h2 {
   left: var(--x);
   top: 50%;
   width: 0;
+  max-width: none;
 }
 
 .rail-tick {
@@ -1070,19 +1246,9 @@ h2 {
   color: var(--text-dim);
 }
 
-.rail-align-start .rail-spec,
-.rail-align-start .rail-meta {
-  transform: none;
-}
-
-.rail-align-end .rail-spec,
-.rail-align-end .rail-meta {
-  transform: translateX(-100%);
-}
-
 @media (max-width: 39.99rem) {
   .rail-meta {
-    display: none;
+    font-size: 0.625rem;
   }
   .rail-spec {
     font-size: 1.375rem;
@@ -1090,12 +1256,14 @@ h2 {
 }
 
 .upgrades {
+  max-width: none;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .upgrade {
+  max-width: none;
   padding: 0.9rem 0;
   border-top: 1px solid var(--border);
 }
@@ -1108,8 +1276,8 @@ h2 {
 }
 
 .upgrade-title .mono {
-  font-size: 1.125rem;
-  font-weight: 500;
+  font-family: var(--font-serif);
+  font-size: 1.375rem;
 }
 
 .status {
@@ -1129,12 +1297,11 @@ h2 {
 
 .upgrade-change {
   margin: 0 0 0.4rem;
-  max-width: 44rem;
 }
 
 .upgrade-facts {
   margin: 0 0 0.5rem;
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   color: var(--text-dim);
 }
 
@@ -1165,13 +1332,14 @@ h2 {
 
 .chip-label {
   font-family: var(--font-mono);
+  font-size: 0.625rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
 
 .hash {
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   word-break: break-all;
 }
 
@@ -1197,7 +1365,7 @@ h2 {
 
 .posture-row dt {
   font-weight: 600;
-  font-size: 0.9375rem;
+  font-size: 1rem;
 }
 
 .posture-row dt .reading-note {
@@ -1211,10 +1379,25 @@ h2 {
   font-size: 1rem;
 }
 
+.posture-value {
+  font-family: var(--font-serif);
+  font-size: 1.625rem;
+  line-height: 1.1;
+}
+
+.posture-source {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
 .not-recorded {
   color: var(--text-dim);
   font-style: italic;
   font-family: var(--font-sans);
+  font-size: 1rem;
 }
 
 /* ── 08 verify ────────────────────────────────────────────────────────── */
@@ -1251,13 +1434,16 @@ h2 {
 }
 
 .fact dd {
+  max-width: none;
   margin: 0;
   font-size: 0.875rem;
   overflow-wrap: anywhere;
 }
 
+/* A hash is a hash: mono, whatever the readings around it are set in. */
 .fact .reading-value {
-  font-size: 0.875rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
   font-weight: 400;
   letter-spacing: 0;
   word-break: break-all;
@@ -1287,17 +1473,18 @@ h2 {
 .command pre {
   flex: 1;
   min-width: 0;
+  max-width: none;
   margin: 0;
   padding: 0.75rem 1rem;
   overflow-x: auto;
   border-left: 1px solid var(--text-dim);
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   line-height: 1.55;
 }
 
 .command-reads {
   margin: 0.5rem 0 0;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   color: var(--text-dim);
 }
 
@@ -1335,7 +1522,7 @@ h2 {
 
 footer {
   padding-block: 1rem 4rem;
-  font-size: 0.8125rem;
+  font-size: 0.875rem;
   color: var(--text-dim);
 }
 
@@ -1343,6 +1530,29 @@ footer p {
   margin: 0;
   padding-top: 1.25rem;
   border-top: 1px solid var(--border);
+}
+
+footer .merge {
+  max-width: none;
+  padding-top: 0.75rem;
+  border-top: 0;
+  font-size: 0.8125rem;
+}
+
+.merge-label {
+  color: var(--text-dim);
+}
+
+.merge .reading-value {
+  display: inline;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  color: var(--text);
+}
+
+.merge .reading-prov {
+  display: inline;
+  margin: 0 0 0 0.5rem;
 }
 
 footer .sr-status {
@@ -1356,6 +1566,104 @@ footer .sr-status {
   padding-top: 2rem;
 }
 
+/* ── presenter mode ───────────────────────────────────────────────────────
+   `?present=1`: the nav, the masthead, the provenance lines and the footer
+   are hidden; the status bar is pinned; each instrument section is laid over
+   the viewport and only the active one is shown; type is set for a room. */
+
+html[data-present] {
+  font-size: 118.75%;
+}
+
+@media (min-width: 100rem) {
+  html[data-present] {
+    font-size: 137.5%;
+  }
+}
+
+html[data-present] .site-nav,
+html[data-present] .masthead,
+html[data-present] .noscript,
+html[data-present] footer,
+html[data-present] .reading-prov,
+html[data-present] .live,
+html[data-present] .instrument-note,
+html[data-present] .constellation-list,
+html[data-present] .validator-list {
+  display: none;
+}
+
+html[data-present] .statusbar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  font-size: 0.9375rem;
+}
+
+html[data-present] main > .instrument-section {
+  position: fixed;
+  inset: 3rem 0 0;
+  overflow: auto;
+  align-content: start;
+  padding: 1rem var(--gutter) 3rem;
+  background: var(--bg);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 300ms ease-out, visibility 0s linear 300ms;
+}
+
+html[data-present] main > .instrument-section[data-present-active] {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 300ms ease-out;
+}
+
+html[data-present] .instrument-section::before {
+  margin-bottom: 0.75rem;
+}
+
+html[data-present] .pulse-canvas {
+  height: 36vh;
+}
+
+html[data-present] .dial,
+html[data-present] .ring-host {
+  max-width: min(58vh, 34rem);
+}
+
+html[data-present] .constellation-host {
+  height: 60vh;
+  min-height: 0;
+  max-height: none;
+  aspect-ratio: auto;
+}
+
+html[data-present] .strips {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  row-gap: 1rem;
+}
+
+html[data-present] .strip-plot {
+  height: 22vh;
+}
+
+html[data-present] .rail {
+  height: 9rem;
+}
+
+.present-counter {
+  position: fixed;
+  right: var(--gutter);
+  bottom: 0.75rem;
+  z-index: 3;
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
 /* ── motion ───────────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
@@ -1364,5 +1672,8 @@ footer .sr-status {
   }
   .reading-value.is-live .digits {
     text-shadow: none;
+  }
+  html[data-present] main > .instrument-section {
+    transition: none;
   }
 }

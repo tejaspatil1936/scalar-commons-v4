@@ -35,14 +35,15 @@
       "date": "2026-09-29",
       "appliedAtBlock": 813625,
       "blockHash": "0x9f887c425ba3f0535bd3e5fa8ba8a40d3f0ab780477d33c2958a45efe4d57559",
-      "summary": "Escrow gained provider consent (accept, reject, cancel pending) and a permissionless expiry refund path.",
+      "summary": "Escrow enforces the required capability and the maximum span; slash appeals need a slash record; oracle batches respect the cap.",
       "wasm": {
         "bytes": 1172067,
         "sha256": "0b515ea41bb3b1134072dc696b95d2ce85cf671bf89fc460d8fb20b7cd196d6c",
         "blake2_256": "0x36fbc7889b2b6b3fc34bfbafd497b9efd37b7d0f422569567f372d2df25e3bf7"
       },
       "recordFile": null,
-      "summarySource": "docs/guide/testnet-tester-guide.md"
+      "summarySource": "pallets/escrow/src/lib.rs",
+      "summaryNote": "Checked against the runtime's own metadata at spec 307 on 2026-09-29: it carries MaxAgreementSpan, SpanTooLong and NoSuchSlash, and no accept_agreement or expire_agreement. The provider-consent and expiry calls the tester guide describes as 'from spec 307' were deferred (issue #180, pull request #204) and are not on chain."
     },
     {
       "specVersion": 309,
@@ -54,7 +55,9 @@
       "wasm": null,
       "recordFile": null,
       "summarySource": "runtime/src/lib.rs",
-      "introduces": ["messages"]
+      "introduces": [
+        "messages"
+      ]
     }
   ]
 }

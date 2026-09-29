@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 import { API_ORIGIN, RPC_URL, GITHUB_COMMITS_URL, SOURCES, STORAGE_KEYS } from '../src/observatory/data.js';
 import { twox128 } from '../src/observatory/scale.js';
-import { renderSection } from '../src/observatory.mjs';
+import { renderSection, railPositions } from '../src/observatory.mjs';
 
 const landingDir = fileURLToPath(new URL('../', import.meta.url));
 const repoRoot = new URL('../../', import.meta.url);
@@ -131,10 +131,28 @@ test('the two records on the page are labelled as records, and the posture recor
   }
   // A posture value slot carries no digits unless a value was recorded.
   const strip = page.match(/<dl class="posture">[\s\S]*?<\/dl>/)[0];
-  for (const [, value] of strip.matchAll(/<dd class="mono">([\s\S]*?)<\/dd>/g)) {
+  const rows = [...strip.matchAll(/<dd>([\s\S]*?)<\/dd>/g)];
+  assert.equal(rows.length, 4);
+  for (const [, value] of rows) {
     const text = value.replace(/<[^>]+>/g, '');
     if (text.includes('not yet recorded')) assert.ok(!/\d/.test(text), `posture shows a number with nothing recorded: ${text}`);
+    else assert.match(text, /as of \d{4}-\d{2}-\d{2}/, 'a recorded value carries its date');
   }
+  // A recorded value is traceable to a document in this repository, and the page names it.
+  for (const [key, entry] of Object.entries(posture.fields)) {
+    if (entry.value === null) continue;
+    assert.match(entry.asOf, /^\d{4}-\d{2}-\d{2}$/, `${key} has no date`);
+    assert.ok(typeof entry.source === 'string' && entry.source.length > 20, `${key} names no source`);
+    assert.ok(page.includes(`<span class="posture-value">${entry.value}</span>`), `${key} is not on the page`);
+    assert.ok(page.includes(entry.source.slice(0, 40).replace(/&/g, '&amp;').replace(/'/g, '&#39;')), `${key}'s source is not on the page`);
+  }
+  // The two numbers recorded today, each in the document it cites.
+  assert.equal(posture.fields.findingsExamined.value, 382);
+  assert.match(readRepoFile('TESTNETAUDIT.md'), /\*\*382 findings\*\* from 17 auditors/);
+  assert.equal(posture.fields.fixedIn307.value, 4);
+  const escrow = readRepoFile('pallets/escrow/src/lib.rs');
+  for (const name of ['MaxAgreementSpan', 'SpanTooLong']) assert.ok(escrow.includes(name), `pallets/escrow lacks ${name}, which the 307 record cites`);
+  assert.ok(readRepoFile('pallets/agents/src/lib.rs').includes('NoSuchSlash'), 'pallets/agents lacks NoSuchSlash, which the 307 record cites');
 });
 
 test('the upgrade record: 305, 306, 307 applied, 309 scheduled, each agreeing with its file', () => {
@@ -178,9 +196,71 @@ test('the upgrade rail renders every row with its hash in full, copyable, and a 
       assert.ok(page.includes(`data-confirm-block="${upgrade.appliedAtBlock}"`), `${upgrade.specVersion} has no chain-confirmation slot`);
     }
   }
-  // Markers sit in block order, left to right, with the scheduled one last.
+  // Markers sit in order, left to right, equally spaced, with the scheduled one last;
+  // the block number is printed under each applied one.
   const xs = [...page.matchAll(/rail-marker rail-\w+" style="--x:([0-9.]+)%/g)].map((m) => Number(m[1]));
   assert.deepEqual([...xs].sort((a, b) => a - b), xs);
+  assert.deepEqual(xs, railPositions(history.upgrades.length).map((x) => Number(x.toFixed(2))));
+  for (const upgrade of history.upgrades.filter((u) => u.status === 'applied')) {
+    assert.ok(page.includes(`<span class="rail-meta mono">#${upgrade.appliedAtBlock.toLocaleString('en-US')}</span>`), `${upgrade.specVersion} has no block under its marker`);
+  }
+  // The dashed future begins past the last applied marker.
+  const future = Number(page.match(/class="rail"[^>]*style="--future:([0-9.]+)%"/)[1]);
+  assert.ok(future > xs[2] && future < xs[3]);
+});
+
+test('the 307 record says what is on chain: no consent or expiry calls, which were deferred', () => {
+  const spec307 = history.upgrades.find((u) => u.specVersion === 307);
+  assert.doesNotMatch(spec307.summary, /consent|expiry|expire/i, 'the consent and expiry calls are not in the 307 runtime (issue #180 is open)');
+  assert.match(spec307.summaryNote, /accept_agreement/);
+  for (const name of ['accept_agreement', 'expire_agreement', 'reject_agreement', 'cancel_pending']) {
+    assert.ok(!readRepoFile('pallets/escrow/src/lib.rs').includes(`fn ${name}`), `pallets/escrow now has ${name}: revisit the 307 record`);
+  }
+});
+
+test('the first screen: a status bar above the nav, a one-line title, and the merge line in the footer', () => {
+  const bar = page.indexOf('class="statusbar reading" data-reading="networkStatus"');
+  const nav = page.indexOf('<nav class="site-nav"');
+  const h1 = page.indexOf('<h1>');
+  assert.ok(bar > 0 && bar < nav, 'the status bar comes before the nav');
+  assert.ok(nav < h1);
+  for (const part of ['sb-state', 'sb-validators', 'sb-finality', 'sb-block']) assert.match(page, new RegExp(`class="${part}"`));
+  assert.match(page, /<h1>Observatory <span class="h1-sub">Scalar Commons · public test network<\/span><\/h1>/);
+  const dek = page.match(/<p class="dek">([\s\S]*?)<\/p>/)[1];
+  assert.ok(dek.length <= 132, `the intro is ${dek.length} characters; two lines at a sixty-character measure is about 130`);
+  assert.ok(!/<aside class="masthead-aside">/.test(page), 'the masthead aside (the empty band) is gone');
+  const footer = page.slice(page.indexOf('<footer'));
+  assert.match(footer, /class="merge" data-reading="lastMerge"/, 'the merge line lives in the footer');
+  assert.ok(!page.slice(0, page.indexOf('<main>')).includes('data-reading="lastMerge"'));
+  // The river's sentence sits under the canvas, before the readings.
+  const pulse = page.match(/<section id="pulse"[\s\S]*?<\/section>/)[0];
+  assert.ok(pulse.indexOf('pulse-canvas') < pulse.indexOf('class="pulse-sentence reading" data-reading="cadence"'));
+  assert.ok(pulse.indexOf('data-reading="cadence"') < pulse.indexOf('class="readings"'));
+});
+
+test('presenter mode: the flag is read before first paint, and the stylesheet lays the page out for it', () => {
+  assert.match(page, /<script>if\(\/\(\?:\^\\\?\|\[\?&\]\)present=1\(\?:&\|\$\)\/\.test\(location\.search\)\)document\.documentElement\.setAttribute\("data-present",""\)<\/script>/);
+  const css = readFileSync(new URL('../src/observatory.css', import.meta.url), 'utf8');
+  for (const rule of ['html[data-present] .site-nav', 'html[data-present] .reading-prov', 'html[data-present] footer', 'html[data-present] main > .instrument-section[data-present-active]']) {
+    assert.ok(css.includes(rule), `observatory.css has no rule for ${rule}`);
+  }
+  assert.ok(!/<script/i.test(index), 'index.html stays script-free');
+});
+
+test('typography: figures in the display serif with digit cells, mono only for provenance, hashes and addresses', () => {
+  const css = readFileSync(new URL('../src/observatory.css', import.meta.url), 'utf8');
+  const rule = (selector) => css.match(new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+  assert.match(rule('.reading-value'), /font-family: var\(--font-serif\)/);
+  assert.match(rule('.dc'), /width: 1ch/);
+  assert.match(rule('.reading-prov'), /font-family: var\(--font-mono\)/);
+  assert.match(rule('.reading-prov'), /font-weight: 400/);
+  assert.match(rule('.fact .reading-value'), /font-family: var\(--font-mono\)/, 'a hash stays mono');
+  assert.match(rule('body'), /1\.125rem/, 'body one step up');
+  assert.match(css, /--measure: 60ch/);
+  // No 500-weight mono ships any more, and the mono face is declared once, light.
+  assert.ok(!css.includes('ibm-plex-mono-latin-500'), 'the medium mono is no longer shipped');
+  const fonts = readdirSync(join(out, 'fonts'));
+  assert.ok(!fonts.some((f) => f.includes('plex-mono-latin-500')));
 });
 
 test('the script reads only indexer endpoints that exist, with fields the indexer emits', () => {

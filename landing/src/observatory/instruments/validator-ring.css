@@ -7,34 +7,38 @@
    scale: the instrument sets --ring-scale (rendered px per SVG unit) on the
    svg, and every font size is divided by it. */
 .ring .ring-label {
+  font-family: var(--font-sans);
   font-size: calc(0.75rem / var(--ring-scale, 1));
   font-variant-numeric: tabular-nums lining-nums;
 }
 
 .ring .ring-label-index {
   fill: var(--text);
-  font-weight: 500;
+  font-weight: 600;
 }
 
+/* Only a queued validator carries a second word under its label; the
+   address is a tooltip on the point (a <title>) and a link in the list. */
 .ring .ring-label-addr {
   font-size: calc(0.6875rem / var(--ring-scale, 1));
   fill: var(--text-dim);
-}
-
-/* The short address beside each point only where there is room for it:
-   at ≥ 64rem, and only when the ring's own fit check passes. */
-@media (max-width: 63.99rem) {
-  .ring .ring-label-addr {
-    display: none;
-  }
-}
-
-.ring.is-compact .ring-label-addr {
-  display: none;
-}
-
-.ring .ring-node.is-queued .ring-label-addr {
   font-style: italic;
+}
+
+.ring .ring-node {
+  cursor: help;
+  outline: none;
+}
+
+/* The words that travel with the sealing mark, inside the ring beside the lit point. */
+.ring .ring-sealing {
+  font-family: var(--font-sans);
+  font-size: calc(0.6875rem / var(--ring-scale, 1));
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  fill: var(--live);
+  pointer-events: none;
 }
 
 .ring .ring-caption {

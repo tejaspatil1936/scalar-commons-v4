@@ -245,7 +245,7 @@ export function init(root, ctx) {
     lastSettled: ctx.reading('lastSettled', root),
   };
   const parts = dial ? buildDial(dial) : null;
-  const { formatInteger, formatDuration, formatCmn } = ctx.format;
+  const { formatInteger, formatCmn } = ctx.format;
 
   let observedMs = null; // block time from the hero, as last received
   let renderedMs = null; // block time the countdown was last rendered with
