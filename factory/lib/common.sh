@@ -249,8 +249,15 @@ effective_parallel() {
 # Cost-wise this is not a rounding error, which is why the escalation is scoped
 # to paths rather than to tiers or labels: a label is set by whoever opened the
 # issue, and this decision should not be settable by the thing being judged.
-FACTORY_MODEL_DEFAULT="${FACTORY_MODEL_DEFAULT:-sonnet}"
-FACTORY_MODEL_CRITICAL="${FACTORY_MODEL_CRITICAL:-opus}"
+# NOT env-overridable, for the same reason FACTORY_CRITICAL_PATH_RE is not:
+# `FACTORY_MODEL_CRITICAL=sonnet` in the environment switched escalation off
+# entirely, while every log line still printed a model name as though a
+# decision had been made. De-env-ing the path regex and leaving the model
+# names behind fixed one half of one hole. FACTORY_MODEL stays the single,
+# deliberate, WARNED-about override (see pick_model); these two are the
+# policy itself.
+FACTORY_MODEL_DEFAULT=sonnet
+FACTORY_MODEL_CRITICAL=opus
 
 # Anchored at the start of a repo-relative path. `^runtime/` and not `runtime/`
 # because the loose form also matches `vendor/other-chain/runtime/src/lib.rs`
@@ -338,10 +345,30 @@ pick_model() {
 #     every line mangles the second field into `s/readme.md`. Both sides matter:
 #     a move out of a pallet is a pallet change.
 changed_paths() {
-  local wt="$1" base="$2" rc=0
-  git -C "$wt" diff --name-only --no-renames "$base"...HEAD || rc=1
-  git -C "$wt" -c core.quotePath=false status --porcelain -z 2>/dev/null \
-    | python3 -c '
+  local wt="$1" base="$2" rc=0 status_raw
+  # `core.quotePath=false` on BOTH halves. It was set only on the status half, so
+  # a COMMITTED pallet file with a space in its path still came back quoted and
+  # matched nothing — the same defect as the porcelain one, fixed on one side
+  # only. Found by the correctness lens on its second pass.
+  git -C "$wt" -c core.quotePath=false diff --name-only --no-renames "$base"...HEAD || rc=1
+
+  # git writes to a TEMP FILE first, so its exit status is checked directly.
+  #
+  # Previously it sat on the left of a pipe to python3, which makes the
+  # pipeline's status python's own unless the CALLER has set `pipefail` — so this
+  # function documented "exit 1 if either half fails" while delivering that only
+  # under a shell option it does not control. loop.sh sets pipefail; common.sh is
+  # sourced by scripts that may not, and a silent 0 here means the router reads a
+  # FAILED gather as an empty diff and quietly picks the cheap model.
+  #
+  # A file, not a variable: `$(...)` strips NUL bytes, which are the record
+  # delimiters `-z` exists to provide. Capturing into a variable made the whole
+  # status run decode as one path — caught immediately by the staged-rename
+  # assertion in section 5, which is the third time these tests have caught a
+  # fix for one defect introducing another.
+  local status_file; status_file="$(mktemp)"
+  git -C "$wt" -c core.quotePath=false status --porcelain -z > "$status_file" 2>/dev/null || rc=1
+  python3 -c '
 import sys
 fields = sys.stdin.buffer.read().split(b"\0")
 i = 0
@@ -357,7 +384,8 @@ while i < len(fields):
         if i < len(fields) and fields[i]:
             sys.stdout.buffer.write(fields[i] + b"\n")
         i += 1
-' || rc=1
+' < "$status_file" || rc=1
+  rm -f "$status_file"
   return "$rc"
 }
 

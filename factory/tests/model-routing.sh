@@ -261,6 +261,16 @@ if grep -q '^docs/readme.md$' "$T/g3" && grep -q '^pallets/' "$T/g3"; then
 else bad "staged rename lost a side — got: $(tr '\n' ' ' < "$T/g3")"; fi
 git -C "$R" reset -q --hard "$BASEREF"; git -C "$R" clean -qfd
 
+# (c2) a COMMITTED path with a space must be critical. Distinct from (b): the
+# diff half and the status half quote independently, and quotePath was set on
+# only one of them for a while.
+printf 'q\n' > "$R/pallets/emissions/src/odd name.rs"
+git -C "$R" add -A >/dev/null; git -C "$R" commit -qm "committed odd name"
+gather "$R" > "$T/g3b"
+if paths_are_critical < "$T/g3b"; then ok "COMMITTED path containing a space is critical"
+else bad "committed path with a space read as safe — got: $(tr '\n' ' ' < "$T/g3b")"; fi
+git -C "$R" reset -q --hard "$BASEREF"; git -C "$R" clean -qfd
+
 # (d) safe-only changes must NOT escalate, or (a)-(c) prove nothing
 printf 'more\n' >> "$R/docs/readme.md"
 gather "$R" > "$T/g4"
@@ -275,6 +285,24 @@ if grep -q 'GATHER_OK' "$FACTORY_DIR/lib/loop.sh" \
 else
   bad "loop.sh has no fail-closed path for a failed diff"
 fi
+
+# (f) the policy constants must not be overridable from the environment. An
+# override of the "critical" model name, or of the path regex, disables
+# escalation while every log line still looks like a decision was made.
+printf '\n6. the policy is not a tunable\n'
+for v in FACTORY_MODEL_DEFAULT FACTORY_MODEL_CRITICAL FACTORY_CRITICAL_PATH_RE; do
+  if grep -qE "^$v=\\\$\\{$v" "$FACTORY_DIR/lib/common.sh"; then
+    bad "$v is env-overridable in lib/common.sh"
+  else
+    ok "$v is a fixed constant, not read from the environment"
+  fi
+done
+got="$(FACTORY_MODEL_CRITICAL=sonnet bash -c '. "'"$FACTORY_DIR"'/lib/common.sh" >/dev/null 2>&1; pick_model "'"$T"'/crit.paths"')"
+[ "$got" = "opus" ] && ok "FACTORY_MODEL_CRITICAL=sonnet cannot disable escalation" \
+                    || bad "FACTORY_MODEL_CRITICAL=sonnet downgraded a critical diff to $got"
+got="$(FACTORY_CRITICAL_PATH_RE='^nope/' bash -c '. "'"$FACTORY_DIR"'/lib/common.sh" >/dev/null 2>&1; pick_model "'"$T"'/crit.paths"')"
+[ "$got" = "opus" ] && ok "FACTORY_CRITICAL_PATH_RE cannot be neutered from the env" \
+                    || bad "FACTORY_CRITICAL_PATH_RE override downgraded to $got"
 
 printf '\n-------------------------------------------\n'
 printf 'model-routing: %d passed, %d failed\n' "$PASS" "$FAIL"
