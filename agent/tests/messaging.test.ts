@@ -89,3 +89,33 @@ describe('worked example: Offer → Accept → DeliveryNotice', () => {
     expect(lines.join('\n')).toContain('replay rejected');
   });
 });
+
+/**
+ * The startup regression the spec-conformance lens caught on PR #241.
+ *
+ * `main.ts` derives the messaging key from the agent secret at launch. The
+ * keyring that builds the account pair on the line above accepts more secret
+ * forms than `deriveMessagingKey` does — a short raw string, for one, which the
+ * keyring pads. So adding this feature made an agent whose secret had always
+ * worked crash at startup, on EVERY runtime, including ones with no messaging
+ * pallet at all.
+ *
+ * These two tests pin the two halves of the contract that makes the failure
+ * survivable: the derivation really does reject such a secret (so the guard is
+ * not dead code), and the keyring really does accept it (so the agent it breaks
+ * is a real agent, not a hypothetical one).
+ */
+describe('a secret the keyring accepts but deriveMessagingKey does not', () => {
+  const ODD = 'myseed';
+
+  it('is rejected by the messaging-key derivation', async () => {
+    const { deriveMessagingKey } = await import('@scalar-commons/sdk');
+    expect(() => deriveMessagingKey(ODD)).toThrow(/mnemonic, a 32-byte hex seed or a dev/);
+  });
+
+  it('is nonetheless a usable account secret, which is why startup must not die on it', async () => {
+    const { Keyring } = await import('@polkadot/keyring');
+    const pair = new Keyring({ type: 'sr25519' }).addFromUri(ODD);
+    expect(pair.address).toMatch(/^5/);
+  });
+});

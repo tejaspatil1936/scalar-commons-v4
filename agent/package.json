@@ -14,7 +14,6 @@
     "messaging-demo": "node dist/message-demo.js"
   },
   "dependencies": {
-    "@noble/curves": "^1.9.7",
     "@polkadot/api": "^15.0.0",
     "@polkadot/keyring": "^13.0.0",
     "@polkadot/util": "^13.0.0",
