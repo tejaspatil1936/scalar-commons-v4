@@ -344,8 +344,24 @@ fi
 
 # Which model the lenses run on, decided once from the diff and used by every
 # lens so all three judge the same way. See run_lens for the reasoning.
-# LENS_MODEL can be set in the environment to override.
-if [ -z "${LENS_MODEL:-}" ]; then
+#
+# LENS_MODEL can be set in the environment to override, but ONLY to a name on
+# this list. The standing-rule lens objected to the unvalidated version on this
+# PR's own review, and it was right: without an allow-list, any caller — a
+# script, a stray export, an agent editing a wrapper — can silently drop the
+# reviewer to an arbitrary or nonexistent model. That is a way to weaken the
+# gate without touching the gate, and a log line saying which model ran is not a
+# control, because nobody is reading it at the moment it matters.
+#
+# An unknown value is fatal, never a fallback to a default: falling back would
+# mean a typo silently reviews with something other than what was asked for.
+LENS_MODEL_ALLOWED="opus sonnet"
+if [ -n "${LENS_MODEL:-}" ]; then
+  case " $LENS_MODEL_ALLOWED " in
+    *" $LENS_MODEL "*) log "lens model overridden from the environment: $LENS_MODEL" ;;
+    *) die "LENS_MODEL=$LENS_MODEL is not one of: $LENS_MODEL_ALLOWED" ;;
+  esac
+else
   if grep -qE '^(runtime|pallets)/' "$WORK/allfiles.txt"; then
     LENS_MODEL=opus
   else
@@ -853,16 +869,35 @@ COMMENT="$WORK/comment.md"
       "$REVIEW_LENS_RETRIES" "$([ "$REVIEW_LENS_RETRIES" = 1 ] && echo y || echo ies)"
     printf '>\n'
     printf '> It is not labelled %sagent-reviewed%s — a reviewer that cannot review does\n' "$BT" "$BT"
-    printf '> not pass. It is deliberately **not** labelled %sneeds-human%s either: that\n' "$BT" "$BT"
-    printf '> label is reserved for a real FAIL, where a lens ran and objected. An\n'
-    printf '> infrastructure failure is not a review objection, and %sneeds-human%s is a\n' "$BT" "$BT"
-    printf '> one-way ratchet that no automation removes, so applying it here would park\n'
-    printf '> this PR in a state only a human could clear — which is how the merge queue\n'
-    printf '> silently stalled for ~15 hours on 2026-09-27.\n'
+    printf '> not pass.\n'
     printf '>\n'
-    printf '> What happens instead: %sgates/reviews-on-head.sh%s keeps refusing this PR on\n' "$BT" "$BT"
-    printf '> every merge pass, with a reason, until a review actually completes. Re-run\n'
-    printf '> %sfactory/review.sh %s%s to try again once the cause is fixed.\n\n' "$BT" "$PR" "$BT"
+    # The label sentence MUST agree with review_labels(), which sets needs-human
+    # whenever FAILS > 0 regardless of ERRORS. An earlier version of this block
+    # printed "deliberately not labelled needs-human" unconditionally, so in a
+    # mixed state (say 1 FAIL + 1 ERROR) the comment asserted the opposite of
+    # what the code had just done — and this comment is the audit record, so a
+    # wrong one is worse than none. Caught by the spec-conformance lens on this
+    # PR's own review, which is the system working as intended.
+    if [ "$FAILS" -gt 0 ]; then
+      printf '> It **is** labelled %sneeds-human%s, because %s lens/lenses also returned a\n' "$BT" "$BT" "$FAILS"
+      printf '> real FAIL. That objection stands on its own and a human has to clear it;\n'
+      printf '> re-running the review will not, since the FAIL is a finding and not an\n'
+      printf '> infrastructure failure. Read the objections below first — the ERROR above\n'
+      printf '> means the review is ALSO incomplete, so the objections may not be all of\n'
+      printf '> them.\n'
+    else
+      printf '> It is deliberately **not** labelled %sneeds-human%s either: that\n' "$BT" "$BT"
+      printf '> label is reserved for a real FAIL, where a lens ran and objected. An\n'
+      printf '> infrastructure failure is not a review objection, and %sneeds-human%s is a\n' "$BT" "$BT"
+      printf '> one-way ratchet that no automation removes, so applying it here would park\n'
+      printf '> this PR in a state only a human could clear — which is how the merge queue\n'
+      printf '> silently stalled for ~15 hours on 2026-09-27.\n'
+      printf '>\n'
+      printf '> What happens instead: %sgates/reviews-on-head.sh%s keeps refusing this PR on\n' "$BT" "$BT"
+      printf '> every merge pass, with a reason, until a review actually completes. Re-run\n'
+      printf '> %sfactory/review.sh %s%s to try again once the cause is fixed.\n' "$BT" "$PR" "$BT"
+    fi
+    printf '\n'
   fi
   printf '**Diff coverage:** raw %s lines -> %s after excluding generated/vendored -> %s reviewed (%s bytes; caps %s lines / %s bytes; mode: %s).\n' \
     "$RAW_LINES" "$FILTERED_LINES" "$REVIEW_LINES" "$REVIEW_BYTES" \

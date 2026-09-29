@@ -167,6 +167,15 @@ lb "3 FAIL: not reviewed, escalated"           "no yes"  0 3 0
 lb "2 PASS 1 ERROR: NOT reviewed, NOT escalated" "no no"  2 0 1
 lb "3 ERROR: not reviewed, NOT escalated"        "no no"  0 0 3
 
+# MIXED FAIL + ERROR. Left unspecified and untested until the spec-conformance
+# lens pointed out that the verdict comment asserted the opposite of what
+# review_labels does here. A FAIL is a real objection whatever else happened, so
+# needs-human is set; agent-reviewed is withheld because the review is also
+# incomplete. Pinned in both directions so neither half can drift back.
+lb "1 FAIL 1 ERROR: escalated (the FAIL stands)"        "no yes" 0 1 1
+lb "1 PASS 1 FAIL 1 ERROR: escalated"                   "no yes" 1 1 1
+lb "2 PASS 1 FAIL 0 ERROR stays escalated"              "yes yes" 2 1 0
+
 printf '\n  note: 2 PASS + 1 FAIL sets BOTH labels; merge.sh requires\n'
 printf '  agent-reviewed AND no needs-human, so any FAIL blocks the merge.\n'
 printf '  An ERROR sets NEITHER label: the review did not happen, so it has not\n'
