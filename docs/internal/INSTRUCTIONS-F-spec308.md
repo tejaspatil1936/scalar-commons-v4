@@ -1,4 +1,4 @@
-# Instructions for Tejas — Messaging layer (F), spec 307
+# Instructions for Tejas — Messaging layer (F), spec 309
 
 Goal: put agent-to-agent coordination messages on chain (typed, bounded, fee-priced, event-only), give every agent a messaging key, publish the envelope spec, and update SDK / reference agent / indexer — all live, no downtime, no reset. Two autonomous Claude Code rounds plus one spike. Same pattern as 305/306: no checkpoints, mechanical abort conditions.
 
@@ -19,10 +19,10 @@ Paste me: the PR list (PR #176 must be merged), whether the milestone exists (if
 
 ---
 
-## Round A — runtime: messaging key + messages pallet → spec 307 (T0, autonomous)
+## Round A — runtime: messaging key + messages pallet → spec 309 (T0, autonomous)
 
 ```bash
-cd ~/scalar-commons-v4 && tmux new -s spec307
+cd ~/scalar-commons-v4 && tmux new -s spec309
 claude --dangerously-skip-permissions
 ```
 
@@ -31,17 +31,17 @@ Paste:
 ```
 T0 round, human-authorised in advance under the same terms as the 305/306 upgrades: fully autonomous, never ask a question, mechanical abort conditions only. If a decision is not covered, take the more conservative option and record it. On an abort, file an issue with the full report (tier:T0), skip only dependent work, finish the rest. Repo ~/scalar-commons-v4, master. Never print the contents of ~/.factory/env or ~/.config/scalar-commons/*; scripts/apply-upgrade.mjs may read the sudo key file the way it already does. Never weaken a check to pass.
 
-Goal: spec 307 = on-chain coordination messages + per-agent messaging key. Read CONTEXT.md, UPGRADE-306.md, deploy/upgrade.md, pallets/agents, pallets/escrow, runtime/src/lib.rs first.
+Goal: spec 309 = on-chain coordination messages + per-agent messaging key. Read CONTEXT.md, UPGRADE-306.md, deploy/upgrade.md, pallets/agents, pallets/escrow, runtime/src/lib.rs first.
 
 Decisions already made (do not revisit):
 D14 Messaging key: pallets/agents gets an optional 32-byte X25519 public key per agent (`MessagingKey<T>: StorageMap<AccountId, [u8;32]>`), set by a new extrinsic `set_messaging_key(key: [u8;32])` callable only by a registered agent, replaceable at any time (rotation), removable with `clear_messaging_key()`. Event `MessagingKeySet { who, key }`. No deposit. Existing registrations are untouched; no storage migration is needed for them.
 D15 Messages pallet: new pallet `pallet-messages`. One extrinsic `send(to: AccountId, kind: MessageKind, agreement: Option<(AccountId, u32)>, payload_hash: Option<[u8;32]>, payload: BoundedVec<u8, ConstU32<2048>>)`. `MessageKind` = { Offer, Bid, Accept, Reject, DeliveryNotice, DisputeNote, Announce, Ping }. Sender must be a registered agent (error NotRegistered). Recipient must be a registered agent for every kind except Announce (error RecipientNotRegistered). Payload is NOT stored in state: it is carried in the block body and emitted in the event `MessageSent { from, to, kind, agreement, payload_hash, payload_len, nonce }` where nonce is a per-sender counter kept in state (`NextNonce<T>: StorageMap<AccountId, u64>`) — that counter is the only state the pallet writes. Fee: in addition to the normal weight fee, charge `BaseFee + PerByteFee * payload_len` from the sender's free balance and burn it (Currency::withdraw + burn), with BaseFee = 0.02 CMN and PerByteFee = 0.0001 CMN as pallet constants (2 KiB ≈ 0.22 CMN). If auto-params can host them cleanly as adjustable values within governance bounds, do that instead of constants; if not, constants now and file a T2 issue for the auto-params hook. Per-sender rate limit: at most MaxPerBlock = 4 messages per account per block (error RateLimited).
-D16 Runtime wiring: add the pallet to runtime/src/lib.rs, spec_version 307, transaction_version unchanged unless a call index changed. Weights: hand-estimated like the rest (note it in docs), with the payload length as a weight input.
+D16 Runtime wiring: add the pallet to runtime/src/lib.rs, spec_version 309, transaction_version unchanged unless a call index changed. Weights: hand-estimated like the rest (note it in docs), with the payload length as a weight input.
 D17 Tests (RED before / GREEN after, all in-tree): send by unregistered sender fails; send to unregistered recipient fails except Announce; payload above 2048 fails at the type level; fee arithmetic exact (assert balance delta = base + per_byte*len + weight fee); nonce increments per sender; rate limit trips on the 5th message in a block; event fields; set/clear messaging key by registered agent, rejected for unregistered; runtime integration test that the pallet is wired and its call encodes.
 
-Phase A — implement on branch runtime/spec-307. cargo test --workspace, clippy clean, fmt. If storage changes to existing pallets are needed (they should not be beyond one new map), add a migration and run try-runtime on a live-state snapshot; otherwise state explicitly that no migration is required and prove it with try-runtime's pre/post checks anyway. Update docs/reference/token-model.md (message fees, burn), docs/reference/rpc.md if new RPC surface, and add docs/reference/messages.md (call, kinds, fee formula, event shape, what is and is not on chain). Open the PR, wait for CI green, squash-merge (pre-authorised for this PR).
+Phase A — implement on branch runtime/spec-309. cargo test --workspace, clippy clean, fmt. If storage changes to existing pallets are needed (they should not be beyond one new map), add a migration and run try-runtime on a live-state snapshot; otherwise state explicitly that no migration is required and prove it with try-runtime's pre/post checks anyway. Update docs/reference/token-model.md (message fees, burn), docs/reference/rpc.md if new RPC surface, and add docs/reference/messages.md (call, kinds, fee formula, event shape, what is and is not on chain). Open the PR, wait for CI green, squash-merge (pre-authorised for this PR).
 
-Phase B — apply: build the wasm from merged master, backup exactly as for 306 into ~/upgrade-backup/<timestamp>/, run scripts/apply-upgrade.mjs with the fee preflight, confirm state_getRuntimeVersion → 307 over the PUBLIC wss, all five validators still authoring within 10 minutes, keeper healthy, indexer/explorer/faucet still 200 (restart them if they dropped their ws — that is #155, note it). Then prove it live: from two fresh faucet-funded accounts registered as agents, set a messaging key on each, send one message of each kind between them, and read the events back over the public wss; record every extrinsic hash and the exact fee charged versus the formula. Send one message with a 2048-byte payload and one with 2049 (must be rejected at construction). Write UPGRADE-307.md with §1 design, §2 apply log, §3 live proof, §4 fee table.
+Phase B — apply: build the wasm from merged master, backup exactly as for 306 into ~/upgrade-backup/<timestamp>/, run scripts/apply-upgrade.mjs with the fee preflight, confirm state_getRuntimeVersion → 309 over the PUBLIC wss, all five validators still authoring within 10 minutes, keeper healthy, indexer/explorer/faucet still 200 (restart them if they dropped their ws — that is #155, note it). Then prove it live: from two fresh faucet-funded accounts registered as agents, set a messaging key on each, send one message of each kind between them, and read the events back over the public wss; record every extrinsic hash and the exact fee charged versus the formula. Send one message with a 2048-byte payload and one with 2049 (must be rejected at construction). Write UPGRADE-309.md with §1 design, §2 apply log, §3 live proof, §4 fee table.
 
 Abort conditions (stop, file issue, skip dependents): a previously green test goes red; CI not green after two fix attempts; try-runtime reports any storage error; apply preflight fails; fewer than five validators authoring 10 minutes after the upgrade; live fee charged differs from the formula; any message stored in state other than the nonce map (grep the storage in the metadata). Never tune bounds or fees to pass.
 
@@ -77,7 +77,7 @@ Paste me: the verdict line and the 10-line summary.
 
 ---
 
-## Round B — off-chain: envelope spec, SDK, reference agent, indexer (T2, autonomous) — start after Round A's spec 307 is live
+## Round B — off-chain: envelope spec, SDK, reference agent, indexer (T2, autonomous) — start after Round A's spec 309 is live
 
 ```bash
 cd ~/scalar-commons-v4 && tmux new -s msgclient
@@ -87,18 +87,18 @@ claude --dangerously-skip-permissions
 Paste:
 
 ```
-Fully autonomous, never ask a question, conservative choice on anything not covered, file an issue on abort and continue with independent work. Repo ~/scalar-commons-v4, master (spec 307 must be live on the public chain — verify state_getRuntimeVersion first; if it is not 307, stop and report). Never read ~/.factory/env or ~/.config/scalar-commons/*. Outsider steps use only public endpoints and fresh faucet-funded keys. Never weaken a check to pass.
+Fully autonomous, never ask a question, conservative choice on anything not covered, file an issue on abort and continue with independent work. Repo ~/scalar-commons-v4, master (spec 309 must be live on the public chain — verify state_getRuntimeVersion first; if it is not 309, stop and report). Never read ~/.factory/env or ~/.config/scalar-commons/*. Outsider steps use only public endpoints and fresh faucet-funded keys. Never weaken a check to pass.
 
-Read docs/reference/messages.md, UPGRADE-307.md, docs/spikes/statement-store.md if present, sdk/, examples/reference-agent/, indexer/, and the withdrawn pilot intent at docs/oracle/pilot-001-withdrawn-intent.json if present (a real example of an outsider message that a strict validator rejected — the spec must make such mismatches impossible by construction).
+Read docs/reference/messages.md, UPGRADE-309.md, docs/spikes/statement-store.md if present, sdk/, examples/reference-agent/, indexer/, and the withdrawn pilot intent at docs/oracle/pilot-001-withdrawn-intent.json if present (a real example of an outsider message that a strict validator rejected — the spec must make such mismatches impossible by construction).
 
 Deliver, each with RED-before/GREEN-after tests and each as its own PR merged in order:
 1. docs/reference/messaging.md — the signed envelope spec. Canonical encoding is SCALE of a fixed struct { version: u8, from: AccountId, to: AccountId, kind: u8, agreement: Option<(AccountId,u32)>, nonce: u64, expires_at_block: u32, payload_hash: [u8;32] }; signature = sr25519 over blake2_256(SCALE bytes) with the domain prefix b"ScalarMsg/v1|" ++ genesis_hash; verification rules (signer must equal from, nonce strictly increasing per (from,to) pair as seen by the verifier, reject if expires_at_block < current best block, payload_hash must equal blake2_256 of the delivered payload); transport bindings: (a) on-chain via pallet-messages (payload ≤ 2 KiB inline, or hash-only with payload off-chain), (b) HTTPS POST to the recipient's registered service URI, (c) statement store if the spike is VIABLE. Include test vectors in sdk/test/vectors/envelope.json generated from real keys and re-verified in CI.
 2. SDK: messages.send / messages.subscribe (on-chain), envelope.sign / envelope.verify, encrypt/decrypt to the registered X25519 messaging key (use @polkadot/util-crypto naclSeal or equivalent; document the primitive), and a Transport interface with the on-chain and HTTPS implementations (statement-store stub if not viable). Offline tests: vectors, replay rejection, expiry, wrong signer, payload-hash mismatch, encryption round trip. Live test against the public chain with two fresh agents: send Offer, receive via subscribe, reply Accept.
 3. Reference agent: replace storage polling with subscribing to MessageSent events addressed to it; negotiate Offer → Accept → escrow.createAgreement(deliverableHash = envelope payload_hash of the accepted terms) → DeliveryNotice with the report hash → buyer confirms after recheck. Prove it live end to end with two fresh agents and cite every extrinsic hash and the explorer URLs.
 4. Indexer: GET /v1/messages?address=&agreement=&kind=&since=; GET /v1/agents/<addr>/timeline (registrations, messages, agreements, payouts in block order); GET /v1/metrics/fanout (messages per sender per era, distinct recipients per sender per era). Explorer: per-agent timeline page. Tests offline + live smoke.
-5. Docs: update run-an-agent and tester guides with the messaging flow; landing "Testnet status" gains one line: on-chain coordination messages live since spec 307. Redeploy timer publishes.
+5. Docs: update run-an-agent and tester guides with the messaging flow; landing "Testnet status" gains one line: on-chain coordination messages live since spec 309. Redeploy timer publishes.
 
-Abort conditions: spec not 307; a green test goes red; CI not green after two attempts; live negotiation cannot complete; any secret in a vector file (run gitleaks before every push). Finish with PR numbers, the live extrinsic hashes for the negotiated agreement, the three endpoint URLs returning data, and issues filed.
+Abort conditions: spec not 309; a green test goes red; CI not green after two attempts; live negotiation cannot complete; any secret in a vector file (run gitleaks before every push). Finish with PR numbers, the live extrinsic hashes for the negotiated agreement, the three endpoint URLs returning data, and issues filed.
 ```
 
 Paste me: the final report.
@@ -128,7 +128,7 @@ Run the full economic gate on the live chain at its current spec: `node run.mjs 
 
 Paste me: the verdict and the table.
 
-## Round C — oracle lifecycle, question publication, keeper duties (T2, after spec 307 is live)
+## Round C — oracle lifecycle, question publication, keeper duties (T2, after spec 309 is live)
 
 Findings behind it: 26 oracle requests sit past their deadline still marked "Collecting" because nobody calls `expireRequest`/`finaliseRequest`; creating a request requires a registered agent and answering requires an identity record + capability, none of which the guides say; question plaintext has no home, so responders cannot find what a hash means (the Replit runner rejected my question format for exactly this reason); my own tool's "one decimal, e.g. 16.1" rule was ambiguous; oracle accuracy is still not wired into rewards.
 
@@ -138,7 +138,7 @@ claude --dangerously-skip-permissions
 ```
 
 ```
-Fully autonomous, no questions, conservative choices recorded, abort → issue + continue. Repo ~/scalar-commons-v4, master (spec ≥ 307 required — verify). Never read ~/.factory/env or ~/.config/scalar-commons/*. Outsider steps with fresh faucet keys only. Never weaken a check to pass.
+Fully autonomous, no questions, conservative choices recorded, abort → issue + continue. Repo ~/scalar-commons-v4, master (spec ≥ 309 required — verify). Never read ~/.factory/env or ~/.config/scalar-commons/*. Outsider steps with fresh faucet keys only. Never weaken a check to pass.
 1. Keeper: extend scalar-keeper to call oracle.expireRequest on requests past responseDeadline with responseCount < minResponses and oracle.finaliseRequest on requests past deadline + challengeWindow with enough responses; idempotent, fee-preflighted, one extrinsic per request per run, logged. Run it once live and clear the 25+ stale requests; record hashes. Tests offline. Update deploy/products keeper unit/docs.
 2. Question registry: docs/oracle/SCHEMA.md defining canonical question objects (kind, source, extract, answerRule as a machine rule not an example, verify, date, version) with sorted-key JSON canonicalisation and blake2_256 questionHash; answer canonicalisation rules per kind (fx_ecb, btc_block_hash, nws_temp, coingecko_daily, nfl_final) written so two independent responders must produce identical strings; reconcile with the Replit runner's canonical FX form (`{"kind":"fx_ecb","title":...,"source":"https://api.frankfurter.app/<date>?from=EUR&to=USD"}`) by making the registry accept both `api.frankfurter.app` and `api.frankfurter.dev` as declared sources of the same ECB series and by publishing the exact key-order rule.
 3. Publication on chain: the creator publishes each question's canonical JSON as a pallet-messages Announce (payload ≤ 2 KiB, payload_hash = questionHash) in the same script that creates the request; the indexer indexes Announce payloads by payload_hash so GET /v1/oracle/requests/<id> returns the plaintext question alongside chain state; GET /v1/oracle/requests?status=open lists answerable requests. Explorer: oracle request page with question, responses, result, accuracy.
