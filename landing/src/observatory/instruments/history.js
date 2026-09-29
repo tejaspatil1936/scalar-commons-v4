@@ -4,25 +4,29 @@
 //
 // Data (all polled once a minute through the shared scheduler):
 //   blockTime         /v1/blocks?limit=200 — the seconds between consecutive
-//                     blocks, oldest to newest, against the 6 s target.
+//                     blocks, oldest to newest, against the 6 s target. A pair
+//                     with no timestamp is a break in the line, not a segment.
 //   agreementsPerEra  /v1/eras?limit=14 for the era boundaries, and every
 //                     escrow.AgreementCreated event the index holds, counted
 //                     into the twelve most recent whole settled eras plus the
-//                     era in progress ("so far"). Eras whose span the fetched
-//                     events do not reach are dropped, never shown short.
-//   emissionPerEra    the same eras record — the CMN each settlement issued,
+//                     era still open. Eras whose span the fetched events do
+//                     not reach are dropped, never shown short.
+//   emissionPerEra    the same eras record — the CMN each settlement paid out,
 //                     as the pallet reported it. Zero is drawn as zero.
 //   agentsOverTime    every agents.AgentRegistered and UnstakeCompleted event
-//                     the index holds, walked forward from a baseline of the
-//                     agents that predate the index (today's total, less the
-//                     registrations and plus the departures the index saw).
+//                     the index holds, walked forward from the agents that
+//                     /v1/agents says were registered before the index began.
+//                     The two must reconcile with today's total, or the strip
+//                     is unavailable rather than a wrong line.
 //
 // Drawing: one SVG per strip, sized to its box (a ResizeObserver re-fits it),
 // with d3-scale for the axes and d3-shape for the paths. Colours come from
-// the design system's classes, so light and dark are the stylesheet's.
+// the design system's classes, so light and dark are the stylesheet's. None
+// of it is live data — every figure here is history — so nothing in these
+// strips uses the live accent.
 //
-// Motion: when a strip's data changes it is revealed left to right over
-// 350 ms, once; a resize redraws without motion. Nothing loops.
+// Motion: a strip is revealed left to right over 350 ms the first time it has
+// data to show, once; later polls and resizes redraw without motion.
 
 import { scaleBand, scaleLinear } from 'd3-scale';
 import { area, curveLinear, curveStepAfter, line } from 'd3-shape';
@@ -37,21 +41,26 @@ export const ERAS_SHOWN = 12;
 export const DEFAULT_WIDTH = 300;
 export const DEFAULT_HEIGHT = 88;
 const REVEAL_MS = 350;
+/** The smallest mark for the era still open, so "in progress" is visible even at zero. */
+const OPEN_BAR_MIN_PX = 2;
 
 // ── pure helpers (unit-tested) ────────────────────────────────────────────────
 
 /**
  * Seconds between consecutive blocks, oldest to newest, from a newest-first
- * page of /v1/blocks. A pair with a missing timestamp, or a gap in the block
- * numbers, is skipped rather than interpolated; the count of skipped pairs is
- * returned so the reading can say so.
+ * page of /v1/blocks. A pair with a null timestamp, or a gap in the block
+ * numbers, is kept as a sentinel with `seconds: NaN` so the line breaks there
+ * instead of being drawn across it; `skipped` counts them. A block without a
+ * `timestampMs` key at all is a decode failure, not a skip.
  */
 export function blockIntervals(items, field) {
   const blocks = items
-    .map((item) => ({
-      number: field(item, 'number'),
-      at: item.timestampMs === null || item.timestampMs === undefined ? NaN : Number(item.timestampMs),
-    }))
+    .map((item) => {
+      if (item === null || typeof item !== 'object' || !('timestampMs' in item)) {
+        throw new Error('response has no timestampMs');
+      }
+      return { number: field(item, 'number'), at: item.timestampMs === null ? NaN : Number(item.timestampMs) };
+    })
     .sort((a, b) => a.number - b.number);
   const points = [];
   let skipped = 0;
@@ -60,6 +69,7 @@ export function blockIntervals(items, field) {
     const b = blocks[i];
     if (b.number !== a.number + 1 || !Number.isFinite(a.at) || !Number.isFinite(b.at)) {
       skipped += 1;
+      points.push({ number: b.number, seconds: NaN });
       continue;
     }
     points.push({ number: b.number, seconds: (b.at - a.at) / 1000 });
@@ -73,16 +83,48 @@ export function blockIntervals(items, field) {
   };
 }
 
-/** Last, mean, min and max of an interval series; null when there is none. */
+const isMeasured = (p) => Number.isFinite(p.seconds);
+
+/** Last, mean, min and max of the measured intervals; null when there is none. */
 export function intervalStats(points) {
-  if (points.length === 0) return null;
-  const seconds = points.map((p) => p.seconds);
+  const seconds = points.filter(isMeasured).map((p) => p.seconds);
+  if (seconds.length === 0) return null;
   return {
     last: seconds[seconds.length - 1],
     mean: mean(seconds),
     min: min(seconds),
     max: max(seconds),
+    measured: seconds.length,
   };
+}
+
+/** The interval line: breaks at every sentinel rather than bridging it. */
+export function intervalLine(x, y) {
+  return line()
+    .defined(isMeasured)
+    .x((p) => x(p.number))
+    .y((p) => y(p.seconds))
+    .curve(curveLinear);
+}
+
+/** The faint area under the interval line, broken at the same places. */
+export function intervalArea(x, y, bottom) {
+  return area()
+    .defined(isMeasured)
+    .x((p) => x(p.number))
+    .y0(bottom)
+    .y1((p) => y(p.seconds));
+}
+
+/**
+ * The contiguous run of era entries (sorted by era, ascending) that ends at
+ * the newest one. A missing entry leaves a boundary unknown, so anything
+ * older than the gap is not used.
+ */
+export function contiguousRun(sorted) {
+  let start = sorted.length - 1;
+  while (start > 0 && sorted[start - 1].era === sorted[start].era - 1) start -= 1;
+  return sorted.slice(Math.max(0, start));
 }
 
 /**
@@ -90,18 +132,15 @@ export function intervalStats(points) {
  * start block), the rest are settled, newest first. Settled era k spans
  * [settledAtBlock(k−1), settledAtBlock(k)), so n settled entries give n−1
  * whole eras; only the contiguous run ending at the newest settled era is
- * used, since a missing entry leaves a boundary unknown. Returns the whole
- * eras oldest first (at most `limit`), and the open era when present.
+ * used. Returns the whole eras oldest first (at most `limit`), the open era
+ * when present, and the settled run itself.
  */
 export function eraSpans(items, field, limit = ERAS_SHOWN) {
   const settled = items
     .filter((item) => field(item, 'settled') === true)
     .map((item) => ({ era: field(item, 'era'), settledAt: field(item, 'settledAtBlock') }))
     .sort((a, b) => a.era - b.era);
-  // Keep the contiguous run that ends at the newest settled era.
-  let start = settled.length - 1;
-  while (start > 0 && settled[start - 1].era === settled[start].era - 1) start -= 1;
-  const run = settled.slice(start);
+  const run = contiguousRun(settled);
   const whole = [];
   for (let i = 1; i < run.length; i += 1) {
     whole.push({ era: run[i].era, start: run[i - 1].settledAt, end: run[i].settledAt });
@@ -114,14 +153,15 @@ export function eraSpans(items, field, limit = ERAS_SHOWN) {
 /**
  * Counts newest-first events (with `blockNumber`) into era spans. A span is
  * only kept when the events on hand cover all of it: when the list was cut
- * short (`complete` false) the oldest event fetched is the floor, and the
- * index's own first block is always one. Spans below the floor are dropped
- * and `historyFrom` says where the kept history begins.
+ * short (`complete` false) the oldest block fetched may hold further events
+ * beyond the cut, so the floor is the block after it, and the index's own
+ * first block is always a floor. Spans below the floor are dropped and
+ * `historyFrom` says where the kept history begins.
  */
 export function bucketByEra(spans, open, events, { complete = true, indexFrom = null } = {}) {
   let floor = Number.isFinite(indexFrom) ? indexFrom : -Infinity;
   const oldest = events.length ? Math.min(...events.map((e) => e.blockNumber)) : null;
-  if (!complete && oldest !== null) floor = Math.max(floor, oldest);
+  if (!complete && oldest !== null) floor = Math.max(floor, oldest + 1);
   const kept = spans.filter((span) => span.start >= floor).map((span) => ({ ...span, count: 0 }));
   const dropped = spans.length - kept.length;
   const soFar = open ? { ...open, count: 0 } : null;
@@ -139,36 +179,62 @@ export function bucketByEra(spans, open, events, { complete = true, indexFrom = 
   };
 }
 
-/** The settled eras' emission, oldest first, as numbers for a scale and as plancks for the figure. */
+/**
+ * The settled eras' emission, oldest first, as numbers for a scale and as
+ * plancks for the figure. Only the contiguous run ending at the newest
+ * settled era is shown, so a hole in the page shortens the strip rather than
+ * hiding inside it.
+ */
 export function emissionSeries(items, field, cmnNumber, limit = ERAS_SHOWN) {
-  return items
+  const settled = items
     .filter((item) => field(item, 'settled') === true)
     .map((item) => ({
       era: field(item, 'era'),
       settledAt: field(item, 'settledAtBlock'),
       plancks: String(field(item, 'totalEmissionPlancks')),
     }))
-    .sort((a, b) => a.era - b.era)
+    .sort((a, b) => a.era - b.era);
+  return contiguousRun(settled)
     .slice(-limit)
     .map((entry) => ({ ...entry, cmn: cmnNumber(entry.plancks) }));
 }
 
 /**
+ * The agents /v1/agents lists as registered before the index began (their
+ * `registeredAtBlock` is below `indexFrom`), and how many the page listed.
+ * Throws when the page does not hold the whole list, since the count would
+ * then be a floor.
+ */
+export function agentsBefore(items, field, indexFrom, total) {
+  if (items.length < total) {
+    throw new Error(`the agent list holds ${total} agents but only ${items.length} were listed`);
+  }
+  const before = items.filter((item) => field(item, 'registeredAtBlock') < indexFrom).length;
+  return { before, listed: items.length };
+}
+
+/**
  * The cumulative count of registered agents over block number, from the
  * start of the index to now. Agents registered before the index began are
- * not in it as events, so they are the baseline: today's total, less the
- * registrations the index saw, plus the departures it saw. Throws when the
- * numbers cannot reconcile (a negative baseline), rather than drawing one.
+ * not in it as events, so they are the baseline, taken from the agent list
+ * itself (`before`). The events must explain the whole difference between
+ * that baseline and today's total: an agent removed some other way (a slash
+ * that emptied its stake emits no departure event) would make the line wrong,
+ * so the series throws instead of drawing.
  */
-export function agentSteps({ registrations, unstakes, totalNow, indexFrom, nowBlock }) {
+export function agentSteps({ registrations, unstakes, totalNow, before, indexFrom, nowBlock }) {
+  const baseline = before;
+  const explained = baseline + registrations.length - unstakes.length;
+  if (!Number.isFinite(baseline) || baseline < 0 || explained !== totalNow) {
+    throw new Error(
+      `registrations and departures in the index do not reconcile with the agent list ` +
+        `(${baseline} before the index + ${registrations.length} − ${unstakes.length} ≠ ${totalNow})`,
+    );
+  }
   const deltas = [
     ...registrations.map((b) => ({ block: b, delta: 1 })),
     ...unstakes.map((b) => ({ block: b, delta: -1 })),
   ].sort((a, b) => a.block - b.block || b.delta - a.delta);
-  const baseline = totalNow - registrations.length + unstakes.length;
-  if (!Number.isFinite(baseline) || baseline < 0) {
-    throw new Error('registrations and departures in the index do not reconcile with the total');
-  }
   const start = deltas.length ? Math.min(indexFrom, deltas[0].block) : indexFrom;
   const points = [{ block: start, count: baseline }];
   let running = baseline;
@@ -194,6 +260,30 @@ export function plotFrame(width = DEFAULT_WIDTH, height = DEFAULT_HEIGHT) {
 export function yCeiling(values, floor = 1) {
   const top = max(values) ?? 0;
   return Math.max(floor, top * 1.08);
+}
+
+/** Approximate width of `text` in the plot's 11 px mono labels. */
+export const NOTE_CHAR_PX = 6.6;
+
+/**
+ * Where a note fits in a plot without the line running through it. The note
+ * sits top-left when the marks under its extent stay clear of the top;
+ * otherwise bottom-left when they stay clear of the baseline; otherwise
+ * top-left, where its halo keeps it legible. `topAtLeft` and `bottomAtLeft`
+ * are the smallest and largest y of the marks under the note's extent.
+ */
+export function notePosition(frame, topAtLeft, bottomAtLeft = topAtLeft) {
+  const top = { x: frame.left + 3, y: frame.top + 8 };
+  const bottom = { x: frame.left + 3, y: frame.bottom - 4 };
+  if (!Number.isFinite(topAtLeft)) return top;
+  if (topAtLeft > top.y + 6) return top;
+  if (Number.isFinite(bottomAtLeft) && bottomAtLeft < bottom.y - 12) return bottom;
+  return top;
+}
+
+/** Height of the bar for the era still open: never invisible, even at zero. */
+export function openBarHeight(height, min = OPEN_BAR_MIN_PX) {
+  return Math.max(min, height);
 }
 
 // ── SVG ───────────────────────────────────────────────────────────────────────
@@ -223,8 +313,17 @@ class Strip {
     this.target = ctx.reading(key, root);
     this.plot = this.target?.querySelector('[data-plot]') ?? null;
     this.drawn = null; // the last draw function, re-run on resize
-    this.dataKey = null; // identity of the data last drawn, to move only on change
+    this.revealed = false; // the one reveal has run for the data on show
     this.cancel = () => {};
+    if (this.target) {
+      // Belt and braces for the figure's accessible name: the h3 inside the
+      // caption names the figure explicitly, whatever the caption's box is.
+      const heading = this.target.querySelector('.reading-label');
+      if (heading) {
+        heading.id ||= `history-${key}-label`;
+        this.target.setAttribute('aria-labelledby', heading.id);
+      }
+    }
     if (this.plot && typeof ResizeObserver !== 'undefined') {
       new ResizeObserver(() => {
         if (this.drawn) this.draw(this.drawn, { animate: false });
@@ -238,8 +337,12 @@ class Strip {
     return plotFrame(width, height);
   }
 
-  /** Replaces the plot with a fresh SVG built by `build(frame, svg, group)`; reveals it when the data changed. */
-  draw(build, { animate = true, dataKey = null } = {}) {
+  /**
+   * Replaces the plot with a fresh SVG built by `build(frame, svg, group)`.
+   * The first drawing with data is revealed left to right; every later one
+   * (a poll, a resize) is put in place without motion.
+   */
+  draw(build, { animate = true } = {}) {
     if (!this.plot) return;
     this.drawn = build;
     const frame = this.size();
@@ -262,18 +365,17 @@ class Strip {
     this.plot.replaceChildren(svg);
 
     this.cancel();
-    const changed = dataKey !== null && dataKey !== this.dataKey;
-    if (dataKey !== null) this.dataKey = dataKey;
-    if (!animate || !changed) return;
+    if (!animate || this.revealed) return;
+    this.revealed = true;
     this.cancel = this.ctx.motion.tween(REVEAL_MS, (t) => {
       // The first frame's timestamp can precede the tween's start, so t is clamped here.
       window_.setAttribute('width', String(frame.width * Math.min(1, Math.max(0, t))));
     });
   }
 
-  /** No figure and no plot: the box shows only the reason in its label. */
+  /** No figure and no plot: the box shows only the reason in its label. Data arriving later is revealed afresh. */
   clear(reason) {
-    this.dataKey = null;
+    this.revealed = false;
     this.draw(() => reason, { animate: false });
   }
 }
@@ -291,11 +393,12 @@ export function init(root, ctx) {
   const records = { eras: null, agreements: null, registrations: null, unstakes: null, agents: null };
 
   /**
-   * Shows a strip from one or more records. The first is the provenance
-   * record; a failure in any of them replaces the figure and the plot with
+   * Shows a strip from one or more records. `needed[0]` is the provenance
+   * record — the response the figure shown was read from — unless another
+   * is named; a failure in any of them replaces the figure and the plot with
    * the reason. Renders only once every record it needs has arrived.
    */
-  function show(strip, needed, render) {
+  function show(strip, needed, render, { provenance = needed[0] } = {}) {
     if (needed.some((record) => record === null)) return;
     const failed = needed.find((record) => !record.ok);
     if (failed) {
@@ -304,7 +407,7 @@ export function init(root, ctx) {
       return;
     }
     let reason = null;
-    const ok = ctx.readout.apply(strip.target, needed[0], (data, record) => {
+    const ok = ctx.readout.apply(strip.target, provenance, (data, record) => {
       try {
         render(data, record);
       } catch (error) {
@@ -326,6 +429,8 @@ export function init(root, ctx) {
     };
   }
 
+  const plural = (n, one, many = `${one}s`) => `${formatInteger(n)} ${n === 1 ? one : many}`;
+
   // ── 1 · block time ──
   function showBlockTime(record) {
     const strip = strips.blockTime;
@@ -344,41 +449,33 @@ export function init(root, ctx) {
         unit: ' s',
         extra:
           `mean ${s(stats.mean)} s, min ${s(stats.min)}, max ${s(stats.max)} over ${formatInteger(series.blocks)} blocks` +
-          (series.skipped ? ` · ${series.skipped} pair${series.skipped === 1 ? '' : 's'} skipped, no timestamp` : ''),
+          (series.skipped ? ` · ${plural(series.skipped, 'pair')} without a timestamp, left as a break in the line` : ''),
       });
       const summary =
         `Seconds between consecutive blocks from block ${formatInteger(series.first)} to ${formatInteger(series.last)}: ` +
         `the latest gap is ${s(stats.last)} seconds, the mean ${s(stats.mean)}, ranging from ${s(stats.min)} to ${s(stats.max)}, ` +
-        `against a target of ${NOMINAL_BLOCK_S}.`;
-      strip.draw(
-        (frame, svg, g) => {
-          const x = scaleLinear()
-            .domain([series.points[0].number, series.points[series.points.length - 1].number])
-            .range([frame.left, frame.right]);
-          const y = scaleLinear()
-            .domain([0, yCeiling([...series.points.map((p) => p.seconds), NOMINAL_BLOCK_S * 2])])
-            .range([frame.bottom, frame.top]);
-          const shape = line()
-            .x((p) => x(p.number))
-            .y((p) => y(p.seconds))
-            .curve(curveLinear);
-          const fill = area()
-            .x((p) => x(p.number))
-            .y0(frame.bottom)
-            .y1((p) => y(p.seconds));
-          g.append(el('path', { d: fill(series.points) }, 'plot-area'));
-          g.append(el('line', { x1: frame.left, x2: frame.right, y1: fix(y(NOMINAL_BLOCK_S)), y2: fix(y(NOMINAL_BLOCK_S)) }, 'plot-axis'));
-          g.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-axis'));
-          g.append(el('path', { d: shape(series.points) }, 'plot-line'));
-          const last = series.points[series.points.length - 1];
-          g.append(el('circle', { cx: fix(x(last.number)), cy: fix(y(last.seconds)), r: 2.5 }, 'plot-dot'));
-          svg.append(label(frame.left + 3, fix(y(NOMINAL_BLOCK_S)) - 4, `${NOMINAL_BLOCK_S} s target`, 'start', 'plot-label plot-note'));
-          svg.append(label(frame.left, frame.height - 3, `#${formatInteger(series.first)}`));
-          svg.append(label(frame.right, frame.height - 3, `#${formatInteger(series.last)}`, 'end'));
-          return summary;
-        },
-        { dataKey: `${series.first}:${series.last}:${series.skipped}` },
-      );
+        `against a target of ${NOMINAL_BLOCK_S}` +
+        (series.skipped ? `; ${plural(series.skipped, 'pair')} without a timestamp left as a break.` : '.');
+      strip.draw((frame, svg, g) => {
+        const measured = series.points.filter(isMeasured);
+        const x = scaleLinear()
+          .domain([series.points[0].number, series.points[series.points.length - 1].number])
+          .range([frame.left, frame.right]);
+        const y = scaleLinear()
+          .domain([0, yCeiling([...measured.map((p) => p.seconds), NOMINAL_BLOCK_S * 2])])
+          .range([frame.bottom, frame.top]);
+        const targetY = fix(y(NOMINAL_BLOCK_S));
+        g.append(el('path', { d: intervalArea(x, y, frame.bottom)(series.points) ?? '' }, 'plot-area'));
+        g.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-axis'));
+        g.append(el('line', { x1: frame.left, x2: frame.right, y1: targetY, y2: targetY }, 'plot-axis plot-target'));
+        g.append(el('path', { d: intervalLine(x, y)(series.points) ?? '' }, 'plot-line'));
+        const last = measured[measured.length - 1];
+        g.append(el('circle', { cx: fix(x(last.number)), cy: fix(y(last.seconds)), r: 2.5 }, 'plot-dot'));
+        svg.append(label(frame.left + 3, targetY - 4, `${NOMINAL_BLOCK_S} s target`, 'start', 'plot-label plot-note'));
+        svg.append(label(frame.left, frame.height - 3, `#${formatInteger(series.first)}`));
+        svg.append(label(frame.right, frame.height - 3, `#${formatInteger(series.last)}`, 'end'));
+        return summary;
+      });
     });
   }
 
@@ -396,7 +493,7 @@ export function init(root, ctx) {
         ctx.readout.showAbsent(
           strip.target,
           record,
-          `fewer than two settled eras in the index, which begins at block #${formatInteger(indexFrom)}`,
+          `fewer than two settled eras since block #${formatInteger(indexFrom)}, where this site's record begins`,
         );
         strip.clear('No whole era to count yet.');
         return;
@@ -419,7 +516,7 @@ export function init(root, ctx) {
       const firstEra = buckets[0].era;
       const extra = [
         `eras ${formatInteger(firstEra)}–${formatInteger(lastSettled.era)}`,
-        open ? `${formatInteger(open.count)} so far in era ${formatInteger(open.era)}` : '',
+        open ? `${formatInteger(open.count)} in era ${formatInteger(open.era)}, still open` : '',
         dropped ? `history from block #${formatInteger(historyFrom)}` : '',
         `era boundaries from ${eras.label}`,
       ]
@@ -434,21 +531,18 @@ export function init(root, ctx) {
       const busiest = buckets.reduce((a, b) => (b.count > a.count ? b : a), buckets[0]);
       const summary =
         `Agreements opened in each of the last ${buckets.length} settled eras, ${formatInteger(firstEra)} to ${formatInteger(lastSettled.era)}` +
-        (open ? `, plus ${formatInteger(open.count)} so far in era ${formatInteger(open.era)}` : '') +
+        (open ? `, plus ${formatInteger(open.count)} in era ${formatInteger(open.era)}, which is still open` : '') +
         `: the last settled era had ${formatInteger(lastSettled.count)}; the busiest, era ${formatInteger(busiest.era)}, had ${formatInteger(busiest.count)}.`;
       const bars = open ? [...buckets, { ...open, open: true }] : buckets;
-      strip.draw(
-        (frame, svg, g) => {
-          drawBars(frame, svg, g, bars, {
-            value: (b) => b.count,
-            isLast: (b) => b === lastSettled,
-            leftLabel: `era ${formatInteger(firstEra)}`,
-            rightLabel: open ? `era ${formatInteger(open.era)} so far` : `era ${formatInteger(lastSettled.era)}`,
-          });
-          return summary;
-        },
-        { dataKey: bars.map((b) => `${b.era}=${b.count}`).join(',') },
-      );
+      strip.draw((frame, svg, g) => {
+        drawBars(frame, svg, g, bars, {
+          value: (b) => b.count,
+          isLast: (b) => b === lastSettled,
+          leftLabel: `era ${formatInteger(firstEra)}`,
+          rightLabel: open ? `era ${formatInteger(open.era)}, open` : `era ${formatInteger(lastSettled.era)}`,
+        });
+        return summary;
+      });
     });
   }
 
@@ -461,36 +555,38 @@ export function init(root, ctx) {
       const series = emissionSeries(items, ctx.field, cmnNumber);
       if (series.length === 0) {
         const indexFrom = ctx.field(data, 'settledHistoryFrom');
-        ctx.readout.showAbsent(strip.target, record, `no settled era in the index, which begins at block #${formatInteger(indexFrom)}`);
+        ctx.readout.showAbsent(
+          strip.target,
+          record,
+          `no settled era since block #${formatInteger(indexFrom)}, where this site's record begins`,
+        );
         strip.clear('No settled era to show yet.');
         return;
       }
       const last = series[series.length - 1];
+      const allZero = series.every((e) => e.cmn === 0);
       ctx.readout.showValue(strip.target, record, {
         value: formatCmn(last.plancks),
         unit: ' CMN',
-        extra: `era ${formatInteger(last.era)} · settled at #${formatInteger(last.settledAt)}`,
+        // Empty bars are the record, not a missing one: the sentence sits where it is read.
+        sub: allZero
+          ? `No CMN was paid out in any of these ${formatInteger(series.length)} eras: no agent did enough verified work to qualify.`
+          : '',
+        extra: `era ${formatInteger(last.era)} · settled at block #${formatInteger(last.settledAt)}`,
       });
       const summary =
-        `CMN issued at each era settlement, eras ${formatInteger(series[0].era)} to ${formatInteger(last.era)}: ` +
-        `the last, era ${formatInteger(last.era)}, issued ${formatCmn(last.plancks)} CMN` +
-        (series.every((e) => e.cmn === 0) ? '; every era shown issued none.' : '.');
-      strip.draw(
-        (frame, svg, g) => {
-          drawBars(frame, svg, g, series, {
-            value: (e) => e.cmn,
-            isLast: (e) => e === last,
-            leftLabel: `era ${formatInteger(series[0].era)}`,
-            rightLabel: `era ${formatInteger(last.era)}`,
-          });
-          if (series.every((e) => e.cmn === 0)) {
-            // Empty bars are the record, not a missing one: say so on the plate.
-            svg.append(label(frame.left + 3, frame.top + 8, '0 CMN in every era shown', 'start', 'plot-label plot-note'));
-          }
-          return summary;
-        },
-        { dataKey: series.map((e) => `${e.era}=${e.plancks}`).join(',') },
-      );
+        `CMN paid out at the close of each era, eras ${formatInteger(series[0].era)} to ${formatInteger(last.era)}: ` +
+        `the last, era ${formatInteger(last.era)}, paid ${formatCmn(last.plancks)} CMN` +
+        (allZero ? '; every era shown paid none.' : '.');
+      strip.draw((frame, svg, g) => {
+        drawBars(frame, svg, g, series, {
+          value: (e) => e.cmn,
+          isLast: (e) => e === last,
+          leftLabel: `era ${formatInteger(series[0].era)}`,
+          rightLabel: `era ${formatInteger(last.era)}`,
+        });
+        return summary;
+      });
     });
   }
 
@@ -504,12 +600,14 @@ export function init(root, ctx) {
     const y = scaleLinear().domain([0, yCeiling(entries.map(value))]).range([frame.bottom, frame.top]);
     entries.forEach((entry, i) => {
       const v = value(entry);
-      const top = y(v);
+      let height = Math.max(0, frame.bottom - y(v));
+      // The open era's outline is always drawn, so "in progress" has a mark as well as a label.
+      if (entry.open) height = openBarHeight(height);
       const classes = ['plot-bar', isLast(entry) ? 'is-last' : '', entry.open ? 'is-open' : ''].filter(Boolean).join(' ');
       g.append(
         el(
           'rect',
-          { x: fix(x(i)), y: fix(top), width: fix(x.bandwidth()), height: fix(Math.max(0, frame.bottom - top)) },
+          { x: fix(x(i)), y: fix(frame.bottom - height), width: fix(x.bandwidth()), height: fix(height) },
           classes,
         ),
       );
@@ -525,47 +623,55 @@ export function init(root, ctx) {
   function showAgents() {
     const strip = strips.agents;
     const { registrations, unstakes, agents, eras } = records;
-    show(strip, [registrations, unstakes, agents, eras], (data, record) => {
-      if (!record.complete) {
-        throw new Error('the index holds more registrations than this page fetched');
-      }
-      if (!unstakes.complete) {
-        throw new Error(`${unstakes.label}: the index holds more departures than this page fetched`);
-      }
-      const agentsField = readerOf(agents);
-      const erasField = readerOf(eras);
-      const unstakesField = readerOf(unstakes);
-      if (agentsField(agents.data, 'truncated') === true) {
-        throw new Error(`${agents.label}: the agent list was cut short, so the total is not exact`);
-      }
-      const totalNow = agentsField(agents.data, 'total');
-      const indexFrom = erasField(eras.data, 'settledHistoryFrom');
-      const current = erasField(eras.data, 'items').find((item) => erasField(item, 'settled') === false);
-      // The newest block the eras record knows: where the series ends, labelled "now".
-      const nowBlock = current ? erasField(current, 'startBlock') + erasField(current, 'blocksElapsed') : null;
-      const series = agentSteps({
-        registrations: record.items.map((item) => ctx.field(item, 'blockNumber')),
-        unstakes: unstakes.items.map((item) => unstakesField(item, 'blockNumber')),
-        totalNow,
-        indexFrom,
-        nowBlock,
-      });
-      const left = `#${formatInteger(series.start)}`;
-      const departures = series.unstakes === 0 ? 'none has left' : `${formatInteger(series.unstakes)} left`;
-      ctx.readout.showValue(strip.target, record, {
-        value: totalNow,
-        unit: totalNow === 1 ? ' agent' : ' agents',
-        motion: ctx.motion,
-        extra:
-          `${formatInteger(series.registrations)} registration${series.registrations === 1 ? '' : 's'} since block ${left} (start of the index); ` +
-          `${formatInteger(series.baseline)} agent${series.baseline === 1 ? '' : 's'} predate it; ${departures} · total from ${agents.label}`,
-      });
-      const summary =
-        `Registered agents over time, from block ${formatInteger(series.start)}, the start of the index, to now: ` +
-        `${formatInteger(series.baseline)} at the start, ${formatInteger(totalNow)} now, after ${formatInteger(series.registrations)} ` +
-        `registration${series.registrations === 1 ? '' : 's'} and ${formatInteger(series.unstakes)} departure${series.unstakes === 1 ? '' : 's'}.`;
-      strip.draw(
-        (frame, svg, g) => {
+    // The figure shown is the agent list's total, so that record is the
+    // provenance (and the raw bytes behind the number); the events that
+    // shape the line are named in the extra.
+    show(
+      strip,
+      [registrations, unstakes, agents, eras],
+      (data) => {
+        if (!registrations.complete) {
+          throw new Error(`${registrations.label}: the index holds more registrations than this page fetched`);
+        }
+        if (!unstakes.complete) {
+          throw new Error(`${unstakes.label}: the index holds more departures than this page fetched`);
+        }
+        const erasField = readerOf(eras);
+        const eventsField = readerOf(registrations);
+        const unstakesField = readerOf(unstakes);
+        if (ctx.field(data, 'truncated') === true) {
+          throw new Error('the agent list was cut short, so the total is not exact');
+        }
+        const totalNow = ctx.field(data, 'total');
+        const indexFrom = erasField(eras.data, 'settledHistoryFrom');
+        const { before } = agentsBefore(ctx.field(data, 'items'), ctx.field, indexFrom, totalNow);
+        const current = erasField(eras.data, 'items').find((item) => erasField(item, 'settled') === false);
+        // The newest block the eras record knows: where the series ends, labelled "now".
+        const nowBlock = current ? erasField(current, 'startBlock') + erasField(current, 'blocksElapsed') : null;
+        const series = agentSteps({
+          registrations: registrations.items.map((item) => eventsField(item, 'blockNumber')),
+          unstakes: unstakes.items.map((item) => unstakesField(item, 'blockNumber')),
+          totalNow,
+          before,
+          indexFrom,
+          nowBlock,
+        });
+        const left = `#${formatInteger(series.start)}`;
+        const departures = series.unstakes === 0 ? 'none has left' : `${formatInteger(series.unstakes)} left`;
+        ctx.readout.showValue(strip.target, agents, {
+          value: totalNow,
+          unit: totalNow === 1 ? ' agent' : ' agents',
+          motion: ctx.motion,
+          extra:
+            `${plural(series.registrations, 'registration')} since block ${left}, where this site's record begins; ` +
+            `${plural(series.baseline, 'agent')} joined before that; ${departures} · registrations from ${registrations.label}`,
+        });
+        const summary =
+          `Registered agents over time, from block ${formatInteger(series.start)}, where this site's record begins, to now: ` +
+          `${formatInteger(series.baseline)} at the start, ${formatInteger(totalNow)} now, after ${plural(series.registrations, 'registration')} ` +
+          `and ${plural(series.unstakes, 'departure')}.`;
+        const note = `${formatInteger(series.baseline)} joined before this record`;
+        strip.draw((frame, svg, g) => {
           const points = series.points;
           const lastBlock = points[points.length - 1].block;
           const x = scaleLinear().domain([series.start, Math.max(lastBlock, series.start + 1)]).range([frame.left, frame.right]);
@@ -586,15 +692,19 @@ export function init(root, ctx) {
           g.append(el('circle', { cx: fix(x(end.block)), cy: fix(y(end.count)), r: 2.5 }, 'plot-dot'));
           svg.append(label(frame.left, frame.height - 3, left));
           svg.append(label(frame.right, frame.height - 3, series.end === null ? `#${formatInteger(lastBlock)}` : 'now', 'end'));
-          // The series starts at the left and low, so the top-left corner is free for the baseline note.
-          svg.append(
-            label(frame.left + 3, frame.top + 8, `${formatInteger(series.baseline)} registered before the index`, 'start', 'plot-label plot-note'),
-          );
+          // The note goes where the step line is not: the highest count under
+          // the note's extent decides whether it sits at the top or the bottom.
+          const noteRight = frame.left + 3 + note.length * NOTE_CHAR_PX;
+          const under = points.filter((p, i) => x(p.block) <= noteRight || (i > 0 && x(points[i - 1].block) <= noteRight));
+          const topAtLeft = under.length ? y(max(under, (p) => p.count)) : NaN;
+          const bottomAtLeft = under.length ? y(min(under, (p) => p.count)) : NaN;
+          const at = notePosition(frame, topAtLeft, bottomAtLeft);
+          svg.append(label(at.x, at.y, note, 'start', 'plot-label plot-note'));
           return summary;
-        },
-        { dataKey: `${series.start}:${series.baseline}:${series.points.map((p) => `${p.block}=${p.count}`).join(',')}` },
-      );
-    });
+        });
+      },
+      { provenance: agents },
+    );
   }
 
   // ── data ──

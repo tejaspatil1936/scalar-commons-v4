@@ -5,6 +5,12 @@
   cursor: default;
 }
 
+/* On a phone's plate the tip cannot sit beside a point; it goes below or
+   above it and never wider than the plate. */
+.constellation-tip {
+  max-width: min(16rem, calc(100% - 8px));
+}
+
 .constellation-tip strong,
 .constellation-tip span {
   display: block;

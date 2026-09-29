@@ -12,12 +12,15 @@
 // from the agents.SlashExecuted events since the era's first block, and —
 // once runtime 309 is in force — from the messages.MessageSent events.
 //
-// Motion: the force layout settles once when the graph first appears (a
-// bounded run: d3-force stops itself as alpha decays) and is reheated only
-// when agents join or leave. A new line draws itself in from buyer to
-// provider over 400 ms, a line whose status became disputed pulses once, a
-// line that has gone fades out over 400 ms. Nothing else moves, and under
-// prefers-reduced-motion the layout is computed synchronously and drawn once.
+// Motion: the force layout settles once when the graph first appears — after
+// the agent list AND the two line sources have reported, or 1.5 s after the
+// agent list if they are slow — as a bounded run (d3-force stops itself as
+// alpha decays). It settles fully again when a line source first arrives
+// late, and is reheated gently when points or lines join or leave. A new
+// line draws itself in from buyer to provider over 400 ms, a line whose
+// status became disputed pulses once, a line that has gone fades out over
+// 400 ms. Nothing else moves; under prefers-reduced-motion every layout is
+// computed synchronously to rest and drawn once.
 
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY } from 'd3-force';
 
@@ -30,9 +33,9 @@ const SLASHES_INTERVAL_MS = 30_000;
 const STATUS_INTERVAL_MS = 6_000;
 const MESSAGES_INTERVAL_MS = 30_000;
 
-const AGENT_PAGES = 3; // 3 × 200: the indexer's live scan stops at 512 anyway
+const AGENT_PAGES = 3; // 3 × the indexer's page size: its live scan stops at 512 anyway
 const ESCROW_PAGES = 3;
-const SETTLED_PAGES = 2; // the most recent 400 settled agreements at most
+const SETTLED_PAGES = 2; // the most recent two pages of settled agreements
 
 /** Labels beside the points need this much viewport and no more than this many points. */
 export const LABEL_MIN_VIEWPORT_REM = 64;
@@ -40,6 +43,8 @@ export const LABEL_MAX_NODES = 120;
 /** Above this many points, the ones with no line are faded back. */
 export const FADE_ISOLATED_ABOVE = 300;
 export const ISOLATED_ALPHA = 0.35;
+/** A plate label never runs longer than this; the full name lives in the tooltip and the list. */
+export const LABEL_MAX_CHARS = 18;
 
 const HIT_RADIUS = 14; // px around a point that counts as pointing at it
 const KEY_ROW = 18; // px per row of the key strip along the plate's foot
@@ -47,7 +52,7 @@ const KEY_PAD = 8;
 /** Beyond this many lines of one state between the same two agents, the rest is a count. */
 export const BUNDLE_CAP = 6;
 const STATE_ORDER = { disputed: 0, open: 1, settled: 2 };
-const SETTLE_TICKS = 300; // synchronous layout under reduced motion
+const MAX_SYNC_TICKS = 600; // a synchronous layout (reduced motion) never runs longer than this
 const REHEAT_ALPHA = 0.3;
 const LINK_DISTANCE = 70;
 const CHARGE = -90;
@@ -55,6 +60,8 @@ const BOUNDS_PULL = 0.04;
 const DRAW_IN_MS = 400;
 const PULSE_MS = 600;
 const FADE_MS = 400;
+const FIRST_LAYOUT_GRACE_MS = 1_500; // how long the first layout waits for the line sources
+const CROWDED_LINE_ALPHA = 0.55; // settled lines step back only when the plate is crowded
 
 // ── pure model ───────────────────────────────────────────────────────────────
 
@@ -149,6 +156,22 @@ export function synthesizeNodes(agents, edges, { listComplete = true } = {}) {
 }
 
 /**
+ * How many lines touch one account, counted from the line map: all of them,
+ * only the open ones (open or disputed), or only the ones actually drawn
+ * (a bundle beyond its cap hides the rest behind a count).
+ */
+export function linesAt(edges, id, { open = false, drawnOnly = false } = {}) {
+  let n = 0;
+  for (const edge of edges.values()) {
+    if (edge.buyer !== id && edge.provider !== id) continue;
+    if (open && edge.state === 'settled') continue;
+    if (drawnOnly && edge.hidden) continue;
+    n += 1;
+  }
+  return n;
+}
+
+/**
  * Point radius by the square root of stake: area is proportional to stake,
  * which is how the eye reads "twice as much". Range 3–11 px, times the
  * crowding factor.
@@ -167,6 +190,29 @@ export function labelPolicy(viewportPx, nodeCount, remPx = 16) {
   const radiusFactor = nodeCount <= LABEL_MAX_NODES ? 1 : nodeCount <= FADE_ISOLATED_ABOVE ? 0.7 : 0.5;
   const isolatedAlpha = nodeCount > FADE_ISOLATED_ABOVE ? ISOLATED_ALPHA : 1;
   return { labels, radiusFactor, isolatedAlpha };
+}
+
+/**
+ * The text beside a point: the agent's own name when it gave one, cut to
+ * LABEL_MAX_CHARS with an ellipsis so a long name cannot sweep across its
+ * neighbours; otherwise the short address.
+ */
+export function labelText(name, address, max = LABEL_MAX_CHARS) {
+  if (name) return name.length > max ? `${name.slice(0, max - 1)}…` : name;
+  const s = String(address);
+  return s.length <= 12 ? s : `${s.slice(0, 4)}…${s.slice(-4)}`;
+}
+
+/** Axis-aligned rectangles {x, y, w, h}: do they overlap? */
+export function overlaps(a, b) {
+  return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+}
+
+/** Does a rectangle touch a circle? (Closest-point test.) */
+export function rectTouchesCircle(rect, cx, cy, r) {
+  const nx = Math.max(rect.x, Math.min(cx, rect.x + rect.w));
+  const ny = Math.max(rect.y, Math.min(cy, rect.y + rect.h));
+  return (nx - cx) ** 2 + (ny - cy) ** 2 < r * r;
 }
 
 /**
@@ -212,10 +258,22 @@ export function forceScale(width, height) {
   return Math.max(0.4, Math.min(1, Math.min(width, height) / 560));
 }
 
-/** The one-sentence summary the canvas carries for screen readers. */
-export function summaryText({ agents, open, disputed, settled }) {
+/**
+ * The one-sentence summary the canvas carries for screen readers. A count
+ * that cannot be given is said so: `null` is a source that could not be read,
+ * `undefined` one not read yet. The agent count is a floor when the list was
+ * cut short.
+ */
+export function summaryText({ agents, agentsFloor = false, open, disputed, settled }) {
   const n = (v, one, many) => `${v} ${v === 1 ? one : many}`;
-  return `${n(agents, 'agent', 'agents')}, ${n(open, 'open agreement', 'open agreements')}, ${disputed} disputed, ${settled} recently settled`;
+  const parts = [`${agentsFloor ? 'at least ' : ''}${n(agents, 'agent', 'agents')}`];
+  if (open === null) parts.push('open agreements unavailable');
+  else if (open === undefined) parts.push('open agreements not yet read');
+  else parts.push(n(open, 'open agreement', 'open agreements'), `${disputed} disputed`);
+  if (settled === null) parts.push('recently settled agreements unavailable');
+  else if (settled === undefined) parts.push('recently settled agreements not yet read');
+  else parts.push(`${settled} recently settled`);
+  return `Agent constellation: ${parts.join(', ')}.`;
 }
 
 /** A deterministic angle from an address, so a new point lands in a stable place. */
@@ -228,7 +286,6 @@ export function seedAngle(address) {
 // ── the instrument ───────────────────────────────────────────────────────────
 
 export function init(root, ctx) {
-  const host = root.querySelector('.constellation-host');
   const canvas = root.querySelector('.constellation-canvas');
   const tip = root.querySelector('.constellation-tip');
   const list = root.querySelector('.agent-list');
@@ -245,13 +302,14 @@ export function init(root, ctx) {
 
   // ── source state ──
   let agentsList = null; // plain agent rows, or null while unread / unreadable
+  let agentsTotal = 0; // the indexer's own count, shown in the reading
   let agentsComplete = true;
   let agentsTruncated = false;
   let openList = null;
   let settledList = null;
   let settledComplete = true;
   const failures = { agents: null, open: null, settled: null };
-  const seen = { agents: false, open: false, settled: false };
+  const seen = { open: false, settled: false }; // a line source has reported at least once
 
   // ── graph state ──
   const nodes = new Map(); // address -> point (persistent objects: d3 mutates x/y)
@@ -261,11 +319,13 @@ export function init(root, ctx) {
   let maxStakePlancks = 0n;
   let maxStakeCmn = 0;
   let ghostCount = 0;
-  let laidOut = false;
+  let laidOut = false; // the first layout has run
+  let graceTimer = null; // the first layout's wait for the line sources
+  let graceElapsed = false;
   let hovered = null;
   let lastPointerType = 'mouse';
   let tapped = null;
-  let bundleLabels = []; // { a, b, offset, text } for capped bundles
+  let bundleLabels = []; // { a, b, offset, text, short } for capped bundles
 
   const box = ctx.fitCanvas(canvas, onResize);
 
@@ -362,13 +422,25 @@ export function init(root, ctx) {
     }
   }
 
+  const listComplete = () => agentsComplete && !agentsTruncated;
+  const linesReported = () => (openList !== null || Boolean(failures.open)) && (settledList !== null || Boolean(failures.settled));
+
   function rebuild() {
-    const agents = failures.agents ? [] : agentsList ?? [];
+    // Nothing is built on the strength of an unread agent list: until it
+    // arrives, no party can be called "no longer registered".
+    if (agentsList === null && !failures.agents) {
+      describe();
+      renderList();
+      renderNote();
+      draw();
+      return;
+    }
+    const agents = failures.agents ? [] : agentsList;
     const open = failures.open ? [] : openList ?? [];
     const settled = failures.settled ? [] : settledList ?? [];
     const built = failures.agents ? { edges: new Map(), settledShown: 0 } : buildEdges(open, settled);
     settledShown = built.settledShown;
-    const nextNodes = synthesizeNodes(agents, built.edges, { listComplete: agentsComplete && !agentsTruncated });
+    const nextNodes = synthesizeNodes(agents, built.edges, { listComplete: listComplete() });
 
     // Points: keep the objects d3 already positions; add and drop the rest.
     let nodesAdded = 0;
@@ -403,13 +475,15 @@ export function init(root, ctx) {
     aimForces(); // the key strip's height and the collide radii follow the data
     for (const node of nodes.values()) if (!Number.isFinite(node.x)) placeNew(node);
 
-    // Lines: diff, keep persisting objects, animate the changes.
+    // Lines: diff, keep persisting objects, animate the changes. A line from
+    // a source reporting for the first time is drawn whole, not drawn in.
+    const firstLines = (openList !== null && !seen.open) || (settledList !== null && !seen.settled);
     const diff = diffEdges(edges, built.edges);
     for (const [key, data] of built.edges) {
       const existing = edges.get(key);
       if (existing) Object.assign(existing, data, { source: nodes.get(data.buyer), target: nodes.get(data.provider) });
       else {
-        const fresh = seen[data.state === 'settled' ? 'settled' : 'open'];
+        const fresh = seen[data.state === 'settled' ? 'settled' : 'open'] && laidOut;
         edges.set(key, {
           ...data,
           source: nodes.get(data.buyer),
@@ -434,12 +508,24 @@ export function init(root, ctx) {
     simulation.nodes([...nodes.values()]);
     simulation.force('link').links([...edges.values()]);
 
-    const nodesChanged = nodesAdded > 0 || nodesRemoved > 0;
-    if (!laidOut && nodes.size > 0) {
-      laidOut = true;
-      settle(1);
-    } else if (nodesChanged) {
-      settle(REHEAT_ALPHA);
+    // Layout. The first one waits for the line sources (or a short grace),
+    // so points are placed with their lines; a line source arriving late
+    // re-settles fully; later joins and departures reheat gently.
+    const structural = nodesAdded > 0 || nodesRemoved > 0 || diff.added.length > 0 || diff.removed.length > 0;
+    if (!laidOut) {
+      if (nodes.size > 0 && (linesReported() || graceElapsed)) {
+        clearGrace();
+        laidOut = true;
+        settle(1);
+      } else if (nodes.size > 0 && !graceTimer) {
+        graceTimer = setTimeout(() => {
+          graceTimer = null;
+          graceElapsed = true;
+          rebuild();
+        }, FIRST_LAYOUT_GRACE_MS);
+      }
+    } else if (structural) {
+      settle(firstLines ? 1 : REHEAT_ALPHA);
     }
 
     const arriving = [...edges.values()].filter((e) => e.progress === 0);
@@ -463,11 +549,21 @@ export function init(root, ctx) {
         draw();
       }, { done: () => { fading = fading.filter((e) => !leaving.includes(e)); draw(); } });
     }
+
+    // The pointed-at agent: gone with the data, or refreshed with it.
+    if (hovered && !nodes.has(hovered.id)) setHovered(null);
+    else if (hovered) showTip(hovered);
+
     if (!arriving.length && !pulsing.length && !leaving.length) draw();
 
     describe();
     renderList();
     renderNote();
+  }
+
+  function clearGrace() {
+    if (graceTimer) clearTimeout(graceTimer);
+    graceTimer = null;
   }
 
   /** Orders the lines of each pair so parallel agreements fan out as arcs. */
@@ -504,12 +600,21 @@ export function init(root, ctx) {
     }
   }
 
-  /** Runs the layout: its own bounded timer, or synchronously under reduced motion. */
+  /**
+   * Runs the layout from `alpha`: its own bounded timer (d3 stops it when
+   * alpha decays past alphaMin), or synchronously to rest under reduced
+   * motion or in a hidden tab, so nothing is left to animate later.
+   */
   function settle(alpha) {
-    simulation.alpha(alpha);
+    simulation.alpha(Math.max(alpha, simulation.alpha()));
     if (ctx.motion.reduced() || document.hidden) {
       simulation.stop();
-      simulation.tick(alpha >= 1 ? SETTLE_TICKS : Math.round(SETTLE_TICKS / 3));
+      let ticks = 0;
+      while (simulation.alpha() > simulation.alphaMin() && ticks < MAX_SYNC_TICKS) {
+        simulation.tick();
+        ticks += 1;
+      }
+      simulation.alpha(0);
       clampToPlate();
       draw();
       return;
@@ -519,7 +624,7 @@ export function init(root, ctx) {
 
   ctx.bus.on('visibility', ({ hidden }) => {
     if (hidden) simulation.stop();
-    else if (simulation.alpha() > simulation.alphaMin()) simulation.restart();
+    else if (simulation.alpha() > simulation.alphaMin()) settle(simulation.alpha());
   });
   ctx.bus.on('theme', () => draw());
 
@@ -555,22 +660,24 @@ export function init(root, ctx) {
     g.quadraticCurveTo(c1x, c1y, px, py);
   }
 
-  function drawEdge(g, edge, isolatedAlpha) {
+  function drawEdge(g, edge, isolatedAlpha, crowded) {
     if (!edge.source || !edge.target || edge.hidden) return;
     const state = edge.state;
     g.strokeStyle = edgeColour(edge);
     let alpha = edge.alpha;
     let width = 1;
     if (state === 'settled') {
-      g.setLineDash([3, 4]);
-      alpha *= 0.55;
+      // Full colour: the hierarchy settled < open < disputed is carried by
+      // the dash, the width and the colour; the plate steps settled lines
+      // back only when it is crowded.
+      g.setLineDash([4, 3]);
+      if (crowded) alpha *= CROWDED_LINE_ALPHA;
     } else if (state === 'disputed') {
       g.setLineDash([]);
       width = 2 + 3 * edge.pulse;
-      alpha *= 0.85 + 0.15 * edge.pulse;
     } else {
       g.setLineDash([]);
-      alpha *= 0.75;
+      alpha *= 0.9;
     }
     if (isolatedAlpha < 1 && (edge.source.degree <= 1 || edge.target.degree <= 1)) alpha *= 0.7;
     g.globalAlpha = Math.max(0, alpha);
@@ -625,7 +732,7 @@ export function init(root, ctx) {
       g.beginPath();
       g.arc(10.5, y, GHOST_RADIUS, 0, Math.PI * 2);
       g.stroke();
-      g.fillText(agentsComplete && !agentsTruncated ? 'no longer registered' : 'not among the agents listed', 20, y);
+      g.fillText(listComplete() ? 'no longer registered' : 'not among the agents listed', 20, y);
       y -= KEY_ROW;
     }
     if (maxStakePlancks > 0n) {
@@ -637,7 +744,10 @@ export function init(root, ctx) {
       g.fill();
       g.globalAlpha = 1;
       g.fillStyle = colour('text-dim');
-      g.fillText(`${formatCmn(maxStakePlancks.toString())} CMN staked`, Math.max(20, 12 + r + 6), y);
+      const x = Math.max(20, 12 + r + 6);
+      const scale = `this size = ${formatCmn(maxStakePlancks.toString())} CMN staked`;
+      const full = `${scale} · area grows with stake`;
+      g.fillText(x + g.measureText(full).width <= width - 4 ? full : scale, x, y);
     }
   }
 
@@ -659,6 +769,14 @@ export function init(root, ctx) {
     lines.forEach((line, i) => g.fillText(line, width / 2, height / 2 + (i - (lines.length - 1) / 2) * 16));
   }
 
+  /** Every point except `except`: does the rectangle sit on one of them? */
+  function rectOnAnyNode(rect, except) {
+    for (const node of nodes.values()) {
+      if (node !== except && rectTouchesCircle(rect, node.x, node.y, node.r + 1)) return true;
+    }
+    return false;
+  }
+
   function draw() {
     const { context: g, width, height } = box();
     const area = plate();
@@ -670,18 +788,21 @@ export function init(root, ctx) {
       return;
     }
     if (!laidOut) {
-      drawEmpty(g, width, height, [agentsList === null ? 'reading the agent list…' : 'no agents registered']);
+      drawEmpty(g, width, height, [
+        agentsList === null ? 'reading the agent list…' : nodes.size === 0 ? 'no agents registered' : 'reading the agreements…',
+      ]);
       if (agentsList !== null) drawKey(g, width, height);
       return;
     }
 
     const { labels, isolatedAlpha } = policy();
+    const crowded = nodes.size > LABEL_MAX_NODES;
     const font = ctx.theme.font('mono');
 
     // Lines, back to front: gone, settled, open, disputed.
-    for (const edge of fading) drawEdge(g, edge, isolatedAlpha);
+    for (const edge of fading) drawEdge(g, edge, isolatedAlpha, crowded);
     for (const state of ['settled', 'open', 'disputed']) {
-      for (const edge of edges.values()) if (edge.state === state) drawEdge(g, edge, isolatedAlpha);
+      for (const edge of edges.values()) if (edge.state === state) drawEdge(g, edge, isolatedAlpha, crowded);
     }
 
     // Points.
@@ -705,8 +826,11 @@ export function init(root, ctx) {
       g.globalAlpha = 1;
     }
 
-    // Bundle counts, where more lines join two agents than are drawn.
-    g.font = `400 10px ${font}`;
+    // Text is placed in one pass so nothing overprints: bundle counts first
+    // (they carry lines the plate does not draw), then the point labels,
+    // each yielding to whatever is already placed and to every point.
+    const placed = [];
+    g.font = `400 11px ${font}`;
     g.textBaseline = 'middle';
     g.textAlign = 'center';
     g.fillStyle = colour('text-dim');
@@ -715,30 +839,59 @@ export function init(root, ctx) {
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const len = Math.hypot(dx, dy) || 1;
-      const away = offset + Math.sign(offset || 1) * 8;
-      knockout(g, labels ? text : short, (a.x + b.x) / 2 - (dy / len) * away, (a.y + b.y) / 2 + (dx / len) * away);
+      const mx = (a.x + b.x) / 2;
+      const my = (a.y + b.y) / 2;
+      // Full text first (either side of the bundle, close then further out),
+      // the bare count only when no placement of the full text is clean.
+      const candidates = [];
+      for (const t of [text, short]) {
+        const w = g.measureText(t).width;
+        for (const gap of [9, 22]) {
+          for (const side of [1, -1]) {
+            const away = (offset + Math.sign(offset || 1) * gap) * side;
+            const x = mx - (dy / len) * away;
+            const y = my + (dx / len) * away;
+            candidates.push({ t, x, y, rect: { x: x - w / 2, y: y - 6.5, w, h: 13 } });
+          }
+        }
+      }
+      const fits = (c) =>
+        c.rect.x >= 0 && c.rect.x + c.rect.w <= area.width && !placed.some((p) => overlaps(c.rect, p)) && !rectOnAnyNode(c.rect, null);
+      // The count is load-bearing: when no placement is clean it is still written.
+      const chosen = candidates.find(fits) ?? candidates[0];
+      placed.push(chosen.rect);
+      knockout(g, chosen.t, chosen.x, chosen.y);
     }
 
-    // Labels: the busiest and largest first; one that would sit on another is left off
-    // (the point is still reachable by pointer and in the list).
+    // Point labels: the busiest and largest first; one that would sit on
+    // another label or another point is left off (the point is still
+    // reachable by pointer and in the list).
     if (labels) {
-      g.textAlign = 'left';
-      const placed = [];
+      g.font = `400 10px ${font}`;
       const ordered = [...nodes.values()].filter((n) => !n.ghost).sort((a, b) => b.degree - a.degree || b.r - a.r);
       for (const node of ordered) {
-        const text = node.name || shortAddress(node.id);
+        const text = labelText(node.name, node.id);
         const w = g.measureText(text).width;
-        const rect = { x: node.x + node.r + 4, y: node.y - 6, w, h: 12 };
-        if (rect.x + w > area.width) continue;
-        if (placed.some((p) => rect.x < p.x + p.w && p.x < rect.x + rect.w && rect.y < p.y + p.h && p.y < rect.y + rect.h)) continue;
-        placed.push(rect);
-        knockout(g, text, rect.x, node.y);
+        // To the right of the point, or to its left when the right is taken.
+        const sides = [
+          { align: 'left', rect: { x: node.x + node.r + 4, y: node.y - 6, w, h: 12 } },
+          { align: 'right', rect: { x: node.x - node.r - 4 - w, y: node.y - 6, w, h: 12 } },
+        ];
+        const side = sides.find(
+          ({ rect }) =>
+            rect.x >= 0 && rect.x + w <= area.width && !placed.some((p) => overlaps(rect, p)) && !rectOnAnyNode(rect, node),
+        );
+        if (!side) continue;
+        placed.push(side.rect);
+        g.textAlign = side.align;
+        knockout(g, text, side.align === 'left' ? side.rect.x : side.rect.x + w, node.y);
       }
     }
 
-    // The pointed-at agent.
+    // The pointed-at agent: a hairline ring in the text colour (an
+    // interaction state, not a live reading).
     if (hovered && nodes.has(hovered.id)) {
-      g.strokeStyle = colour('live');
+      g.strokeStyle = colour('text');
       g.lineWidth = 1;
       g.beginPath();
       g.arc(hovered.x, hovered.y, hovered.r + 4, 0, Math.PI * 2);
@@ -753,19 +906,26 @@ export function init(root, ctx) {
   function counts() {
     let open = 0;
     let disputed = 0;
-    let settled = 0;
     for (const edge of edges.values()) {
-      if (edge.state === 'settled') settled += 1;
-      else {
-        open += 1;
-        if (edge.state === 'disputed') disputed += 1;
-      }
+      if (edge.state === 'settled') continue;
+      open += 1;
+      if (edge.state === 'disputed') disputed += 1;
     }
-    return { agents: agentsList?.length ?? 0, open, disputed, settled };
+    return {
+      agents: agentsTotal,
+      agentsFloor: !listComplete(),
+      open: failures.open ? null : openList === null ? undefined : open,
+      disputed,
+      settled: failures.settled ? null : settledList === null ? undefined : settledShown,
+    };
   }
 
   function describe() {
-    canvas.setAttribute('aria-label', failures.agents ? `Agents unavailable: ${failures.agents}` : summaryText(counts()));
+    let label;
+    if (failures.agents) label = `Agent constellation: agents unavailable — ${failures.agents}.`;
+    else if (agentsList === null) label = 'Agent constellation: reading the agent list.';
+    else label = summaryText(counts());
+    canvas.setAttribute('aria-label', label);
   }
 
   function explorerLink(address) {
@@ -775,6 +935,18 @@ export function init(root, ctx) {
     a.rel = 'noopener';
     return a;
   }
+
+  /** "9 open here" from the open-agreement list, or why it cannot be said. */
+  function openHereText(id) {
+    if (failures.open) return 'open lines unavailable';
+    if (openList === null) return 'open lines not yet read';
+    const n = linesAt(edges, id, { open: true });
+    return `${formatInteger(n)} open here`;
+  }
+
+  /** The chain's own per-agent counters, which count the agent as provider only. */
+  const providerText = (agent) =>
+    `as provider: ${formatInteger(agent.activeEscrowCount)} open · ${formatInteger(agent.completedAgreements)} completed`;
 
   function renderList() {
     if (!list) return;
@@ -792,14 +964,14 @@ export function init(root, ctx) {
       a.textContent = agent.name ? `${agent.name} · ${shortAddress(agent.address)}` : shortAddress(agent.address);
       li.append(
         a,
-        ` · ${formatCmn(agent.stakePlancks)} CMN · ${formatInteger(agent.activeEscrowCount)} open · ${formatInteger(agent.completedAgreements)} completed${agent.leaving ? ' · leaving' : ''}`,
+        ` · ${formatCmn(agent.stakePlancks)} CMN · ${openHereText(agent.address)} · ${providerText(agent)}${agent.leaving ? ' · leaving' : ''}`,
       );
       list.append(li);
     }
     if (ghostCount > 0) {
       const li = document.createElement('li');
       li.className = 'dim';
-      li.textContent = `${ghostCount} ${ghostCount === 1 ? 'party' : 'parties'} to a drawn line ${agentsComplete && !agentsTruncated ? 'no longer registered' : 'not among the agents listed'}`;
+      li.textContent = `${ghostCount} ${ghostCount === 1 ? 'party' : 'parties'} to a drawn line ${listComplete() ? 'no longer registered' : 'not among the agents listed'}`;
       list.append(li);
     }
   }
@@ -810,15 +982,21 @@ export function init(root, ctx) {
     if (failures.settled) parts.push(`Settled lines could not be read: ${failures.settled}.`);
     else if (settledList !== null) {
       parts.push(
-        `Settled lines are the most recent DeliveryConfirmed events in the finalized-block index (${formatInteger(settledShown)} shown); older history is not drawn.`,
+        `Settled lines are the most recent DeliveryConfirmed events in the finalized-block index (${formatInteger(settledShown)} shown) — that is, the latest agreements the chain has confirmed as delivered and paid; older history is not drawn.`,
       );
     } else parts.push('Reading settled agreements from the finalized-block index…');
+    if (failures.open) parts.push(`Open agreements could not be read: ${failures.open}.`);
+    else if (openList === null) parts.push('Reading open agreements…');
     if (bundleLabels.length) {
       parts.push(`Where more than ${BUNDLE_CAP} lines of one kind join the same two agents, ${BUNDLE_CAP} are drawn and the count is written beside them.`);
     }
-    if (failures.open) parts.push(`Open agreements could not be read: ${failures.open}.`);
-    if (agentsTruncated || !agentsComplete) parts.push('The agent list was cut short at the indexer’s scan cap; agents beyond it are not drawn.');
-    if (!settledComplete && !failures.settled) parts.push(`Only the newest ${SETTLED_PAGES * 200} settled agreements were read.`);
+    if (agentsList !== null && !failures.agents) {
+      parts.push('On hover and in the list, “open here” counts an agent’s open lines from the open-agreement list; the “as provider” figures are the chain’s own counters, which count an agent only as provider.');
+    }
+    if (!listComplete()) parts.push('The agent list was cut short at the indexer’s scan cap; agents beyond it are not drawn.');
+    if (!settledComplete && !failures.settled && settledList !== null) {
+      parts.push(`Only the newest ${formatInteger(settledList.length)} settled agreements were read.`);
+    }
     note.textContent = parts.join(' ');
   }
 
@@ -831,11 +1009,13 @@ export function init(root, ctx) {
   function tipText(node) {
     const lines = [];
     if (node.ghost) {
-      lines.push([shortAddress(node.id), true], [node.reason, false], [`${node.degree} ${node.degree === 1 ? 'line' : 'lines'} drawn`, false]);
+      const drawn = linesAt(edges, node.id, { drawnOnly: true });
+      lines.push([shortAddress(node.id), true], [node.reason, false], [`${drawn} ${drawn === 1 ? 'line' : 'lines'} drawn`, false]);
     } else {
       lines.push([node.name ? `${node.name} · ${shortAddress(node.id)}` : shortAddress(node.id), true]);
       lines.push([`${formatCmn(node.stakePlancks)} CMN staked`, false]);
-      lines.push([`${formatInteger(node.activeEscrowCount)} open · ${formatInteger(node.completedAgreements)} completed`, false]);
+      lines.push([openHereText(node.id), false]);
+      lines.push([providerText(node), false]);
       if (node.leaving) lines.push(['leaving — unstake requested', false]);
       lines.push([lastPointerType === 'touch' ? 'tap again to open in the explorer' : 'click to open in the explorer', false]);
     }
@@ -859,10 +1039,23 @@ export function init(root, ctx) {
     const { width, height } = plate();
     const tw = tip.offsetWidth;
     const th = tip.offsetHeight;
-    let left = hovered.x + hovered.r + 10;
-    let top = hovered.y - th / 2;
-    if (left + tw > width - 4) left = hovered.x - hovered.r - 10 - tw;
-    if (left < 4) left = 4;
+    const right = hovered.x + hovered.r + 10;
+    const leftSide = hovered.x - hovered.r - 10 - tw;
+    let left;
+    let top;
+    if (right + tw <= width - 4) {
+      left = right;
+      top = hovered.y - th / 2;
+    } else if (leftSide >= 4) {
+      left = leftSide;
+      top = hovered.y - th / 2;
+    } else {
+      // Neither side fits (a phone's plate): below the point, or above it.
+      left = hovered.x - tw / 2;
+      top = hovered.y + hovered.r + 10;
+      if (top + th > height - 4) top = hovered.y - hovered.r - 10 - th;
+    }
+    left = Math.max(4, Math.min(width - tw - 4, left));
     top = Math.max(4, Math.min(height - th - 4, top));
     tip.style.left = `${Math.round(left)}px`;
     tip.style.top = `${Math.round(top)}px`;
@@ -892,54 +1085,68 @@ export function init(root, ctx) {
     const { x, y } = pointerToPlate(event);
     setHovered(simulation.find(x, y, HIT_RADIUS) ?? null);
   });
-  canvas.addEventListener('pointerleave', () => setHovered(null));
+  // A touch pointer "leaves" right after every tap, before the click lands;
+  // only a mouse or pen leaving the plate clears the pointed-at point.
+  canvas.addEventListener('pointerleave', (event) => {
+    if (event.pointerType !== 'touch') setHovered(null);
+  });
   canvas.addEventListener('click', (event) => {
     if (!laidOut) return;
     const { x, y } = pointerToPlate(event);
     const node = simulation.find(x, y, HIT_RADIUS) ?? null;
-    if (lastPointerType === 'touch') {
-      // First tap shows; a second tap on the same point opens.
-      if (node !== tapped) {
-        tapped = node;
-        setHovered(node);
-        if (node) showTip(node);
-        return;
-      }
+    if (!node) {
+      setHovered(null);
+      return;
     }
-    if (node && !node.ghost) window.open(`${ctx.EXPLORER_ORIGIN}/account/${node.id}`, '_blank', 'noopener');
+    if (lastPointerType === 'touch' && tapped?.id !== node.id) {
+      // First tap shows; a second tap on the same point opens.
+      tapped = node;
+      setHovered(node);
+      showTip(node);
+      return;
+    }
+    if (!node.ghost) window.open(`${ctx.EXPLORER_ORIGIN}/account/${node.id}`, '_blank', 'noopener');
   });
 
   // ── data ──
   ctx.watchAll(
     'agents',
     (record) => {
+      let failed = null; // the exact reason, when a field is missing
       const ok = ctx.readout.apply(targets.agents, record, (data) => {
-        agentsTruncated = ctx.field(data, 'truncated');
-        const total = ctx.field(data, 'total');
-        const rows = record.items.map((item) => ({
-          address: ctx.field(item, 'address'),
-          stakePlancks: ctx.field(item, 'stakePlancks'),
-          completedAgreements: ctx.field(item, 'completedAgreements'),
-          activeEscrowCount: ctx.field(item, 'activeEscrowCount'),
-          // Both are documented as nullable: null is "none", not a missing field.
-          name: item.metadata === null ? null : ctx.field(item, 'metadata.name'),
-          leaving: item.unstakeAtBlock === null ? false : Number.isFinite(ctx.field(item, 'unstakeAtBlock')),
-        }));
-        agentsComplete = record.complete;
-        agentsList = rows;
-        failures.agents = null;
-        const floor = agentsTruncated || !record.complete;
-        ctx.readout.showValue(targets.agents, record, {
-          value: total,
-          prefix: floor ? '≥ ' : '',
-          extra: agentsTruncated ? 'live scan cut short at the indexer’s cap' : `${formatInteger(rows.length)} listed`,
-          motion: ctx.motion,
-        });
+        try {
+          agentsTruncated = ctx.field(data, 'truncated');
+          const total = ctx.field(data, 'total');
+          const rows = record.items.map((item) => ({
+            address: ctx.field(item, 'address'),
+            stakePlancks: ctx.field(item, 'stakePlancks'),
+            completedAgreements: ctx.field(item, 'completedAgreements'),
+            activeEscrowCount: ctx.field(item, 'activeEscrowCount'),
+            // Both are documented as nullable: null is "none", not a missing field.
+            name: item.metadata === null ? null : ctx.field(item, 'metadata.name'),
+            leaving: item.unstakeAtBlock === null ? false : Number.isFinite(ctx.field(item, 'unstakeAtBlock')),
+          }));
+          agentsComplete = record.complete;
+          agentsList = rows;
+          agentsTotal = total;
+          failures.agents = null;
+          const floor = agentsTruncated || !record.complete;
+          ctx.readout.showValue(targets.agents, record, {
+            value: total,
+            prefix: floor ? '≥ ' : '',
+            extra: agentsTruncated ? 'live scan cut short at the indexer’s cap' : `${formatInteger(rows.length)} listed`,
+            motion: ctx.motion,
+          });
+        } catch (error) {
+          failed = error.message;
+          throw error;
+        }
       });
       if (!ok) {
         agentsList = null;
-        failures.agents = record.ok ? 'a field was missing from the response' : record.error;
+        failures.agents = record.ok ? failed ?? 'a field was missing from the response' : record.error;
         laidOut = false;
+        clearGrace();
       }
       rebuild();
     },
@@ -1047,6 +1254,8 @@ export function init(root, ctx) {
       return;
     }
     ctx.readout.apply(targets.slashes, slashesRecord, (data, record) => {
+      // Every event must carry its block, or the count is not a count.
+      for (const item of record.items) ctx.field(item, 'blockNumber');
       const { count, reachedStart } = ctx.countSince(record.items, startBlock);
       ctx.readout.showValue(targets.slashes, record, {
         value: count,
@@ -1113,6 +1322,7 @@ export function init(root, ctx) {
     STATUS_INTERVAL_MS,
   );
 
+  describe();
   renderList();
   renderNote();
   draw();

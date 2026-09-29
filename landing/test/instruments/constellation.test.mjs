@@ -12,6 +12,7 @@ import {
   FADE_ISOLATED_ABOVE,
   GHOST_RADIUS,
   ISOLATED_ALPHA,
+  LABEL_MAX_CHARS,
   LABEL_MAX_NODES,
   buildEdges,
   bundleLayout,
@@ -19,9 +20,13 @@ import {
   edgeKey,
   forceScale,
   labelPolicy,
+  labelText,
+  linesAt,
   nodeRadius,
+  overlaps,
   pairKey,
   parallelOffset,
+  rectTouchesCircle,
   seedAngle,
   stateOf,
   summaryText,
@@ -175,9 +180,76 @@ test('parallel agreements fan out symmetrically and never wider than a band', ()
   assert.equal(parallelOffset(19, 20) - parallelOffset(18, 20), BUNDLE_MIN_SPACING, 'twenty close up to the minimum');
 });
 
-test('the screen-reader summary reads as a sentence', () => {
-  assert.equal(summaryText({ agents: 34, open: 36, disputed: 2, settled: 40 }), '34 agents, 36 open agreements, 2 disputed, 40 recently settled');
-  assert.equal(summaryText({ agents: 1, open: 1, disputed: 0, settled: 0 }), '1 agent, 1 open agreement, 0 disputed, 0 recently settled');
+test('the screen-reader summary reads as a sentence and says what it is', () => {
+  assert.equal(
+    summaryText({ agents: 34, open: 36, disputed: 2, settled: 40 }),
+    'Agent constellation: 34 agents, 36 open agreements, 2 disputed, 40 recently settled.',
+  );
+  assert.equal(
+    summaryText({ agents: 1, open: 1, disputed: 0, settled: 0 }),
+    'Agent constellation: 1 agent, 1 open agreement, 0 disputed, 0 recently settled.',
+  );
+});
+
+test('the summary carries the floor when the agent list was cut short', () => {
+  assert.equal(
+    summaryText({ agents: 512, agentsFloor: true, open: 36, disputed: 2, settled: 40 }),
+    'Agent constellation: at least 512 agents, 36 open agreements, 2 disputed, 40 recently settled.',
+  );
+});
+
+test('the summary never turns an unread or unreadable source into a zero', () => {
+  assert.equal(
+    summaryText({ agents: 34, open: null, disputed: 0, settled: 40 }),
+    'Agent constellation: 34 agents, open agreements unavailable, 40 recently settled.',
+  );
+  assert.equal(
+    summaryText({ agents: 34, open: undefined, disputed: 0, settled: undefined }),
+    'Agent constellation: 34 agents, open agreements not yet read, recently settled agreements not yet read.',
+  );
+  assert.equal(
+    summaryText({ agents: 34, open: 36, disputed: 2, settled: null }),
+    'Agent constellation: 34 agents, 36 open agreements, 2 disputed, recently settled agreements unavailable.',
+  );
+  assert.doesNotMatch(summaryText({ agents: 34, open: null, disputed: 0, settled: null }), /\b0 /);
+});
+
+test('linesAt counts an account’s lines from the line map: all, open only, or drawn only', () => {
+  const { edges } = buildEdges(
+    [open(A, B, 0), open(A, B, 1, 'Disputed'), open(C, A, 0)],
+    [settled(A, B, 5), settled(B, C, 3)],
+  );
+  assert.equal(linesAt(edges, A), 4);
+  assert.equal(linesAt(edges, A, { open: true }), 3, 'a buyer’s open lines count — the chain’s counter would say 0');
+  assert.equal(linesAt(edges, B, { open: true }), 2);
+  assert.equal(linesAt(edges, C, { open: true }), 1);
+  assert.equal(linesAt(edges, D, { open: true }), 0);
+  edges.get(edgeKey(A, B, 5)).hidden = true;
+  assert.equal(linesAt(edges, A, { drawnOnly: true }), 3, 'a line hidden behind a bundle count is not "drawn"');
+  assert.equal(linesAt(edges, A), 4, 'but it is still a line');
+});
+
+test('labelText prefers a name, cuts a long one with an ellipsis, and falls back to the short address', () => {
+  assert.equal(labelText(null, A), '5FHn…94ty');
+  assert.equal(labelText('', A), '5FHn…94ty');
+  assert.equal(labelText('operator', A), 'operator');
+  const long = 'operator-reference-agent-with-a-long-name';
+  const cut = labelText(long, A);
+  assert.equal(cut.length, LABEL_MAX_CHARS);
+  assert.ok(cut.endsWith('…'));
+  assert.equal(cut, `${long.slice(0, LABEL_MAX_CHARS - 1)}…`);
+  assert.equal(labelText('x'.repeat(LABEL_MAX_CHARS), A), 'x'.repeat(LABEL_MAX_CHARS), 'exactly the limit is kept whole');
+});
+
+test('label placement geometry: rectangles overlap, and a rectangle on a point is caught', () => {
+  const a = { x: 0, y: 0, w: 10, h: 10 };
+  assert.ok(overlaps(a, { x: 9, y: 9, w: 5, h: 5 }));
+  assert.ok(!overlaps(a, { x: 10, y: 0, w: 5, h: 5 }), 'touching edges do not overlap');
+  assert.ok(!overlaps(a, { x: 0, y: 11, w: 5, h: 5 }));
+  assert.ok(rectTouchesCircle({ x: 10, y: -6, w: 40, h: 12 }, 12, 0, 4), 'a label starting inside a point');
+  assert.ok(!rectTouchesCircle({ x: 10, y: -6, w: 40, h: 12 }, 0, 0, 4), 'a label beside its own point');
+  assert.ok(rectTouchesCircle({ x: 0, y: 0, w: 10, h: 10 }, 12, 5, 3), 'a point clipping a corner');
+  assert.ok(!rectTouchesCircle({ x: 0, y: 0, w: 10, h: 10 }, 14, 5, 3));
 });
 
 test('a new point lands at a stable angle for its address', () => {

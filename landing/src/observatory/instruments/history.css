@@ -1,8 +1,33 @@
-/* 05 · history strips — the marks the design system's .plot-* rules do not
-   cover: the "so far" bar of the era in progress, the tick under each bar
-   and the small notes inside a plot. Tokens only. */
+/* 05 · history strips — what the design system's .plot-* rules do not cover,
+   and where this instrument departs from them. Tokens only.
 
-/* The era in progress: an outline, not a filled bar, since its count is not final. */
+   Everything in these strips is history, polled once a minute: none of it is
+   live data, so none of it takes the live accent. Emphasis is by ink weight. */
+
+/* The last settled bar and the end dot: full ink, not the live accent. */
+.strip-plot .plot-bar.is-last {
+  fill: var(--text);
+}
+
+.strip-plot .plot-dot {
+  fill: var(--text);
+}
+
+/* The figure under a strip is a historical reading: no glow. */
+.strip .reading-value.is-live .digits {
+  text-shadow: none;
+}
+
+/* Baselines and the 6 s target must be readable as marks (3:1 against the plate). */
+.strip-plot .plot-axis {
+  stroke: var(--text-dim);
+}
+
+.strip-plot .plot-tick {
+  stroke: var(--text-dim);
+}
+
+/* The era still open: an outline, not a filled bar, since its count is not final. */
 .strip-plot .plot-bar.is-open {
   fill: var(--grid);
   stroke: var(--text-dim);
@@ -10,15 +35,17 @@
   stroke-dasharray: 2 2;
 }
 
-.strip-plot .plot-tick {
-  stroke: var(--text-dim);
-}
-
+/* End labels and notes: the same 11 px as the provenance line, never smaller. */
 .strip-plot .plot-label {
+  font-size: 0.6875rem;
   font-variant-numeric: tabular-nums lining-nums;
 }
 
+/* A note inside a plot keeps legible where a line crosses it: a plate-coloured halo of ink, not a shadow. */
 .strip-plot .plot-note {
-  font-size: 0.5625rem;
   letter-spacing: 0.02em;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+  stroke-linejoin: round;
 }

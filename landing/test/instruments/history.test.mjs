@@ -1,28 +1,36 @@
 // Unit tests for the history strips' pure helpers: block intervals with
-// missing timestamps, era bucketing against real boundaries (including the
-// rule that drops eras the fetched events do not reach), the cumulative
-// agent series with its baseline, the emission series and CMN scaling, and
-// the plot frame.
+// missing timestamps (kept as breaks, never bridged), era bucketing against
+// real boundaries (including the rule that drops eras the fetched events do
+// not reach, at the boundary), the cumulative agent series with a baseline
+// from the agent list that must reconcile, the emission series and CMN
+// scaling, and the plot geometry.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { scaleLinear } from 'd3-scale';
 
 import {
   NOMINAL_BLOCK_S,
   ERAS_SHOWN,
   blockIntervals,
   intervalStats,
+  intervalLine,
+  intervalArea,
+  contiguousRun,
   eraSpans,
   bucketByEra,
   emissionSeries,
+  agentsBefore,
   agentSteps,
   plotFrame,
   yCeiling,
+  notePosition,
+  openBarHeight,
 } from '../../src/observatory/instruments/history.js';
 import { field } from '../../src/observatory/data.js';
 import { cmnNumber, formatCmn } from '../../src/observatory/format.js';
 
 // The live shape of /v1/eras?limit=14 on 2026-09-29: the era in progress,
-// then thirteen settled ones newest first (68 carried a non-zero weight).
+// then thirteen settled ones newest first.
 const ERAS = [
   { era: 80, settled: false, totalEmissionPlancks: null, settledAtBlock: null, startBlock: 820862, durationBlocks: 3600, blocksElapsed: 14 },
   { era: 79, settled: true, totalEmissionPlancks: '0', settledAtBlock: 820862, startBlock: null },
@@ -51,6 +59,8 @@ function blocksPage(last, count, { at = {}, missing = [] } = {}) {
   return items;
 }
 
+const measured = (series) => series.points.filter((p) => Number.isFinite(p.seconds));
+
 test('block intervals run oldest to newest, one per consecutive pair', () => {
   const page = blocksPage(820881, 200);
   const series = blockIntervals(page, field);
@@ -64,33 +74,60 @@ test('block intervals run oldest to newest, one per consecutive pair', () => {
   assert.ok(series.points.every((p) => p.seconds === 6));
 });
 
-test('a block with no timestamp drops both pairs it belongs to, never a guessed gap', () => {
+test('a block with no timestamp leaves both its pairs as breaks, never a guessed gap', () => {
   const page = blocksPage(1000, 6, { missing: [998] });
   const series = blockIntervals(page, field);
-  assert.equal(series.points.length, 3);
+  assert.equal(series.points.length, 5);
   assert.equal(series.skipped, 2);
   assert.deepEqual(
-    series.points.map((p) => p.number),
+    measured(series).map((p) => p.number),
     [996, 997, 1000],
   );
+  // The breaks keep their place in the series so the line can stop there.
+  assert.ok(Number.isNaN(series.points[2].seconds) && series.points[2].number === 998);
+  assert.ok(Number.isNaN(series.points[3].seconds) && series.points[3].number === 999);
   // A gap in the block numbers is not an interval either.
   const gap = blockIntervals([{ number: 10, timestampMs: 60_000 }, { number: 8, timestampMs: 48_000 }], field);
-  assert.equal(gap.points.length, 0);
+  assert.equal(measured(gap).length, 0);
   assert.equal(gap.skipped, 1);
 });
 
-test('a missing block number is a decode failure, not a zero', () => {
+test('a missing block number or a missing timestampMs key is a decode failure, not a skip', () => {
   assert.throws(() => blockIntervals([{ timestampMs: 1 }, { number: 1, timestampMs: 2 }], field), /response has no number/);
+  // A null timestamp is a skip; a key that is not there at all is a renamed field.
+  assert.throws(() => blockIntervals([{ number: 5 }, { number: 4 }], field), /response has no timestampMs/);
+  assert.throws(() => blockIntervals([{ number: 5, timestampMs: 1 }, { number: 4 }], field), /response has no timestampMs/);
+  assert.equal(blockIntervals([{ number: 5, timestampMs: null }, { number: 4, timestampMs: 1 }], field).skipped, 1);
 });
 
-test('interval stats: last, mean, min, max; null for an empty series', () => {
+test('the line and the area break at a skipped pair instead of bridging it', () => {
+  const page = blocksPage(100, 5, { missing: [98] }); // 96..100, 98 unknown
+  const series = blockIntervals(page, field);
+  const x = scaleLinear().domain([97, 100]).range([0, 300]);
+  const y = scaleLinear().domain([0, 12]).range([72, 6]);
+  const path = intervalLine(x, y)(series.points);
+  // Two sub-paths: 97 alone, then 100 alone — the pairs at 98 and 99 are not drawn.
+  assert.equal((path.match(/M/g) ?? []).length, 2);
+  assert.equal((intervalArea(x, y, 72)(series.points).match(/M/g) ?? []).length, 2);
+  // An unbroken series is one sub-path.
+  const whole = blockIntervals(blocksPage(100, 5), field);
+  assert.equal((intervalLine(x, y)(whole.points).match(/M/g) ?? []).length, 1);
+});
+
+test('interval stats: last, mean, min, max of the measured pairs; null for an empty series', () => {
   const page = blocksPage(100, 5, { at: { 100: 1_790_000_000_000 + 100 * 6_000 + 6_000 } });
   const stats = intervalStats(blockIntervals(page, field).points);
   assert.equal(stats.last, 12);
   assert.equal(stats.min, 6);
   assert.equal(stats.max, 12);
   assert.equal(stats.mean, 7.5);
+  assert.equal(stats.measured, 4);
   assert.equal(intervalStats([]), null);
+  assert.equal(intervalStats([{ number: 1, seconds: NaN }]), null);
+  // A break does not pull the mean.
+  const broken = intervalStats(blockIntervals(blocksPage(100, 5, { missing: [98] }), field).points);
+  assert.equal(broken.mean, 6);
+  assert.equal(broken.measured, 2);
 });
 
 test('era spans: settled era k runs from the settlement of k−1 to its own, twelve at most', () => {
@@ -111,6 +148,11 @@ test('era spans use only the contiguous run ending at the newest settled era', (
     whole.map((s) => s.era),
     [76, 77, 78, 79],
   );
+  assert.deepEqual(
+    contiguousRun([{ era: 1 }, { era: 2 }, { era: 4 }, { era: 5 }]).map((e) => e.era),
+    [4, 5],
+  );
+  assert.deepEqual(contiguousRun([]), []);
   // No settled era at all: nothing whole, and the open era still reported.
   const young = eraSpans([ERAS[0]], field);
   assert.deepEqual(young.whole, []);
@@ -119,7 +161,7 @@ test('era spans use only the contiguous run ending at the newest settled era', (
   assert.deepEqual(eraSpans(ERAS.slice(0, 2), field).whole, []);
 });
 
-test('bucketing counts each event into the era whose span holds it, with the era in progress "so far"', () => {
+test('bucketing counts each event into the era whose span holds it, with the era still open counted apart', () => {
   const { whole, open } = eraSpans(ERAS, field);
   const events = [
     { blockNumber: 820900 }, // era 80, in progress
@@ -172,6 +214,35 @@ test('bucketing drops the eras a short event list cannot fill, and says where hi
   assert.equal(none.open.count, 1);
 });
 
+test('at the boundary, an era that begins in the oldest fetched block is dropped: that block may hold more events past the cut', () => {
+  const spans = [
+    { era: 1, start: 100, end: 200 },
+    { era: 2, start: 200, end: 300 },
+  ];
+  const open = { era: 3, start: 300 };
+  const events = [{ blockNumber: 250 }, { blockNumber: 200 }];
+  const cut = bucketByEra(spans, open, events, { complete: false });
+  assert.deepEqual(cut.buckets, []);
+  assert.equal(cut.dropped, 2);
+  assert.equal(cut.historyFrom, 300);
+  // One block older on hand, and era 2 is whole.
+  const clear = bucketByEra(spans, open, [...events, { blockNumber: 199 }], { complete: false });
+  assert.deepEqual(
+    clear.buckets.map((b) => [b.era, b.count]),
+    [[2, 2]],
+  );
+  assert.equal(clear.dropped, 1);
+  // With the list complete the same block is a full boundary.
+  const whole = bucketByEra(spans, open, events, { complete: true });
+  assert.deepEqual(
+    whole.buckets.map((b) => [b.era, b.count]),
+    [
+      [1, 0],
+      [2, 2],
+    ],
+  );
+});
+
 test('emission series: settled eras oldest first, CMN as a number for the scale, plancks kept for the figure', () => {
   const series = emissionSeries(ERAS, field, cmnNumber);
   assert.equal(series.length, 12);
@@ -188,6 +259,16 @@ test('emission series: settled eras oldest first, CMN as a number for the scale,
   assert.equal(formatCmn(rich[0].plancks), '1,234,567');
 });
 
+test('emission series shortens at a hole in the eras page rather than drawing across it', () => {
+  const withGap = ERAS.filter((e) => e.era !== 74);
+  const series = emissionSeries(withGap, field, cmnNumber);
+  assert.deepEqual(
+    series.map((e) => e.era),
+    [75, 76, 77, 78, 79],
+  );
+  assert.deepEqual(emissionSeries([ERAS[0]], field, cmnNumber), []);
+});
+
 test('cmnNumber scales plancks to CMN for charts, keeping six decimals', () => {
   assert.equal(cmnNumber('0'), 0);
   assert.equal(cmnNumber('1000000000000'), 1);
@@ -195,9 +276,24 @@ test('cmnNumber scales plancks to CMN for charts, keeping six decimals', () => {
   assert.equal(cmnNumber('123456789012345678901234'), 123456789012.345678);
 });
 
-test('the agent series starts from a baseline of agents the index never saw register', () => {
+test('the agents registered before the index are counted from the agent list itself', () => {
+  const items = [
+    { registeredAtBlock: 0 },
+    { registeredAtBlock: 0 },
+    { registeredAtBlock: 496605 },
+    { registeredAtBlock: 496606 },
+    { registeredAtBlock: 719026 },
+  ];
+  assert.deepEqual(agentsBefore(items, field, 496606, 5), { before: 3, listed: 5 });
+  // A page that does not hold the whole list is not a count.
+  assert.throws(() => agentsBefore(items, field, 496606, 6), /holds 6 agents but only 5 were listed/);
+  // A missing field is a decode failure.
+  assert.throws(() => agentsBefore([{ address: 'x' }], field, 496606, 1), /response has no registeredAtBlock/);
+});
+
+test('the agent series starts from the agents the list says predate the index', () => {
   const registrations = [808497, 789416, 528191]; // newest first, as the index lists them
-  const series = agentSteps({ registrations, unstakes: [], totalNow: 6, indexFrom: 496606, nowBlock: 820876 });
+  const series = agentSteps({ registrations, unstakes: [], totalNow: 6, before: 3, indexFrom: 496606, nowBlock: 820876 });
   assert.equal(series.baseline, 3);
   assert.equal(series.total, 6);
   assert.equal(series.start, 496606);
@@ -211,20 +307,26 @@ test('the agent series starts from a baseline of agents the index never saw regi
   ]);
 });
 
-test('a departure steps the series down, and the numbers must reconcile', () => {
-  const series = agentSteps({ registrations: [700, 600], unstakes: [650], totalNow: 4, indexFrom: 500, nowBlock: 800 });
+test('a departure steps the series down, and the events must explain the whole difference', () => {
+  const series = agentSteps({ registrations: [700, 600], unstakes: [650], totalNow: 4, before: 3, indexFrom: 500, nowBlock: 800 });
   assert.equal(series.baseline, 3);
   assert.deepEqual(
     series.points.map((p) => p.count),
     [3, 4, 3, 4, 4],
   );
-  assert.throws(() => agentSteps({ registrations: [1, 2, 3], unstakes: [], totalNow: 2, indexFrom: 0, nowBlock: 10 }), /reconcile/);
+  // An agent evicted by a slash leaves no departure event: the total is one
+  // short of what the events explain, and the series refuses to draw.
+  assert.throws(
+    () => agentSteps({ registrations: [700, 600, 500], unstakes: [], totalNow: 4, before: 2, indexFrom: 100, nowBlock: 800 }),
+    /do not reconcile with the agent list \(2 before the index \+ 3 − 0 ≠ 4\)/,
+  );
+  assert.throws(() => agentSteps({ registrations: [1, 2, 3], unstakes: [], totalNow: 2, before: 0, indexFrom: 0, nowBlock: 10 }), /reconcile/);
   // No now block: the series ends at its last event and says so.
-  const open = agentSteps({ registrations: [700], unstakes: [], totalNow: 1, indexFrom: 500, nowBlock: null });
+  const open = agentSteps({ registrations: [700], unstakes: [], totalNow: 1, before: 0, indexFrom: 500, nowBlock: null });
   assert.equal(open.end, null);
   assert.equal(open.points[open.points.length - 1].block, 700);
   // No events at all: a flat line from the index start to now.
-  const flat = agentSteps({ registrations: [], unstakes: [], totalNow: 3, indexFrom: 500, nowBlock: 900 });
+  const flat = agentSteps({ registrations: [], unstakes: [], totalNow: 3, before: 3, indexFrom: 500, nowBlock: 900 });
   assert.deepEqual(flat.points, [
     { block: 500, count: 3 },
     { block: 900, count: 3 },
@@ -242,4 +344,24 @@ test('the plot frame leaves room for the end labels and the y ceiling is never z
   assert.equal(yCeiling([]), 1);
   assert.ok(yCeiling([6, 12, NOMINAL_BLOCK_S * 2]) > 12);
   assert.equal(yCeiling([50]), 54);
+});
+
+test('a note sits top-left unless the line is already there, then above the baseline if that is clear', () => {
+  const frame = plotFrame(300, 88);
+  assert.deepEqual(notePosition(frame, 60, 70), { x: 4, y: 14 });
+  assert.deepEqual(notePosition(frame, NaN, NaN), { x: 4, y: 14 });
+  // A step that plateaus near the top under the note pushes it down when the baseline corner is clear.
+  assert.deepEqual(notePosition(frame, 8, 40), { x: 4, y: 68 });
+  assert.deepEqual(notePosition(frame, 20, 55), { x: 4, y: 68 });
+  assert.deepEqual(notePosition(frame, 21, 55), { x: 4, y: 14 });
+  // A line that spans the whole height under the note (low on the left, high further on) gets the top and its halo.
+  assert.deepEqual(notePosition(frame, 8, 70), { x: 4, y: 14 });
+  assert.deepEqual(notePosition(frame, 8, 56), { x: 4, y: 14 });
+  assert.deepEqual(notePosition(frame, 8, 55), { x: 4, y: 68 });
+});
+
+test('the open era bar is never invisible', () => {
+  assert.equal(openBarHeight(0), 2);
+  assert.equal(openBarHeight(1.5), 2);
+  assert.equal(openBarHeight(30), 30);
 });
