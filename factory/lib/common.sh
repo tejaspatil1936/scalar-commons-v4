@@ -256,7 +256,13 @@ FACTORY_MODEL_CRITICAL="${FACTORY_MODEL_CRITICAL:-opus}"
 # because the loose form also matches `vendor/other-chain/runtime/src/lib.rs`
 # and `node/src/runtime_spec.rs`, and a predicate that fires on unrelated files
 # stops being read as meaning anything.
-FACTORY_CRITICAL_PATH_RE="${FACTORY_CRITICAL_PATH_RE:-^(runtime|pallets)/}"
+# NOT overridable from the environment. An earlier version read this from the
+# env "for flexibility", which meant one exported variable could switch off
+# escalation entirely and nothing would look wrong — the log line would still
+# print a model name. A knob whose only use is to disable a safety rule is not a
+# knob. Changing which directories are consensus-critical is a code change,
+# reviewed like one.
+FACTORY_CRITICAL_PATH_RE='^(runtime|pallets)/'
 
 # paths_are_critical   (repo-relative paths, one per line, on stdin)
 # Exit 0 if ANY path is consensus/economic code. Exit 1 otherwise.
@@ -284,25 +290,96 @@ paths_are_critical() {
 # FACTORY_MODEL, if set, wins outright. That is for an operator running one task
 # by hand; nothing in the automatic path sets it.
 pick_model() {
-  local paths_file="${1:-}" prompt_file="${2:-}"
+  local paths_file="${1:-}" prompt_file="${2:-}" routed=""
+
+  # Work out what the signals say FIRST, even when an override is set, so an
+  # override that WEAKENS the choice can be reported. Silently accepting a
+  # downgrade was the sharpest of the six findings the three-lens review raised
+  # against the first version of this function: a stale `export FACTORY_MODEL=
+  # sonnet` in an operator's shell downgraded every pallet review, and nothing
+  # in the log told it apart from a routed decision.
+  if { [ -n "$paths_file" ] && [ -s "$paths_file" ] && paths_are_critical < "$paths_file"; } \
+     || { [ -n "$prompt_file" ] && [ -f "$prompt_file" ] && prompt_is_critical < "$prompt_file"; }; then
+    routed="$FACTORY_MODEL_CRITICAL"
+  else
+    routed="$FACTORY_MODEL_DEFAULT"
+  fi
 
   if [ -n "${FACTORY_MODEL:-}" ]; then
+    if [ "$routed" = "$FACTORY_MODEL_CRITICAL" ] && [ "$FACTORY_MODEL" != "$FACTORY_MODEL_CRITICAL" ]; then
+      warn "FACTORY_MODEL=$FACTORY_MODEL OVERRIDES a routed $FACTORY_MODEL_CRITICAL on consensus/economic code."
+      warn "This is a downgrade of the strongest check in the loop. Unset FACTORY_MODEL unless you meant it."
+    fi
     printf '%s\n' "$FACTORY_MODEL"; return 0
   fi
 
-  if [ -n "$paths_file" ] && [ -s "$paths_file" ] \
-     && paths_are_critical < "$paths_file"; then
-    printf '%s\n' "$FACTORY_MODEL_CRITICAL"; return 0
-  fi
+  printf '%s\n' "$routed"
+}
 
-  # In prose the paths are not line-anchored, so match them as words: the
-  # anchored regex above would never fire inside a sentence.
-  if [ -n "$prompt_file" ] && [ -f "$prompt_file" ] \
-     && grep -qE '(^|[^A-Za-z0-9_/-])(runtime|pallets)/' "$prompt_file"; then
-    printf '%s\n' "$FACTORY_MODEL_CRITICAL"; return 0
-  fi
+# changed_paths <workdir> <base-ref>
+# Every repo-relative path this working tree has touched, one per line:
+# committed changes against the base, plus everything uncommitted.
+# Exit 1 if either half fails, so the caller can fail CLOSED.
+#
+# It lives here, not inlined in loop.sh, so the test can drive THE REAL CODE.
+# The first version was inlined and the test grepped loop.sh for a variable
+# name, which proved nothing — three review lenses reproduced downgrades in the
+# pipeline while that test was green.
+#
+# `--no-renames`: with git's rename detection `--name-only` prints only the
+# DESTINATION, so moving pallets/emissions/src/lib.rs to docs/lib.rs looked like
+# a docs edit.
+#
+# The porcelain parsing is `-z` and deliberately not `awk '{print $NF}'`:
+#   * git quotes paths with spaces or non-ASCII unless quotePath=false, and $NF
+#     then returns a fragment that matches no anchored regex;
+#   * in -z format a rename is TWO NUL-separated fields, `XY <new>` then `<old>`,
+#     with no ` -> ` to split on. Stripping the 3-character status prefix from
+#     every line mangles the second field into `s/readme.md`. Both sides matter:
+#     a move out of a pallet is a pallet change.
+changed_paths() {
+  local wt="$1" base="$2" rc=0
+  git -C "$wt" diff --name-only --no-renames "$base"...HEAD || rc=1
+  git -C "$wt" -c core.quotePath=false status --porcelain -z 2>/dev/null \
+    | python3 -c '
+import sys
+fields = sys.stdin.buffer.read().split(b"\0")
+i = 0
+while i < len(fields):
+    rec = fields[i]
+    i += 1
+    if not rec:
+        continue
+    xy, path = rec[:2], rec[3:]
+    sys.stdout.buffer.write(path + b"\n")
+    # A rename or copy consumes the NEXT field as its original path.
+    if b"R" in xy or b"C" in xy:
+        if i < len(fields) and fields[i]:
+            sys.stdout.buffer.write(fields[i] + b"\n")
+        i += 1
+' || rc=1
+  return "$rc"
+}
 
-  printf '%s\n' "$FACTORY_MODEL_DEFAULT"
+# prompt_is_critical   (prompt text on stdin)
+# Exit 0 if the text mentions a path under runtime/ or pallets/.
+#
+# Separate from paths_are_critical because a prompt is prose: the paths are not
+# line-anchored and the anchored regex would never fire inside a sentence.
+#
+# `/` IS ALLOWED BEFORE THE DIRECTORY NAME, and that is a deliberate reversal.
+# The first version excluded it, to stop `vendor/other-chain/runtime/` matching.
+# The effect was that `./pallets/emissions/src/lib.rs`,
+# `/work/repo/runtime/src/lib.rs` and `$WORKDIR/runtime/src/lib.rs` all failed to
+# match — so a task told to edit a pallet by absolute path got the cheap model,
+# and on attempt 1 the prompt is the ONLY signal there is. Three reviewers
+# reproduced it independently.
+#
+# Over-escalating on `vendor/*/runtime/` in prose costs money. Under-escalating
+# on an absolute path puts the weaker model on the chain. Those are not
+# comparable, so this errs the way the header says it errs.
+prompt_is_critical() {
+  grep -qE '(^|[^A-Za-z0-9_-])(runtime|pallets)/'
 }
 
 # ---- gh helper ------------------------------------------------------------

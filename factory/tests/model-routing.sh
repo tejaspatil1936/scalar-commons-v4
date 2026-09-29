@@ -36,6 +36,11 @@ bad() { FAIL=$((FAIL+1)); printf '  \033[31mFAIL\033[0m  %s\n' "$1"; }
 # Source the library under test. common.sh expects to be sourced by a script
 # inside factory/, and reads config.env; both hold here.
 # shellcheck source=../lib/common.sh
+# The router reads FACTORY_MODEL. An operator with it exported would otherwise
+# get false reds here (flagged by two lenses on PR #251), so the ambient value is
+# cleared for the whole run and restored only inside the override section.
+unset FACTORY_MODEL
+
 . "$FACTORY_DIR/lib/common.sh" >/dev/null 2>&1 || {
   printf 'FATAL: could not source %s/lib/common.sh\n' "$FACTORY_DIR" >&2; exit 1; }
 
@@ -117,6 +122,34 @@ pm "safe diff, no prompt"             "$FACTORY_MODEL_DEFAULT"  "$T/safe.paths"
 pm "critical diff"                    "$FACTORY_MODEL_CRITICAL" "$T/crit.paths"
 pm "safe diff, safe prompt"           "$FACTORY_MODEL_DEFAULT"  "$T/safe.paths" "$T/safe.prompt"
 pm "safe diff, CRITICAL prompt"       "$FACTORY_MODEL_CRITICAL" "$T/safe.paths" "$T/crit.prompt"
+
+# --- the prompt forms that used to UNDER-escalate -------------------------
+# Every one of these returned sonnet in the first version, because `/` was in
+# the excluded preceding-character class. On attempt 1 the prompt is the only
+# signal, so each was a live path to the cheap model writing pallet code.
+# Reproduced independently by all three review lenses on PR #251.
+for form in \
+  './pallets/emissions/src/lib.rs' \
+  '/work/repo/pallets/emissions/src/lib.rs' \
+  '$WORKDIR/runtime/src/lib.rs' \
+  'see scalar-commons/pallets/escrow for the guard' \
+  'edit runtime/src/lib.rs' \
+  'the file is at ../runtime/src/governance/mod.rs'
+do
+  printf 'Task: %s\n' "$form" > "$T/form.prompt"
+  pm "prompt form: $form" "$FACTORY_MODEL_CRITICAL" "$T/safe.paths" "$T/form.prompt"
+done
+
+# And the prose that must still NOT escalate, so the widening above did not
+# simply make the prompt signal fire on everything.
+for form in \
+  'update the indexer docs' \
+  'node/src/runtime_spec.rs needs a comment' \
+  'see docs/runtime-notes.md'
+do
+  printf 'Task: %s\n' "$form" > "$T/form.prompt"
+  pm "prompt form (safe): $form" "$FACTORY_MODEL_DEFAULT" "$T/safe.paths" "$T/form.prompt"
+done
 pm "critical diff, safe prompt"       "$FACTORY_MODEL_CRITICAL" "$T/crit.paths" "$T/safe.prompt"
 pm "missing paths file"               "$FACTORY_MODEL_DEFAULT"  "$T/does-not-exist"
 pm "missing paths file, crit prompt"  "$FACTORY_MODEL_CRITICAL" "$T/nope" "$T/crit.prompt"
@@ -155,19 +188,93 @@ got="$(FACTORY_MODEL=sonnet pick_model "$T/crit.paths")"
 # ---------------------------------------------------------------------------
 printf '\n4. call sites pass --model\n'
 
-site() { # site <label> <file> <regex>
-  if grep -qE "$3" "$FACTORY_DIR/$2"; then ok "$1"
-  else bad "$1 — no line matching: $3"; fi
+# A `grep -q` for "somewhere in this file there is a --model" passes on a
+# COMMENT, which is what the standing lens objected to. So instead: find every
+# `claude -p` invocation line and require that each one carries --model. A new
+# call site added without routing now turns this red.
+sites() { # sites <label> <file>
+  local label="$1" f="$FACTORY_DIR/$2" total bad
+  total="$(grep -cE 'claude -p' "$f" | tr -d '\n')"
+  # Only real invocations: skip comment lines, which discuss `claude -p` a lot.
+  # Exclude comments AND printf/echo lines: review.sh legitimately PRINTS the
+  # words "claude -p" in its diagnostics, and those are not invocations.
+  bad="$(grep -nE 'claude -p' "$f" | grep -vE '^[0-9]+: *#' \
+         | grep -vE '(printf|echo)' | grep -vc -- '--model' | tr -d '\n')"
+  if [ "${bad:-1}" = "0" ]; then ok "$label (every non-comment \`claude -p\` line passes --model)"
+  else bad "$label — $bad invocation line(s) without --model (of $total mentioning claude -p)"; fi
 }
+sites "loop.sh call sites"   lib/loop.sh
+sites "review.sh call sites" review.sh
 
-site "loop.sh spawns the agent with --model"   lib/loop.sh \
-  'claude -p .*--model "\$[A-Z_]+"'
-site "loop.sh computes the model per attempt"  lib/loop.sh \
-  'pick_model'
-site "review.sh spawns each lens with --model" review.sh \
-  'claude -p .*--model "\$[A-Z_]+"'
-site "review.sh computes the model from the changed files" review.sh \
-  'pick_model|paths_are_critical'
+grep -q 'pick_model' "$FACTORY_DIR/lib/loop.sh" \
+  && ok "loop.sh computes the model" || bad "loop.sh never calls pick_model"
+grep -qE 'pick_model|paths_are_critical' "$FACTORY_DIR/review.sh" \
+  && ok "review.sh computes the model" || bad "review.sh never routes"
+
+# ---------------------------------------------------------------------------
+# 5. The loop's path gathering, against a REAL git repo.
+#
+# Sections 1-3 test the decision. This tests the INPUT to it, which is where
+# every reproduced downgrade actually lived — and which the first version of
+# this file did not touch at all. The lenses were right that grepping loop.sh
+# for a variable name proves nothing about the pipeline.
+#
+# The pipeline is duplicated here rather than invoked, because loop.sh runs a
+# whole agent. That is the tradeoff the header warns about, so it is kept to
+# ONE line and the line is copied verbatim from loop.sh.
+# ---------------------------------------------------------------------------
+printf '\n5. path gathering (real git repo)\n'
+
+# Drives THE REAL changed_paths() from common.sh — no copy of its logic here.
+gather() { changed_paths "$1" "$BASEREF"; }
+
+R="$T/repo"
+git init -q "$R" 2>/dev/null
+git -C "$R" config user.email t@t; git -C "$R" config user.name t
+mkdir -p "$R/pallets/emissions/src" "$R/docs"
+printf 'x\n' > "$R/pallets/emissions/src/lib.rs"
+printf 'y\n' > "$R/docs/readme.md"
+git -C "$R" add -A >/dev/null; git -C "$R" commit -qm base
+BASEREF="$(git -C "$R" rev-parse HEAD)"
+
+# (a) a rename OUT of pallets/ must still read as critical
+git -C "$R" mv pallets/emissions/src/lib.rs docs/lib.rs >/dev/null
+git -C "$R" commit -qm "move it out"
+gather "$R" > "$T/g1"
+if paths_are_critical < "$T/g1"; then ok "rename out of pallets/ is still critical"
+else bad "rename out of pallets/ read as safe — got: $(tr '\n' ' ' < "$T/g1")"; fi
+git -C "$R" reset -q --hard "$BASEREF"
+
+# (b) an uncommitted path WITH A SPACE must read as critical
+mkdir -p "$R/pallets/my pallet"
+printf 'z\n' > "$R/pallets/my pallet/lib.rs"
+gather "$R" > "$T/g2"
+if paths_are_critical < "$T/g2"; then ok "uncommitted path containing a space is critical"
+else bad "path with a space read as safe — got: $(tr '\n' ' ' < "$T/g2")"; fi
+rm -rf "$R/pallets/my pallet"
+
+# (c) a staged rename records BOTH sides
+git -C "$R" mv docs/readme.md pallets/emissions/src/readme.md >/dev/null
+gather "$R" > "$T/g3"
+if grep -q '^docs/readme.md$' "$T/g3" && grep -q '^pallets/' "$T/g3"; then
+  ok "staged rename records both sides"
+else bad "staged rename lost a side — got: $(tr '\n' ' ' < "$T/g3")"; fi
+git -C "$R" reset -q --hard "$BASEREF"; git -C "$R" clean -qfd
+
+# (d) safe-only changes must NOT escalate, or (a)-(c) prove nothing
+printf 'more\n' >> "$R/docs/readme.md"
+gather "$R" > "$T/g4"
+if paths_are_critical < "$T/g4"; then bad "docs-only change escalated — got: $(tr '\n' ' ' < "$T/g4")"
+else ok "docs-only change does not escalate"; fi
+
+# (e) an unresolvable base ref must FAIL CLOSED in loop.sh. The gather helper
+# cannot show that (loop.sh owns the escalation), so assert the code path.
+if grep -q 'GATHER_OK' "$FACTORY_DIR/lib/loop.sh" \
+   && grep -q 'path gathering FAILED' "$FACTORY_DIR/lib/loop.sh"; then
+  ok "loop.sh escalates when path gathering fails (fails closed)"
+else
+  bad "loop.sh has no fail-closed path for a failed diff"
+fi
 
 printf '\n-------------------------------------------\n'
 printf 'model-routing: %d passed, %d failed\n' "$PASS" "$FAIL"

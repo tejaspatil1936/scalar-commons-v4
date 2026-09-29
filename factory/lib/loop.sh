@@ -230,13 +230,44 @@ while :; do
   # this task — harmless for cost (it over-escalates) but it makes the log line
   # below a lie about what the task touched. Uncommitted work counts too: the
   # agent's edits are not committed until its gate passes.
+  # THREE THINGS BELOW ARE THERE BECAUSE THEY WERE WRONG FIRST, and each was
+  # wrong in the direction that puts the cheap model on chain code. All three
+  # were reproduced by the review lenses on PR #251.
+  #
+  #  --no-renames   `--name-only` with git's default rename detection prints
+  #                 ONLY the destination. Moving pallets/emissions/src/lib.rs to
+  #                 docs/lib.rs showed up as `docs/lib.rs` alone, so a change
+  #                 that gutted a pallet read as a docs edit. --no-renames emits
+  #                 both sides as a delete plus an add.
+  #
+  #  -z / quotePath git quotes paths containing spaces or non-ASCII, so
+  #                 `awk '{print $NF}'` returned a fragment like `pallet/"` that
+  #                 no anchored regex can match. Parsing is now NUL-delimited and
+  #                 keeps BOTH halves of a rename record.
+  #
+  #  fail CLOSED    the old line discarded stderr and emptied the list on any
+  #                 git failure, then logged the count as if it were real. An
+  #                 unresolvable base ref therefore downgraded the model with no
+  #                 sign of it. A gathering failure now escalates, because the
+  #                 one thing we know in that state is that we do NOT know what
+  #                 the task touched.
   CHANGED="$LOG_DIR/${NAME}-attempt${ATTEMPT}.changed"
   BASE_REF="$BASE_BRANCH"
   git -C "$WORKDIR" rev-parse --verify -q "origin/$BASE_BRANCH" >/dev/null && BASE_REF="origin/$BASE_BRANCH"
-  git -C "$WORKDIR" diff --name-only "$BASE_REF"...HEAD > "$CHANGED" 2>/dev/null || : > "$CHANGED"
-  git -C "$WORKDIR" status --porcelain 2>/dev/null | awk '{print $NF}' >> "$CHANGED" || true
-  AGENT_MODEL="$(pick_model "$CHANGED" "$PROMPTFILE")"
-  log "model: $AGENT_MODEL ($(wc -l < "$CHANGED") changed path(s) so far)"
+
+  GATHER_OK=1
+  changed_paths "$WORKDIR" "$BASE_REF" > "$CHANGED" 2>>"$LOG_FILE" || {
+    warn "could not gather changed paths in $WORKDIR — treating this attempt as consensus-critical"
+    GATHER_OK=0
+  }
+
+  if [ "$GATHER_OK" = "0" ]; then
+    AGENT_MODEL="$FACTORY_MODEL_CRITICAL"
+    log "model: $AGENT_MODEL (path gathering FAILED — escalated, not defaulted)"
+  else
+    AGENT_MODEL="$(pick_model "$CHANGED" "$PROMPTFILE")"
+  fi
+  [ "$GATHER_OK" = "1" ] && log "model: $AGENT_MODEL ($(grep -c . "$CHANGED" || true) changed path(s) so far)"
 
   # --- run the agent ------------------------------------------------------
   # Bound the agent by whatever wall budget remains, so a single hung call
