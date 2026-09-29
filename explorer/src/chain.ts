@@ -81,6 +81,12 @@ export interface ExplorerChain {
   block(ref: BlockRef): Promise<BlockView>;
   extrinsic(ref: BlockRef, index: number): Promise<ExtrinsicView>;
   account(address: string): Promise<AccountView>;
+  /**
+   * Field name → metadata type name for one event of the connected runtime, or
+   * null when the runtime has no such event. Read from metadata already in
+   * memory: it costs the node nothing.
+   */
+  eventFieldTypes(section: string, method: string): ReadonlyMap<string, string> | null;
   disconnect(): Promise<void>;
 }
 
@@ -500,6 +506,28 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
         nonce: Number(toBigInt(structField(account, 'nonce', 'system.account')) ?? 0n),
         at: { number: headNumber, hash: headHash },
       };
+    },
+
+    eventFieldTypes(section: string, method: string): ReadonlyMap<string, string> | null {
+      const events = api.events as unknown as Record<
+        string,
+        Record<string, { meta: EventRecord['event']['meta'] } | undefined> | undefined
+      >;
+      const event = events[section]?.[method];
+      if (event === undefined) {
+        return null;
+      }
+      const types = new Map<string, string>();
+      for (const field of event.meta.fields) {
+        if (field.name.isNone) continue;
+        // The declared type name (`BalanceOf<T>`, `T::AccountId`) when the
+        // metadata carries one, else the resolved type from the registry.
+        const typeName = field.typeName.isSome
+          ? field.typeName.unwrap().toString()
+          : api.registry.lookup.getTypeDef(field.type).type;
+        types.set(field.name.unwrap().toString(), typeName);
+      }
+      return types;
     },
 
     async disconnect(): Promise<void> {

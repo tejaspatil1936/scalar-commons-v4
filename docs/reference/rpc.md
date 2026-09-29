@@ -1,10 +1,12 @@
 # RPC reference
 
-A Scalar Commons node serves **118 JSON-RPC methods** over both HTTP and WebSocket on the
-same port (`9944` on the reference devnet). On top of the standard Substrate surface, the
+A Scalar Commons node serves **108 JSON-RPC methods** over both HTTP and WebSocket on the
+same port (`9944` on the reference devnet). That is the count on a default, pruning node; an
+archive node (the reference devnet's alice) also serves the ten `archive_v1_*` methods, 118 in
+total. On top of the standard Substrate surface, the
 runtime declares one custom runtime API, `ScalarCommonsApi`, reachable through `state_call`.
 
-Verified against `scalar-commons` spec 305, metadata v15.
+Verified against `scalar-commons` spec 306, metadata v15.
 
 ## Endpoints and transports
 
@@ -362,7 +364,7 @@ For the write side — every extrinsic of every custom pallet, with its constrai
 
 ## Events and errors
 
-Events are the indexer's input, and there are 24 REST endpoints built on them. Decode them
+Events are the indexer's input, and there are 25 REST endpoints built on them. Decode them
 from metadata rather than hardcoding variant indices: adding an event in the middle of a
 pallet's enum shifts every later index.
 

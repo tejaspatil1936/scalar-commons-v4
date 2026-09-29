@@ -4,11 +4,79 @@ TypeScript agent SDK for the **Scalar Commons** chain — the agent-facing surfa
 described in protocol §8.3 ("archetypes cannot exist without hands"). Built on
 [`@polkadot/api`](https://github.com/polkadot-js/api).
 
-> **Skeleton (P0-3).** This is the initial method surface: register/stake/heartbeat,
+> **Pre-1.0.** The method surface: register/stake/heartbeat,
 > the escrow lifecycle, oracle submission, governance voting, era settlement, and
 > emission claims, plus read helpers.
 
-## Install & build
+## Install
+
+```bash
+npm install @scalar-commons/sdk @polkadot/api@^16 @polkadot/keyring@^14 \
+  @polkadot/util@^14 @polkadot/util-crypto@^14
+```
+
+The `@polkadot/*` packages are **peer dependencies**, so your project and the SDK share
+one copy of each. Two copies of `@polkadot/util` make polkadot-js warn
+`@polkadot/util has multiple versions` and break `instanceof` checks between them.
+
+## Tester-guide flow
+
+The path in the [testnet tester guide](../docs/guide/testnet-tester-guide.md): get CMN from the
+faucet, register two agents, run one escrow job. Registration costs 1 050.01 CMN
+per agent (1 000 stake lock + 50 burned fee + 0.01 existential deposit), and
+`escrow.createAgreement` needs **both** sides registered.
+
+```ts
+import { ScalarCommonsClient, PLANCKS_PER_CMN as CMN } from '@scalar-commons/sdk';
+import { blake2AsHex } from '@polkadot/util-crypto';
+
+const client = await ScalarCommonsClient.connect('wss://rpc.scalarnet.io');
+// a, b: funded KeyringPairs (buyer b, provider a)
+
+await client.register(a, 1_000n * CMN);
+await client.register(b, 1_000n * CMN);
+await client.heartbeat(a);
+await client.heartbeat(b);
+
+const head = (await client.api.rpc.chain.getHeader()).number.toNumber();
+const hash = blake2AsHex('deliverable v1', 256);
+await client.createEscrow(b, a.address, 10n * CMN, hash, head + 200, null);
+// wait MinDeliveryBlocks (10 blocks, ~60 s) before the provider records delivery
+await client.acceptEscrow(a, b.address, 0, hash);
+await client.completeEscrow(b, a.address, 0);
+```
+
+## Retries and deterministic errors
+
+Transient failures (transport, `Dropped`/`Invalid`/`Usurped` pool statuses) are retried
+up to `maxRetries` times, each retry logged. Dispatch errors whose verdict the runtime
+reaches from the call's own arguments and a runtime constant are **never** retried: they
+arrive as a `DispatchFailure` (with `section` and `errorName`) after one attempt, because
+resubmitting only pays another fee (#160). `isDeterministicFailure(err)` exposes the rule.
+
+The classified set:
+
+| Error | Why retrying cannot help |
+|---|---|
+| `MinDeliveryBlocksNotElapsed` | Delivery inside `MinDeliveryBlocks` of creation (#160). |
+| `BadOrigin` | The signer is the wrong origin for the call (#160). |
+| `Insufficient*` | Balance/stake below what the call needs (#160). |
+| `escrow.SpanTooLong` | `deliverBy` is beyond `MaxAgreementSpan` (#225). |
+| `escrow.DeadlineTooEarly` | `deliverBy` is inside `MinDeliveryBlocks` (#225). |
+| `escrow.SelfDeal` | Buyer equals provider — signer against an argument (#225). |
+| `escrow.AmountTooLow` | `amount` is below `MinAgreementAmount` (#225). |
+
+`SpanTooLong` became reachable with E21, which replaced spec 306's silent deadline clamp
+with an error — see the release note for
+[#219](https://github.com/tejaspatil1936/scalar-commons-v4/issues/219) for what that means
+for a client that used to rely on the clamp.
+
+The set is an allowlist, not "every module error". Errors that can clear between attempts
+stay retryable — `agents.NotRegistered`, `escrow.BuyerNotAgent`,
+`escrow.ProviderLacksCapability` all pass once a registration or a capability lands, and
+classifying one of those would turn a recoverable failure into a hard one.
+
+## Build from source
 
 ```bash
 cd sdk
@@ -65,6 +133,10 @@ await client.disconnect();
 | `weightOf(addr)` | `emissions.agentWeightSnapshot(addr)` |
 | `totalIssuance()` | `balances.totalIssuance` |
 | `netPosition(addr)` | `system.account` + `agents.agentStake/eraEscrowVolume` + pending calc |
+| `setMessagingKey(signer, key)` | `agents.setMessagingKey(key)` (spec 308+) |
+| `clearMessagingKey(signer)` | `agents.clearMessagingKey()` (spec 308+) |
+| `sendMessage(signer, args)` | `messages.send(to, kind, agreement, payloadHash, payload)` (spec 308+) |
+| `messagingKeyOf(addr)` | `agents.messagingKey(addr)` (spec 308+) |
 
 ### Reading the chain honestly
 
@@ -83,6 +155,29 @@ Since `record_gov_vote` is self-only on chain, `recordGovVote` derives the
 `agent` argument from `signer`; passing any other account earns `Unauthorized`
 — which the live suite proves by submitting exactly that mismatched call.
 
+## Messaging (spec 308)
+
+Signed envelopes (v1), X25519 messaging keys and transports, all usable
+offline. The wire format is the envelope spec, `docs/reference/messaging.md`.
+This SDK mirrors its Rust reference, `pallets/messages/src/envelope.rs`, and the
+tests pin the Rust vector byte for byte. For a walkthrough, see
+[`docs/guide/messaging-sdk.md`](../docs/guide/messaging-sdk.md).
+
+- `createMessage(pair, input)` builds and signs an envelope, with
+  `payload_hash` computed over the plaintext. `encodeSignedMessage` /
+  `decodeSignedMessage` convert it to and from `SCALE((envelope, signature, body))`.
+- `MessageInbox.receive(bytes, bestBlock, opts)` applies every verification
+  rule in the spec's order, including checking the on-chain `send` call against
+  the envelope. It throws `MessageRejected` with a stable `reason`.
+- `deriveMessagingKey(suri, { rotation })` derives the X25519 key from the
+  agent's own mnemonic or URI. `sealBody` / `openBody` implement a NaCl `box`,
+  interoperable with libsodium's `crypto_box`.
+- `OnChainTransport`, `subscribeMessages` (finalized blocks, gap-filling) and
+  `HttpsTransport` move bytes. They never decide validity.
+
+Test vectors: `tests/vectors/envelope.json`, regenerated by `npm run vectors`
+and re-verified by `npm test`.
+
 ## Integration tests against a real node
 
 `tests/live.test.ts` asserts, against the node's own metadata: the runtime spec
@@ -99,5 +194,5 @@ skips** if the node is unreachable — an SDK that cannot be checked against the
 chain it wraps is a finding, not a pass:
 
 ```bash
-RUN_INTEGRATION=1 WS_ENDPOINT=ws://127.0.0.1:9944 npm run test:integration
+RUN_INTEGRATION=1 SCALAR_WS=ws://127.0.0.1:9944 npm run test:integration   # WS_ENDPOINT also works
 ```

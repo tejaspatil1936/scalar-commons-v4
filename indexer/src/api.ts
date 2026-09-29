@@ -1,8 +1,8 @@
 /**
  * The versioned REST surface.
  *
- * Twenty-four endpoints under `/v1`, covering blocks, extrinsics, events,
- * accounts, agents, escrows, eras and emissions. Everything they return is
+ * Twenty-five endpoints under `/v1`, covering blocks, extrinsics, events,
+ * accounts, agents, escrows, eras, emissions and the agent-activity feed. Everything they return is
  * either read live from the node or read from the index built out of finalized
  * blocks — there are no fixtures behind any of them.
  *
@@ -26,6 +26,7 @@ import { decodeAddress, encodeAddress } from '@polkadot/util-crypto';
 import type { IndexerConfig } from './config.ts';
 import type { ChainConnection } from './chain.ts';
 import type { ChainIndexer } from './indexer.ts';
+import { UnknownActivityKindError, activityItem, parseActivityKind, sourcesFor } from './activity.ts';
 import { InvalidQueryError, parseOptionalInteger, parsePage, type Page } from './pagination.ts';
 import { unavailableReason } from './reconnect.ts';
 import type { IndexerStore, PageResult } from './store.ts';
@@ -577,7 +578,51 @@ export const ROUTES: readonly RouteDefinition[] = [
     summary: 'Total issuance against the hard supply cap, with remaining headroom.',
     handler: async (context) => fetchSupply(context.api, context.chain),
   },
+  {
+    name: 'activity.list',
+    path: '/v1/activity',
+    summary: 'Agent activity — messages, registrations, heartbeats, agreements, disputes, oracle votes, slashes — newest first; `?agent=`, `?kind=`.',
+    handler: async (context) => {
+      const kind = parseActivityKind(optionalString(context.query, 'kind'));
+      // Deliberately not `requireAgent`: a deregistered or fully slashed agent
+      // still has a history, and a messaging peer need not be registered at
+      // all. The filter is an address, not a live registration check.
+      const agent = optionalAddress(context, 'agent');
+      const page = context.store.listActivity({ ...context.page, sources: sourcesFor(kind), account: agent });
+      return {
+        ...paged({ total: page.total, items: page.items.map(activityItem) }, context.page),
+        agent: agent ?? null,
+        kind: kind ?? null,
+        // As on `/v1/eras`: the feed is only as deep as the index, and an empty
+        // page must not read as "this agent has never done anything".
+        historyFrom: context.store.earliestBlockNumber(),
+      };
+    },
+  },
 ];
+
+/**
+ * The unversioned index served at `/`.
+ *
+ * Deliberately outside `ROUTES`: `/v1` is a promise about response shapes, and
+ * a greeting for whoever pastes the bare host into a browser is not part of it.
+ * Keeping it out also keeps `api.endpoints` on `/v1/status` counting the 25
+ * endpoints a client can actually call.
+ *
+ * It reads nothing — no store, no node. `/` is the first thing a human tries
+ * when they want to know whether the host is alive, so it must answer 200 even
+ * while the chain connection is down; a pointer to the entry point is true
+ * regardless of chain state. The 404 this replaces carried almost the same
+ * bytes, but its status code told every monitor the host was broken.
+ */
+export function rootIndex(): Record<string, unknown> {
+  return {
+    service: 'scalar-commons-indexer',
+    api: 'v1',
+    status: '/v1/status',
+    endpoints: ROUTES.map((route) => route.path),
+  };
+}
 
 interface CompiledRoute extends RouteDefinition {
   readonly segments: string[];
@@ -663,7 +708,7 @@ function sendHttpError(res: ServerResponse, error: HttpError): void {
 /**
  * Builds the HTTP server.
  *
- * `node:http` with a small router rather than a framework: the surface is 24
+ * `node:http` with a small router rather than a framework: the surface is 25
  * read-only GETs, and a framework would add more dependency than routing.
  */
 export function createApiServer(dependencies: ApiDependencies): Server {
@@ -694,6 +739,13 @@ async function handle(req: IncomingMessage, res: ServerResponse, dependencies: A
     // define, or a path segment that is not valid percent-encoding.
     const url = new URL(req.url ?? '/', 'http://indexer.local');
 
+    // Answered before routing, and without touching `dependencies`: `/` names
+    // the entry point rather than refusing the request. See `rootIndex`.
+    if (url.pathname === '/') {
+      sendJson(res, 200, rootIndex());
+      return;
+    }
+
     const matched = matchRoute(url.pathname);
     if (matched === null) {
       sendJson(res, 404, {
@@ -716,7 +768,7 @@ async function handle(req: IncomingMessage, res: ServerResponse, dependencies: A
       sendHttpError(res, error);
       return;
     }
-    if (error instanceof InvalidQueryError) {
+    if (error instanceof InvalidQueryError || error instanceof UnknownActivityKindError) {
       sendJson(res, 400, { error: error.message });
       return;
     }

@@ -6,6 +6,15 @@
  *                                  [--ws ws://127.0.0.1:9944] [--expect-spec 305]
  *                                  [--ports 9944,9945,9946,9947,9948] [--blocks 20]
  *
+ *   node scripts/apply-upgrade.mjs --call <pallet.method> [--args '<json array>'] [--dry-run]
+ *
+ * The --call form wraps ONE other root call in `sudo.sudo(...)` — e.g. the D11
+ * staking parameters, `--call staking.setValidatorCount --args '[7]'`. It goes
+ * through the same key-file handling, root check and fee preflight as set_code,
+ * and checks sudo.Sudid's inner Result the same way, so there is one audited
+ * path for root calls rather than a second script holding the operator key.
+ * It skips the spec_version poll, which only means something for set_code.
+ *
  * Submits `sudo.sudo(system.setCode(<wasm>))` signed by the operator key in
  * ~/.config/scalar-commons/sudo.key, waits for finalization, then polls
  * state_getRuntimeVersion on every listed port until they all report the
@@ -62,6 +71,8 @@ function usage(msg) {
   if (msg) console.error(`error: ${msg}\n`);
   console.error('usage: node scripts/apply-upgrade.mjs <runtime.wasm> [--dry-run] [--ws url]');
   console.error('       [--expect-spec N] [--ports a,b,c] [--blocks N]');
+  console.error('   or: node scripts/apply-upgrade.mjs --call <pallet.method> [--args <json array>]');
+  console.error('       [--dry-run] [--ws url]');
   process.exit(2);
 }
 
@@ -71,6 +82,7 @@ let ws = 'ws://127.0.0.1:9944';
 let expectSpec = 305;
 let ports = [9944, 9945, 9946, 9947, 9948];
 let blockBudget = 20;
+let callName = null, callArgs = [];
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === '--dry-run') dryRun = true;
@@ -78,11 +90,18 @@ for (let i = 0; i < argv.length; i++) {
   else if (a === '--expect-spec') expectSpec = Number(argv[++i]);
   else if (a === '--ports') ports = (argv[++i] || '').split(',').map(Number).filter(Boolean);
   else if (a === '--blocks') blockBudget = Number(argv[++i]);
+  else if (a === '--call') callName = argv[++i] || usage('--call needs pallet.method');
+  else if (a === '--args') {
+    try { callArgs = JSON.parse(argv[++i]); } catch (e) { usage(`--args is not JSON: ${e.message}`); }
+    if (!Array.isArray(callArgs)) usage('--args must be a JSON array');
+  }
   else if (a.startsWith('-')) usage(`unrecognised flag: ${a}`);
   else if (wasmPath === null) wasmPath = a;
   else usage('more than one wasm path given');
 }
-if (!wasmPath) usage('no wasm path given');
+if (callName && wasmPath) usage('give either a wasm path or --call, not both');
+if (!callName && !wasmPath) usage('no wasm path given');
+if (callName && !/^[a-zA-Z]+\.[a-zA-Z]+$/.test(callName)) usage(`--call must be pallet.method, got ${callName}`);
 if (!Number.isInteger(expectSpec)) usage('--expect-spec needs an integer');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -90,8 +109,11 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const main = async () => {
   await cryptoWaitReady();
 
+  // --call mode: no wasm to validate; the runtime metadata validates the call.
+  let wasm = null, isCompressed = false, wasmHash = null;
+  if (wasmPath) {
   if (!existsSync(wasmPath)) usage(`wasm not found: ${wasmPath}`);
-  const wasm = readFileSync(wasmPath);
+  wasm = readFileSync(wasmPath);
   if (wasm.length === 0) usage('wasm file is empty');
   // A runtime blob is one of two shapes and BOTH are valid to submit:
   //
@@ -107,12 +129,13 @@ const main = async () => {
   const magic = wasm.subarray(0, 4);
   const isRawWasm = magic[0] === 0x00 && magic[1] === 0x61 && magic[2] === 0x73 && magic[3] === 0x6d;
   const ZSTD_PREFIX = Buffer.from([0x52, 0xbc, 0x53, 0x76, 0x46, 0xdb, 0x8e, 0x05]);
-  const isCompressed = Buffer.from(wasm.subarray(0, 8)).equals(ZSTD_PREFIX);
+  isCompressed = Buffer.from(wasm.subarray(0, 8)).equals(ZSTD_PREFIX);
   if (!isRawWasm && !isCompressed) {
     usage(`${wasmPath} is neither raw wasm nor a Substrate-compressed runtime `
       + `(first bytes ${u8aToHex(wasm.subarray(0, 8))})`);
   }
-  const wasmHash = blake2AsHex(wasm, 256);
+  wasmHash = blake2AsHex(wasm, 256);
+  }
 
   if (!existsSync(KEYFILE)) {
     console.error(`FATAL: operator key not found at ${KEYFILE}`);
@@ -134,25 +157,42 @@ const main = async () => {
   const sudoKey = (await api.query.sudo.key()).toString();
   const before = api.runtimeVersion.specVersion.toNumber();
 
-  const inner = api.tx.system.setCode(u8aToHex(wasm));
+  let inner;
+  if (callName) {
+    const [section, method] = callName.split('.');
+    const fn = api.tx[section] && api.tx[section][method];
+    if (!fn) {
+      console.error(`FATAL: ${callName} is not a call in this runtime's metadata.`);
+      await api.disconnect();
+      process.exit(2);
+    }
+    inner = fn(...callArgs);
+  } else {
+    inner = api.tx.system.setCode(u8aToHex(wasm));
+  }
   const call = api.tx.sudo.sudo(inner);
 
   console.log('');
   console.log('  chain               : ' + (await api.rpc.system.chain()).toString());
   console.log('  endpoint            : ' + ws);
-  console.log('  wasm                : ' + wasmPath);
-  console.log('  wasm bytes          : ' + wasm.length);
-  console.log('  wasm form           : ' + (isCompressed ? 'zstd-compressed (the form to submit)' : 'raw wasm'));
-  console.log('  wasm blake2-256     : ' + wasmHash);
-  console.log('');
-  console.log('  spec_version before : ' + before);
-  console.log('  spec_version target : ' + expectSpec);
+  if (callName) {
+    console.log('  root call           : ' + JSON.stringify(inner.method.toHuman()));
+    console.log('  spec_version        : ' + before);
+  } else {
+    console.log('  wasm                : ' + wasmPath);
+    console.log('  wasm bytes          : ' + wasm.length);
+    console.log('  wasm form           : ' + (isCompressed ? 'zstd-compressed (the form to submit)' : 'raw wasm'));
+    console.log('  wasm blake2-256     : ' + wasmHash);
+    console.log('');
+    console.log('  spec_version before : ' + before);
+    console.log('  spec_version target : ' + expectSpec);
+  }
   console.log('');
   console.log('  signer              : ' + signer.address);
   console.log('  on-chain Sudo::Key  : ' + sudoKey);
   console.log('  signer is root      : ' + (signer.address === sudoKey ? 'YES' : 'NO — the call will fail'));
   console.log('');
-  console.log('  call                : sudo.sudo(system.setCode(<wasm>))');
+  console.log('  call                : sudo.sudo(' + (callName || 'system.setCode(<wasm>)') + ')');
   console.log('  inner call hash     : ' + inner.method.hash.toHex());
   console.log('  outer call hash     : ' + call.method.hash.toHex());
   console.log('');
@@ -226,7 +266,8 @@ const main = async () => {
     return;
   }
 
-  console.log('  SUBMITTING set_code. Nodes will switch runtime WITHOUT restarting.');
+  if (callName) console.log('  SUBMITTING sudo.sudo(' + callName + ').');
+  else console.log('  SUBMITTING set_code. Nodes will switch runtime WITHOUT restarting.');
   console.log('');
 
   const applied = await new Promise((resolve, reject) => {
@@ -262,7 +303,17 @@ const main = async () => {
   const appliedNumber = hdr.number.toNumber();
   console.log('  finalized in        : ' + applied);
   console.log('  applied at block    : #' + appliedNumber);
+  console.log('  extrinsic hash      : ' + call.hash.toHex());
   console.log('');
+
+  if (callName) {
+    // No spec change to poll for. The caller reads the storage it meant to
+    // change back from the chain; the Sudid check above already refused an
+    // inner Err.
+    await api.disconnect();
+    console.log(`  OK — sudo.sudo(${callName}) finalized at block #${appliedNumber}.`);
+    return;
+  }
 
   // ---- poll every node -----------------------------------------------------
   // The upgrade is not done when one node says so. Ask all of them, on their

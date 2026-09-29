@@ -27,9 +27,12 @@ mkdir -p "$STUB" "$WORK"
 echo "do nothing; this is a harness self-test" > "$PROMPT"
 
 # Stub agent: never edits anything, so any gate that is red stays red. This is
-# exactly the "agent makes no progress" case the bounds must survive.
-cat > "$STUB/claude" <<'EOF'
+# exactly the "agent makes no progress" case the bounds must survive. It also
+# dumps its own received environment before each run, so a case (7b) can
+# assert on what a spawned claude actually sees, not just what got logged.
+cat > "$STUB/claude" <<EOF
 #!/usr/bin/env bash
+env > "$TMP/last-claude-env.txt"
 echo "STUB AGENT: pretending to work. I claim everything is fixed and perfect!"
 exit 0
 EOF
@@ -159,17 +162,42 @@ if run_case 6; then
 fi
 
 # --------------------------------------------------------------------------
+# Policy flip, 27 Sep 2026 (LAB decision 002 amendment, Max-subscription
+# cutover): loops now bill the Max login on purpose, not an API key. No key
+# reachable is the NORMAL case and must not block a single attempt; a stray
+# key left over from the retired proxy is what now gets scrubbed, since it
+# would silently point billing at a dead proxy (see the 217/219/223/225
+# incident, 2026-09-27 ~01:51-02:36 UTC).
 if run_case 7; then
-  hdr 7 "billing fail-closed — no API key means the loop REFUSES to run"
+  hdr 7 "billing — no API key present means Max billing, loop still runs"
   EMPTY="$TMP/nokey"; mkdir -p "$EMPTY/.factory"
   : > "$EMPTY/.factory/env"
-  HOME="$EMPTY" env -u ANTHROPIC_API_KEY "$LOOP" billcheck "$WORK" "$PROMPT" 'exit 1' 2 5 \
+  HOME="$EMPTY" env -u ANTHROPIC_API_KEY -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN \
+    "$LOOP" billcheck "$WORK" "$PROMPT" 'exit 1' 2 5 \
     >"$TMP/billcheck.out" 2>&1
   rc=$?
-  assert_eq "$rc" 1 "exits non-zero without an API key"
+  assert_eq "$rc" 1 "exits non-zero once its attempt budget is spent (gate never green)"
   n=$(grep -c -- '--- attempt' "$TMP/billcheck.out" || true)
-  assert_eq "$n" 0 "made zero attempts (never silently fell back to the Max login)"
-  assert_grep 'ANTHROPIC_API_KEY not set' "$TMP/billcheck.out" "explains the refusal"
+  assert_eq "$n" 2 "made both allotted attempts — billing did not block any of them"
+  assert_grep 'billing: Max subscription login' "$TMP/billcheck.out" "logs that it is billing the Max subscription"
+fi
+
+if run_case 7b; then
+  hdr 7b "billing — a stray leftover key is cleared, never used"
+  STRAY="$TMP/straykey"; mkdir -p "$STRAY/.factory"
+  echo 'export ANTHROPIC_API_KEY=sk-ant-dead-proxy-stub' > "$STRAY/.factory/env"
+  rm -f "$TMP/last-claude-env.txt"
+  HOME="$STRAY" "$LOOP" straycheck "$WORK" "$PROMPT" 'exit 1' 1 5 \
+    >"$TMP/straycheck.out" 2>&1
+  assert_grep 'clearing it so billing goes through the Max login' "$TMP/straycheck.out" "warns about and clears the stray key"
+  assert_grep 'billing: Max subscription login' "$TMP/straycheck.out" "still proceeds on Max billing"
+  # The load-bearing check: not just that it logged, but that the claude
+  # process actually spawned never saw the key in its own environment.
+  if [ -f "$TMP/last-claude-env.txt" ] && ! grep -q '^ANTHROPIC_API_KEY=' "$TMP/last-claude-env.txt"; then
+    ok "the spawned claude's actual environment did not contain ANTHROPIC_API_KEY"
+  else
+    bad "the spawned claude's environment still contained ANTHROPIC_API_KEY (or was never captured)"
+  fi
 fi
 
 # --------------------------------------------------------------------------

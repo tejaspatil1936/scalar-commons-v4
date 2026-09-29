@@ -238,10 +238,26 @@ export const content = {
       ],
       caveats: [
         {
-          key: 'loopback-rpc',
+          // The page's own rule is that no figure is hand-typed — every number comes from
+          // chain-facts.json through a placeholder. The percentage and the CMN amount from
+          // the issue therefore stay in the issue, which is linked; the running spec comes
+          // from the same live metadata as everything else on this page.
+          key: 'economic-gate',
           text:
-            'The devnet RPC is bound to loopback on its host, so it answers only from that machine. A public endpoint is ' +
-            'not in place yet, which is why the explorer link below needs an endpoint you can reach.',
+            'Testnet status: the economic gate FAILED, and the fix is the runtime named above — ' +
+            '{{provenance.specName}} spec {{provenance.specVersion}} — with re-measurement still pending. On the ' +
+            'previous runtime, two faucet-funded accounts took the great majority of a whole era\u2019s emission in ' +
+            'return for a small amount of escrow between accounts one person controlled, because the size of an ' +
+            'era\u2019s pool was set by how many agents had registered and never by how much work had been done. The ' +
+            'current runtime bounds an era at alpha times the qualifying escrow volume that era settled. That is the ' +
+            'fix and not the proof: this gate is re-declared passed by measuring it again on chain, and that ' +
+            'measurement has not been published yet.',
+        },
+        {
+          key: 'public-rpc',
+          text:
+            'The public RPC endpoint is wss://rpc.scalarnet.io. The chain may be reset, and pallet weights are ' +
+            'hand-estimated until benchmarks land.',
         },
       ],
     },
@@ -258,30 +274,25 @@ export const content = {
     {
       key: 'docs',
       label: 'Documentation',
-      url: 'https://github.com/tejaspatil1936/scalar-commons-v4/tree/master/docs',
+      url: 'https://scalarnet.io/docs/',
       status: 'available',
       note:
-        'In-repo documentation, including the economic constants transcribed from the runtime with file and line ' +
-        'references. A fuller developer guide is still being written.',
+        'The developer and tester documentation, including the economic constants checked against the runtime.',
     },
     {
       key: 'explorer',
       label: 'Block explorer',
-      url: 'https://polkadot.js.org/apps/',
+      url: 'https://explorer.scalarnet.io',
       status: 'available',
-      note:
-        'Polkadot-JS Apps reads this runtime — blocks, extrinsics, accounts and every custom pallet — once you point it ' +
-        'at a Scalar Commons endpoint you can reach. A hosted explorer for the devnet is not up yet.',
+      note: 'Blocks, extrinsics, accounts and every custom pallet on the public testnet.',
     },
     {
       key: 'faucet',
       label: 'Testnet faucet',
-      url: 'https://github.com/tejaspatil1936/scalar-commons-v4/tree/master/faucet',
+      url: 'https://faucet.scalarnet.io',
       status: 'available',
       note:
-        'Built, and in the repository: it drips CMN from a pre-funded devnet account — never a mint path — and rate ' +
-        'limits each address and each requesting IP. No hosted instance is up yet, so you run it yourself against an ' +
-        'endpoint you can reach.',
+        'Drips CMN from a pre-funded testnet account, never a mint path, and rate limits each address and each requesting IP.',
     },
   ],
 

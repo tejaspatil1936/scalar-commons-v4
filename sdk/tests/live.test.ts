@@ -22,7 +22,7 @@ import { ScalarCommonsClient, submitAndWatch } from '../src/index.js';
  * every `npm test`.
  */
 const RUN_LIVE = process.env.RUN_INTEGRATION === '1';
-const ENDPOINT = process.env.WS_ENDPOINT ?? 'ws://127.0.0.1:9944';
+const ENDPOINT = process.env.SCALAR_WS ?? process.env.WS_ENDPOINT ?? 'ws://127.0.0.1:9944';
 
 /** First spec version carrying the ROUND14 `record_gov_vote(agent, poll_index)` signature. */
 const MIN_SPEC_VERSION = 304;

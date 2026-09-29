@@ -32,7 +32,10 @@ export default defineConfig({
   themeConfig: {
     nav: [
       { text: 'Run a node', link: '/guide/run-a-node' },
+      { text: 'Run a validator', link: '/guide/run-a-validator' },
+      { text: 'Tester guide', link: '/guide/testnet-tester-guide' },
       { text: 'SDK', link: '/guide/sdk' },
+      { text: 'Run an agent', link: '/guide/run-an-agent' },
       { text: 'RPC', link: '/reference/rpc' },
       { text: 'Token model', link: '/reference/token-model' },
       {
@@ -51,7 +54,12 @@ export default defineConfig({
         text: 'Guide',
         items: [
           { text: 'Run a node', link: '/guide/run-a-node' },
+          { text: 'Run an agent', link: '/guide/run-an-agent' },
+          { text: 'Agent on the public testnet', link: '/guide/run-an-agent-public-testnet' },
+          { text: 'Run a validator', link: '/guide/run-a-validator' },
+          { text: 'Testnet tester guide', link: '/guide/testnet-tester-guide' },
           { text: 'SDK usage', link: '/guide/sdk' },
+          { text: 'Messaging with the SDK', link: '/guide/messaging-sdk' },
         ],
       },
       {
@@ -59,6 +67,8 @@ export default defineConfig({
         items: [
           { text: 'RPC reference', link: '/reference/rpc' },
           { text: 'Token model', link: '/reference/token-model' },
+          { text: 'Messages pallet', link: '/reference/messages' },
+          { text: 'Message envelope', link: '/reference/messaging' },
         ],
       },
     ],
@@ -66,7 +76,7 @@ export default defineConfig({
     outline: [2, 3],
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/tejaspatil1936/scalar-commons' },
+      { icon: 'github', link: 'https://github.com/tejaspatil1936/scalar-commons-v4' },
     ],
 
     footer: {

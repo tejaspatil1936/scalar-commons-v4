@@ -3,6 +3,7 @@ import type { SubmittableExtrinsic } from '@polkadot/api/types';
 import type { ISubmittableResult } from '@polkadot/types/types';
 import type { AddressOrPair } from '@polkadot/api/types';
 
+import { DispatchFailure } from './errors.js';
 import { withRetry, type RetryOptions } from './retry.js';
 
 /** Result of a successfully included extrinsic. */
@@ -37,15 +38,16 @@ function signAndSendOnce(
       const { status, dispatchError, txHash } = result;
 
       if (dispatchError) {
-        let message: string;
+        let failure: DispatchFailure;
         if (dispatchError.isModule) {
           const decoded = api.registry.findMetaError(dispatchError.asModule);
-          message = `${decoded.section}.${decoded.name}: ${decoded.docs.join(' ').trim()}`;
+          failure = new DispatchFailure(decoded.section, decoded.name, decoded.docs.join(' ').trim());
         } else {
-          message = dispatchError.toString();
+          // Non-module errors (BadOrigin, token/arithmetic errors) render as e.g. "BadOrigin".
+          failure = new DispatchFailure('system', dispatchError.type, '');
         }
         cleanup();
-        reject(new Error(message));
+        reject(failure);
         return;
       }
 

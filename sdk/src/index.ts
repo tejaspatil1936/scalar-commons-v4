@@ -15,14 +15,18 @@
 import { ApiPromise, WsProvider } from '@polkadot/api';
 import type { SubmittableExtrinsic, AddressOrPair } from '@polkadot/api/types';
 import type { Codec } from '@polkadot/types/types';
+import { u8aToHex } from '@polkadot/util';
 
 import { submitAndWatch, type SubmitResult } from './submit.js';
 import { consoleLogger, type Logger } from './logger.js';
 import type { RetryOptions } from './retry.js';
+import type { SendMessageArgs } from './messaging/transport.js';
 
 export { consoleLogger, errorMessage, type Logger } from './logger.js';
+export { DispatchFailure, isDeterministicFailure } from './errors.js';
 export { withRetry, type RetryOptions } from './retry.js';
 export { submitAndWatch, type SubmitResult } from './submit.js';
+export * from './messaging/index.js';
 
 /** 1 CMN = 10^12 plancks. */
 export const PLANCKS_PER_CMN = 1_000_000_000_000n;
@@ -335,6 +339,55 @@ export class ScalarCommonsClient {
   /** Claim accrued emissions for the caller. → `emissions.claim`. */
   claim(signer: AddressOrPair): Promise<SubmitResult> {
     return this.submit(txEntry(this.api, 'emissions', 'claim')(), signer, 'claim');
+  }
+
+  // ─── Messaging (spec 308) ────────────────────────────────────────────────
+
+  /**
+   * Publish the caller's X25519 messaging key. → `agents.setMessagingKey`.
+   *
+   * Registered agents only; calling again rotates the key. Derive the key with
+   * `deriveMessagingKey` so it is recoverable from the account mnemonic alone.
+   */
+  setMessagingKey(signer: AddressOrPair, publicKey: Uint8Array): Promise<SubmitResult> {
+    if (publicKey.length !== 32) {
+      return Promise.reject(new Error(`messaging key must be 32 bytes, got ${publicKey.length}`));
+    }
+    return this.submit(
+      txEntry(this.api, 'agents', 'setMessagingKey')(u8aToHex(publicKey)),
+      signer,
+      'setMessagingKey',
+    );
+  }
+
+  /** Remove the caller's messaging key. → `agents.clearMessagingKey`. */
+  clearMessagingKey(signer: AddressOrPair): Promise<SubmitResult> {
+    return this.submit(txEntry(this.api, 'agents', 'clearMessagingKey')(), signer, 'clearMessagingKey');
+  }
+
+  /**
+   * Send a coordination message. → `messages.send`.
+   *
+   * Prefer `OnChainTransport`, which builds these arguments from a signed
+   * envelope and checks the 2 KiB bound and the signer before paying a fee.
+   * The runtime burns `BaseFee + PerByteFee × payload_len` on top of the
+   * weight fee (docs/reference/messages.md).
+   */
+  sendMessage(signer: AddressOrPair, args: SendMessageArgs): Promise<SubmitResult> {
+    return this.submit(
+      txEntry(this.api, 'messages', 'send')(args.to, args.kind, args.agreement, args.payloadHash, args.payload),
+      signer,
+      'sendMessage',
+    );
+  }
+
+  /** The X25519 messaging key `address` published, or `null` if it has none. */
+  async messagingKeyOf(address: string): Promise<Uint8Array | null> {
+    const opt = (await queryEntry(this.api, 'agents', 'messagingKey')(address)) as unknown as {
+      isSome: boolean;
+      unwrap(): { toU8a(): Uint8Array };
+    };
+    return opt.isSome ? opt.unwrap().toU8a() : null;
   }
 
   // ─── Read methods ────────────────────────────────────────────────────────

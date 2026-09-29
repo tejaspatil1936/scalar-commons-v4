@@ -112,3 +112,46 @@ export interface HomeView {
   readonly chain: ChainInfo;
   readonly head: { readonly number: number; readonly hash: string };
 }
+
+/**
+ * One field of an activity event, typed from the runtime metadata.
+ *
+ * The indexer serves event data as plain JSON and drops the metadata types on
+ * the way. The explorer puts them back from its own connection's metadata, so a
+ * balance is printed in tokens because the runtime says it is a balance — not
+ * because its field happens to be called `amount`.
+ */
+export interface ActivityField {
+  readonly name: string;
+  readonly value: string;
+  readonly kind: 'account' | 'balance' | 'plain';
+}
+
+/** One row of the agent-activity feed. */
+export interface ActivityEntry {
+  /** `<block>-<event index>`, as the indexer names it. */
+  readonly id: string;
+  readonly blockNumber: number;
+  /** The extrinsic that emitted the event; null for block-hook events. */
+  readonly extrinsicIndex: number | null;
+  readonly timestampMs: bigint | null;
+  /** The indexer's family for the event: `heartbeat`, `dispute`, `slash`, … */
+  readonly kind: string;
+  readonly section: string;
+  readonly method: string;
+  readonly agents: readonly string[];
+  readonly fields: readonly ActivityField[];
+}
+
+/** A page of the agent-activity feed, newest first. */
+export interface ActivityView {
+  /** The agent the feed is filtered to, or null for every agent. */
+  readonly agent: string | null;
+  readonly offset: number;
+  readonly limit: number;
+  /** Every matching row the index holds, not just this page. */
+  readonly total: number;
+  /** The oldest block the indexer holds: the feed reaches no further back. */
+  readonly historyFrom: number | null;
+  readonly entries: readonly ActivityEntry[];
+}

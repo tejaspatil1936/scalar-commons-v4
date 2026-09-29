@@ -61,6 +61,7 @@ jobs:
       faucet: ${{ steps.filter.outputs.faucet }}
       docs: ${{ steps.filter.outputs.docs }}
       sdk: ${{ steps.filter.outputs.sdk }}
+      reference_agent: ${{ steps.filter.outputs.reference_agent }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -91,7 +92,7 @@ jobs:
           # thing under test, and scoping it to nothing would let a broken gate
           # merge green.
           if [ -z "$CHANGED" ] || printf '%s\n' "$CHANGED" | grep -qE '^\.github/workflows/ci-node\.yml$'; then
-            for p in landing faucet docs sdk; do echo "$p=true" >> "$GITHUB_OUTPUT"; done
+            for p in landing faucet docs sdk reference_agent; do echo "$p=true" >> "$GITHUB_OUTPUT"; done
             echo "→ all subprojects selected"
             exit 0
           fi
@@ -119,6 +120,14 @@ jobs:
           for p in faucet docs sdk; do
             if selected "^$p/"; then echo "$p=true" >> "$GITHUB_OUTPUT"; else echo "$p=false" >> "$GITHUB_OUTPUT"; fi
           done
+
+          # The reference agent installs sdk/ as a packed copy, so an SDK change
+          # can break it; both paths select it.
+          if selected '^examples/reference-agent/' || selected '^sdk/'; then
+            echo "reference_agent=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "reference_agent=false" >> "$GITHUB_OUTPUT"
+          fi
 
           echo "── selection ──"; cat "$GITHUB_OUTPUT"
 
@@ -298,3 +307,40 @@ jobs:
       - name: Not selected
         if: needs.changes.outputs.sdk != 'true'
         run: echo "sdk/ unchanged — nothing to check."
+
+  # ── reference-agent ───────────────────────────────────────────────────────
+  # Gate: build sdk/ (the agent installs it as a packed copy via
+  # install-links=true, which needs sdk/dist), then npm ci && typecheck && test
+  # in examples/reference-agent. Offline: the unit tests cover config parsing
+  # and work selection; the live run is recorded in docs/guide/run-an-agent.md.
+  reference-agent:
+    name: reference-agent
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        if: needs.changes.outputs.reference_agent == 'true'
+      - uses: actions/setup-node@v4
+        if: needs.changes.outputs.reference_agent == 'true'
+        with:
+          node-version: 22
+      - name: build sdk
+        if: needs.changes.outputs.reference_agent == 'true'
+        working-directory: sdk
+        run: npm ci && npm run build
+      - name: npm ci
+        if: needs.changes.outputs.reference_agent == 'true'
+        working-directory: examples/reference-agent
+        run: npm ci
+      - name: npm run typecheck
+        if: needs.changes.outputs.reference_agent == 'true'
+        working-directory: examples/reference-agent
+        run: npm run typecheck
+      - name: npm test
+        if: needs.changes.outputs.reference_agent == 'true'
+        working-directory: examples/reference-agent
+        run: npm test
+      - name: Not selected
+        if: needs.changes.outputs.reference_agent != 'true'
+        run: echo "examples/reference-agent/ and sdk/ unchanged — nothing to check."

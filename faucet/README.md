@@ -36,6 +36,7 @@ is refunded if the drip does not actually land.
 
 | Method | Path | Result |
 |---|---|---|
+| `GET` | `/` | index: one line of JSON naming `/health` and the two working routes |
 | `POST` | `/drip` | `{"address":"5..."}` → `200` with `blockHash`/`txHash`, or `400` / `429` / `503` / `502` |
 | `GET` | `/balance/:address` | live free balance in plancks |
 | `GET` | `/health` | chain name, spec version, funding-account balance, socket state — `503` while the node is unreachable |
@@ -67,7 +68,7 @@ boot on a bad value rather than falling back to a default drip amount):
 | `FAUCET_RPC_ENDPOINT` | `ws://127.0.0.1:9944` |
 | `FAUCET_SEED` | `//Ferdie` |
 | `FAUCET_SS58_FORMAT` | `42` |
-| `FAUCET_DRIP_CMN` | `10` |
+| `FAUCET_DRIP_CMN` | `1500` |
 | `FAUCET_RESERVE_CMN` | `1000` |
 | `FAUCET_ADDRESS_MAX_REQUESTS` / `FAUCET_ADDRESS_WINDOW_MINUTES` | `1` / `60` |
 | `FAUCET_IP_MAX_REQUESTS` / `FAUCET_IP_WINDOW_MINUTES` | `5` / `60` |

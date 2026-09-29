@@ -289,10 +289,12 @@ Any FAIL → `needs-human` plus a comment with the objections. Both labels can b
 set at once (2 PASS + 1 FAIL); since merging requires `agent-reviewed` *and* no
 `needs-human`, any FAIL blocks the merge while the audit trail survives.
 
-`review.sh` also runs the same `load_billing_env` preflight `lib/loop.sh` runs,
-and fails closed without an API key: every lens is a `claude -p` process, so a
-reviewer that cannot prove its billing source does not run. Before this, all six
-systemd-launched reviews — 18 of 18 lenses — exited 127.
+`review.sh` also runs the same `load_billing_env` preflight `lib/loop.sh` runs:
+every lens is a `claude -p` process, so each one goes through the same billing
+guarantee the loops do — post-cutover that means no stray API key reaches the
+child and the Max login is what gets billed (see **Billing** below). Before this
+preflight was wired into `review.sh` at all, all six systemd-launched reviews —
+18 of 18 lenses — exited 127.
 
 **The verdict is bound to a head SHA.** `review.sh` records the exact commit it
 read in its verdict comment, and `merge.sh` refuses a PR whose head has moved
@@ -440,27 +442,25 @@ and accept the disk and cold-build cost. **Do not remove the lock.**
 
 ## Billing
 
-Loops use the **API key**; your interactive session stays on **Max**. Verified on
-this host with `claude` 2.1.220:
+**Updated 27 Sep 2026 (LAB decision 002 amendment, Max-subscription cutover).**
+The inference proxy this host used is retired; `~/.factory/env` no longer sets
+`ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL`. Loops now bill the **Claude Max
+subscription** — the same login an interactive session on this box would use.
+Verified on this host with `claude` 2.1.220:
 
 - Interactive sessions have no `ANTHROPIC_API_KEY` and authenticate via
   `oauthAccount` (`billingType: stripe_subscription`).
-- With `ANTHROPIC_API_KEY` set, the CLI states the key *"takes precedence over
-  your claude.ai login"*.
-- An **invalid** key **fails** rather than falling back to OAuth — so the key
-  path is genuinely live, not decorative.
-- A real key returns `total_cost_usd` with `service_tier: standard` — a metered
-  API charge.
+- With `ANTHROPIC_API_KEY` (or `ANTHROPIC_BASE_URL`/`ANTHROPIC_AUTH_TOKEN`) set,
+  the CLI states the key *"takes precedence over your claude.ai login"* — so
+  Max billing requires the *absence* of these, not their presence.
 
-`load_billing_env` therefore treats a non-empty key as sufficient, **fails closed
-without one**, and strips inherited `CLAUDECODE*` session markers so each loop is
-a clean, non-nested, API-billed session.
-
-There is also a `--bare` flag that hard-guarantees API-only auth (OAuth and
-keychain are *never* read). The factory does **not** use it, because `--bare`
-also skips hooks — which would disable the anti-stub enforcement. Fail-closed
-preflight plus working hooks beats a stronger auth guarantee with the safety net
-switched off.
+`load_billing_env` therefore **clears** `ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL`/
+`ANTHROPIC_AUTH_TOKEN` (logging a warning if any were set — a stray key would
+otherwise silently redirect billing at the retired, dead proxy; this is exactly
+how the 217/219/223/225 tasks died mid-GATING on 2026-09-27), and it still
+strips the `CLAUDECODE*` interactive-session markers, same as the old policy —
+that guard against a nested, non-clean session was never about which billing
+source was in use, so the Max-auth flip gives no reason to drop it.
 
 ---
 

@@ -1,6 +1,8 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import type { AddressInfo } from 'node:net';
+import type { Server } from 'node:http';
 
-import { matchRoute, settledEraFromEvent } from '../src/api.ts';
+import { createApiServer, matchRoute, settledEraFromEvent, ROUTES, type ApiDependencies } from '../src/api.ts';
 
 /**
  * Routing and era-event shaping, tested without a chain.
@@ -67,6 +69,28 @@ describe('settledEraFromEvent', () => {
     });
   });
 
+  // spec 306 adds emissions.EmissionCappedByVolume alongside EraSettled, and both can be
+  // emitted from the same settle_era extrinsic. /v1/eras rebuilds settled eras by
+  // selecting section+method, so the risk worth pinning is that a sibling event in the same
+  // block leaks into that reconstruction — or that its differently-shaped payload reaches
+  // settledEraFromEvent at all.
+  it('is not confused by the spec-306 sibling events emitted from the same settle_era', () => {
+    const capped = {
+      blockNumber: 4_242,
+      data: {
+        era: 7,
+        uncapped: '110000000000000000000',
+        qualifying_volume: '60000000000000',
+        alpha_bps: 10_000,
+      },
+    };
+    // It carries no total_emission/total_weight, so if it ever reached this shaper it must
+    // throw rather than report an era that emitted nothing.
+    expect(() => settledEraFromEvent(capped)).toThrow();
+    // And the real EraSettled from the same block still shapes correctly.
+    expect(settledEraFromEvent(settled).era).toBe(7);
+  });
+
   it('accepts the camelCase spelling metadata may hand back', () => {
     const camel = { blockNumber: 9, data: { era: 1, totalEmission: '5', totalWeight: '2' } };
     expect(settledEraFromEvent(camel).totalEmissionPlancks).toBe('5');
@@ -86,5 +110,77 @@ describe('settledEraFromEvent', () => {
 
     const noEra = { blockNumber: 9, data: { total_emission: '10', total_weight: '4' } };
     expect(() => settledEraFromEvent(noEra)).toThrow(/era/);
+  });
+});
+
+/**
+ * The root index.
+ *
+ * `/` used to 404 with the endpoint list attached (`api.scalarnet.io/` →
+ * `{"error":"no such endpoint: /","endpoints":[...]}`, PUBLIC-LAUNCH.md §5
+ * F-2). The bytes were nearly right; the status code told every monitor and
+ * every human that the host was broken. These cases pin both halves — the 200
+ * and the pointer — and pin them against a dependency object that throws on
+ * touch, because `/` has to answer while the node is unreachable.
+ */
+describe('GET /', () => {
+  /**
+   * Dependencies that fail on ANY property access.
+   *
+   * A pointer to the entry point is not chain state. If the root handler ever
+   * reaches for `store`, `api`, `chain`, `indexer` or `config`, this throws and
+   * the case fails — rather than passing here and 503-ing in production the
+   * next time alice restarts.
+   */
+  const chainless = new Proxy(
+    {},
+    {
+      get(_target, property) {
+        throw new Error(`the root index must read no dependencies; it reached for "${String(property)}"`);
+      },
+    },
+  ) as ApiDependencies;
+
+  let server: Server;
+  let baseUrl: string;
+
+  beforeAll(async () => {
+    server = createApiServer(chainless);
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it('answers 200, not 404', async () => {
+    // The status code comes first on purpose: the old 404 body already
+    // contained "/v1/status" inside its endpoint list, so a body-only check is
+    // a false green.
+    expect((await fetch(`${baseUrl}/`)).status).toBe(200);
+  });
+
+  it('names /v1/status as the entry point', async () => {
+    const response = await fetch(`${baseUrl}/`);
+    const text = await response.text();
+    // One line: this is read by curl in a terminal as often as by a client.
+    expect(text).not.toContain('\n');
+    expect(text).toContain('/v1/status');
+    expect(JSON.parse(text).status).toBe('/v1/status');
+  });
+
+  it('carries the same endpoint list the 404 already offered', async () => {
+    const body = (await (await fetch(`${baseUrl}/`)).json()) as { endpoints?: string[] };
+    expect(body.endpoints).toEqual(ROUTES.map((route) => route.path));
+  });
+
+  it('does not enter the versioned surface to do it', () => {
+    // `/` is unversioned by construction. Adding it to ROUTES would answer the
+    // gate too, and would silently renumber the v1 contract: `/v1/status`
+    // reports `api.endpoints = ROUTES.length`, and the live suite requires
+    // exactly 25, all `/v1/`-prefixed.
+    expect(matchRoute('/')).toBeNull();
+    expect(ROUTES).toHaveLength(25);
   });
 });

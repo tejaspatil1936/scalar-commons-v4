@@ -287,7 +287,7 @@ describe('ScalarCommonsClient — submit retries are logged, never silent', () =
 // ─── Optional: real dev node ────────────────────────────────────────────────
 
 const runReal = process.env.RUN_INTEGRATION === '1';
-const endpoint = process.env.WS_ENDPOINT ?? 'ws://127.0.0.1:9944';
+const endpoint = process.env.SCALAR_WS ?? process.env.WS_ENDPOINT ?? 'ws://127.0.0.1:9944';
 
 describe.skipIf(!runReal)('ScalarCommonsClient — real dev node', () => {
   it('connects and reads era info from a live node', async () => {

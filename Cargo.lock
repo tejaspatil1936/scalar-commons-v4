@@ -6029,6 +6029,8 @@ dependencies = [
  "frame-system",
  "parity-scale-codec",
  "scale-info",
+ "sp-core",
+ "sp-io",
  "sp-runtime",
  "sp-std",
 ]
@@ -6247,6 +6249,21 @@ dependencies = [
  "sp-io",
  "sp-runtime",
  "sp-staking",
+]
+
+[[package]]
+name = "pallet-messages"
+version = "4.0.0"
+dependencies = [
+ "frame-support",
+ "frame-system",
+ "pallet-agents",
+ "pallet-balances",
+ "parity-scale-codec",
+ "scale-info",
+ "sp-core",
+ "sp-io",
+ "sp-runtime",
 ]
 
 [[package]]
@@ -9399,6 +9416,7 @@ dependencies = [
  "pallet-balances",
  "pallet-emissions",
  "pallet-escrow",
+ "pallet-messages",
  "pallet-oracle",
  "pallet-orchestrator",
  "parity-scale-codec",
@@ -9434,6 +9452,7 @@ dependencies = [
  "pallet-grandpa",
  "pallet-identity",
  "pallet-im-online",
+ "pallet-messages",
  "pallet-multisig",
  "pallet-nomination-pools",
  "pallet-offences",
