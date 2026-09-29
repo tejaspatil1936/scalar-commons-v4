@@ -18,7 +18,7 @@ import { loadConfig } from '../src/config.ts';
 /**
  * End-to-end against the live devnet node.
  *
- * This suite is the contract the issue states: every one of the 24 v1 endpoints
+ * This suite is the contract the issue states: every one of the 25 v1 endpoints
  * must answer with data read from a real chain — never a fixture. So it
  * (1) submits real extrinsics, (2) lets the indexer ingest the real finalized
  * blocks those landed in, and (3) cross-checks each response against a direct
@@ -301,10 +301,10 @@ afterAll(async () => {
 });
 
 describe('v1 surface', () => {
-  it('exposes exactly the 24 documented endpoints', () => {
-    expect(ROUTES).toHaveLength(24);
+  it('exposes exactly the 25 documented endpoints', () => {
+    expect(ROUTES).toHaveLength(25);
     // Paths are the public contract — duplicates would mean one is unreachable.
-    expect(new Set(ROUTES.map((r) => r.path)).size).toBe(24);
+    expect(new Set(ROUTES.map((r) => r.path)).size).toBe(25);
     for (const route of ROUTES) {
       expect(route.path.startsWith('/v1/'), `${route.path} must be version-prefixed`).toBe(true);
     }
@@ -896,8 +896,68 @@ describe('emissions', () => {
   });
 });
 
+describe('activity', () => {
+  it('feeds the seeded heartbeat and agreement, newest first, and nothing else', async () => {
+    const { status, body } = await getRoute('/v1/activity', {}, `?agent=${alice.address}&limit=200`);
+    expect(status).toBe(200);
+    expect(body.agent).toBe(alice.address);
+    expect(body.kind).toBeNull();
+    expect(body.historyFrom).toBe(store.earliestBlockNumber());
+
+    const heartbeat = body.items.find(
+      (item: any) => item.kind === 'heartbeat' && item.blockNumber === seeded.heartbeatBlock,
+    );
+    expect(heartbeat, 'the seeded heartbeat must appear in the feed').toBeTruthy();
+    expect(heartbeat.agents).toContain(alice.address);
+
+    const created = body.items.find(
+      (item: any) =>
+        item.kind === 'agreement' &&
+        item.method === 'AgreementCreated' &&
+        item.blockNumber === seeded.escrowBlock &&
+        item.data.seq === seeded.seq,
+    );
+    expect(created, 'the seeded AgreementCreated must appear in the feed').toBeTruthy();
+    expect(created.agents).toEqual(expect.arrayContaining([seeded.buyer, seeded.provider]));
+
+    // The transfer is Alice's too, but it is not agent activity.
+    for (const item of body.items) {
+      expect(`${item.section}.${item.method}`).not.toMatch(/^(balances|system|transactionPayment)\./);
+      expect(item.agents).toContain(alice.address);
+    }
+
+    // Newest first, block then position.
+    for (let i = 1; i < body.items.length; i += 1) {
+      const [prev, next] = [body.items[i - 1], body.items[i]];
+      expect(prev.blockNumber * 1e6 + prev.index).toBeGreaterThan(next.blockNumber * 1e6 + next.index);
+    }
+
+    // Every row is the indexed event itself, with that block's own clock.
+    const direct = await getRoute('/v1/events/:id', { id: created.id });
+    expect(direct.body.data).toEqual(created.data);
+    const block = await getRoute('/v1/blocks/:id', { id: created.blockNumber });
+    expect(created.timestampMs).toBe(block.body.timestampMs);
+  });
+
+  it('narrows to one kind and refuses one it does not know', async () => {
+    const { body } = await getRoute('/v1/activity', {}, `?agent=${alice.address}&kind=heartbeat`);
+    expect(body.total).toBeGreaterThanOrEqual(1);
+    for (const item of body.items) expect(item.kind).toBe('heartbeat');
+
+    const bad = await fetch(`${baseUrl}/v1/activity?kind=heartbeats`);
+    expect(bad.status).toBe(400);
+  });
+
+  it('answers ?agent= written with a foreign SS58 prefix', async () => {
+    const foreign = encodeAddress(decodeAddress(alice.address), 0);
+    const { body } = await getRoute('/v1/activity', {}, `?agent=${foreign}&kind=heartbeat`);
+    expect(body.agent).toBe(alice.address);
+    expect(body.total).toBeGreaterThanOrEqual(1);
+  });
+});
+
 describe('endpoint coverage', () => {
-  it('exercised every one of the 24 endpoints against the live node', () => {
+  it('exercised every one of the 25 endpoints against the live node', () => {
     const declared = ROUTES.map((r) => r.path).sort();
     expect([...exercised].sort()).toEqual(declared);
   });
