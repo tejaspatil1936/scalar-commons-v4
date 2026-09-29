@@ -67,6 +67,8 @@ export default defineConfig({
         items: [
           { text: 'RPC reference', link: '/reference/rpc' },
           { text: 'Token model', link: '/reference/token-model' },
+          { text: 'Messages pallet', link: '/reference/messages' },
+          { text: 'Message envelope', link: '/reference/messaging' },
         ],
       },
     ],
