@@ -51,15 +51,30 @@ id = "generic-api-key"
   # assigned to an identifier ending in _KEY and cannot tell it from a private
   # key, which is a reasonable thing for it not to be able to tell.
   #
-  # LISTED AS EXACT LITERALS, NOT AS A PATTERN, AND THAT IS THE WHOLE POINT.
-  # The tempting version of this entry is a regex like `0x[0-9a-f]{64}` -- and
-  # it would be a serious mistake, because that is also the exact shape of a
-  # 32-byte private key or a raw seed. Such a regex would exempt the single most
-  # dangerous thing this scanner exists to catch. Each value below is a specific
-  # constant whose public derivation is stated; adding one means computing it
-  # and saying which pallet and item it comes from.
+  # NEVER `0x[0-9a-f]{64}`. That is also the exact shape of a 32-byte private key
+  # or a raw seed, so it would exempt the single most dangerous thing this
+  # scanner exists to catch. Every entry below is anchored on a PALLET PREFIX
+  # that is itself a published constant.
   #
-  #   Session::Validators = twox128("Session") ++ twox128("Validators")
+  # Anchoring on twox128(pallet) is what makes this safe and is the whole design.
+  # The first 16 bytes of a Substrate storage key are twox128 of the pallet name,
+  # so an entry of the form <known-prefix><32 hex> means exactly "any storage
+  # item in this one pallet" and nothing else. For a real secret to slip through,
+  # its first sixteen bytes would have to equal twox128("Session") exactly --
+  # a 1-in-2^128 coincidence, not a threat model.
+  #
+  # Adding a pallet means computing its prefix and naming it here. Two keys from
+  # the same pallet already arrived on separate days (Validators on 2026-09-29
+  # in PR #254, QueuedKeys hours later in the observatory v2 work), each red-ing
+  # the secret scanner for EVERY open PR until it was listed. Per-value entries
+  # turned that into recurring breakage with no security benefit: the pallet
+  # prefix is the honest unit.
+  #
+  #   twox128("Session")    = 0xcec5070d609dd3497f72bde07fc96ba0
+  #   twox128("Validators") =   88dcde934c658227ee1dfafcd6e16903  -> Session::Validators
+  #   twox128("QueuedKeys") =   e0cdd062e6eaf24295ad4ccfc41d4609  -> Session::QueuedKeys
+  #
+  # Verified with @polkadot/util-crypto's xxhashAsHex(name, 128).
   regexes = [
-    '''0xcec5070d609dd3497f72bde07fc96ba088dcde934c658227ee1dfafcd6e16903''',
+    '''0xcec5070d609dd3497f72bde07fc96ba0[0-9a-f]{32}\b''',
   ]
