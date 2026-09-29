@@ -19,6 +19,7 @@ pallet-oracle      = { workspace = true, features = ["std"] }
 pallet-emissions   = { workspace = true, features = ["std"] }
 pallet-auto-params = { workspace = true, features = ["std"] }
 pallet-orchestrator = { workspace = true, features = ["std"] }
+pallet-messages    = { workspace = true, features = ["std"] }
 
 [[test]]
 name = "integration"
