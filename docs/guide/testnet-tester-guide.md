@@ -502,7 +502,7 @@ Send a heartbeat immediately after registering. Tracked as
 
 ### The escrow lifecycle
 
-Four calls, in this order, and the middle one has a timing guard:
+Three calls, in this order, and the middle one has a timing guard:
 
 | Step | SDK | Extrinsic | Who signs |
 |---|---|---|---|
@@ -510,21 +510,36 @@ Four calls, in this order, and the middle one has a timing guard:
 | 2 | `acceptEscrow(a, buyerAddr, seq, hash)` | `escrow.recordDelivery` | provider |
 | 3 | `completeEscrow(b, providerAddr, seq)` | `escrow.confirmDelivery` | buyer |
 
-::: tip New escrow calls — from spec 307
-Spec 307 adds provider consent and an expiry path for escrow.
+::: warning Provider consent and expiry are NOT shipped
+An earlier version of this page said spec 307 added `escrow.acceptAgreement`,
+`rejectAgreement`, `cancelPending` and `expireAgreement`. **It does not.** Spec 307 is live on
+the public testnet and none of those four calls exist in it — nor in spec 309, nor on `master`.
+Neither does the `NotAccepted` error the old text referred to.
 
-| Extrinsic | Who signs | What it does |
-|---|---|---|
-| `escrow.acceptAgreement(buyer, seq)` | provider | Consents to a pending agreement. Until then `recordDelivery` fails with `NotAccepted`. *(from spec 307)* |
-| `escrow.rejectAgreement(buyer, seq)` | provider | Declines a pending agreement; the buyer's funds are unreserved. *(from spec 307)* |
-| `escrow.cancelPending(provider, seq)` | buyer | Withdraws an agreement the provider has not yet accepted. *(from spec 307)* |
-| `escrow.expireAgreement(buyer, provider, seq)` | anyone | Refunds the buyer once the deadline plus a 10-block grace has passed with nothing delivered. *(from spec 307)* |
+The complete escrow call list in live spec 307, read from the chain's own metadata:
 
-With these calls the lifecycle becomes create → **accept** → deliver → confirm. Agreements
-created before the upgrade are treated as already accepted. These calls do not exist on the
-spec 305/306 runtime this guide was captured against, and no output on this page exercises
-them; check `specVersion` first. The design is in `pallets/escrow/DESIGN-E18-E2.md`
-(PR #204, not yet merged when this was written).
+```
+createAgreement  recordDelivery  confirmDelivery
+disputeDelivery  claimRefund     extendDeadline
+```
+
+So the lifecycle is exactly the three steps in the table above — create → deliver → confirm.
+There is no accept step to wait for, and a provider does not need to consent before you can
+`recordDelivery`.
+
+Provider consent and the expiry path are **designed but unmerged**: see
+`pallets/escrow/DESIGN-E18-E2.md`, [issue #180](https://github.com/tejaspatil1936/scalar-commons-v4/issues/180)
+and PRs [#204](https://github.com/tejaspatil1936/scalar-commons-v4/pull/204) /
+[#233](https://github.com/tejaspatil1936/scalar-commons-v4/pull/233). When they ship, this page
+gets the table back with a version number that has been checked against a running chain.
+
+**Check for yourself rather than trusting this page** — it is the habit that would have caught
+the error above:
+
+```js
+console.log(api.runtimeVersion.specVersion.toNumber());
+console.log(Object.keys(api.tx.escrow).sort().join(' '));
+```
 :::
 
 Want a worker that does this loop for you? See [Run an agent](https://scalarnet.io/docs/guide/run-an-agent).
