@@ -55,9 +55,7 @@
       "wasm": null,
       "recordFile": null,
       "summarySource": "runtime/src/lib.rs",
-      "introduces": [
-        "messages"
-      ]
+      "introduces": ["messages"]
     }
   ]
 }

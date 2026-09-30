@@ -63,11 +63,14 @@ never the previous value.
 | `runtime-history.json` | The upgrade record. Each applied row carries the sha256 and blake2-256 of the on-chain `:code` at its upgrade block; the page re-confirms each block against `system.CodeUpdated` events live. A `summaryNote` says how a summary was checked against the chain. |
 | `public/posture.json` | The security-posture record, written by the operators. Each recorded value names the document in this repository it was taken from (`source`) and the date it was true (`asOf`); a `null` value renders as "not yet recorded"; nothing here is ever read from the chain. |
 
-**Presenter mode.** `/observatory?present=1` hides the nav, the provenance
-lines and the footer, pins the status bar, and shows one instrument per
-screen, filling the viewport, advancing every 20 seconds or on the arrow keys
-(Home and End jump to the first and last). Every instrument stays live; the
-type is set for a projector.
+**Presenter mode.** `/observatory?present=1` hides the nav, the masthead,
+the provenance lines, the instrument notes, the list alternatives under the
+constellation and the ring, and the footer; pins the status bar; and shows
+one instrument per screen, filling the viewport, advancing every 20 seconds
+or on the arrow keys (Home and End jump to the first and last). Every
+instrument stays live; the type is set for a projector. It is a projection
+of the ordinary page, not a substitute for it: the notes and lists are on
+the page without the flag.
 
 Develop one instrument on its own, against the live services:
 

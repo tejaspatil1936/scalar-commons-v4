@@ -11,7 +11,7 @@
     "fixedIn307": {
       "value": 4,
       "asOf": "2026-09-26",
-      "source": "Runtime 307's integration record (pull request #211, merged 2026-09-26; escrow guards in pallets/escrow/src/lib.rs, commits 1c39c0b and c5ed79a): findings E1, E21, E22 and E25 from the lab sprint of 26–27 September closed in code, each with a test that was red before and green after. A fifth item, #161, was closed by evidence rather than a change. These are the lab sprint's findings, not four of the 382 above: the audit of 8 September and the sprint of 26 September are separate reviews.",
+      "source": "Runtime 307's integration record (pull request #211, merged 2026-09-26; escrow guards in pallets/escrow/src/lib.rs, commits 1c39c0b and c5ed79a): findings E1, E21, E22 and E25 from the overnight lab sprint that began on 26 September (label `lab`, issues #177–#179) closed in code, each with a test that was red before and green after. A fifth item, #161, was closed by evidence rather than a change. These are the lab sprint's findings, not four of the 382 above: the audit of 8 September and the sprint of 26 September are separate reviews.",
       "todo": "recorded"
     },
     "redTeamStatus": {

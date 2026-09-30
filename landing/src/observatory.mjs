@@ -293,7 +293,7 @@ function upgradeRows(history) {
     .map((u) => {
       const applied = u.status === 'applied';
       return `          <li class="upgrade" data-spec="${u.specVersion}" data-status="${escapeHtml(u.status)}">
-            <h3 class="upgrade-title"><span class="mono">${u.specVersion}</span> <span class="status status-${escapeHtml(u.status)}">${applied ? 'Applied' : 'Scheduled'}</span></h3>
+            <h3 class="upgrade-title"><span class="upgrade-spec">${u.specVersion}</span> <span class="status status-${escapeHtml(u.status)}">${applied ? 'Applied' : 'Scheduled'}</span></h3>
             <p class="upgrade-change">${escapeHtml(u.summary)}</p>
             <p class="upgrade-facts mono">${
               applied

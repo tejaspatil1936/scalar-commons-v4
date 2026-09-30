@@ -160,14 +160,13 @@ test('nodeRadius grows with the square root of activity, between 3 and 12 px, an
 
 test('labels need a 64 rem viewport and at most 120 points; radii shrink and lone points fade beyond that', () => {
   // Address labels are never drawn on the plate: they show on hover or tap, and in the list.
-  assert.deepEqual(labelPolicy(1440, 34), { labels: false, radiusFactor: 1, isolatedAlpha: 1 });
-  assert.deepEqual(labelPolicy(1023, 34), { labels: false, radiusFactor: 1, isolatedAlpha: 1 });
-  assert.deepEqual(labelPolicy(1024, LABEL_MAX_NODES), { labels: false, radiusFactor: 1, isolatedAlpha: 1 });
-  assert.deepEqual(labelPolicy(1440, LABEL_MAX_NODES + 1), { labels: false, radiusFactor: 0.7, isolatedAlpha: 1 });
-  assert.deepEqual(labelPolicy(1440, FADE_ISOLATED_ABOVE), { labels: false, radiusFactor: 0.7, isolatedAlpha: 1 });
-  assert.deepEqual(labelPolicy(1440, FADE_ISOLATED_ABOVE + 1), { labels: false, radiusFactor: 0.5, isolatedAlpha: ISOLATED_ALPHA });
-  assert.deepEqual(labelPolicy(1440, 500), { labels: false, radiusFactor: 0.5, isolatedAlpha: ISOLATED_ALPHA });
-  assert.equal(labelPolicy(1200, 34, 20).labels, false);
+  assert.deepEqual(labelPolicy(34), { labels: false, radiusFactor: 1, isolatedAlpha: 1 });
+  assert.deepEqual(labelPolicy(34), { labels: false, radiusFactor: 1, isolatedAlpha: 1 });
+  assert.deepEqual(labelPolicy(LABEL_MAX_NODES), { labels: false, radiusFactor: 1, isolatedAlpha: 1 });
+  assert.deepEqual(labelPolicy(LABEL_MAX_NODES + 1), { labels: false, radiusFactor: 0.7, isolatedAlpha: 1 });
+  assert.deepEqual(labelPolicy(FADE_ISOLATED_ABOVE), { labels: false, radiusFactor: 0.7, isolatedAlpha: 1 });
+  assert.deepEqual(labelPolicy(FADE_ISOLATED_ABOVE + 1), { labels: false, radiusFactor: 0.5, isolatedAlpha: ISOLATED_ALPHA });
+  assert.deepEqual(labelPolicy(500), { labels: false, radiusFactor: 0.5, isolatedAlpha: ISOLATED_ALPHA });
 });
 
 test('parallel agreements fan out symmetrically and never wider than a band', () => {

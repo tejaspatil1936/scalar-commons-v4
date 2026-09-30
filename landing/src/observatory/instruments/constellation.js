@@ -42,7 +42,6 @@ const ESCROW_PAGES = 3;
 const SETTLED_PAGES = 2; // the most recent two pages of settled agreements
 
 /** Above this many points the points shrink; labels are never drawn on the plate (they show on hover or tap). */
-export const LABEL_MIN_VIEWPORT_REM = 64;
 export const LABEL_MAX_NODES = 120;
 /** Above this many points, the ones with no line are faded back. */
 export const FADE_ISOLATED_ABOVE = 300;
@@ -190,7 +189,8 @@ export function nodeRadius(activity, maxActivity, factor = 1) {
 /** An agent's activity: the agreements it has completed as provider, plus the lines drawn to it now. */
 export function activityOf(agent, degree = 0) {
   const completed = Number(agent?.completedAgreements);
-  return (Number.isFinite(completed) ? completed : 0) + Math.max(0, degree);
+  const lines = Number(degree);
+  return (Number.isFinite(completed) ? completed : 0) + (Number.isFinite(lines) ? Math.max(0, lines) : 0);
 }
 
 /** Smaller than any registered agent's point (which starts at 3 px). */
@@ -202,7 +202,7 @@ export const GHOST_RADIUS = 2.5;
  * hover or tap and in the list. (Kept in the policy so a plate that wants
  * them back changes one line.)
  */
-export function labelPolicy(viewportPx, nodeCount) {
+export function labelPolicy(nodeCount) {
   const labels = false;
   const radiusFactor = nodeCount <= LABEL_MAX_NODES ? 1 : nodeCount <= FADE_ISOLATED_ABOVE ? 0.7 : 0.5;
   const isolatedAlpha = nodeCount > FADE_ISOLATED_ABOVE ? ISOLATED_ALPHA : 1;
@@ -314,7 +314,7 @@ export function init(root, ctx) {
     slashes: ctx.reading('slashes', root),
     messages: ctx.reading('messages', root),
   };
-  const { formatCmn, cmnNumber, formatInteger, shortAddress } = ctx.format;
+  const { formatCmn, formatInteger, shortAddress } = ctx.format;
   const colour = (name) => ctx.theme.color(name);
 
   // ── source state ──
@@ -333,7 +333,6 @@ export function init(root, ctx) {
   const edges = new Map(); // key -> line (persistent objects)
   let fading = []; // lines on their way out
   let settledShown = 0;
-  let maxStakePlancks = 0n;
   let maxActivity = 0;
   let ghostCount = 0;
   let laidOut = false; // the first layout has run
@@ -404,12 +403,8 @@ export function init(root, ctx) {
   let lastBox = box();
 
   // ── model ──
-  function viewportWidth() {
-    return window.innerWidth || document.documentElement.clientWidth || 0;
-  }
-
   function policy() {
-    return labelPolicy(viewportWidth(), nodes.size);
+    return labelPolicy(nodes.size);
   }
 
   function computeRadii() {
@@ -472,17 +467,15 @@ export function init(root, ctx) {
         nodesRemoved += 1;
       }
     }
-    maxStakePlancks = 0n;
     maxActivity = 0;
     ghostCount = 0;
+    // `degree` was counted by synthesizeNodes from the line map just built,
+    // so the sizes and the lines drawn come from the same poll.
     for (const node of nodes.values()) {
       if (node.ghost) {
         ghostCount += 1;
         continue;
       }
-      const stake = BigInt(node.stakePlancks);
-      if (stake > maxStakePlancks) maxStakePlancks = stake;
-      node.stakeCmn = cmnNumber(node.stakePlancks);
       node.activity = activityOf(node, node.degree);
       if (node.activity > maxActivity) maxActivity = node.activity;
     }

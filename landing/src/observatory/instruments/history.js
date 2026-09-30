@@ -638,6 +638,13 @@ export function init(root, ctx) {
       const totalCmn = cmnNumber(totalPlancks);
       const last = series[series.length - 1];
       const allZero = series.every((e) => e.cmn === 0);
+      // The run may stop short of the record's start at a hole in the eras
+      // page; the provenance says which, never "since the record begins" when it is not.
+      const settledHeld = record.items.filter((item) => ctx.field(item, 'settled') === true).length;
+      const wholeRecord = record.complete && series.length === settledHeld;
+      const coverage = wholeRecord
+        ? `since block #${formatInteger(indexFrom)}, where this site's record begins`
+        : `eras ${formatInteger(series[0].era)}–${formatInteger(last.era)}, the unbroken run the index holds${record.complete ? '' : ' of the pages read'}`;
       let sub;
       let supplyExtra = '';
       if (supply === null) sub = 'Total issuance from every source: reading…';
@@ -657,9 +664,9 @@ export function init(root, ctx) {
         live: false,
         value: formatCmn(totalPlancks),
         unit: ' CMN',
-        sub,
+        sub: (allZero ? `No CMN was paid out in any of these ${formatInteger(series.length)} eras: no agent did enough verified work to qualify. ` : '') + sub,
         extra:
-          `derived: running total of ${plural(series.length, 'settled era')} since block #${formatInteger(indexFrom)}, where this site's record begins` +
+          `derived: running total of ${plural(series.length, 'settled era')}, ${coverage}` +
           ` · last: era ${formatInteger(last.era)} paid ${formatCmn(last.plancks)} CMN` +
           (record.complete ? '' : ' · the index holds more eras than were read, so this is a floor') +
           supplyExtra,
@@ -738,8 +745,10 @@ export function init(root, ctx) {
         .curve(curveLinear);
       g.append(el('path', { d: tail(totals.slice(settledCount - 1)) ?? '' }, 'plot-line plot-line-open'));
     }
-    const lastIndex = settledCount - 1;
-    g.append(el('circle', { cx: fix(centre(lastIndex)), cy: fix(y(totals[lastIndex])), r: 2.5 }, 'plot-dot'));
+    if (settledCount > 0) {
+      const lastIndex = settledCount - 1;
+      g.append(el('circle', { cx: fix(centre(lastIndex)), cy: fix(y(totals[lastIndex])), r: 2.5 }, 'plot-dot'));
+    }
     svg.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-axis'));
     svg.append(label(frame.left, frame.height - 3, leftLabel));
     svg.append(label(frame.right, frame.height - 3, rightLabel, 'end'));

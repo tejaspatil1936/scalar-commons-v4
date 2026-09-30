@@ -7,7 +7,8 @@
    provenance, hashes and addresses; Source Sans 3 for reading, at a measure
    of sixty characters. One luminous accent, reserved for live data; four
    semantic colours for states. Hairlines, dots and type — no gradients, no
-   shadows, no pills, no icons.
+   drop shadows, no pills, no icons; the one glow is the live accent's, on
+   live data only (the newest bars, a line drawing in).
    The dark and light values of --text, --text-dim, --border and --accent match
    styles.css (test/observatory.test.mjs keeps them in step). */
 
@@ -248,11 +249,11 @@ pre {
   #pulse .section-head {
     grid-column: 1 / span 8;
   }
-  #pulse .instrument,
-  #pulse .readings {
+  #pulse .instrument {
     grid-column: 1 / -1;
   }
   #pulse .readings {
+    grid-column: 1 / -1;
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   #era .instrument,
@@ -1315,7 +1316,8 @@ h2 {
   font-weight: 600;
 }
 
-.upgrade-title .mono {
+/* The spec number is a figure: the display serif, as every figure on the page. */
+.upgrade-spec {
   font-family: var(--font-serif);
   font-size: 1.375rem;
 }
