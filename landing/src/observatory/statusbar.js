@@ -25,6 +25,8 @@ import { decodeValidators } from './scale.js';
 export const FINALITY_LAG_ALERT = 6; // blocks
 export const LATE_MS = 18_000; // three slots without a block
 export const SEALING_WINDOW = 30; // blocks; with primary slots random, ten would miss a validator by chance
+/** A height this far below the best is a new chain (a test-network reset), not a reorg: the bar starts over. */
+export const RESET_DEPTH = 1_000; // blocks
 // How often to re-evaluate the state word with no event to prompt it. A third
 // of LATE_MS, so a stall is reported within a slot of crossing the threshold.
 export const STALL_CHECK_MS = 6_000;
@@ -33,8 +35,8 @@ const VALIDATORS_INTERVAL_MS = 60_000;
 /** The state word for the bar, from what the hero has reported. Pure; tested. */
 export function stateWord({ socket, lastOk, seen, lag, intervalMs, hidden }) {
   if (hidden) return 'Paused';
+  if (lastOk === false) return 'Not updating'; // a failed first read is an outage, not "Connecting"
   if (!seen) return 'Connecting';
-  if (lastOk === false) return 'Not updating';
   if (Number.isFinite(lag) && lag > FINALITY_LAG_ALERT) return 'Finality lagging';
   if (Number.isFinite(intervalMs) && intervalMs > LATE_MS) return 'Blocks late';
   if (socket === 'polling') return 'Polling';
@@ -94,6 +96,14 @@ export function init(root, ctx) {
    */
   function noteArrival(number, arrivedAt) {
     if (!Number.isFinite(number)) return;
+    if (bestNumber !== null && number < bestNumber - RESET_DEPTH) {
+      // A test-network reset: the old heights say nothing about this chain.
+      bestNumber = null;
+      finalizedNumber = null;
+      lastArrival = null;
+      intervalMs = null;
+      authors.length = 0;
+    }
     const advanced = bestNumber === null || number > bestNumber;
     if (!advanced) return;
     bestNumber = number;
@@ -101,6 +111,12 @@ export function init(root, ctx) {
       if (lastArrival !== null) intervalMs = arrivedAt - lastArrival;
       lastArrival = arrivedAt;
     }
+  }
+
+  function recomputeLag() {
+    lag = Number.isFinite(bestNumber) && Number.isFinite(finalizedNumber)
+      ? Math.max(0, bestNumber - finalizedNumber)
+      : null;
   }
 
   /**
@@ -114,12 +130,6 @@ export function init(root, ctx) {
    * stall grow into "Blocks late" on the ticker below, with no block needed to
    * report it.
    */
-  function recomputeLag() {
-    lag = Number.isFinite(bestNumber) && Number.isFinite(finalizedNumber)
-      ? Math.max(0, bestNumber - finalizedNumber)
-      : null;
-  }
-
   function effectiveIntervalMs() {
     if (lastArrival === null) return intervalMs;
     const since = ctx.now() - lastArrival;

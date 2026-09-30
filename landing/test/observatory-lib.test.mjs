@@ -212,6 +212,7 @@ test('the status bar’s state word follows stated rules, worst first', () => {
   assert.equal(stateWord({ ...normal, hidden: true }), 'Paused');
   assert.equal(stateWord({ ...normal, seen: false }), 'Connecting');
   assert.equal(stateWord({ ...normal, lastOk: false }), 'Not updating');
+  assert.equal(stateWord({ ...normal, seen: false, lastOk: false }), 'Not updating', 'an outage at first load is an outage, not a connection in progress');
   assert.equal(stateWord({ ...normal, lag: FINALITY_LAG_ALERT + 1 }), 'Finality lagging');
   assert.equal(stateWord({ ...normal, lag: FINALITY_LAG_ALERT }), 'Network normal');
   assert.equal(stateWord({ ...normal, intervalMs: 19_000 }), 'Blocks late');
@@ -230,26 +231,10 @@ test('the sealing phrase says "seen so far" until the window has filled, and nev
   assert.equal(sealingPhrase({ authors: null, total: null, observed: 0, error: 'HTTP 502' }), 'validators unavailable · HTTP 502');
 });
 
-// ---------------------------------------------------------------------------
-// The status bar's EVENT WIRING, not just its pure helpers.
-//
-// The correctness lens on PR #261 found three defects and then noted why the
-// suite missed all three: it exercised `stateWord` and `sealingPhrase` only,
-// and every defect lived in `init`'s event handlers. A bar whose job is to
-// state network health reported "Network normal" in each of the three failure
-// cases it exists to flag.
-//
-// These tests drive the real `init` against a fake ctx, so the wiring is
-// covered where the bugs actually were:
-//
-//   1. finality stall  — `lag` only moved on a `finalized` event, so when
-//                        GRANDPA stopped, no event fired and the lag froze
-//                        at its last healthy value.
-//   2. block stall     — `intervalMs` only moved when a block arrived, so a
-//                        dead chain held "Network normal" until it recovered.
-//   3. polling mode    — a head is emitted per POLL, so arrivals measured the
-//                        poll interval and "Blocks late" could never fire.
-// ---------------------------------------------------------------------------
+// The status bar's event wiring, not only its pure helpers: the three faults
+// the bar exists to flag (a finality stall, a block stall, a chain that is
+// polled at one height) all live in `init`'s handlers, so these tests drive
+// the real `init` against a fake root, bus and clock.
 
 function fakeBar() {
   // Minimal DOM stand-ins: the bar only reads textContent/dataset.
@@ -278,7 +263,7 @@ function fakeBar() {
 
 test('status bar: a finality stall is reported even though no finalized event arrives', async () => {
   const { root, ctx, emit, state } = fakeBar();
-  const { init, LATE_MS } = await import('../src/observatory/statusbar.js');
+  const { init } = await import('../src/observatory/statusbar.js');
   init(root, ctx);
 
   emit('head', { record: { ok: true }, number: 100, author: { authorityIndex: 0 }, arrivedAt: ctx.now() });
@@ -290,7 +275,6 @@ test('status bar: a finality stall is reported even though no finalized event ar
     emit('head', { record: { ok: true }, number: n, author: { authorityIndex: n % 3 }, arrivedAt: ctx.now() });
   }
   assert.equal(state(), 'finality-lagging', 'lag must grow from heads alone');
-  assert.ok(LATE_MS > 0);
 });
 
 test('status bar: a full block stall is reported with no event to prompt it', async () => {
@@ -440,4 +424,23 @@ test('status bar wiring: the validators read is said honestly — decoded, undec
   // Falling back to polling drops the window too: polled heights have no author.
   h.poll(14, 12);
   assert.equal(h.slots['.sb-validators'].textContent, '5 validators in the set');
+});
+
+test('status bar wiring: a height far below the best is a reset, not a stall', () => {
+  const h = statusBarHarness();
+  h.head(800_000);
+  h.tick(6_000);
+  h.head(800_001);
+  h.bus.emit('finalized', { record: { ok: true }, number: 799_999 });
+  assert.equal(h.slots['.sb-state'].textContent, 'Network normal');
+  // The test network is reset: the next head is block 5.
+  h.tick(6_000);
+  h.head(5);
+  assert.equal(h.controller.state().best, 5, 'the held height follows the reset');
+  assert.equal(h.slots['.sb-finality'].textContent, 'finality —', 'the old finalized height is not compared with the new chain');
+  h.tick(6_000);
+  h.head(6);
+  h.bus.emit('finalized', { record: { ok: true }, number: 4 });
+  assert.equal(h.slots['.sb-finality'].textContent, 'finality 2 blocks');
+  assert.equal(h.slots['.sb-state'].textContent, 'Network normal');
 });
