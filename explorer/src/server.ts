@@ -14,16 +14,32 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
 import {
+  ACTIVITY_PAGE_SIZE,
+  IndexerResponseError,
+  IndexerUnavailableError,
+  toActivityView,
+  type ActivitySource,
+} from './activity.js';
+import {
   BlockNotFoundError,
   ExtrinsicNotFoundError,
   InvalidAddressError,
   type ExplorerChain,
 } from './chain.js';
-import { renderAccount, renderBlock, renderError, renderExtrinsic, renderHome } from './render.js';
+import {
+  renderAccount,
+  renderActivity,
+  renderBlock,
+  renderError,
+  renderExtrinsic,
+  renderHome,
+} from './render.js';
 import { parseRoute } from './routes.js';
 
 export interface ExplorerServerOptions {
   readonly chain: ExplorerChain;
+  /** Where the agent-activity page reads from — the indexer. */
+  readonly activity: ActivitySource;
   /** Where to report node failures. Defaults to stderr; tests can silence it. */
   readonly onError?: (error: unknown) => void;
 }
@@ -63,6 +79,14 @@ export function createExplorerServer(options: ExplorerServerOptions): Server {
         send(response, 200, renderAccount(await chain.account(route.address), info));
         return;
 
+      case 'activity': {
+        const query = { agent: route.agent, offset: route.offset };
+        const raw = await options.activity.activity({ ...query, limit: ACTIVITY_PAGE_SIZE });
+        const view = toActivityView(raw, (section, method) => chain.eventFieldTypes(section, method), query);
+        send(response, 200, renderActivity(view, info));
+        return;
+      }
+
       case 'badRequest':
         send(response, 400, renderError(400, route.message, info));
         return;
@@ -81,6 +105,13 @@ export function createExplorerServer(options: ExplorerServerOptions): Server {
       }
       if (error instanceof InvalidAddressError) {
         send(response, 400, renderError(400, error.message, info));
+        return;
+      }
+      // The activity page's upstream is the indexer, not the node, so its
+      // failures say so rather than blaming a node that was never asked.
+      if (error instanceof IndexerUnavailableError || error instanceof IndexerResponseError) {
+        onError(error);
+        send(response, 502, renderError(502, error.message, info));
         return;
       }
       // Anything else is the node failing or the runtime not matching what the

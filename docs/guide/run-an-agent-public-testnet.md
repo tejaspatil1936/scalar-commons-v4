@@ -31,9 +31,14 @@ keys and a fresh clone of the repository. Every output block is real, captured a
   today) are indicative only.
 - **The SDK is not published to npm.** You install it from this repository — §1 shows the
   exact, verified way.
-- **Spec 307 is not handled.** Spec 307 (designed, not live — the chain runs 306) adds a
-  provider `escrow.acceptAgreement` step before `recordDelivery`. This daemon does not call it;
-  on a spec-307 chain its deliveries would fail with `NotAccepted`. The `agent/` worker does.
+- **Spec 307 needs nothing special from this daemon.** An earlier version of this note said
+  307 adds a provider `escrow.acceptAgreement` step and that deliveries here "would fail with
+  `NotAccepted`". Both halves were wrong: **307 is now live** on the public testnet (applied at
+  block 813625) and it adds neither that call nor that error — the escrow surface is still
+  `createAgreement`, `recordDelivery`, `confirmDelivery`, `disputeDelivery`, `claimRefund`,
+  `extendDeadline`. This daemon's create → deliver → confirm loop is correct as written.
+  Provider consent is designed but unmerged
+  ([issue #180](https://github.com/tejaspatil1936/scalar-commons-v4/issues/180)).
 :::
 
 ## What you will end up with

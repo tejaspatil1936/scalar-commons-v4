@@ -179,8 +179,8 @@ describe('GET /', () => {
     // `/` is unversioned by construction. Adding it to ROUTES would answer the
     // gate too, and would silently renumber the v1 contract: `/v1/status`
     // reports `api.endpoints = ROUTES.length`, and the live suite requires
-    // exactly 24, all `/v1/`-prefixed.
+    // exactly 25, all `/v1/`-prefixed.
     expect(matchRoute('/')).toBeNull();
-    expect(ROUTES).toHaveLength(24);
+    expect(ROUTES).toHaveLength(25);
   });
 });
