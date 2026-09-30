@@ -78,7 +78,8 @@ export const SOURCES = {
   genesis: rpc('chain_getBlockHash', [0], 'chain_getBlockHash(0)', ['genesis']),
 
   // Agents and their contracts.
-  agents: api(`/v1/agents?limit=${INDEXER_MAX_LIMIT}`, ['agents']),
+  // The sky (?sky=1) draws one star per row of the same read.
+  agents: api(`/v1/agents?limit=${INDEXER_MAX_LIMIT}`, ['agents', 'sky']),
   escrows: api(`/v1/escrows?limit=${INDEXER_MAX_LIMIT}`, []),
   escrowStats: api('/v1/escrows/stats', ['activeAgreements', 'openDisputes']),
   slashes: events('agents', 'SlashExecuted', ['slashes']),

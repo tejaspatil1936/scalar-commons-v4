@@ -384,3 +384,13 @@ test('presenter mode: the flag is read before first paint, and the stylesheet la
   }
   assert.ok(!/<script/i.test(index), 'index.html stays script-free');
 });
+
+test('the sky: off by default, its provenance line waits hidden in the footer, its canvas sits under the page', () => {
+  const footer = page.slice(page.indexOf('<footer'));
+  assert.match(footer, /<p class="sky-note" data-reading="sky" hidden>/);
+  assert.ok(!page.includes('class="sky"'), 'no canvas is in the frame: the script adds one only under ?sky=1');
+  const css = readFileSync(new URL('../src/observatory.css', import.meta.url), 'utf8');
+  assert.match(css, /\.sky \{[^}]*z-index: -1/);
+  assert.match(css, /\.sky \{[^}]*pointer-events: none/);
+  assert.ok(bundle.includes('sky=1'), 'the bundle carries the flag check');
+});

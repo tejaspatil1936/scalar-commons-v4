@@ -40,6 +40,7 @@ import {
 import { stateWord, sealingPhrase, init as initStatusBar, SEALING_WINDOW, FINALITY_LAG_ALERT, LATE_MS } from '../src/observatory/statusbar.js';
 import { wantsPresenter, stepFor } from '../src/observatory/presenter.js';
 import { railPositions } from '../src/observatory.mjs';
+import { wantsSky, hashAddress, starOf, starsFor, frameStats, parseColor, MAX_STARS } from '../src/observatory/sky.js';
 
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 
@@ -573,4 +574,45 @@ test('presenter mode is asked for by ?present=1 and driven by the arrow keys', (
   assert.equal(stepFor(' ', 2, 8), 3);
   assert.equal(stepFor('a', 2, 8), null);
   assert.equal(stepFor('ArrowRight', 0, 0), null);
+});
+
+test('the sky is asked for by ?sky=1 and places each agent by a hash of its address', () => {
+  assert.equal(wantsSky('?sky=1'), true);
+  assert.equal(wantsSky('?present=1&sky=1'), true);
+  assert.equal(wantsSky('?sky=10'), false);
+  assert.equal(wantsSky(''), false);
+  assert.equal(wantsSky(undefined), false);
+  assert.equal(hashAddress(''), 0x811c9dc5);
+  assert.equal(hashAddress('a'), 0xe40c292c);
+  assert.equal(hashAddress('5FHneW46'), hashAddress('5FHneW46'), 'deterministic');
+  assert.notEqual(hashAddress('5FHneW46'), hashAddress('5FHneW47'));
+  const busy = starOf('5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty', 100, 100);
+  const idle = starOf('5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty', 0, 100);
+  assert.deepEqual([busy.x, busy.y, busy.phase], [idle.x, idle.y, idle.phase], 'activity changes size, never place');
+  for (const v of [busy.x, busy.y, busy.phase]) assert.ok(v >= 0 && v < 1);
+  assert.ok(Math.abs(busy.size - 12) < 1e-9 && Math.abs(busy.bright - 1) < 1e-9);
+  assert.ok(Math.abs(idle.size - 4) < 1e-9 && Math.abs(idle.bright - 0.55) < 1e-9);
+  assert.ok(Math.abs(starOf('x', 25, 100).size - 8) < 1e-9, 'a quarter of the activity is half the size step');
+  assert.equal(starOf('x', 5, 0).size, 4, 'with no scale every star is the smallest');
+});
+
+test('the sky packs five floats per star, caps the count, and reports frames honestly', () => {
+  const agents = [{ address: 'a', completedAgreements: 4 }, { address: 'b', completedAgreements: 0 }, { address: 'c' }];
+  const stars = starsFor(agents);
+  assert.equal(stars.count, 3);
+  assert.equal(stars.maxActivity, 4);
+  assert.equal(stars.data.length, 15);
+  assert.ok(Math.abs(stars.data[2] - 12) < 1e-6, 'the busiest agent is the largest star');
+  assert.ok(Math.abs(stars.data[7] - 4) < 1e-6);
+  assert.ok(Math.abs(stars.data[12] - 4) < 1e-6, 'a missing counter counts as none, never NaN');
+  const many = starsFor(Array.from({ length: MAX_STARS + 10 }, (_, i) => ({ address: `agent-${i}`, completedAgreements: i })));
+  assert.equal(many.count, MAX_STARS);
+  assert.deepEqual(frameStats([]), { frames: 0, fps: null, worstMs: null });
+  assert.deepEqual(frameStats([16.6, 16.8, 16.6]), { frames: 3, fps: 60, worstMs: 16.8 });
+  assert.deepEqual(frameStats([50]), { frames: 1, fps: 20, worstMs: 50 });
+  assert.deepEqual(parseColor('#8a97a8'), [0x8a / 255, 0x97 / 255, 0xa8 / 255]);
+  assert.deepEqual(parseColor('#fff'), [1, 1, 1]);
+  assert.deepEqual(parseColor('rgba(111, 211, 199, 0.35)'), [111 / 255, 211 / 255, 199 / 255]);
+  assert.equal(parseColor('teal'), null);
+  assert.equal(parseColor(undefined), null);
 });

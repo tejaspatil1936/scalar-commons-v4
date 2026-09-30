@@ -72,6 +72,13 @@ instrument stays live; the type is set for a projector. It is a projection
 of the ordinary page, not a substitute for it: the notes and lists are on
 the page without the flag.
 
+**The sky.** `/observatory?sky=1` lays a WebGL star field behind the plates:
+one star per registered agent (the constellation's own `/v1/agents` read),
+placed by a hash of its address, larger and brighter the more agreements it
+has completed. It moves once per block and otherwise rests; under reduced
+motion it is drawn once. Off by default; the footer says what the stars are
+and when the list was read. A browser without WebGL gets that line and no sky.
+
 Develop one instrument on its own, against the live services:
 
 ```sh
