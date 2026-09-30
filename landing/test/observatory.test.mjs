@@ -131,9 +131,36 @@ test('the two records on the page are labelled as records, and the posture recor
   }
   // A posture value slot carries no digits unless a value was recorded.
   const strip = page.match(/<dl class="posture">[\s\S]*?<\/dl>/)[0];
-  for (const [, value] of strip.matchAll(/<dd class="mono">([\s\S]*?)<\/dd>/g)) {
+  const rows = [...strip.matchAll(/<dd>([\s\S]*?)<\/dd>/g)];
+  assert.equal(rows.length, 4);
+  for (const [, value] of rows) {
     const text = value.replace(/<[^>]+>/g, '');
     if (text.includes('not yet recorded')) assert.ok(!/\d/.test(text), `posture shows a number with nothing recorded: ${text}`);
+    else assert.match(text, /as of \d{4}-\d{2}-\d{2}/, 'a recorded value carries its date');
+  }
+  // A recorded value is traceable to a document in this repository, and the page names it.
+  for (const [key, entry] of Object.entries(posture.fields)) {
+    if (entry.value === null) continue;
+    assert.match(entry.asOf, /^\d{4}-\d{2}-\d{2}$/, `${key} has no date`);
+    assert.ok(typeof entry.source === 'string' && entry.source.length > 20, `${key} names no source`);
+    assert.ok(page.includes(`<span class="posture-value">${entry.value}</span>`), `${key} is not on the page`);
+    assert.ok(page.includes(entry.source.slice(0, 40).replace(/&/g, '&amp;').replace(/'/g, '&#39;')), `${key}'s source is not on the page`);
+  }
+  // The two numbers recorded today, each in the document it cites.
+  assert.equal(posture.fields.findingsExamined.value, 382);
+  assert.match(readRepoFile('TESTNETAUDIT.md'), /\*\*382 findings\*\* from 17 auditors/);
+  assert.equal(posture.fields.fixedIn307.value, 4);
+  const escrow = readRepoFile('pallets/escrow/src/lib.rs');
+  for (const name of ['MaxAgreementSpan', 'SpanTooLong']) assert.ok(escrow.includes(name), `pallets/escrow lacks ${name}, which the 307 record cites`);
+  assert.ok(readRepoFile('pallets/agents/src/lib.rs').includes('NoSuchSlash'), 'pallets/agents lacks NoSuchSlash, which the 307 record cites');
+});
+
+test('the 307 record says what is on chain: no consent or expiry calls, which were deferred', () => {
+  const spec307 = history.upgrades.find((u) => u.specVersion === 307);
+  assert.doesNotMatch(spec307.summary, /consent|expiry|expire/i, 'the consent and expiry calls are not in the 307 runtime (issue #180 is open)');
+  assert.match(spec307.summaryNote, /accept_agreement/);
+  for (const name of ['accept_agreement', 'expire_agreement', 'reject_agreement', 'cancel_pending']) {
+    assert.ok(!readRepoFile('pallets/escrow/src/lib.rs').includes(`fn ${name}`), `pallets/escrow now has ${name}: revisit the 307 record`);
   }
 });
 

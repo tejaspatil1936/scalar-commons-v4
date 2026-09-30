@@ -335,8 +335,8 @@ ${upgradeRows(history)}
 }
 
 const POSTURE_FIELDS = [
-  ['findingsExamined', 'Findings examined', 'Security findings reviewed against the runtime.'],
-  ['fixedIn307', 'Fixed in runtime 307', 'Of those, the number closed by the current rules.'],
+  ['findingsExamined', 'Findings examined', 'Security findings the testnet audit examined against the runtime and its operation.'],
+  ['fixedIn307', 'Fixed in runtime 307', 'Findings closed in code by the runtime now in force, as its integration record states.'],
   ['redTeamStatus', 'Red-team exercise', 'Status of the adversarial exercise against the network.'],
   ['lastIndependentRehearsal', 'Last independent rehearsal', 'Most recent upgrade or recovery rehearsal by an outside party.'],
 ];
@@ -347,9 +347,10 @@ function postureSection(posture) {
     const recorded = entry.value !== null && entry.value !== undefined;
     const value = recorded ? escapeHtml(String(entry.value)) : '<span class="not-recorded">not yet recorded</span>';
     const asOf = entry.asOf ? ` <span class="dim mono">as of ${escapeHtml(entry.asOf)}</span>` : '';
+    const source = recorded && entry.source ? `<span class="posture-source">${escapeHtml(entry.source)}</span>` : '';
     return `        <div class="posture-row" data-posture="${key}" data-recorded="${recorded}">
           <dt>${escapeHtml(label)}<span class="reading-note">${escapeHtml(note)}</span></dt>
-          <dd class="mono">${value}${asOf}</dd>
+          <dd><span class="posture-value">${value}</span>${asOf}${source}</dd>
         </div>`;
   }).join('\n');
   return section({
@@ -358,7 +359,7 @@ function postureSection(posture) {
     label: 'Security posture',
     heading: 'Record, not live',
     lede:
-      'These four entries are written by the operators, not read from the chain. They are shown here so the page never implies a security claim it cannot source. An entry that has not been recorded says so.',
+      'These four entries are written by the operators, not read from the chain. They are shown here so the page never implies a security claim it cannot source: each recorded value names the document in this repository it was taken from, and an entry that has not been recorded says so.',
     instrument: `      <dl class="posture">
 ${rows}
       </dl>

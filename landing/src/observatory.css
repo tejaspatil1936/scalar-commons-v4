@@ -1436,6 +1436,20 @@ h2 {
   font-size: 1rem;
 }
 
+.posture-value {
+  font-family: var(--font-serif);
+  font-size: 1.625rem;
+  line-height: 1.1;
+}
+
+.posture-source {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
 .not-recorded {
   color: var(--text-dim);
   font-style: italic;

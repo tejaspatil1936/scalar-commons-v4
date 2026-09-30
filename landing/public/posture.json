@@ -1,26 +1,30 @@
 {
-  "note": "Security posture, shown on /observatory under 'Record, not live'. These values are written by the operators, never read from the chain, and the page renders a null value as 'not yet recorded'. Fill each `value` from the source named in its `todo`, set `asOf` to the date the value was true, and set `updated` at the top. Do not put a number here that a reader cannot trace to a document in this repository.",
-  "updated": null,
+  "note": "Security posture, shown on /observatory under 'Record, not live'. These values are written by the operators, never read from the chain, and the page renders a null value as 'not yet recorded'. Fill each `value` from a document in this repository, name it in `source`, set `asOf` to the date the value was true, and set `updated` at the top. A `todo` that starts with TODO(owner) marks an entry still to be recorded. Do not put a number here that a reader cannot trace to a document in this repository.",
+  "updated": "2026-09-29",
   "fields": {
     "findingsExamined": {
-      "value": null,
-      "asOf": null,
-      "todo": "TODO(owner): the number of findings examined across AUDIT.md and TESTNETAUDIT.md, with the date of the last one reviewed."
+      "value": 382,
+      "asOf": "2026-09-08",
+      "source": "TESTNETAUDIT.md §2 — 382 findings from 17 auditors over the runtime, the products and the host; every CRITICAL and HIGH (73) adversarially verified, 34 severities corrected.",
+      "todo": "recorded"
     },
     "fixedIn307": {
-      "value": null,
-      "asOf": null,
-      "todo": "TODO(owner): how many of those findings were closed by runtime 307 (spec307 integration, PR #211), from AUDIT-FIX-PLAN.md."
+      "value": 4,
+      "asOf": "2026-09-26",
+      "source": "Runtime 307's integration record (pull request #211, merged 2026-09-26; escrow guards in pallets/escrow/src/lib.rs, commits 1c39c0b and c5ed79a): findings E1, E21, E22 and E25 from the overnight lab sprint that began on 26 September (label `lab`, issues #177–#179) closed in code, each with a test that was red before and green after. A fifth item, #161, was closed by evidence rather than a change. These are the lab sprint's findings, not four of the 382 above: the audit of 8 September and the sprint of 26 September are separate reviews.",
+      "todo": "recorded"
     },
     "redTeamStatus": {
       "value": null,
       "asOf": null,
-      "todo": "TODO(owner): the current state of the red-team exercise, in a few words (for example 'not started', 'in progress since <date>', 'completed <date>, report at <path>')."
+      "source": null,
+      "todo": "TODO(owner): the current state of the red-team exercise, in a few words (for example 'not started', 'in progress since <date>', 'completed <date>, report at <path>'). No document in this repository records one."
     },
     "lastIndependentRehearsal": {
       "value": null,
       "asOf": null,
-      "todo": "TODO(owner): the date of the last upgrade or recovery rehearsal run by someone outside the core team, and where its record lives. The team's own rehearsals are in UPGRADE-305.md and UPGRADE-306.md; those do not count as independent."
+      "source": null,
+      "todo": "TODO(owner): the date of the last upgrade or recovery rehearsal run by someone outside the core team, and where its record lives. The team's own rehearsals are in UPGRADE-305.md and UPGRADE-306.md; those do not count as independent, and no document in this repository records an outside one."
     }
   }
 }
