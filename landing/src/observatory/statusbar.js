@@ -23,6 +23,9 @@ import { decodeValidators } from './scale.js';
 export const FINALITY_LAG_ALERT = 6; // blocks
 export const LATE_MS = 18_000; // three slots without a block
 export const SEALING_WINDOW = 30; // blocks; with primary slots random, ten would miss a validator by chance
+// How often to re-evaluate the state word with no event to prompt it. A third
+// of LATE_MS, so a stall is reported within a slot of crossing the threshold.
+export const STALL_CHECK_MS = 6_000;
 const VALIDATORS_INTERVAL_MS = 60_000;
 
 /** The state word for the bar, from what the hero has reported. Pure; tested. */
@@ -40,8 +43,13 @@ export function stateWord({ socket, lastOk, seen, lag, intervalMs, hidden }) {
 export function sealingPhrase({ authors, total, observed }) {
   if (!Number.isFinite(total) || total < 1) return 'validators not yet read';
   if (authors === null) return `${total} validator${total === 1 ? '' : 's'} in the set`;
-  if (observed < SEALING_WINDOW && authors < total) return `${authors} of ${total} validators seen sealing so far`;
-  return `${authors} of ${total} validators sealing`;
+  // Clamped to the set size. The window holds the last SEALING_WINDOW authority
+  // indices, so for a few minutes after the set shrinks it still contains
+  // indices that have since left — and the bar said "6 of 5 validators
+  // sealing", which reads as a bug in the page whatever the chain is doing.
+  const distinct = Math.min(authors, total);
+  if (observed < SEALING_WINDOW && distinct < total) return `${distinct} of ${total} validators seen sealing so far`;
+  return `${distinct} of ${total} validators sealing`;
 }
 
 export function init(root, ctx) {
@@ -62,9 +70,55 @@ export function init(root, ctx) {
   let total = null; // validators in the active set
   const authors = []; // authority index per head, newest last, SEALING_WINDOW at most
   let polled = 0; // heads with no author (polling), counted so the phrase stays honest
+  // Held here rather than read back out of the DOM. Finality lag needs both
+  // numbers, and either can arrive first.
+  let bestNumber = null;
+  let finalizedNumber = null;
+
+  /**
+   * Blocks are only "arriving" when the HEIGHT moves.
+   *
+   * In polling mode `pulse.js` emits a head on every poll whether or not the
+   * chain advanced, so timing arrivals rather than heights measured the poll
+   * interval (~6 s) and "Blocks late" could never fire. Gating on the height
+   * makes a stalled chain look stalled in both modes.
+   */
+  function noteArrival(number, arrivedAt) {
+    if (!Number.isFinite(number)) return;
+    const advanced = bestNumber === null || number > bestNumber;
+    if (!advanced) return;
+    bestNumber = number;
+    if (Number.isFinite(arrivedAt)) {
+      if (lastArrival !== null) intervalMs = arrivedAt - lastArrival;
+      lastArrival = arrivedAt;
+    }
+  }
+
+  /**
+   * The gap that matters is the one SINCE THE LAST BLOCK, not the last gap
+   * between two blocks.
+   *
+   * `intervalMs` alone is a measurement of history: if blocks stop entirely,
+   * no event fires, nothing re-renders, and the bar holds its last healthy
+   * value — so it read "Network normal" for exactly as long as the chain was
+   * dead. Comparing against the elapsed time since the last arrival makes a
+   * stall grow into "Blocks late" on the ticker below, with no block needed to
+   * report it.
+   */
+  function recomputeLag() {
+    lag = Number.isFinite(bestNumber) && Number.isFinite(finalizedNumber)
+      ? Math.max(0, bestNumber - finalizedNumber)
+      : null;
+  }
+
+  function effectiveIntervalMs() {
+    if (lastArrival === null) return intervalMs;
+    const since = ctx.now() - lastArrival;
+    return Math.max(Number.isFinite(intervalMs) ? intervalMs : 0, since);
+  }
 
   function render() {
-    const word = stateWord({ socket, lastOk, seen, lag, intervalMs, hidden });
+    const word = stateWord({ socket, lastOk, seen, lag, intervalMs: effectiveIntervalMs(), hidden });
     root.dataset.state = word.toLowerCase().replace(/\s+/g, '-');
     if (stateEl) stateEl.textContent = word;
     if (sealingEl) {
@@ -95,10 +149,14 @@ export function init(root, ctx) {
       ctx.readout.showValue(root, record, { value: number, motion: ctx.motion });
       beat();
     }
-    if (Number.isFinite(arrivedAt)) {
-      if (lastArrival !== null) intervalMs = arrivedAt - lastArrival;
-      lastArrival = arrivedAt;
-    }
+    noteArrival(number, arrivedAt);
+    // Recomputed on EVERY head, not only when a `finalized` event arrives. If
+    // GRANDPA stops finalising while blocks keep coming, no `finalized` event
+    // ever fires again — so a lag that only moved on that event stayed frozen
+    // at its last healthy value and the bar reported "finality 2 blocks" in
+    // green while the real lag grew without bound. "Finality lagging" was
+    // reachable only while finality was still working.
+    recomputeLag();
     if (author && Number.isInteger(author.authorityIndex)) {
       authors.push(author.authorityIndex);
       if (authors.length > SEALING_WINDOW) authors.shift();
@@ -111,8 +169,8 @@ export function init(root, ctx) {
 
   ctx.bus.on('finalized', ({ number }) => {
     if (!Number.isFinite(number)) return;
-    const best = Number(root.querySelector('.reading-value')?.dataset.number);
-    lag = Number.isFinite(best) ? Math.max(0, best - number) : null;
+    finalizedNumber = number;
+    recomputeLag();
     render();
   });
 
@@ -123,9 +181,36 @@ export function init(root, ctx) {
   });
 
   ctx.bus.on('visibility', (v) => {
+    const returning = hidden && !v.hidden;
     hidden = v.hidden;
+    // Coming back from a hidden tab is not a late block. `lastArrival` is a
+    // wall-clock instant, so without this the first head after ten minutes
+    // hidden reads as a ten-minute gap and the bar cries "Blocks late" about
+    // a chain that was fine the whole time. The clock restarts on return; the
+    // next real gap is measured honestly.
+    if (returning) {
+      lastArrival = ctx.now();
+      intervalMs = null;
+    }
     render();
   });
+
+  // A STALL PRODUCES NO EVENTS, so something has to ask.
+  //
+  // Every other figure on this bar is event-driven, which is right for values
+  // that change when the chain changes. "Is the chain still moving?" is the
+  // opposite: the answer changes precisely when nothing arrives. Without a
+  // prompt the bar could only report a stall retroactively, once the chain
+  // recovered and a late block finally landed — the one moment the warning is
+  // no longer needed.
+  //
+  // THE TIMER IS NOT HERE, deliberately. `observatory.test.mjs` refuses
+  // `setInterval` in any instrument — "use ctx.watch so it pauses when hidden"
+  // — and it is right to: a timer inside an instrument keeps running in a
+  // hidden tab and nothing in the instrument's scope knows to stop it. main.js
+  // is the one module the rule exempts, and it already guards on
+  // `document.hidden`. So the re-evaluation is returned as a function and the
+  // host drives it.
 
   ctx.watch(
     'validators',
@@ -146,4 +231,6 @@ export function init(root, ctx) {
   );
 
   render();
+
+  return { tick: () => { if (!hidden && seen) render(); } };
 }

@@ -227,3 +227,119 @@ test('the sealing phrase says "seen so far" until the window has filled, and nev
   assert.equal(sealingPhrase({ authors: null, total: 5, observed: 0 }), '5 validators in the set', 'polling: no author to count');
   assert.equal(sealingPhrase({ authors: 2, total: null, observed: 10 }), 'validators not yet read');
 });
+
+// ---------------------------------------------------------------------------
+// The status bar's EVENT WIRING, not just its pure helpers.
+//
+// The correctness lens on PR #261 found three defects and then noted why the
+// suite missed all three: it exercised `stateWord` and `sealingPhrase` only,
+// and every defect lived in `init`'s event handlers. A bar whose job is to
+// state network health reported "Network normal" in each of the three failure
+// cases it exists to flag.
+//
+// These tests drive the real `init` against a fake ctx, so the wiring is
+// covered where the bugs actually were:
+//
+//   1. finality stall  — `lag` only moved on a `finalized` event, so when
+//                        GRANDPA stopped, no event fired and the lag froze
+//                        at its last healthy value.
+//   2. block stall     — `intervalMs` only moved when a block arrived, so a
+//                        dead chain held "Network normal" until it recovered.
+//   3. polling mode    — a head is emitted per POLL, so arrivals measured the
+//                        poll interval and "Blocks late" could never fire.
+// ---------------------------------------------------------------------------
+
+function fakeBar() {
+  // Minimal DOM stand-ins: the bar only reads textContent/dataset.
+  const el = () => ({ textContent: '', dataset: {}, classList: { add() {}, remove() {} }, offsetWidth: 0 });
+  const nodes = { '.pulse-dot': el(), '.sb-state': el(), '.sb-validators': el(), '.sb-finality': el() };
+  const root = { dataset: {}, querySelector: (s) => nodes[s] ?? null };
+  const handlers = {};
+  let clock = 1_000_000;
+  const ctx = {
+    bus: { on: (name, fn) => { (handlers[name] ||= []).push(fn); } },
+    motion: { reduced: () => true },
+    format: { formatInteger: (n) => String(n) },
+    readout: { showValue() {}, showError() {} },
+    watch() {},
+    field: () => { throw new Error('not used'); },
+    now: () => clock,
+  };
+  return {
+    root, ctx, nodes,
+    emit: (name, payload) => { for (const fn of handlers[name] ?? []) fn(payload); },
+    advance: (ms) => { clock += ms; },
+    now: () => clock,
+    state: () => root.dataset.state,
+  };
+}
+
+test('status bar: a finality stall is reported even though no finalized event arrives', async () => {
+  const { root, ctx, emit, state } = fakeBar();
+  const { init, LATE_MS } = await import('../src/observatory/statusbar.js');
+  init(root, ctx);
+
+  emit('head', { record: { ok: true }, number: 100, author: { authorityIndex: 0 }, arrivedAt: ctx.now() });
+  emit('finalized', { number: 98 });
+  assert.equal(state(), 'network-normal', 'lag 2 is healthy');
+
+  // Finality stops; blocks keep coming. No further `finalized` events.
+  for (let n = 101; n <= 112; n++) {
+    emit('head', { record: { ok: true }, number: n, author: { authorityIndex: n % 3 }, arrivedAt: ctx.now() });
+  }
+  assert.equal(state(), 'finality-lagging', 'lag must grow from heads alone');
+  assert.ok(LATE_MS > 0);
+});
+
+test('status bar: a full block stall is reported with no event to prompt it', async () => {
+  const { root, ctx, emit, advance, state } = fakeBar();
+  const { init, LATE_MS, STALL_CHECK_MS } = await import('../src/observatory/statusbar.js');
+  init(root, ctx);
+
+  emit('head', { record: { ok: true }, number: 100, author: { authorityIndex: 0 }, arrivedAt: ctx.now() });
+  emit('finalized', { number: 99 });
+  assert.equal(state(), 'network-normal');
+
+  // The chain dies. Nothing arrives. Only the clock moves.
+  advance(LATE_MS + STALL_CHECK_MS);
+  emit('visibility', { hidden: false }); // any re-render; the ticker does this unprompted in a browser
+  assert.equal(state(), 'blocks-late', 'elapsed time since the last block must count');
+});
+
+test('status bar: polling that repeats the same height is not a stream of arrivals', async () => {
+  const { root, ctx, emit, advance, state } = fakeBar();
+  const { init, LATE_MS } = await import('../src/observatory/statusbar.js');
+  init(root, ctx);
+
+  emit('head', { record: { ok: true }, number: 100, author: null, arrivedAt: ctx.now() });
+  emit('finalized', { number: 100 });
+
+  // Polling emits a head every ~6 s whether or not the chain moved. Same
+  // height each time: these are polls, not blocks.
+  for (let i = 0; i < 6; i++) {
+    advance(6_000);
+    emit('head', { record: { ok: true }, number: 100, author: null, arrivedAt: ctx.now() });
+  }
+  advance(LATE_MS);
+  emit('visibility', { hidden: false });
+  assert.equal(state(), 'blocks-late', 'a height that never advances is a stalled chain, polling or not');
+});
+
+test('status bar: returning from a hidden tab is not a late block', async () => {
+  const { root, ctx, emit, advance, state } = fakeBar();
+  const { init } = await import('../src/observatory/statusbar.js');
+  init(root, ctx);
+
+  emit('head', { record: { ok: true }, number: 100, author: { authorityIndex: 0 }, arrivedAt: ctx.now() });
+  emit('finalized', { number: 99 });
+  emit('visibility', { hidden: true });
+  advance(10 * 60_000); // ten minutes in another tab
+  emit('visibility', { hidden: false });
+  assert.equal(state(), 'network-normal', 'the hidden interval is not a chain fault');
+});
+
+test('sealing phrase never claims more validators than the set holds', async () => {
+  const { sealingPhrase: phrase, SEALING_WINDOW: win } = await import('../src/observatory/statusbar.js');
+  // The window still holds indices from a larger, previous set.
+  assert.equal(phrase({ authors: 6, total: 5, observed: win }), '5 of 5 validators sealing');
+});

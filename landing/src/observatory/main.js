@@ -58,7 +58,17 @@ async function boot() {
     if (name === 'pulse') {
       // The status bar listens to the hero's bus events, so it starts right after it.
       try {
-        statusbar.init(document.querySelector('[data-reading="networkStatus"]'), ctx);
+        const bar = statusbar.init(document.querySelector('[data-reading="networkStatus"]'), ctx);
+        // A stalled chain emits no events, so the bar cannot notice a stall
+        // from events alone. main.js is the only module allowed to hold an
+        // interval (see observatory.test.mjs), so the prompt lives here and
+        // stops while the tab is hidden.
+        if (bar?.tick) {
+          setInterval(() => {
+            if (document.hidden) return;
+            bar.tick();
+          }, statusbar.STALL_CHECK_MS);
+        }
       } catch (error) {
         console.error(error);
       }
