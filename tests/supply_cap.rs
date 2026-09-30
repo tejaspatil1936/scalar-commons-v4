@@ -60,33 +60,48 @@ fn claim_returns_zero_at_cap() {
         );
 
         // Do work and settle eras near cap
-        for _ in 0..5 {
+        // `seq` is per (buyer, provider) and MONOTONIC, so it is the loop index — it is
+        // not 0 every time. It was hardcoded to 0 with every result discarded by `let _ =`,
+        // which meant iterations 2..5 accepted a seq that did not exist, failed silently,
+        // and then failed `record_delivery` with `NotAccepted` — also silently. The test
+        // still passed, because it asserts a claim returns ZERO and no recorded escrow
+        // volume produces exactly that. So it passed while exercising one fifth of the path
+        // it is named for. Found by the standing-rule lens on this PR.
+        //
+        // Every call is asserted now, including the three that were already discarded
+        // before this PR: fixing only the line this PR added would leave the same hole one
+        // call along.
+        for seq in 0..5u32 {
             advance_blocks(100);
-            let _ = pallet_escrow::Pallet::<TestRuntime>::create_agreement(
+            pallet_escrow::Pallet::<TestRuntime>::create_agreement(
                 RuntimeOrigin::signed(BOB),
                 ALICE,
                 5_000 * CMN,
                 [1u8; 32],
                 frame_system::Pallet::<TestRuntime>::block_number() + 50,
                 None,
-            );
-            let _ = pallet_escrow::Pallet::<TestRuntime>::accept_agreement(
+            )
+            .expect("create_agreement");
+            pallet_escrow::Pallet::<TestRuntime>::accept_agreement(
                 RuntimeOrigin::signed(ALICE),
                 BOB,
-                0,
-            );
+                seq,
+            )
+            .expect("accept_agreement");
             advance_blocks(10);
-            let _ = pallet_escrow::Pallet::<TestRuntime>::record_delivery(
+            pallet_escrow::Pallet::<TestRuntime>::record_delivery(
                 RuntimeOrigin::signed(ALICE),
                 BOB,
-                0,
+                seq,
                 [2u8; 32],
-            );
-            let _ = pallet_escrow::Pallet::<TestRuntime>::confirm_delivery(
+            )
+            .expect("record_delivery");
+            pallet_escrow::Pallet::<TestRuntime>::confirm_delivery(
                 RuntimeOrigin::signed(BOB),
                 ALICE,
-                0,
-            );
+                seq,
+            )
+            .expect("confirm_delivery");
             // Use common::settle_era which advances past EraDuration before settling.
             // Raw settle_era without block advance would fail EraNotDue.
             crate::common::settle_era(1);

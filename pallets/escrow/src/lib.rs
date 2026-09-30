@@ -363,9 +363,6 @@ pub mod pallet {
         NotPending,
         /// `deliver_by + EXPIRY_GRACE` has not passed, so the agreement is not expirable yet.
         AgreementNotExpired,
-        /// A delivery is already recorded, so the provider did the work and the agreement
-        /// may not be expired out from under it.
-        AlreadyDelivered,
     }
 
     #[pallet::call]
@@ -831,8 +828,21 @@ pub mod pallet {
         /// goes to the buyer of record, and expiry earns the provider no escrow volume, so it
         /// cannot be farmed for emissions weight.
         ///
-        /// Only after `deliver_by + EXPIRY_GRACE`, and never once a delivery is recorded, so
-        /// a provider that did the work is never raced out of its payment.
+        /// Reachable from EVERY status, but only past the window belonging to that status
+        /// plus `EXPIRY_GRACE`:
+        ///
+        /// | status | opens at |
+        /// |---|---|
+        /// | `Created` | `deliver_by + EXPIRY_GRACE` |
+        /// | `Delivered` | `deliver_by + BuyerResponseWindow + EXPIRY_GRACE` |
+        /// | `Disputed` | `dispute_opened_at + DisputeTimeoutWindow + EXPIRY_GRACE` |
+        ///
+        /// The grace is added ON TOP of the buyer's own window in every case, so a buyer
+        /// that is merely slow always has priority over a stranger closing its agreement,
+        /// and a provider that did the work is never raced out of a payment it could still
+        /// have received. Restricting this to `Created` is what let a silent buyer pin a
+        /// provider's whole stake behind `ActiveEscrowCount > 0` forever — see
+        /// `DESIGN-E18-E2.md` §8.1.
         #[pallet::call_index(9)]
         #[pallet::weight(T::DbWeight::get().reads_writes(4, 5)
             .saturating_add(Weight::from_parts(80_000_000, 0)))]

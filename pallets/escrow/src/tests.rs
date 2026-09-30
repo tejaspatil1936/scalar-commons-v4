@@ -1469,6 +1469,17 @@ fn e18e2_expire_before_deadline_is_rejected() {
             0
         ));
         assert_eq!(Balances::reserved_balance(ALICE), reserved0 - 1_000);
+        // The EVENT too, not only the balances. The conformance lens noted this test
+        // asserted movement without asserting what the chain told the world about it, and
+        // the event is the only part an indexer or SDK can see.
+        assert!(
+            last_escrow_events().iter().any(|e| matches!(
+                e,
+                crate::pallet::Event::AgreementExpired { buyer, provider, seq, amount }
+                    if *buyer == ALICE && *provider == BOB && *seq == 0 && *amount == 1_000
+            )),
+            "expiry must emit AgreementExpired with the buyer, provider, seq and amount"
+        );
     });
 }
 
