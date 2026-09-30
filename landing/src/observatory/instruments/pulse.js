@@ -373,7 +373,7 @@ export function init(root, ctx) {
     } catch (error) {
       author = { error: error.message };
     }
-    ctx.bus.emit('head', { record, number, header, author, forked: change.superseded > 0 });
+    ctx.bus.emit('head', { record, number, header, author, forked: change.superseded > 0, arrivedAt: now });
     if (mode !== 'live') setMode('live', 'Live');
     if (change.advanced) beat();
     showReadouts();
@@ -397,6 +397,8 @@ export function init(root, ctx) {
       ctx.readout.showError(targets.best, record);
       ctx.readout.showError(targets.finalized, record);
       ctx.readout.showError(targets.lag, record);
+      // Polled: no header, so the bus carries the failed record on its own event.
+      ctx.bus.emit('poll', { record, number: null, finalized: null, arrivedAt: ctx.now() });
       draw();
       return;
     }
@@ -408,6 +410,9 @@ export function init(root, ctx) {
       headRecord = record;
       finalRecord = record;
       if (mode === 'polling') setMode('polling', 'Polling every 6 s — live stream unavailable');
+      // A polled height is not a head: it has no header and no author, so it
+      // goes out as `poll`, and `head` keeps its contract for the instruments.
+      ctx.bus.emit('poll', { record, number: best, finalized, arrivedAt: ctx.now() });
       showReadouts();
       if (change.advanced) beat();
       if (change.advanced && change.added) animateArrival();
@@ -476,6 +481,7 @@ export function init(root, ctx) {
           stream.finalize(finalized, ctx.now());
           headRecord ??= statusRecord;
           finalRecord ??= statusRecord;
+          ctx.bus.emit('poll', { record: statusRecord, number: best, finalized, arrivedAt: ctx.now() });
         } catch (error) {
           ctx.readout.showError(targets.best, statusRecord, error.message);
         }

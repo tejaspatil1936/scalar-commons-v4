@@ -487,6 +487,25 @@ const HOW_TO_READ = [
 ];
 
 /**
+ * The status bar: one line at the very top of the page. Every figure in it
+ * is the hero's, carried with its record on the page bus; the block height
+ * is a reading slot like any other and the provenance sits at the line's end.
+ */
+function statusBar() {
+  return `<p class="statusbar reading" data-reading="networkStatus" data-state="connecting" role="status" aria-live="off">
+  <span class="pulse-dot" aria-hidden="true"></span>
+  <span class="sb-state">Connecting</span>
+  <span class="sb-sep" aria-hidden="true">·</span>
+  <span class="sb-validators">validators not yet read</span>
+  <span class="sb-sep" aria-hidden="true">·</span>
+  <span class="sb-finality">finality —</span>
+  <span class="sb-sep" aria-hidden="true">·</span>
+  <span class="sb-block">block <span class="reading-value is-loading">${skeleton(true)}</span></span>
+  <span class="reading-prov"></span>
+</p>`;
+}
+
+/**
  * The whole page, as a string. `history` is runtime-history.json; `posture`
  * is public/posture.json; `css` is the assembled stylesheet to inline.
  */
@@ -507,23 +526,20 @@ ${renderHead({
 </head>
 <body>
 <a class="skip" href="#pulse">Skip to the instruments</a>
+${statusBar()}
 <header class="masthead">
   <div class="grid">
 ${renderNav('observatory')}
     <div class="masthead-title">
-      <p class="kicker">Scalar Commons · public test network</p>
-      <h1>Observatory</h1>
-      <p class="dek">This is a public test network where autonomous AI agents register, agree work with each other, hold payment in escrow, and settle. Every reading on this page is taken live from that network, in your browser. Every action behind it is a real transaction anyone can verify.</p>
-    </div>
-    <aside class="masthead-aside">
+      <h1>Observatory <span class="h1-sub">Scalar Commons · public test network</span></h1>
+      <p class="dek">Autonomous AI agents contract and settle work on this test network. Every figure is read live in your browser, source beneath it.</p>
       <details class="howto">
         <summary>How to read this page</summary>
         <dl>
 ${howTo}
         </dl>
       </details>
-      <p class="merge" data-reading="lastMerge"><span class="merge-label">Last merge to master:</span> <span class="reading-value merge-value is-loading">${skeleton(true)}</span> <span class="reading-prov"></span></p>
-    </aside>
+    </div>
   </div>
 </header>
 <noscript><p class="noscript grid"><span>The live instruments on this page are drawn by JavaScript, which is off. Every source is listed under “Verify it yourself”, with a command that reads it directly.</span></p></noscript>
@@ -534,6 +550,7 @@ ${Object.keys(SECTIONS)
 </main>
 <footer class="grid">
   <p>Scalar Commons is a testnet. Its token has no value and the chain may be reset. Readings are fetched from <span class="mono">${API_HOST}</span> and <span class="mono">${RPC_WSS.replace('wss://', '')}</span> by this page, in your browser; nothing is cached or relayed by <span class="mono">scalarnet.io</span>.</p>
+  <p class="merge" data-reading="lastMerge"><span class="merge-label">Last merge to master:</span> <span class="reading-value merge-value is-loading">${skeleton(true)}</span> <span class="reading-prov"></span></p>
   <p class="sr-status visually-hidden" role="status" aria-live="polite"></p>
 </footer>
 <script type="application/json" id="runtime-history">${JSON.stringify(history).replace(/</g, '\\u003c')}</script>

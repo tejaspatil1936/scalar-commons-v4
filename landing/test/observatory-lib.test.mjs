@@ -1,6 +1,6 @@
 // Unit tests for the observatory's pure modules: SCALE decoding, SS58 and
 // blake2b, formatting, and the chain-pulse stream model.
-import { test } from 'node:test';
+import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
@@ -27,6 +27,7 @@ import {
 } from '../src/observatory/format.js';
 import { field, countSince, pageOf, fetchAllPages, Scheduler, SOURCES } from '../src/observatory/data.js';
 import { Stream, cadenceOf, median } from '../src/observatory/instruments/pulse.js';
+import { stateWord, sealingPhrase, init as initStatusBar, SEALING_WINDOW, FINALITY_LAG_ALERT, LATE_MS } from '../src/observatory/statusbar.js';
 
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 
@@ -203,4 +204,243 @@ test('Stream: seeding, arrival, forks and finality', () => {
   assert.equal(median([3, 1, 2]), 2);
   assert.equal(median([4, 1, 2, 3]), 2.5);
   assert.equal(cadenceOf([]), null);
+});
+
+test('the status bar’s state word follows stated rules, worst first', () => {
+  const normal = { socket: 'live', lastOk: true, seen: true, lag: 2, intervalMs: 6_000, hidden: false };
+  assert.equal(stateWord(normal), 'Network normal');
+  assert.equal(stateWord({ ...normal, hidden: true }), 'Paused');
+  assert.equal(stateWord({ ...normal, seen: false }), 'Connecting');
+  assert.equal(stateWord({ ...normal, lastOk: false }), 'Not updating');
+  assert.equal(stateWord({ ...normal, seen: false, lastOk: false }), 'Not updating', 'an outage at first load is an outage, not a connection in progress');
+  assert.equal(stateWord({ ...normal, lag: FINALITY_LAG_ALERT + 1 }), 'Finality lagging');
+  assert.equal(stateWord({ ...normal, lag: FINALITY_LAG_ALERT }), 'Network normal');
+  assert.equal(stateWord({ ...normal, intervalMs: 19_000 }), 'Blocks late');
+  assert.equal(stateWord({ ...normal, socket: 'polling' }), 'Polling');
+  assert.equal(stateWord({ ...normal, lag: null, intervalMs: null }), 'Network normal', 'unknowns are not faults');
+});
+
+test('the sealing phrase says "seen so far" until the window has filled, and never invents a count', () => {
+  assert.equal(sealingPhrase({ authors: 5, total: 5, observed: SEALING_WINDOW }), '5 of 5 validators sealing');
+  assert.equal(sealingPhrase({ authors: 5, total: 5, observed: 6 }), '5 of 5 validators sealing', 'all seen: no hedge needed');
+  assert.equal(sealingPhrase({ authors: 3, total: 5, observed: 6 }), '3 of 5 validators seen sealing so far');
+  assert.equal(sealingPhrase({ authors: 4, total: 5, observed: SEALING_WINDOW }), '4 of 5 validators sealing');
+  assert.equal(sealingPhrase({ authors: null, total: 5, observed: 0 }), '5 validators in the set', 'polling: no author to count');
+  assert.equal(sealingPhrase({ authors: 2, total: null, observed: 10 }), 'validators not yet read');
+  assert.equal(sealingPhrase({ authors: 5, total: 5, observed: 30, error: 'could not decode the set: bad length' }), 'validators unavailable · could not decode the set: bad length');
+  assert.equal(sealingPhrase({ authors: null, total: null, observed: 0, error: 'HTTP 502' }), 'validators unavailable · HTTP 502');
+});
+
+// The status bar's event wiring, not only its pure helpers: the three faults
+// the bar exists to flag (a finality stall, a block stall, a chain that is
+// polled at one height) all live in `init`'s handlers, so these tests drive
+// the real `init` against a fake root, bus and clock.
+
+function fakeBar() {
+  // Minimal DOM stand-ins: the bar only reads textContent/dataset.
+  const el = () => ({ textContent: '', dataset: {}, classList: { add() {}, remove() {} }, offsetWidth: 0 });
+  const nodes = { '.pulse-dot': el(), '.sb-state': el(), '.sb-validators': el(), '.sb-finality': el() };
+  const root = { dataset: {}, querySelector: (s) => nodes[s] ?? null };
+  const handlers = {};
+  let clock = 1_000_000;
+  const ctx = {
+    bus: { on: (name, fn) => { (handlers[name] ||= []).push(fn); } },
+    motion: { reduced: () => true },
+    format: { formatInteger: (n) => String(n) },
+    readout: { showValue() {}, showError() {} },
+    watch() {},
+    field: () => { throw new Error('not used'); },
+    now: () => clock,
+  };
+  return {
+    root, ctx, nodes,
+    emit: (name, payload) => { for (const fn of handlers[name] ?? []) fn(payload); },
+    advance: (ms) => { clock += ms; },
+    now: () => clock,
+    state: () => root.dataset.state,
+  };
+}
+
+test('status bar: a finality stall is reported even though no finalized event arrives', async () => {
+  const { root, ctx, emit, state } = fakeBar();
+  const { init } = await import('../src/observatory/statusbar.js');
+  init(root, ctx);
+
+  emit('head', { record: { ok: true }, number: 100, author: { authorityIndex: 0 }, arrivedAt: ctx.now() });
+  emit('finalized', { number: 98 });
+  assert.equal(state(), 'network-normal', 'lag 2 is healthy');
+
+  // Finality stops; blocks keep coming. No further `finalized` events.
+  for (let n = 101; n <= 112; n++) {
+    emit('head', { record: { ok: true }, number: n, author: { authorityIndex: n % 3 }, arrivedAt: ctx.now() });
+  }
+  assert.equal(state(), 'finality-lagging', 'lag must grow from heads alone');
+});
+
+test('status bar: a full block stall is reported with no event to prompt it', async () => {
+  const { root, ctx, emit, advance, state } = fakeBar();
+  const { init, LATE_MS, STALL_CHECK_MS } = await import('../src/observatory/statusbar.js');
+  init(root, ctx);
+
+  emit('head', { record: { ok: true }, number: 100, author: { authorityIndex: 0 }, arrivedAt: ctx.now() });
+  emit('finalized', { number: 99 });
+  assert.equal(state(), 'network-normal');
+
+  // The chain dies. Nothing arrives. Only the clock moves.
+  advance(LATE_MS + STALL_CHECK_MS);
+  emit('visibility', { hidden: false }); // any re-render; the ticker does this unprompted in a browser
+  assert.equal(state(), 'blocks-late', 'elapsed time since the last block must count');
+});
+
+test('status bar: polling that repeats the same height is not a stream of arrivals', async () => {
+  const { root, ctx, emit, advance, state } = fakeBar();
+  const { init, LATE_MS } = await import('../src/observatory/statusbar.js');
+  init(root, ctx);
+
+  emit('head', { record: { ok: true }, number: 100, author: null, arrivedAt: ctx.now() });
+  emit('finalized', { number: 100 });
+
+  // Polling emits a head every ~6 s whether or not the chain moved. Same
+  // height each time: these are polls, not blocks.
+  for (let i = 0; i < 6; i++) {
+    advance(6_000);
+    emit('head', { record: { ok: true }, number: 100, author: null, arrivedAt: ctx.now() });
+  }
+  advance(LATE_MS);
+  emit('visibility', { hidden: false });
+  assert.equal(state(), 'blocks-late', 'a height that never advances is a stalled chain, polling or not');
+});
+
+test('status bar: returning from a hidden tab is not a late block', async () => {
+  const { root, ctx, emit, advance, state } = fakeBar();
+  const { init } = await import('../src/observatory/statusbar.js');
+  init(root, ctx);
+
+  emit('head', { record: { ok: true }, number: 100, author: { authorityIndex: 0 }, arrivedAt: ctx.now() });
+  emit('finalized', { number: 99 });
+  emit('visibility', { hidden: true });
+  advance(10 * 60_000); // ten minutes in another tab
+  emit('visibility', { hidden: false });
+  assert.equal(state(), 'network-normal', 'the hidden interval is not a chain fault');
+});
+
+test('sealing phrase never claims more validators than the set holds', async () => {
+  const { sealingPhrase: phrase, SEALING_WINDOW: win } = await import('../src/observatory/statusbar.js');
+  // The window still holds indices from a larger, previous set.
+  assert.equal(phrase({ authors: 6, total: 5, observed: win }), '5 of 5 validators sealing');
+});
+
+// A second harness for the paths the block above does not reach: the `poll`
+// event, the readout calls, the validators read, and the ticker main.js drives.
+function statusBarHarness() {
+  const el = () => ({ textContent: '', dataset: {}, classList: { add() {}, remove() {} }, offsetWidth: 1 });
+  const slots = { '.pulse-dot': el(), '.sb-state': el(), '.sb-validators': el(), '.sb-finality': el() };
+  const root = { dataset: {}, querySelector: (sel) => slots[sel] ?? null };
+  const listeners = new Map();
+  const bus = {
+    on: (name, fn) => listeners.set(name, [...(listeners.get(name) ?? []), fn]),
+    emit: (name, payload) => (listeners.get(name) ?? []).forEach((fn) => fn(payload)),
+  };
+  const calls = { shown: [], errors: [] };
+  const watches = new Map();
+  let now = 1_000_000;
+  const ctx = {
+    bus,
+    now: () => now,
+    format: { formatInteger: (n) => n.toLocaleString('en-US') },
+    motion: { reduced: () => false },
+    readout: { showValue: (t, r, o) => calls.shown.push(o.value), showError: (t, r) => calls.errors.push(r) },
+    field: (data, path) => path.split('.').reduce((v, k) => v[k], data),
+    watch: (name, handler) => watches.set(name, handler),
+  };
+  const controller = initStatusBar(root, ctx);
+  return {
+    root, slots, bus, calls, controller, watches,
+    now: () => now,
+    /** Advances the clock and lets the ticker ask, as main.js does every STALL_CHECK_MS. */
+    tick(ms) { now += ms; controller.tick(); },
+    head: (number) => bus.emit('head', { record: { ok: true }, number, header: {}, author: { authorityIndex: number % 5 }, arrivedAt: now }),
+    poll: (number, finalized) => bus.emit('poll', { record: { ok: true }, number, finalized, arrivedAt: now }),
+  };
+}
+
+test('status bar wiring: polled heights arrive on `poll`, carry finality, beat only when the height moves, and read late when it stops', () => {
+  const h = statusBarHarness();
+  h.bus.emit('socket', { state: 'failed', attempts: 3 });
+  h.poll(500, 498);
+  h.tick(6_000);
+  h.poll(501, 499);
+  assert.equal(h.slots['.sb-state'].textContent, 'Polling');
+  assert.equal(h.slots['.sb-finality'].textContent, 'finality 2 blocks');
+  assert.equal(h.slots['.sb-validators'].textContent, 'validators not yet read');
+  assert.deepEqual(h.calls.shown, [500, 501], 'each poll refreshes the figure and its provenance');
+  assert.equal(h.controller.state().intervalMs, 6_000);
+  for (let i = 0; i < 4; i += 1) { h.tick(6_000); h.poll(501, 499); }
+  assert.equal(h.controller.state().best, 501);
+  assert.equal(h.slots['.sb-state'].textContent, 'Blocks late', 'four polls at one height: the ticker said the stall');
+  h.poll(502, 500);
+  h.tick(6_000);
+  h.poll(503, 501);
+  assert.equal(h.slots['.sb-state'].textContent, 'Polling');
+  // A failed poll is "Not updating", shown through the readout like a failed head.
+  h.bus.emit('poll', { record: { ok: false, error: 'HTTP 502' }, number: null, finalized: null, arrivedAt: h.now() });
+  assert.equal(h.slots['.sb-state'].textContent, 'Not updating');
+  assert.equal(h.calls.errors.length, 1);
+});
+
+test('status bar wiring: the finality lag is held, not read from the DOM, and grows on heads alone', () => {
+  const h = statusBarHarness();
+  h.head(100);
+  h.bus.emit('finalized', { record: { ok: true }, number: 98 });
+  assert.equal(h.slots['.sb-finality'].textContent, 'finality 2 blocks');
+  for (let n = 101; n <= 100 + FINALITY_LAG_ALERT + 1; n += 1) { h.tick(6_000); h.head(n); }
+  assert.equal(h.slots['.sb-finality'].textContent, 'finality 9 blocks');
+  assert.equal(h.slots['.sb-state'].textContent, 'Finality lagging');
+  assert.deepEqual([h.controller.state().best, h.controller.state().lastFinalized], [107, 98]);
+  h.tick(LATE_MS + 1);
+  assert.equal(h.slots['.sb-state'].textContent, 'Finality lagging', 'the worse fault stays first');
+});
+
+test('status bar wiring: the validators read is said honestly — decoded, undecodable, or failed — and a changed set restarts the window', () => {
+  const h = statusBarHarness();
+  for (const n of [10, 11, 12]) { h.head(n); h.tick(6_000); }
+  const validators = h.watches.get('validators');
+  const five = { ok: true, data: { result: '0x' + '14' + '11'.repeat(32).repeat(5) } };
+  validators(five);
+  assert.equal(h.controller.state().total, 5);
+  assert.equal(h.slots['.sb-validators'].textContent, '3 of 5 validators seen sealing so far', 'the first read keeps the window');
+  const quiet = mock.method(console, 'error', () => {});
+  validators({ ok: true, data: { result: '0x' + '05' + '11'.repeat(16) } });
+  quiet.mock.restore();
+  assert.equal(quiet.mock.callCount(), 1, 'the decode error is logged, not swallowed');
+  assert.equal(h.controller.state().total, null);
+  assert.match(h.slots['.sb-validators'].textContent, /^validators unavailable · could not decode the set: /);
+  validators({ ok: false, error: 'HTTP 502' });
+  assert.equal(h.slots['.sb-validators'].textContent, 'validators unavailable · HTTP 502');
+  validators(five);
+  assert.equal(h.slots['.sb-validators'].textContent, '5 validators in the set', 'the window restarted when the set changed');
+  h.head(13);
+  assert.equal(h.slots['.sb-validators'].textContent, '1 of 5 validators seen sealing so far');
+  // Falling back to polling drops the window too: polled heights have no author.
+  h.poll(14, 12);
+  assert.equal(h.slots['.sb-validators'].textContent, '5 validators in the set');
+});
+
+test('status bar wiring: a height far below the best is a reset, not a stall', () => {
+  const h = statusBarHarness();
+  h.head(800_000);
+  h.tick(6_000);
+  h.head(800_001);
+  h.bus.emit('finalized', { record: { ok: true }, number: 799_999 });
+  assert.equal(h.slots['.sb-state'].textContent, 'Network normal');
+  // The test network is reset: the next head is block 5.
+  h.tick(6_000);
+  h.head(5);
+  assert.equal(h.controller.state().best, 5, 'the held height follows the reset');
+  assert.equal(h.slots['.sb-finality'].textContent, 'finality —', 'the old finalized height is not compared with the new chain');
+  h.tick(6_000);
+  h.head(6);
+  h.bus.emit('finalized', { record: { ok: true }, number: 4 });
+  assert.equal(h.slots['.sb-finality'].textContent, 'finality 2 blocks');
+  assert.equal(h.slots['.sb-state'].textContent, 'Network normal');
 });
