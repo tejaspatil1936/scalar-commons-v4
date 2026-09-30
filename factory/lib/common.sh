@@ -161,6 +161,33 @@ load_billing_env() {
 # monthly cap remains the hard backstop; this exists so a runaway loop is
 # stopped in minutes by the machine that started it, rather than in days by a
 # billing alert.
+# count_lines <file> -> the number of lines, or 0 if the file is missing.
+#
+# `grep -c '' "$f" 2>/dev/null || echo 0` is the idiom this replaces, and it is
+# WRONG in a way that hides: on a file that exists but is EMPTY, grep prints "0"
+# AND exits 1, so the `|| echo 0` fires and the result is the two-line string
+# "0\n0". Every arithmetic use of that then fails:
+#
+#   [ "0\n0" -ge 40 ]        -> "integer expression expected", test is false
+#   "attempts": "0\n0"       -> a string stored under a numeric key
+#
+# It has now caused three separate defects in this repo: the `attempts` field in
+# two task state files, shell errors printed into review bodies via review.sh's
+# EXCLUDED_N, and -- the one that matters -- a spawn-cap comparison in
+# spend_reserve that threw instead of comparing, so the `&& exit 3` never ran and
+# the cap FAILED OPEN on an empty ledger.
+#
+# `wc -l` cannot be substituted naively either: it prints 0 for a file with no
+# trailing newline that nonetheless has content. `grep -c ''` counts that line,
+# which is why the idiom was chosen. So keep grep and fix the exit code instead.
+count_lines() {
+  local f="${1:-}" n
+  [ -f "$f" ] || { printf '0\n'; return 0; }
+  n="$(grep -c '' "$f" 2>/dev/null)" || n=0
+  case "$n" in ''|*[!0-9]*) n=0 ;; esac
+  printf '%s\n' "$n"
+}
+
 spend_ledger() { printf '%s/spend-%s' "$SPEND_DIR" "$(date -u +%Y%m%d)"; }
 
 # Spawns recorded so far today. Never fails; absent ledger means zero.
@@ -187,7 +214,7 @@ spend_reserve() {
     flock 8 || exit 1
     local f n
     f="$SPEND_DIR/spend-$(date -u +%Y%m%d)"
-    n=0; [ -f "$f" ] && n="$(grep -c '' "$f" 2>/dev/null || echo 0)"
+    n="$(count_lines "$f")"
     [ "$n" -ge "$DAILY_SPAWN_CAP" ] && exit 3
     printf '%s\t%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$label" >> "$f"
   ) 8>>"$SPEND_DIR/spend.lock"

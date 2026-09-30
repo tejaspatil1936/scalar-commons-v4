@@ -64,16 +64,29 @@
 #   ERROR  the call failed, or exited 0 with no parseable verdict. The review
 #          did not happen. This is NEVER reported as PASS and never as FAIL.
 #
+# A lens that ERRORs is RETRIED (up to REVIEW_LENS_RETRIES, default 2) before
+# its ERROR is accepted — an infrastructure failure deserves another attempt.
+# A PASS or FAIL is never retried; re-rolling a lens that already judged is the
+# "keep going until it goes green" move the standing rule forbids.
+#
 # Overall status:
-#   any ERROR                  -> INCONCLUSIVE: no agent-reviewed, add
-#                                 needs-human, exit 2
+#   any ERROR (after retries)  -> INCONCLUSIVE: no agent-reviewed, NO
+#                                 needs-human, comment the reason, exit 2
 #   >=2 PASS and no ERROR      -> comment all verdicts + label agent-reviewed
 #   any FAIL                   -> label needs-human + comment the objections
 #
 # The last two rules can BOTH apply (2 PASS + 1 FAIL). That is deliberate: the
 # PR records that it cleared the bar AND that an unresolved objection exists.
-# merge.sh requires agent-reviewed AND no needs-human, so any FAIL or ERROR
-# blocks the merge while preserving the audit trail.
+#
+# needs-human is ONLY for a real FAIL (changed 27 Sep 2026). It used to be
+# applied for ERROR too, which was actively harmful: nothing in this system ever
+# removes that label and merge-if-green.sh --scan excludes any PR carrying it,
+# so a day when the lenses could not run left every open PR in a state no
+# automation could leave and the merge pass logged "0 candidate PR(s)" every 5
+# minutes for ~15 hours. An INCONCLUSIVE review still cannot merge — it gets no
+# agent-reviewed, and gates/reviews-on-head.sh refuses it with a reason on every
+# pass — but it no longer consumes a human's attention as if it were an
+# objection.
 #
 # A reviewer that cannot review reports INCONCLUSIVE. It never reports PASS.
 #
@@ -164,10 +177,28 @@ overall_status() {
 #
 # agent-reviewed requires >=2 PASS *and* that every lens actually ran: a review
 # with a dead lens must not be labelled as having cleared the bar.
+#
+# needs-human is ONLY for a real FAIL — a lens that ran, judged, and objected.
+# It is deliberately NOT applied for ERROR/INCONCLUSIVE (changed 27 Sep 2026).
+#
+# WHY, because the old behaviour cost a working day: `needs-human` is a one-way
+# ratchet (nothing in this system ever removes it) and `merge-if-green.sh
+# --scan` excludes any PR carrying it. So when the lenses could not run at all
+# on 27 Sep, every open PR was ratcheted into a state no automation could leave,
+# the merge pass reported "0 candidate PR(s)" every 5 minutes for ~15 hours, and
+# the log looked like an idle queue rather than a wedged one. An infrastructure
+# failure must not consume a human's attention budget as if it were a review
+# objection.
+#
+# This does NOT make an incomplete review mergeable. agent-reviewed is still
+# withheld (>=2 PASS and zero ERRORs), and gates/reviews-on-head.sh independently
+# requires LAB_REQUIRED_PASS_LENSES verdicts bound to the current head. A PR
+# whose review could not run therefore still cannot merge — it is refused by a
+# gate, with a reason, on every pass, instead of being parked behind a label.
 review_labels() {
   local p="$1" f="$2" e="$3" reviewed=no human=no
   { [ "$p" -ge 2 ] && [ "$e" -eq 0 ]; } && reviewed=yes
-  { [ "$f" -gt 0 ] || [ "$e" -gt 0 ]; } && human=yes
+  [ "$f" -gt 0 ] && human=yes
   printf '%s %s' "$reviewed" "$human"
 }
 
@@ -324,8 +355,38 @@ fi
 # and a finalized block, and it is strictly harder work than writing the diff
 # was: the author knows what they meant, the reviewer has to find what they did
 # not mean.
-LENS_MODEL="$(pick_model "$WORK/allfiles.txt")"
-log "review model: $LENS_MODEL (the same model for all three lenses)"
+#
+# LENS_MODEL can be set in the environment to override, but ONLY to a name on
+# the allow-list. Without one, any caller — a script, a stray export, an agent
+# editing a wrapper — can silently drop the reviewer to an arbitrary or
+# nonexistent model: a way to weaken the gate without touching the gate. A log
+# line naming the model is not a control, because nobody reads it at the moment
+# it matters.
+#
+# EXACT comparison, not a `case` substring match: the substring form accepted
+# LENS_MODEL="opus sonnet", because `*" opus sonnet "*` matches the allow-list
+# string itself, and then passed that whole string to --model as one bogus
+# value. An allow-list satisfiable by concatenating its own entries is not an
+# allow-list. An unknown value is fatal, never a fallback — a typo must not
+# quietly review with something other than what was asked for.
+#
+# The ROUTING itself is pick_model()'s, not a second copy of the path test.
+# Master briefly carried an inline `grep -qE '^(runtime|pallets)/'` here; two
+# implementations of one rule is how they drift, and the duplication is what
+# this PR exists to remove.
+LENS_MODEL_ALLOWED="opus sonnet"
+if [ -n "${LENS_MODEL:-}" ]; then
+  _lm_ok=0
+  for _lm in $LENS_MODEL_ALLOWED; do
+    [ "$LENS_MODEL" = "$_lm" ] && { _lm_ok=1; break; }
+  done
+  [ "$_lm_ok" = "1" ] || die "LENS_MODEL=$LENS_MODEL is not one of: $LENS_MODEL_ALLOWED"
+  log "lens model overridden from the environment: $LENS_MODEL"
+  unset _lm _lm_ok
+else
+  LENS_MODEL="$(pick_model "$WORK/allfiles.txt")"
+fi
+log "lens model: $LENS_MODEL ($(grep -cE '^(runtime|pallets)/' "$WORK/allfiles.txt" || true) of $(count_lines "$WORK/allfiles.txt") changed path(s) under runtime/ or pallets/)"
 
 # ------------------------------------------------- bind the review to a SHA --
 # Record the exact commit these lenses are about to read. This is what makes
@@ -349,7 +410,7 @@ fi
 
 RAW_LINES=$(wc -l < "$WORK/raw.diff")
 FILTERED_LINES=$(wc -l < "$WORK/filtered.diff")
-EXCLUDED_N=$(grep -c '' "$WORK/excluded.txt" 2>/dev/null || echo 0)
+EXCLUDED_N="$(count_lines "$WORK/excluded.txt")"
 
 # ------------------------------------------------------------- the caps -----
 # Even after exclusion a diff can be enormous. TWO ceilings apply, whichever
@@ -669,6 +730,19 @@ run_lens() {
   # A redirect passes a file descriptor, so prompt size is irrelevant to exec
   # and E2BIG cannot recur at any diff size. The caps below exist for
   # reviewability, NOT to keep an argv string under a limit.
+  #
+  # MODEL: sonnet, except opus when this diff touches runtime/ or pallets/ —
+  # the consensus and economic code, where the reviewer should not be weaker
+  # than the change it is judging. Chosen explicitly rather than left to the
+  # CLI default (LAB decision, 27 Sep 2026).
+  #
+  # It was briefly opus for EVERY lens. That was set when loops billed a
+  # metered API key, where the cost of three opus calls per review is linear
+  # and predictable. This box now bills a Max subscription, where the cost is a
+  # rate limit instead — three opus lenses per review hit one within hours on
+  # 27 Sep, and a rate limit pauses dispatch, every worker and every lens at
+  # once. Sonnet by default keeps the review cadence affordable; the diffs that
+  # actually warrant opus are named above.
   ( cd "$WORK" && timeout "$REVIEW_LENS_TIMEOUT" \
       claude -p --dangerously-skip-permissions --model "$LENS_MODEL" ) \
     < "$pf" > "$out" 2> "$err"
@@ -712,16 +786,54 @@ PASSES=0
 FAILS=0
 ERRORS=0
 
+# A lens that could not run is retried before its ERROR is accepted (added
+# 27 Sep 2026). An ERROR is an infrastructure failure, not a judgement, and the
+# failures seen in practice were transient-shaped: the process exited in under a
+# second having written nothing parseable. Retrying costs one spawn and converts
+# most of them into an actual verdict, which is the difference between a review
+# that happened and a PR nobody can merge.
+#
+# A FAIL or PASS is never retried: re-running a lens that already judged, hoping
+# for a different answer, is exactly the "keep rolling until it goes green"
+# behaviour the standing rule forbids.
+#
+# Both knobs are validated the SAME way, and a bad value is fatal.
+#
+# The first version silently coerced a non-numeric REVIEW_LENS_RETRIES to 2
+# while asserting "an unknown value is fatal, never a fallback" three lines
+# above, and left REVIEW_LENS_RETRY_SLEEP unvalidated entirely -- where a
+# non-numeric value makes `sleep` fail inside the retry loop. Both were pointed
+# out by the spec-conformance lens. A rule the file states about itself should
+# hold everywhere in the file.
+: "${REVIEW_LENS_RETRIES:=2}"
+: "${REVIEW_LENS_RETRY_SLEEP:=15}"
+case "$REVIEW_LENS_RETRIES" in ''|*[!0-9]*)
+  die "REVIEW_LENS_RETRIES=$REVIEW_LENS_RETRIES is not a non-negative integer" ;;
+esac
+case "$REVIEW_LENS_RETRY_SLEEP" in ''|*[!0-9]*)
+  die "REVIEW_LENS_RETRY_SLEEP=$REVIEW_LENS_RETRY_SLEEP is not a non-negative integer" ;;
+esac
+
 for l in "${LENSES[@]}"; do
-  run_lens "$l"
-  VERDICT[$l]="$(cat "$WORK/$l.result" 2>/dev/null || echo ERROR)"
-  RC[$l]="$(cat "$WORK/$l.rc" 2>/dev/null || echo '?')"
+  attempt=0
+  while : ; do
+    run_lens "$l"
+    VERDICT[$l]="$(cat "$WORK/$l.result" 2>/dev/null || echo ERROR)"
+    RC[$l]="$(cat "$WORK/$l.rc" 2>/dev/null || echo '?')"
+    case "${VERDICT[$l]}" in
+      PASS|FAIL) break ;;
+    esac
+    [ "$attempt" -ge "$REVIEW_LENS_RETRIES" ] && break
+    attempt=$(( attempt + 1 ))
+    warn "lens $l could not produce a verdict (claude exit ${RC[$l]}) — retry $attempt/$REVIEW_LENS_RETRIES in ${REVIEW_LENS_RETRY_SLEEP}s"
+    sleep "$REVIEW_LENS_RETRY_SLEEP"
+  done
   case "${VERDICT[$l]}" in
     PASS) PASSES=$((PASSES+1)) ;;
     FAIL) FAILS=$((FAILS+1))   ;;
     *)    ERRORS=$((ERRORS+1)) ;;
   esac
-  log "lens $l => ${VERDICT[$l]} (claude exit ${RC[$l]})"
+  log "lens $l => ${VERDICT[$l]} (claude exit ${RC[$l]}$([ "$attempt" -gt 0 ] && printf ', after %s retr%s' "$attempt" "$([ "$attempt" = 1 ] && echo y || echo ies)"))"
 done
 
 # An incomplete review is never a pass. agent-reviewed additionally requires
@@ -785,9 +897,47 @@ COMMENT="$WORK/comment.md"
   printf '\n**Tally: %s PASS / %s FAIL / %s ERROR — status %s.**\n\n' \
     "$PASSES" "$FAILS" "$ERRORS" "$STATUS"
   if [ "$ERRORS" -gt 0 ]; then
-    printf '> **INCONCLUSIVE.** %s lens/lenses did not produce a judgement, so this PR\n' "$ERRORS"
-    printf '> has NOT been reviewed. It is not labelled %sagent-reviewed%s and it is\n' "$BT" "$BT"
-    printf '> labelled %sneeds-human%s. A reviewer that cannot review does not pass.\n\n' "$BT" "$BT"
+    printf '> **INCONCLUSIVE.** %s lens/lenses did not produce a judgement after up to\n' "$ERRORS"
+    printf '> %s retr%s each, so this PR has **not** been reviewed and is **not** merged.\n' \
+      "$REVIEW_LENS_RETRIES" "$([ "$REVIEW_LENS_RETRIES" = 1 ] && echo y || echo ies)"
+    printf '> A lens that reaches a verdict is never retried — only one that fails to\n'
+    printf '> produce one, so a retry can never turn a FAIL into a PASS.\n'
+    printf '>\n'
+    printf '> It is not labelled %sagent-reviewed%s — a reviewer that cannot review does\n' "$BT" "$BT"
+    printf '> not pass.\n'
+    printf '>\n'
+    # The label sentence MUST agree with review_labels(), which sets needs-human
+    # whenever FAILS > 0 regardless of ERRORS. An earlier version of this block
+    # printed "deliberately not labelled needs-human" unconditionally, so in a
+    # mixed state (say 1 FAIL + 1 ERROR) the comment asserted the opposite of
+    # what the code had just done — and this comment is the audit record, so a
+    # wrong one is worse than none. Caught by the spec-conformance lens on this
+    # PR's own review, which is the system working as intended.
+    if [ "$FAILS" -gt 0 ]; then
+      printf '> It **is** labelled %sneeds-human%s, because %s lens/lenses also returned a\n' "$BT" "$BT" "$FAILS"
+      printf '> real FAIL. That objection stands on its own and a human has to clear it;\n'
+      printf '> re-running the review will not, since the FAIL is a finding and not an\n'
+      printf '> infrastructure failure. Read the objections below first — the ERROR above\n'
+      printf '> means the review is ALSO incomplete, so the objections may not be all of\n'
+      printf '> them.\n'
+      printf '>\n'
+      printf '> %sgates/reviews-on-head.sh%s refuses this PR on every merge pass regardless,\n' "$BT" "$BT"
+      printf '> because the review did not complete. Fixing the cause of the ERROR and\n'
+      printf '> re-running %sfactory/review.sh %s%s gets a complete review; the FAIL still\n' "$BT" "$PR" "$BT"
+      printf '> has to be answered on its merits.\n'
+    else
+      printf '> It is deliberately **not** labelled %sneeds-human%s either: that\n' "$BT" "$BT"
+      printf '> label is reserved for a real FAIL, where a lens ran and objected. An\n'
+      printf '> infrastructure failure is not a review objection, and %sneeds-human%s is a\n' "$BT" "$BT"
+      printf '> one-way ratchet that no automation removes, so applying it here would park\n'
+      printf '> this PR in a state only a human could clear — which is how the merge queue\n'
+      printf '> silently stalled for ~15 hours on 2026-09-27.\n'
+      printf '>\n'
+      printf '> What happens instead: %sgates/reviews-on-head.sh%s keeps refusing this PR on\n' "$BT" "$BT"
+      printf '> every merge pass, with a reason, until a review actually completes. Re-run\n'
+      printf '> %sfactory/review.sh %s%s to try again once the cause is fixed.\n' "$BT" "$PR" "$BT"
+    fi
+    printf '\n'
   fi
   printf '**Diff coverage:** raw %s lines -> %s after excluding generated/vendored -> %s reviewed (%s bytes; caps %s lines / %s bytes; mode: %s).\n' \
     "$RAW_LINES" "$FILTERED_LINES" "$REVIEW_LINES" "$REVIEW_BYTES" \
