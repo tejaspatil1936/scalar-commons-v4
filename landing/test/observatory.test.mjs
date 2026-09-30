@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 import { API_ORIGIN, RPC_URL, GITHUB_COMMITS_URL, SOURCES, STORAGE_KEYS } from '../src/observatory/data.js';
 import { twox128 } from '../src/observatory/scale.js';
-import { renderSection } from '../src/observatory.mjs';
+import { renderSection, railPositions } from '../src/observatory.mjs';
 
 const landingDir = fileURLToPath(new URL('../', import.meta.url));
 const repoRoot = new URL('../../', import.meta.url);
@@ -178,9 +178,17 @@ test('the upgrade rail renders every row with its hash in full, copyable, and a 
       assert.ok(page.includes(`data-confirm-block="${upgrade.appliedAtBlock}"`), `${upgrade.specVersion} has no chain-confirmation slot`);
     }
   }
-  // Markers sit in block order, left to right, with the scheduled one last.
+  // Markers sit in order, left to right, equally spaced, with the scheduled one last;
+  // the block number is printed under each applied one.
   const xs = [...page.matchAll(/rail-marker rail-\w+" style="--x:([0-9.]+)%/g)].map((m) => Number(m[1]));
   assert.deepEqual([...xs].sort((a, b) => a - b), xs);
+  assert.deepEqual(xs, railPositions(history.upgrades.length).map((x) => Number(x.toFixed(2))));
+  for (const upgrade of history.upgrades.filter((u) => u.status === 'applied')) {
+    assert.ok(page.includes(`<span class="rail-meta mono">#${upgrade.appliedAtBlock.toLocaleString('en-US')}</span>`), `${upgrade.specVersion} has no block under its marker`);
+  }
+  // The dashed future begins past the last applied marker.
+  const future = Number(page.match(/class="rail"[^>]*style="--future:([0-9.]+)%"/)[1]);
+  assert.ok(future > xs[2] && future < xs[3]);
 });
 
 test('the script reads only indexer endpoints that exist, with fields the indexer emits', () => {
