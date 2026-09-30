@@ -1,0 +1,43 @@
+# Prometheus — scrapes the five devnet validators over loopback.
+#
+# Prometheus runs with network_mode: host (see ../docker-compose.yml), so
+# 127.0.0.1 here is the HOST's loopback, where every validator's
+# --prometheus-port listens. The ports follow deploy/nodes.env: the Nth node is
+# 9615+i. Adding a validator means adding a target here as well.
+#
+# `instance` is relabelled from host:port to the node name so dashboard 13840's
+# instance picker reads alice..eve instead of five indistinguishable
+# 127.0.0.1:96xx. `network` is set because every chain query in that dashboard
+# filters on {network="$network"}; without the label its panels are empty.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: substrate
+    static_configs:
+      - targets: ["127.0.0.1:9615"]
+        labels: { node: alice, network: scalar-devnet }
+      - targets: ["127.0.0.1:9616"]
+        labels: { node: bob, network: scalar-devnet }
+      - targets: ["127.0.0.1:9617"]
+        labels: { node: charlie, network: scalar-devnet }
+      - targets: ["127.0.0.1:9618"]
+        labels: { node: dave, network: scalar-devnet }
+      - targets: ["127.0.0.1:9619"]
+        labels: { node: eve, network: scalar-devnet }
+    relabel_configs:
+      - source_labels: [node]
+        target_label: instance
+
+  # Host metrics for the dashboard's "Server Health" row. All five validators
+  # share this box, so one exporter covers them.
+  - job_name: node
+    static_configs:
+      - targets: ["127.0.0.1:9100"]
+        labels: { network: scalar-devnet }
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["127.0.0.1:9090"]

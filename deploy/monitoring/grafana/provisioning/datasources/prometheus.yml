@@ -1,0 +1,11 @@
+# Named "Prometheus" because dashboard 13840's DS_PROMETHEUS variable defaults
+# to a datasource of that name.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://127.0.0.1:9090
+    isDefault: true
+    editable: false
