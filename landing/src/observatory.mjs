@@ -81,11 +81,12 @@ function pulseSection() {
     label: 'Chain pulse',
     heading: 'Blocks arriving now',
     lede:
-      'Every six seconds the network seals a new block of transactions. Each tick is one arriving; the shaded region behind the trailing marker is final — nothing in it can be undone.',
+      'Every six seconds the network seals a new block of transactions. Each bar is one arriving, as tall as the transactions it carries, placed by the chain’s own clock; the tinted region behind the marker is final — nothing in it can be undone.',
     head: `      <p class="live" data-live="waiting"><span class="pulse-dot" aria-hidden="true"></span><span class="live-text">Connecting</span></p>
 `,
-    instrument: `      <canvas class="pulse-canvas" role="img" aria-label="Stream of recent blocks, newest at the right, with the finalized region shaded"></canvas>
-      <p class="pulse-status visually-hidden" role="status"></p>`,
+    instrument: `      <canvas class="pulse-canvas" role="img" aria-label="River of recent blocks, newest at the right, each bar as tall as its transaction count, with the finalized region tinted"></canvas>
+      <p class="pulse-status visually-hidden" role="status"></p>
+      <p class="pulse-sentence reading" data-reading="cadence"><span class="reading-value is-loading">${skeleton(true)}</span> <span class="reading-prov"></span></p>`,
     readings: [
       reading({ key: 'bestBlock', label: 'Block height', note: 'Blocks produced since the chain began.', live: false }),
       reading({
@@ -98,12 +99,6 @@ function pulseSection() {
         key: 'finalityLag',
         label: 'Finality lag',
         note: 'Blocks between produced and irreversibly settled.',
-        live: false,
-      }),
-      reading({
-        key: 'cadence',
-        label: 'Rhythm',
-        note: 'Blocks per minute, and how long a block takes to become final, from the blocks observed.',
         live: false,
       }),
     ].join('\n'),

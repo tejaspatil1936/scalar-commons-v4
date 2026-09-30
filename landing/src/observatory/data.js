@@ -101,6 +101,16 @@ export const SOURCES = {
   lastMerge: { kind: 'github', url: GITHUB_COMMITS_URL, readings: ['lastMerge'] },
 };
 
+/**
+ * The two reads the hero makes for each block as it arrives, to learn how
+ * many extrinsics it carried and the chain's own timestamp for it: the hash
+ * at a height, then the block by hash. Neither feeds a reading slot of its
+ * own; both are shown through the river and its provenance line.
+ */
+export const blockHashSource = (number) =>
+  rpc('chain_getBlockHash', [number], `chain_getBlockHash(${number})`);
+export const blockSource = (hash) => rpc('chain_getBlock', [hash], `chain_getBlock(${String(hash).slice(0, 10)}…)`);
+
 // ── pure helpers ─────────────────────────────────────────────────────────────
 
 /**
