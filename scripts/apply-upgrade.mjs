@@ -3,7 +3,7 @@
  * scripts/apply-upgrade.mjs — apply a forkless runtime upgrade.
  *
  *   node scripts/apply-upgrade.mjs <path/to/runtime.compact.compressed.wasm> [--dry-run]
- *                                  [--ws ws://127.0.0.1:9944] [--expect-spec 305]
+ *                                  [--ws ws://127.0.0.1:9944] [--expect-spec N]
  *                                  [--ports 9944,9945,9946,9947,9948] [--blocks 20]
  *
  *   node scripts/apply-upgrade.mjs --call <pallet.method> [--args '<json array>'] [--dry-run]
@@ -47,6 +47,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, resolve as pathResolve } from 'node:path';
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { zstdDecompressSync } from 'node:zlib';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CANDIDATES = ['../sdk/package.json', '../indexer/package.json'];
@@ -64,6 +65,47 @@ const { ApiPromise, WsProvider } = await loadPolkadot('@polkadot/api');
 const { Keyring } = await loadPolkadot('@polkadot/keyring');
 const { cryptoWaitReady, blake2AsHex } = await loadPolkadot('@polkadot/util-crypto');
 const { u8aToHex } = await loadPolkadot('@polkadot/util');
+const { TypeRegistry } = await loadPolkadot('@polkadot/types');
+
+/**
+ * Read spec_version out of the blob's own `runtime_version` custom section.
+ *
+ * This exists because `--expect-spec` used to DEFAULT to a hardcoded 305, so a
+ * run without the flag printed "spec_version target : 305" whatever blob it was
+ * handed — it showed 305 for a 307 wasm, which is exactly the number an
+ * operator checks before submitting a root call that replaces the runtime. The
+ * target is a property of the blob, so it is read from the blob.
+ *
+ * Same section walk as scripts/read-wasm-version.mjs: the version lives in the
+ * wasm, not in runtime/src/lib.rs, and a stale build directory or a
+ * copied-from-the-wrong-place file is precisely the case where the source and
+ * the blob disagree.
+ */
+function specVersionFromBlob(buf) {
+  const ZSTD_PREFIX = Buffer.from([0x52, 0xbc, 0x53, 0x76, 0x46, 0xdb, 0x8e, 0x05]);
+  let b = buf;
+  if (buf.subarray(0, 8).equals(ZSTD_PREFIX)) b = zstdDecompressSync(buf.subarray(8));
+  if (!(b[0] === 0x00 && b[1] === 0x61 && b[2] === 0x73 && b[3] === 0x6d)) return null;
+  const uleb = (buf_, o) => {
+    let r = 0, s = 0, n = 0;
+    for (;;) { const x = buf_[o + n]; r |= (x & 0x7f) << s; n++; if (!(x & 0x80)) break; s += 7; }
+    return [r, n];
+  };
+  let off = 8, section = null;
+  while (off < b.length) {
+    const id = b[off]; off += 1;
+    const [size, n] = uleb(b, off); off += n;
+    const end = off + size;
+    if (id === 0) {
+      const [nameLen, nn] = uleb(b, off);
+      const name = b.subarray(off + nn, off + nn + nameLen).toString('utf8');
+      if (name === 'runtime_version') { section = b.subarray(off + nn + nameLen, end); break; }
+    }
+    off = end;
+  }
+  if (!section) return null;
+  return new TypeRegistry().createType('RuntimeVersion', section).specVersion.toNumber();
+}
 
 const KEYFILE = `${homedir()}/.config/scalar-commons/sudo.key`;
 
@@ -79,7 +121,15 @@ function usage(msg) {
 const argv = process.argv.slice(2);
 let wasmPath = null, dryRun = false;
 let ws = 'ws://127.0.0.1:9944';
-let expectSpec = 305;
+// null, not a number: the default comes from the blob (see specVersionFromBlob).
+// It used to default to 305, which meant a run without --expect-spec reported
+// the wrong target for every other blob and polled the nodes for a version the
+// upgrade was never going to produce.
+let expectSpec = null;
+// The escape hatch for a blob whose version cannot be read. Separate and
+// explicitly named so it cannot be reached by accident — see the refusal below
+// for why it exists and why it is not simply the absence of a check.
+let allowUnreadableVersion = false;
 let ports = [9944, 9945, 9946, 9947, 9948];
 let blockBudget = 20;
 let callName = null, callArgs = [];
@@ -88,6 +138,7 @@ for (let i = 0; i < argv.length; i++) {
   if (a === '--dry-run') dryRun = true;
   else if (a === '--ws') ws = argv[++i] || usage('--ws needs a url');
   else if (a === '--expect-spec') expectSpec = Number(argv[++i]);
+  else if (a === '--allow-unreadable-version') allowUnreadableVersion = true;
   else if (a === '--ports') ports = (argv[++i] || '').split(',').map(Number).filter(Boolean);
   else if (a === '--blocks') blockBudget = Number(argv[++i]);
   else if (a === '--call') callName = argv[++i] || usage('--call needs pallet.method');
@@ -102,7 +153,7 @@ for (let i = 0; i < argv.length; i++) {
 if (callName && wasmPath) usage('give either a wasm path or --call, not both');
 if (!callName && !wasmPath) usage('no wasm path given');
 if (callName && !/^[a-zA-Z]+\.[a-zA-Z]+$/.test(callName)) usage(`--call must be pallet.method, got ${callName}`);
-if (!Number.isInteger(expectSpec)) usage('--expect-spec needs an integer');
+if (expectSpec !== null && !Number.isInteger(expectSpec)) usage('--expect-spec needs an integer');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -110,7 +161,7 @@ const main = async () => {
   await cryptoWaitReady();
 
   // --call mode: no wasm to validate; the runtime metadata validates the call.
-  let wasm = null, isCompressed = false, wasmHash = null;
+  let wasm = null, isCompressed = false, wasmHash = null, specSource = '';
   if (wasmPath) {
   if (!existsSync(wasmPath)) usage(`wasm not found: ${wasmPath}`);
   wasm = readFileSync(wasmPath);
@@ -135,6 +186,89 @@ const main = async () => {
       + `(first bytes ${u8aToHex(wasm.subarray(0, 8))})`);
   }
   wasmHash = blake2AsHex(wasm, 256);
+
+  // The target spec_version comes from the blob unless the operator named one.
+  //
+  // The parse error is BOUND AND PRINTED, never swallowed. `catch { spec = null }`
+  // makes three different things indistinguishable — no runtime_version section,
+  // a corrupt one, and a bug in this section walk — and a null then skips the
+  // mismatch check below, which is the check this whole block exists to perform.
+  let embeddedSpec = null;
+  let embeddedSpecError = null;
+  try {
+    embeddedSpec = specVersionFromBlob(wasm);
+  } catch (err) {
+    embeddedSpecError = err instanceof Error ? err.message : String(err);
+    console.error(`WARNING: could not parse the runtime_version section: ${embeddedSpecError}`);
+  }
+  if (expectSpec === null) {
+    if (embeddedSpec === null) {
+      console.error('FATAL: cannot read spec_version out of this blob, so the upgrade target');
+      console.error('       is unknown. Refusing rather than guessing — an earlier version of');
+      console.error('       this script defaulted to 305 and reported that for every wasm.');
+      console.error(`       Check the file with: node scripts/read-wasm-version.mjs ${wasmPath}`);
+      console.error('       Or state it explicitly with --expect-spec <N>.');
+      process.exit(1);
+    }
+    expectSpec = embeddedSpec;
+    specSource = "read from the blob's runtime_version section";
+  } else if (embeddedSpec !== null && embeddedSpec !== expectSpec) {
+    // Disagreement means the blob is not what the operator thinks it is, which
+    // is the whole failure mode this check exists to catch. Do not proceed.
+    console.error(`FATAL: --expect-spec ${expectSpec} does not match this blob, which is`);
+    console.error(`       spec_version ${embeddedSpec}.`);
+    console.error('       One of the two is wrong, and submitting would apply a runtime you did');
+    console.error('       not intend. Nothing has been submitted.');
+    process.exit(1);
+  } else if (embeddedSpec === null && allowUnreadableVersion) {
+    // The operator has stated the version AND explicitly accepted that nothing
+    // verified it. Proceed, loudly.
+    //
+    // This branch exists because two reviewers were both right and disagreed.
+    // The standing-rule lens called the original silent fall-through a
+    // fail-open violation, which it was. The spec-conformance lens then pointed
+    // out that refusing outright removes the operator's only escape hatch: a bug
+    // in this parser, or a RuntimeVersion encoding the local @polkadot/types
+    // cannot decode, would block an emergency rollback with no way through — at
+    // the exact moment when being blocked is most expensive.
+    //
+    // An explicit flag satisfies both. Nothing fails open, and there is a door.
+    // The door has a name long enough that nobody arrives at it by accident, and
+    // taking it is recorded in the log the runbook says to keep.
+    console.error('WARNING: --allow-unreadable-version was given.');
+    console.error(`WARNING: this blob's own spec_version could not be read${embeddedSpecError ? ` (${embeddedSpecError})` : ' (no runtime_version section)'},`);
+    console.error(`WARNING: so NOTHING has verified the claim that it is ${expectSpec}.`);
+    console.error('WARNING: the chain will reject it outright if that number does not out-rank');
+    console.error('WARNING: what is running. Proceeding because you asked explicitly.');
+    specSource = `--expect-spec, UNVERIFIED (--allow-unreadable-version)`;
+  } else if (embeddedSpec === null) {
+    // --expect-spec was given but the blob's own version could not be read, and
+    // the operator has not explicitly accepted that. Refuse — whether the parser
+    // threw or simply found no section.
+    //
+    // This is the fail-open path the standing-rule lens found, and testing the
+    // first fix widened it: a TRUNCATED blob does not throw, it returns null —
+    // so refusing only on an exception still let a 200 KB fragment through on
+    // the strength of a hand-typed flag.
+    //
+    // Refusing by DEFAULT is the right rule on the merits. Every real Substrate
+    // runtime carries a runtime_version custom section; it is how the chain
+    // itself decides whether to accept the upgrade. A blob without a readable
+    // one is not a runtime worth applying, and `--expect-spec` alone is a claim
+    // about the blob that nothing has checked. Supplying a number should not
+    // buy a weaker check — but it should be possible to say so out loud, which
+    // is what --allow-unreadable-version above is for.
+    console.error(`FATAL: --expect-spec ${expectSpec} was given, but this blob's own`);
+    console.error(`       spec_version could not be read${embeddedSpecError ? `: ${embeddedSpecError}` : ' (no runtime_version section).'}`);
+    console.error('       The flag is a claim about the blob and nothing has verified it, so');
+    console.error('       submitting would apply an unverified runtime. Nothing was submitted.');
+    console.error(`       Check the file with: node scripts/read-wasm-version.mjs ${wasmPath}`);
+    console.error('       If the blob is genuinely right and this parser is genuinely wrong,');
+    console.error('       say so explicitly: --allow-unreadable-version');
+    process.exit(1);
+  } else {
+    specSource = '--expect-spec, and it matches the blob';
+  }
   }
 
   if (!existsSync(KEYFILE)) {
@@ -185,7 +319,7 @@ const main = async () => {
     console.log('  wasm blake2-256     : ' + wasmHash);
     console.log('');
     console.log('  spec_version before : ' + before);
-    console.log('  spec_version target : ' + expectSpec);
+    console.log('  spec_version target : ' + expectSpec + '  (' + specSource + ')');
   }
   console.log('');
   console.log('  signer              : ' + signer.address);
