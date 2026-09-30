@@ -393,12 +393,12 @@ export function init(root, ctx) {
   function onStatus(record) {
     // Polling fallback: /v1/status has no headers, so ticks are placed by height alone.
     if (!record.ok) {
-      setMode('down', 'Not updating · last request failed');
+      setMode('down', 'Not updating — the last request failed');
       ctx.readout.showError(targets.best, record);
       ctx.readout.showError(targets.finalized, record);
       ctx.readout.showError(targets.lag, record);
-      // Polled: no header and no author, so the bus carries the record and nothing else.
-      ctx.bus.emit('head', { record, number: null, header: null, author: null, forked: false, arrivedAt: ctx.now() });
+      // Polled: no header, so the bus carries the failed record on its own event.
+      ctx.bus.emit('poll', { record, number: null, finalized: null, arrivedAt: ctx.now() });
       draw();
       return;
     }
@@ -409,9 +409,10 @@ export function init(root, ctx) {
       const fin = stream.finalize(finalized, ctx.now());
       headRecord = record;
       finalRecord = record;
-      if (mode === 'polling') setMode('polling', 'Polling · live stream unavailable');
-      ctx.bus.emit('head', { record, number: best, header: null, author: null, forked: false, arrivedAt: ctx.now() });
-      ctx.bus.emit('finalized', { record, number: finalized });
+      if (mode === 'polling') setMode('polling', 'Polling every 6 s — live stream unavailable');
+      // A polled height is not a head: it has no header and no author, so it
+      // goes out as `poll`, and `head` keeps its contract for the instruments.
+      ctx.bus.emit('poll', { record, number: best, finalized, arrivedAt: ctx.now() });
       showReadouts();
       if (change.advanced) beat();
       if (change.advanced && change.added) animateArrival();
@@ -426,7 +427,7 @@ export function init(root, ctx) {
 
   function startPolling() {
     if (stopPolling) return;
-    setMode('polling', 'Polling · live stream unavailable');
+    setMode('polling', 'Polling every 6 s — live stream unavailable');
     stopPolling = ctx.watch('status', onStatus, STATUS_POLL_MS);
   }
 
@@ -480,8 +481,7 @@ export function init(root, ctx) {
           stream.finalize(finalized, ctx.now());
           headRecord ??= statusRecord;
           finalRecord ??= statusRecord;
-          ctx.bus.emit('head', { record: statusRecord, number: best, header: null, author: null, forked: false, arrivedAt: ctx.now() });
-          ctx.bus.emit('finalized', { record: statusRecord, number: finalized });
+          ctx.bus.emit('poll', { record: statusRecord, number: best, finalized, arrivedAt: ctx.now() });
         } catch (error) {
           ctx.readout.showError(targets.best, statusRecord, error.message);
         }

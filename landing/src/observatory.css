@@ -337,6 +337,21 @@ pre {
 
 .statusbar[data-state="not-updating"] .pulse-dot {
   color: var(--slashed);
+  background: var(--slashed);
+}
+
+/* The bar's dot beats in the colour of its state; the hero's own beat is untouched. */
+.statusbar .pulse-dot.beat {
+  animation: sb-beat 700ms ease-out 1;
+}
+
+@keyframes sb-beat {
+  from {
+    box-shadow: 0 0 0 0 currentColor;
+  }
+  to {
+    box-shadow: 0 0 0 0.5rem transparent;
+  }
 }
 
 .statusbar .sb-sep {
@@ -602,7 +617,6 @@ h2 {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  min-height: 1.25rem;
   margin: 0 0 0.75rem;
   font-size: 0.75rem;
   font-weight: 600;
@@ -638,7 +652,7 @@ h2 {
 
 @keyframes beat {
   from {
-    box-shadow: 0 0 0 0 currentColor;
+    box-shadow: 0 0 0 0 var(--live);
   }
   to {
     box-shadow: 0 0 0 0.5rem transparent;

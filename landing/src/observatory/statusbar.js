@@ -5,7 +5,9 @@
 // bus with the record it came from, and the validator count is the same
 // `Session.Validators` read the ring makes (the scheduler fetches it once).
 // The line under the figures is the record's endpoint and time, as under
-// every other reading.
+// every other reading. A live header arrives as `head`; a height from the
+// polling fallback or the first indexed position arrives as `poll`, with no
+// header and no author, and is folded in the same way.
 //
 // The state word is derived, and the rules are stated here so they can be
 // checked: "Connecting" until a block has arrived; "Not updating" when the
@@ -39,8 +41,14 @@ export function stateWord({ socket, lastOk, seen, lag, intervalMs, hidden }) {
   return 'Network normal';
 }
 
-/** "5 of 5 validators sealing", or the honest partial while the window fills. Pure; tested. */
-export function sealingPhrase({ authors, total, observed }) {
+/**
+ * "5 of 5 validators sealing", or the honest partial while the window fills.
+ * `error` names why the set could not be read or decoded, and the phrase says
+ * so: a set that was read and could not be decoded is not a set "not yet
+ * read". Pure; tested.
+ */
+export function sealingPhrase({ authors, total, observed, error = null }) {
+  if (error) return `validators unavailable · ${error}`;
   if (!Number.isFinite(total) || total < 1) return 'validators not yet read';
   if (authors === null) return `${total} validator${total === 1 ? '' : 's'} in the set`;
   // Clamped to the set size. The window holds the last SEALING_WINDOW authority
@@ -70,6 +78,7 @@ export function init(root, ctx) {
   let total = null; // validators in the active set
   const authors = []; // authority index per head, newest last, SEALING_WINDOW at most
   let polled = 0; // heads with no author (polling), counted so the phrase stays honest
+  let validatorsError = null; // why the set could not be read or decoded, when it could not
   // Held here rather than read back out of the DOM. Finality lag needs both
   // numbers, and either can arrive first.
   let bestNumber = null;
@@ -123,7 +132,7 @@ export function init(root, ctx) {
     if (stateEl) stateEl.textContent = word;
     if (sealingEl) {
       const distinct = polled > 0 || authors.length === 0 ? null : new Set(authors).size;
-      sealingEl.textContent = sealingPhrase({ authors: distinct, total, observed: authors.length });
+      sealingEl.textContent = sealingPhrase({ authors: distinct, total, observed: authors.length, error: validatorsError });
     }
     if (finalityEl) {
       finalityEl.textContent = lag === null ? 'finality —' : `finality ${formatInteger(lag)} block${lag === 1 ? '' : 's'}`;
@@ -137,7 +146,8 @@ export function init(root, ctx) {
     dot.classList.add('beat');
   }
 
-  ctx.bus.on('head', ({ record, number, author, arrivedAt }) => {
+  /** A height from the hero, live (`head`) or polled (`poll`): the figure, the interval, the lag. */
+  function arrival({ record, number, author, arrivedAt }) {
     lastOk = Boolean(record?.ok);
     if (!record?.ok) {
       ctx.readout.showError(root, record);
@@ -145,9 +155,10 @@ export function init(root, ctx) {
       return;
     }
     seen = true;
+    const advanced = Number.isFinite(number) && (bestNumber === null || number > bestNumber);
     if (Number.isFinite(number)) {
       ctx.readout.showValue(root, record, { value: number, motion: ctx.motion });
-      beat();
+      if (advanced) beat(); // a poll that repeats the height is not a block, so no beat
     }
     noteArrival(number, arrivedAt);
     // Recomputed on EVERY head, not only when a `finalized` event arrives. If
@@ -162,9 +173,18 @@ export function init(root, ctx) {
       if (authors.length > SEALING_WINDOW) authors.shift();
       polled = 0;
     } else if (author === null) {
+      // A polled height carries no author: the window is stale from here, so it is dropped.
+      authors.length = 0;
       polled += 1;
     }
     render();
+  }
+
+  ctx.bus.on('head', (event) => arrival(event));
+
+  ctx.bus.on('poll', ({ record, number, finalized, arrivedAt }) => {
+    if (record?.ok && Number.isFinite(finalized)) finalizedNumber = finalized;
+    arrival({ record, number, author: null, arrivedAt });
   });
 
   ctx.bus.on('finalized', ({ number }) => {
@@ -215,16 +235,23 @@ export function init(root, ctx) {
   ctx.watch(
     'validators',
     (record) => {
+      // The read's outcome is said, never hidden: a failed read carries its
+      // error, and a read that succeeded but would not decode is said as that,
+      // with the error logged, so "not yet read" is only ever true.
+      let next = null;
       if (!record.ok) {
-        total = null;
-        render();
-        return;
+        validatorsError = record.error ?? 'read failed';
+      } else {
+        try {
+          next = decodeValidators(ctx.field(record.data, 'result')).length;
+          validatorsError = null;
+        } catch (error) {
+          validatorsError = `could not decode the set: ${error.message}`;
+          console.error(error);
+        }
       }
-      try {
-        total = decodeValidators(ctx.field(record.data, 'result')).length;
-      } catch {
-        total = null;
-      }
+      if (total !== null && next !== total) authors.length = 0; // a changed set makes the old window meaningless
+      total = next;
       render();
     },
     VALIDATORS_INTERVAL_MS,
@@ -232,5 +259,10 @@ export function init(root, ctx) {
 
   render();
 
-  return { tick: () => { if (!hidden && seen) render(); } };
+  return {
+    /** Re-evaluates the state word with no event to prompt it; main.js drives this, never while hidden. */
+    tick: () => { if (!hidden && seen) render(); },
+    /** The bar's derived state, for tests. */
+    state: () => ({ socket, lastOk, seen, best: bestNumber, lastFinalized: finalizedNumber, lag, intervalMs, hidden, total, validatorsError, authors: [...authors], polled }),
+  };
 }
