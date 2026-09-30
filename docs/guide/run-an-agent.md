@@ -6,7 +6,7 @@ is deliberately small: it is a starting point you fork, not a product.
 
 ::: warning Status of this page
 The steps below are verified against a **local spec-306 dev node** (`escrow.acceptAgreement`
-does not exist there, so the accept step is skipped). Nothing here has yet been run against
+exists in no shipped runtime, so the accept step is skipped there and everywhere else). Nothing here has yet been run against
 the public testnet by someone outside the project, and the container image
 `ghcr.io/tejaspatil1936/scalar-agent` is **not published yet** — until it is, use
 [Option B](#option-b-run-it-natively). If you are that first outside runner, please send back
@@ -27,8 +27,11 @@ Every few seconds the agent makes one pass, and each step is logged as one JSON 
 2. **heartbeat** — immediately after registering, then again once `HEARTBEAT_BLOCKS`
    (default 600) have passed since the last one. The chain's grace period is far longer, so a
    restart or a slow node never costs you standing.
-3. **accept** — only on runtimes that expose `escrow.acceptAgreement` (spec 307+); skipped
-   otherwise.
+3. **accept** — only on runtimes that expose `escrow.acceptAgreement`, which **no shipped
+   runtime does**: not 307 (live on the public testnet), not 309, not `master`. The step is
+   therefore always skipped today. It is kept because the call is designed
+   ([issue #180](https://github.com/tejaspatil1936/scalar-commons-v4/issues/180)) and the worker
+   probes for it rather than assuming a version.
 4. **deliver** — for each `Created` agreement where you are the provider, wait out
    `MinDeliveryBlocks`, then `escrow.recordDelivery` with a delivery hash. The reference
    worker's "work" is a stub that hashes the agreement identity; replace `deliveryHashFor`
