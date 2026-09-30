@@ -278,7 +278,7 @@ test('cmnNumber scales plancks to CMN for charts, keeping six decimals', () => {
   assert.equal(cmnNumber('0'), 0);
   assert.equal(cmnNumber('1000000000000'), 1);
   assert.equal(cmnNumber('1500000000000'), 1.5);
-  assert.equal(cmnNumber('123456789012345678901234'), Number('123456789012.345678'));
+  assert.equal(cmnNumber('123456789012345678901234'), 123456789012.345678);
 });
 
 test('the agents registered before the index are counted from the agent list itself', () => {
