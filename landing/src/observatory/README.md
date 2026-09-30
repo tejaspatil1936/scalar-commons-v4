@@ -80,10 +80,12 @@ calling the instrument done.
 ## The plate, in one paragraph
 
 Deep plate-black (`--bg`) with a hairline reticle behind each instrument
-(`--grid`); paper and ink in light mode. Instrument Serif for the large
-numerals inside an instrument (`--font-serif`), IBM Plex Mono with tabular
-lining figures for every readout and label (`--font-mono`), Source Sans 3 for
-sentences. The accent (`--live`) is for live data only; `--settled`,
+(`--grid`); paper and ink in light mode. Instrument Serif for every figure —
+the hero readouts, the dial, the ring's count — with each digit set in its own
+`1ch` cell by `readout.setDigits`, since the face has no tabular figures (nor
+has Fraunces: neither carries a `tnum` feature or tabular glyphs); IBM Plex
+Mono, light and one step smaller, only for provenance, hashes and addresses
+(`--font-mono`); Source Sans 3 for sentences, at a sixty-character measure. The accent (`--live`) is for live data only; `--settled`,
 `--active`, `--disputed`, `--slashed` are the four states. Hairlines (1 px),
 dots and type. No gradients, no shadows, no rounded pills, no icons, no
 decoration. A reader who does not know what a block is must be able to read

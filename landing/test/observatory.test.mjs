@@ -332,3 +332,19 @@ test('the river: its sentence sits under the canvas, before the readings, and re
   assert.ok(pulse.indexOf('data-reading="cadence"') < pulse.indexOf('class="readings"'));
   assert.match(pulse, /each bar as tall as its transaction count/);
 });
+
+test('typography: figures in the display serif with digit cells, mono only for provenance, hashes and addresses', () => {
+  const css = readFileSync(new URL('../src/observatory.css', import.meta.url), 'utf8');
+  const rule = (selector) => css.match(new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+  assert.match(rule('.reading-value'), /font-family: var\(--font-serif\)/);
+  assert.match(rule('.dc'), /width: 1ch/);
+  assert.match(rule('.reading-prov'), /font-family: var\(--font-mono\)/);
+  assert.match(rule('.reading-prov'), /font-weight: 400/);
+  assert.match(rule('.fact .reading-value'), /font-family: var\(--font-mono\)/, 'a hash stays mono');
+  assert.match(rule('body'), /1\.125rem/, 'body one step up');
+  assert.match(css, /--measure: 60ch/);
+  // No 500-weight mono ships any more, and the mono face is declared once, light.
+  assert.ok(!css.includes('ibm-plex-mono-latin-500'), 'the medium mono is no longer shipped');
+  const fonts = readdirSync(join(out, 'fonts'));
+  assert.ok(!fonts.some((f) => f.includes('plex-mono-latin-500')));
+});

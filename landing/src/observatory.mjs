@@ -293,7 +293,7 @@ function upgradeRows(history) {
     .map((u) => {
       const applied = u.status === 'applied';
       return `          <li class="upgrade" data-spec="${u.specVersion}" data-status="${escapeHtml(u.status)}">
-            <h3 class="upgrade-title"><span class="mono">${u.specVersion}</span> <span class="status status-${escapeHtml(u.status)}">${applied ? 'Applied' : 'Scheduled'}</span></h3>
+            <h3 class="upgrade-title"><span class="upgrade-spec">${u.specVersion}</span> <span class="status status-${escapeHtml(u.status)}">${applied ? 'Applied' : 'Scheduled'}</span></h3>
             <p class="upgrade-change">${escapeHtml(u.summary)}</p>
             <p class="upgrade-facts mono">${
               applied
@@ -479,7 +479,7 @@ export function renderHead({ title, description, css = null, scripts = true }) {
 <meta name="description" content="${escapeHtml(description)}">
 <meta name="color-scheme" content="dark light">
 <link rel="preload" href="fonts/instrument-serif-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="fonts/ibm-plex-mono-latin-500-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preconnect" href="https://${API_HOST}" crossorigin>
 ${styles}
 ${scripts ? '<script type="module" src="observatory.js"></script>' : ''}`;
