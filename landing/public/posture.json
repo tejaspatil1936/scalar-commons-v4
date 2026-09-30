@@ -1,6 +1,6 @@
 {
   "note": "Security posture, shown on /observatory under 'Record, not live'. These values are written by the operators, never read from the chain, and the page renders a null value as 'not yet recorded'. Fill each `value` from the source named in its `todo`, set `asOf` to the date the value was true, and set `updated` at the top. Do not put a number here that a reader cannot trace to a document in this repository.",
-  "updated": null,
+  "updated": "2026-09-30",
   "fields": {
     "findingsExamined": {
       "value": null,
@@ -13,9 +13,10 @@
       "todo": "TODO(owner): how many of those findings were closed by runtime 307 (spec307 integration, PR #211), from AUDIT-FIX-PLAN.md."
     },
     "redTeamStatus": {
-      "value": null,
-      "asOf": null,
-      "todo": "TODO(owner): the current state of the red-team exercise, in a few words (for example 'not started', 'in progress since <date>', 'completed <date>, report at <path>')."
+      "value": "Phase 1 (propose-only) completed 2026-09-29; nothing submitted",
+      "asOf": "2026-09-29",
+      "source": "docs/internal/RED-AGENT-PHASE1.md \u2014 three runs, 180 steps, 0 transactions submitted. The agent identified the privileged calls in step 1 of every run and refused them unprompted. This is a finding about one model's behaviour, NOT about the chain's defences: no guard was exercised, because the agent declined before reaching one.",
+      "todo": "recorded"
     },
     "lastIndependentRehearsal": {
       "value": null,
