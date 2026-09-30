@@ -217,6 +217,58 @@ while :; do
   REMAIN_SECS=$(( DEADLINE - NOW ))
   log "--- attempt $ATTEMPT/$MAX_ATTEMPTS (${REMAIN_SECS}s of wall budget left) ---"
 
+  # --- choose the model ---------------------------------------------------
+  # Re-decided every attempt, not once at startup, because the evidence
+  # improves as the loop runs. Attempt 1 has nothing but the prompt to go on;
+  # by attempt 2 there is a real diff, and if the agent has landed in
+  # runtime/ or pallets/ the retry is the attempt that most needs the stronger
+  # model — it is the one working against a gate that has already gone red.
+  #
+  # Diff against `origin/<base>`, falling back to the local ref. The local
+  # branch in a worktree is whatever it was at clone time and goes stale the
+  # moment anything merges, which would attribute every file merged since to
+  # this task — harmless for cost (it over-escalates) but it makes the log line
+  # below a lie about what the task touched. Uncommitted work counts too: the
+  # agent's edits are not committed until its gate passes.
+  # THREE THINGS BELOW ARE THERE BECAUSE THEY WERE WRONG FIRST, and each was
+  # wrong in the direction that puts the cheap model on chain code. All three
+  # were reproduced by the review lenses on PR #251.
+  #
+  #  --no-renames   `--name-only` with git's default rename detection prints
+  #                 ONLY the destination. Moving pallets/emissions/src/lib.rs to
+  #                 docs/lib.rs showed up as `docs/lib.rs` alone, so a change
+  #                 that gutted a pallet read as a docs edit. --no-renames emits
+  #                 both sides as a delete plus an add.
+  #
+  #  -z / quotePath git quotes paths containing spaces or non-ASCII, so
+  #                 `awk '{print $NF}'` returned a fragment like `pallet/"` that
+  #                 no anchored regex can match. Parsing is now NUL-delimited and
+  #                 keeps BOTH halves of a rename record.
+  #
+  #  fail CLOSED    the old line discarded stderr and emptied the list on any
+  #                 git failure, then logged the count as if it were real. An
+  #                 unresolvable base ref therefore downgraded the model with no
+  #                 sign of it. A gathering failure now escalates, because the
+  #                 one thing we know in that state is that we do NOT know what
+  #                 the task touched.
+  CHANGED="$LOG_DIR/${NAME}-attempt${ATTEMPT}.changed"
+  BASE_REF="$BASE_BRANCH"
+  git -C "$WORKDIR" rev-parse --verify -q "origin/$BASE_BRANCH" >/dev/null && BASE_REF="origin/$BASE_BRANCH"
+
+  GATHER_OK=1
+  changed_paths "$WORKDIR" "$BASE_REF" > "$CHANGED" 2>>"$LOG_FILE" || {
+    warn "could not gather changed paths in $WORKDIR — treating this attempt as consensus-critical"
+    GATHER_OK=0
+  }
+
+  if [ "$GATHER_OK" = "0" ]; then
+    AGENT_MODEL="$FACTORY_MODEL_CRITICAL"
+    log "model: $AGENT_MODEL (path gathering FAILED — escalated, not defaulted)"
+  else
+    AGENT_MODEL="$(pick_model "$CHANGED" "$PROMPTFILE")"
+  fi
+  [ "$GATHER_OK" = "1" ] && log "model: $AGENT_MODEL ($(grep -c . "$CHANGED" || true) changed path(s) so far)"
+
   # --- run the agent ------------------------------------------------------
   # Bound the agent by whatever wall budget remains, so a single hung call
   # cannot blow through max_minutes.
@@ -225,7 +277,7 @@ while :; do
   (
     cd "$WORKDIR" || exit 1
     timeout --signal=TERM --kill-after=30s "${REMAIN_SECS}s" \
-      claude -p "$(cat "$PROMPTFILE")" --dangerously-skip-permissions
+      claude -p "$(cat "$PROMPTFILE")" --dangerously-skip-permissions --model "$AGENT_MODEL"
   ) >"$AGENT_LOG" 2>&1
   AGENT_RC=$?
   set -e

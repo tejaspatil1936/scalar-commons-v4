@@ -342,26 +342,38 @@ fi
 
 [ -s "$WORK/allfiles.txt" ] || die "PR #$PR has an empty diff"
 
-# Which model the lenses run on, decided once from the diff and used by every
-# lens so all three judge the same way. See run_lens for the reasoning.
+# ------------------------------------------------------------ the model -----
+# One decision for all three lenses, taken from the complete changed-file list
+# (not the possibly-truncated review diff): a review is three readings of one
+# diff, and three lenses on different models would not be three readings of the
+# same thing. The rule is pick_model()'s — sonnet, escalating to opus when the
+# diff touches runtime/ or pallets/.
+#
+# This is the review that gates the merge of that diff, which is why the
+# escalation sits here rather than on the authoring side alone. An adversarial
+# reading of a pallet diff is the last thing standing between a gaming vector
+# and a finalized block, and it is strictly harder work than writing the diff
+# was: the author knows what they meant, the reviewer has to find what they did
+# not mean.
 #
 # LENS_MODEL can be set in the environment to override, but ONLY to a name on
-# this list. The standing-rule lens objected to the unvalidated version on this
-# PR's own review, and it was right: without an allow-list, any caller — a
-# script, a stray export, an agent editing a wrapper — can silently drop the
-# reviewer to an arbitrary or nonexistent model. That is a way to weaken the
-# gate without touching the gate, and a log line saying which model ran is not a
-# control, because nobody is reading it at the moment it matters.
+# the allow-list. Without one, any caller — a script, a stray export, an agent
+# editing a wrapper — can silently drop the reviewer to an arbitrary or
+# nonexistent model: a way to weaken the gate without touching the gate. A log
+# line naming the model is not a control, because nobody reads it at the moment
+# it matters.
 #
-# An unknown value is fatal, never a fallback to a default: falling back would
-# mean a typo silently reviews with something other than what was asked for.
+# EXACT comparison, not a `case` substring match: the substring form accepted
+# LENS_MODEL="opus sonnet", because `*" opus sonnet "*` matches the allow-list
+# string itself, and then passed that whole string to --model as one bogus
+# value. An allow-list satisfiable by concatenating its own entries is not an
+# allow-list. An unknown value is fatal, never a fallback — a typo must not
+# quietly review with something other than what was asked for.
 #
-# EXACT comparison, not a `case` substring match. The substring form accepted
-# LENS_MODEL="opus sonnet" -- the pattern `*" opus sonnet "*` matches the
-# allow-list string itself -- and then passed that whole string to --model as a
-# single bogus value. Caught by the spec-conformance lens on this PR's review;
-# an allow-list that can be satisfied by concatenating its own entries is not an
-# allow-list.
+# The ROUTING itself is pick_model()'s, not a second copy of the path test.
+# Master briefly carried an inline `grep -qE '^(runtime|pallets)/'` here; two
+# implementations of one rule is how they drift, and the duplication is what
+# this PR exists to remove.
 LENS_MODEL_ALLOWED="opus sonnet"
 if [ -n "${LENS_MODEL:-}" ]; then
   _lm_ok=0
@@ -372,13 +384,9 @@ if [ -n "${LENS_MODEL:-}" ]; then
   log "lens model overridden from the environment: $LENS_MODEL"
   unset _lm _lm_ok
 else
-  if grep -qE '^(runtime|pallets)/' "$WORK/allfiles.txt"; then
-    LENS_MODEL=opus
-  else
-    LENS_MODEL=sonnet
-  fi
+  LENS_MODEL="$(pick_model "$WORK/allfiles.txt")"
 fi
-log "lens model: $LENS_MODEL ($(grep -cE '^(runtime|pallets)/' "$WORK/allfiles.txt" || true) of $(grep -c . "$WORK/allfiles.txt") changed path(s) under runtime/ or pallets/)"
+log "lens model: $LENS_MODEL ($(grep -cE '^(runtime|pallets)/' "$WORK/allfiles.txt" || true) of $(count_lines "$WORK/allfiles.txt") changed path(s) under runtime/ or pallets/)"
 
 # ------------------------------------------------- bind the review to a SHA --
 # Record the exact commit these lenses are about to read. This is what makes
@@ -709,7 +717,7 @@ run_lens() {
     return 0
   fi
 
-  log "running lens: $name ($(wc -l < "$pf")-line prompt, $(wc -c < "$pf") bytes)"
+  log "running lens: $name on $LENS_MODEL ($(wc -l < "$pf")-line prompt, $(wc -c < "$pf") bytes)"
 
   # Fresh process, fresh context, run OUTSIDE the repo so no CLAUDE.md or repo
   # files leak in. --dangerously-skip-permissions keeps it non-interactive; the
@@ -735,7 +743,8 @@ run_lens() {
   # 27 Sep, and a rate limit pauses dispatch, every worker and every lens at
   # once. Sonnet by default keeps the review cadence affordable; the diffs that
   # actually warrant opus are named above.
-  ( cd "$WORK" && timeout "$REVIEW_LENS_TIMEOUT" claude -p --model "$LENS_MODEL" --dangerously-skip-permissions ) \
+  ( cd "$WORK" && timeout "$REVIEW_LENS_TIMEOUT" \
+      claude -p --dangerously-skip-permissions --model "$LENS_MODEL" ) \
     < "$pf" > "$out" 2> "$err"
   rc=$?
   printf '%s\n' "$rc" > "$WORK/$name.rc"
