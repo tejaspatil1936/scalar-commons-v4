@@ -160,7 +160,13 @@ if rows==0: print("| _no open factory PRs_ | | | |")
 merges_yesterday() {
   local f="$LOG_DIR/merges.log" y
   y="$(date -u -d 'yesterday' +%Y-%m-%d 2>/dev/null || echo 0000-00-00)"
-  if [ -f "$f" ]; then grep -c "^$y" "$f" 2>/dev/null || echo 0; else echo 0; fi
+  # Same class of bug as count_lines() documents: a pattern that matches nothing
+  # makes grep -c print 0 and exit 1, so `|| echo 0` emits "0\n0".
+  if [ -f "$f" ]; then
+    local n; n="$(grep -c "^$y" "$f" 2>/dev/null)" || n=0
+    case "$n" in ''|*[!0-9]*) n=0 ;; esac
+    printf '%s\n' "$n"
+  else echo 0; fi
 }
 
 # ------------------------------------------------------------- write STATE.md --

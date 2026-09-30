@@ -333,7 +333,7 @@ fi
 
 RAW_LINES=$(wc -l < "$WORK/raw.diff")
 FILTERED_LINES=$(wc -l < "$WORK/filtered.diff")
-EXCLUDED_N=$(grep -c '' "$WORK/excluded.txt" 2>/dev/null || echo 0)
+EXCLUDED_N="$(count_lines "$WORK/excluded.txt")"
 
 # ------------------------------------------------------------- the caps -----
 # Even after exclusion a diff can be enormous. TWO ceilings apply, whichever
