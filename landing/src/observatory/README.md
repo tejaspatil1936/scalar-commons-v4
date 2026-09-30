@@ -43,7 +43,7 @@ and `ctx` is created by `context.js`:
 | `ctx.watchAll(name, handler, ms, { maxPages })` | the same for a list endpoint read whole: the record has `items`, `total`, `complete` |
 | `ctx.fetchAll(source, { maxPages })` | one whole-list read |
 | `ctx.subscribe(name, handler)` | a pushed source (`newHeads`, `finalizedHeads`); the hero owns these |
-| `ctx.bus.on(event, fn)` | page events: `head` `{ record, number, header, author: { kind, authorityIndex, slot } \| null, forked, arrivedAt }` (in the polling fallback `header` and `author` are null and `number` may be), `finalized` `{ record, number }`, `cadence` `{ perMinute, intervalMs, blocks, record }`, `socket` `{ state }`, `visibility` `{ hidden }`, `theme` `{ dark }` |
+| `ctx.bus.on(event, fn)` | page events: `head` `{ record, number, header, author: { kind, authorityIndex, slot } \| null, forked, arrivedAt }` (in the polling fallback `header` and `author` are null and `number` may be), `finalized` `{ record, number }`, `cadence` `{ perMinute, intervalMs, blocks, record }`, `socket` `{ state, detail, attempts }` (`state` is `open` \| `closed` \| `failed`; `attempts` is the reconnect count, and the status bar reads it to tell a first drop from a give-up), `visibility` `{ hidden }`, `theme` `{ dark }` |
 | `ctx.reading(key, root)` | the `[data-reading=key]` element |
 | `ctx.readout` | `showValue`, `showError`, `showAbsent`, `apply`, `provenance`, `rawLink` — see `readout.js` |
 | `ctx.format` | `formatInteger`, `formatDuration`, `formatCmn`, `cmnNumber`, `shortAddress`, `shortHash`, `utcTime`, `relativeTime` |
