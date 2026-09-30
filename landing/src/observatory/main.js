@@ -1,6 +1,7 @@
 // Boot for /observatory: one shared context, then the instruments in order of
-// what the reader sees first. The hero starts immediately; the rest yield to
-// the browser between them so the page never blocks on an instrument.
+// what the reader sees first. The hero starts immediately; the status bar
+// listens to it, so it starts right after; the rest yield to the browser
+// between them so the page never blocks on an instrument.
 
 import { createContext } from './context.js';
 import { relativeTime } from './format.js';
@@ -12,6 +13,7 @@ import * as history from './instruments/history.js';
 import * as upgrades from './instruments/upgrade-rail.js';
 import * as posture from './instruments/posture.js';
 import * as verify from './instruments/verify.js';
+import * as statusbar from './statusbar.js';
 
 const INSTRUMENTS = [
   ['pulse', pulse],
@@ -53,7 +55,15 @@ async function boot() {
     } catch (error) {
       markFailed(root, error);
     }
-    if (name === 'pulse') continue; // the hero is first; everything else yields
+    if (name === 'pulse') {
+      // The status bar listens to the hero's bus events, so it starts right after it.
+      try {
+        statusbar.init(document.querySelector('[data-reading="networkStatus"]'), ctx);
+      } catch (error) {
+        console.error(error);
+      }
+      continue; // the hero is first; everything else yields
+    }
     await yieldToBrowser();
   }
 

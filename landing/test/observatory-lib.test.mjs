@@ -27,6 +27,7 @@ import {
 } from '../src/observatory/format.js';
 import { field, countSince, pageOf, fetchAllPages, Scheduler, SOURCES } from '../src/observatory/data.js';
 import { Stream, cadenceOf, median } from '../src/observatory/instruments/pulse.js';
+import { stateWord, sealingPhrase, SEALING_WINDOW, FINALITY_LAG_ALERT } from '../src/observatory/statusbar.js';
 
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 
@@ -203,4 +204,26 @@ test('Stream: seeding, arrival, forks and finality', () => {
   assert.equal(median([3, 1, 2]), 2);
   assert.equal(median([4, 1, 2, 3]), 2.5);
   assert.equal(cadenceOf([]), null);
+});
+
+test('the status bar’s state word follows stated rules, worst first', () => {
+  const normal = { socket: 'live', lastOk: true, seen: true, lag: 2, intervalMs: 6_000, hidden: false };
+  assert.equal(stateWord(normal), 'Network normal');
+  assert.equal(stateWord({ ...normal, hidden: true }), 'Paused');
+  assert.equal(stateWord({ ...normal, seen: false }), 'Connecting');
+  assert.equal(stateWord({ ...normal, lastOk: false }), 'Not updating');
+  assert.equal(stateWord({ ...normal, lag: FINALITY_LAG_ALERT + 1 }), 'Finality lagging');
+  assert.equal(stateWord({ ...normal, lag: FINALITY_LAG_ALERT }), 'Network normal');
+  assert.equal(stateWord({ ...normal, intervalMs: 19_000 }), 'Blocks late');
+  assert.equal(stateWord({ ...normal, socket: 'polling' }), 'Polling');
+  assert.equal(stateWord({ ...normal, lag: null, intervalMs: null }), 'Network normal', 'unknowns are not faults');
+});
+
+test('the sealing phrase says "seen so far" until the window has filled, and never invents a count', () => {
+  assert.equal(sealingPhrase({ authors: 5, total: 5, observed: SEALING_WINDOW }), '5 of 5 validators sealing');
+  assert.equal(sealingPhrase({ authors: 5, total: 5, observed: 6 }), '5 of 5 validators sealing', 'all seen: no hedge needed');
+  assert.equal(sealingPhrase({ authors: 3, total: 5, observed: 6 }), '3 of 5 validators seen sealing so far');
+  assert.equal(sealingPhrase({ authors: 4, total: 5, observed: SEALING_WINDOW }), '4 of 5 validators sealing');
+  assert.equal(sealingPhrase({ authors: null, total: 5, observed: 0 }), '5 validators in the set', 'polling: no author to count');
+  assert.equal(sealingPhrase({ authors: 2, total: null, observed: 10 }), 'validators not yet read');
 });

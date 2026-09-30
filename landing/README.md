@@ -57,9 +57,9 @@ never the previous value.
 
 | File | What it holds |
 |---|---|
-| `src/observatory.mjs` | Build-time frame: one section per instrument with a plain sentence before it, empty reading slots, the upgrade rail, the posture strip, the verification commands. Also `renderSection` for the harness. |
+| `src/observatory.mjs` | Build-time frame: the status bar, one section per instrument with a plain sentence before it, empty reading slots, the upgrade rail, the posture strip, the verification commands. Also `renderSection` for the harness. |
 | `src/observatory.css` | The design system: the plate, the reticle grid, the three self-hosted faces, the tokens. Each instrument's own rules live beside it in `src/observatory/instruments/<name>.css` and are appended at build time. |
-| `src/observatory/` | The client. `context.js` gives every instrument one WebSocket (calls and subscriptions, paused when the tab is hidden), deduplicated polling, provenance records, motion and theme; `instruments/*.js` draw. See `src/observatory/README.md` for the contract. |
+| `src/observatory/` | The client. `context.js` gives every instrument one WebSocket (calls and subscriptions, paused when the tab is hidden), deduplicated polling, provenance records, motion and theme; `instruments/*.js` draw; `statusbar.js` fills the top line from the hero's records. See `src/observatory/README.md` for the contract. |
 | `runtime-history.json` | The upgrade record. Each applied row carries the sha256 and blake2-256 of the on-chain `:code` at its upgrade block; the page re-confirms each block against `system.CodeUpdated` events live. |
 | `public/posture.json` | The security-posture record, written by the operators. A `null` value renders as "not yet recorded"; nothing here is ever read from the chain. |
 
