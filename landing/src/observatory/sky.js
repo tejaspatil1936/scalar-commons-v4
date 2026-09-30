@@ -269,12 +269,15 @@ export function init(doc, ctx, { search = doc.defaultView?.location?.search } = 
     report();
   }, 60_000, { maxPages: 3 });
 
-  ctx.bus.on('head', ({ number }) => {
-    if (number === null || number === lastHead) return;
+  // A block is a block whether it came as a live header or a polled height.
+  const onHeight = ({ number }) => {
+    if (!Number.isFinite(number) || number === lastHead) return;
     lastHead = number;
     if (doc.hidden) return;
     onBlock();
-  });
+  };
+  ctx.bus.on('head', onHeight);
+  ctx.bus.on('poll', onHeight);
   ctx.bus.on('theme', () => draw());
   ctx.bus.on('visibility', ({ hidden }) => {
     if (hidden) {
