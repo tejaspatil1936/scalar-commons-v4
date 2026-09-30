@@ -160,13 +160,29 @@ lb "3 PASS: reviewed, no escalation"           "yes no"  3 0 0
 lb "2 PASS 1 FAIL: reviewed AND escalated"     "yes yes" 2 1 0
 lb "1 PASS 2 FAIL: not reviewed, escalated"    "no yes"  1 2 0
 lb "3 FAIL: not reviewed, escalated"           "no yes"  0 3 0
-lb "2 PASS 1 ERROR: NOT reviewed, escalated"   "no yes"  2 0 1
-lb "3 ERROR: not reviewed, escalated"          "no yes"  0 0 3
+# ERROR is an infrastructure failure, not an objection: no agent-reviewed (the
+# review did not happen) and NO needs-human (changed 27 Sep 2026 — see
+# review_labels' comment; the old "no yes" here is what wedged the merge queue
+# for ~15 hours, because nothing ever removes that label).
+lb "2 PASS 1 ERROR: NOT reviewed, NOT escalated" "no no"  2 0 1
+lb "3 ERROR: not reviewed, NOT escalated"        "no no"  0 0 3
+
+# MIXED FAIL + ERROR. Left unspecified and untested until the spec-conformance
+# lens pointed out that the verdict comment asserted the opposite of what
+# review_labels does here. A FAIL is a real objection whatever else happened, so
+# needs-human is set; agent-reviewed is withheld because the review is also
+# incomplete. Pinned in both directions so neither half can drift back.
+lb "1 FAIL 1 ERROR: escalated (the FAIL stands)"        "no yes" 0 1 1
+lb "1 PASS 1 FAIL 1 ERROR: escalated"                   "no yes" 1 1 1
+lb "2 PASS 1 FAIL 0 ERROR stays escalated"              "yes yes" 2 1 0
 
 printf '\n  note: 2 PASS + 1 FAIL sets BOTH labels; merge.sh requires\n'
 printf '  agent-reviewed AND no needs-human, so any FAIL blocks the merge.\n'
-printf '  2 PASS + 1 ERROR sets NEITHER agent-reviewed: an incomplete review\n'
-printf '  has not cleared the bar, however the lenses that ran voted.\n'
+printf '  An ERROR sets NEITHER label: the review did not happen, so it has not\n'
+printf '  cleared the bar (no agent-reviewed) — but an infrastructure failure is\n'
+printf '  not a human decision, so it does not burn needs-human either. Such a PR\n'
+printf '  stays unmerged because reviews-on-head.sh refuses it, not because of a\n'
+printf '  sticky label.\n'
 
 # ---------------------------------------------------------------------------
 # 4. Prompt delivery — the E2BIG regression guard

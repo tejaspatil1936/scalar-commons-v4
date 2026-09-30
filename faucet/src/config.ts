@@ -60,7 +60,10 @@ function bool(env: Env, key: string, fallback: boolean): boolean {
  * and is not a validator, so spending from it moves no staked funds.
  */
 export function configFromEnv(env: Env = process.env): FaucetConfig {
-  const dripAmountPlancks = parseCmnToPlancks(str(env, 'FAUCET_DRIP_CMN', '10'));
+  // 1 500 CMN: one registration (1 050.01) plus ~450 CMN to experiment with. At
+  // 1 100 a single 100 CMN transfer before registering stranded a tester behind
+  // the 60-minute per-address window (#162). Worst case per IP: 5 × 1 500 CMN/hour.
+  const dripAmountPlancks = parseCmnToPlancks(str(env, 'FAUCET_DRIP_CMN', '1500'));
   if (dripAmountPlancks <= 0n) {
     throw new Error('FAUCET_DRIP_CMN must be greater than zero');
   }

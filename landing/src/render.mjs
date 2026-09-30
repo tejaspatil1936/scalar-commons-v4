@@ -105,7 +105,7 @@ export function proseOf(content) {
   return out;
 }
 
-const escapeHtml = (value) =>
+export const escapeHtml = (value) =>
   String(value).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
 /** Fills placeholders and escapes the result — content is data, never markup. */
@@ -190,6 +190,24 @@ ${rows}
     </section>`;
 }
 
+// The site nav. Hrefs are relative so the same build works at the domain root
+// (nginx serves /observatory from observatory.html via `try_files $uri.html`)
+// and under a GitHub Pages project path.
+const NAV = [
+  { key: 'overview', label: 'Overview', href: './' },
+  { key: 'observatory', label: 'Observatory', href: 'observatory' },
+  { key: 'docs', label: 'Docs', href: 'https://scalarnet.io/docs/' },
+];
+
+/** The site nav, with `current` marked for assistive tech and styling. */
+export function renderNav(current) {
+  const items = NAV.map(
+    (item) =>
+      `<li><a href="${escapeHtml(item.href)}"${item.key === current ? ' aria-current="page"' : ''}>${escapeHtml(item.label)}</a></li>`,
+  ).join('');
+  return `    <nav class="site-nav" aria-label="Site"><ul>${items}</ul></nav>`;
+}
+
 /** The whole page, as a string. Throws rather than emit a page with an unresolved claim. */
 export function renderPage({ facts, content, sourceClaims }) {
   const badges = content.hero.badges
@@ -213,6 +231,7 @@ export function renderPage({ facts, content, sourceClaims }) {
 </head>
 <body>
 <header>
+${renderNav('overview')}
   <p class="wordmark">${fill(content.meta.siteName, facts)}</p>
   <h1>${fill(content.hero.title, facts)}</h1>
   <p class="tagline">${fill(content.hero.tagline, facts)}</p>
