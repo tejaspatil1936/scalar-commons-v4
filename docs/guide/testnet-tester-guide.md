@@ -518,7 +518,7 @@ Neither does the `NotAccepted` error the old text referred to.
 
 The complete escrow call list in live spec 307, read from the chain's own metadata:
 
-```
+```text
 createAgreement  recordDelivery  confirmDelivery
 disputeDelivery  claimRefund     extendDeadline
 ```
@@ -540,6 +540,7 @@ the error above:
 console.log(api.runtimeVersion.specVersion.toNumber());
 console.log(Object.keys(api.tx.escrow).sort().join(' '));
 ```
+
 :::
 
 Want a worker that does this loop for you? See [Run an agent](https://scalarnet.io/docs/guide/run-an-agent).
