@@ -1609,6 +1609,104 @@ footer .sr-status {
   padding-top: 2rem;
 }
 
+/* ── presenter mode ───────────────────────────────────────────────────────
+   `?present=1`: the nav, the masthead, the provenance lines and the footer
+   are hidden; the status bar is pinned; each instrument section is laid over
+   the viewport and only the active one is shown; type is set for a room. */
+
+html[data-present] {
+  font-size: 118.75%;
+}
+
+@media (min-width: 100rem) {
+  html[data-present] {
+    font-size: 137.5%;
+  }
+}
+
+html[data-present] .site-nav,
+html[data-present] .masthead,
+html[data-present] .noscript,
+html[data-present] footer,
+html[data-present] .reading-prov,
+html[data-present] .live,
+html[data-present] .instrument-note,
+html[data-present] .constellation-list,
+html[data-present] .validator-list {
+  display: none;
+}
+
+html[data-present] .statusbar.reading {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  font-size: 0.9375rem;
+}
+
+html[data-present] main > .instrument-section {
+  position: fixed;
+  inset: 3rem 0 0;
+  overflow: auto;
+  align-content: start;
+  padding: 1rem var(--gutter) 3rem;
+  background: var(--bg);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 300ms ease-out, visibility 0s linear 300ms;
+}
+
+html[data-present] main > .instrument-section[data-present-active] {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 300ms ease-out;
+}
+
+html[data-present] .instrument-section::before {
+  margin-bottom: 0.75rem;
+}
+
+html[data-present] .pulse-canvas {
+  height: 36vh;
+}
+
+html[data-present] .dial,
+html[data-present] .ring-host {
+  max-width: min(58vh, 34rem);
+}
+
+html[data-present] .constellation-host {
+  height: 60vh;
+  min-height: 0;
+  max-height: none;
+  aspect-ratio: auto;
+}
+
+html[data-present] .strips {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  row-gap: 1rem;
+}
+
+html[data-present] .strip-plot {
+  height: 22vh;
+}
+
+html[data-present] .rail {
+  height: 9rem;
+}
+
+.present-counter {
+  position: fixed;
+  right: var(--gutter);
+  bottom: 0.75rem;
+  z-index: 3;
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
 /* ── motion ───────────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
@@ -1617,5 +1715,8 @@ footer .sr-status {
   }
   .reading-value.is-live .digits {
     text-shadow: none;
+  }
+  html[data-present] main > .instrument-section {
+    transition: none;
   }
 }

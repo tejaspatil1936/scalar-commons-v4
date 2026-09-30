@@ -348,3 +348,12 @@ test('typography: figures in the display serif with digit cells, mono only for p
   const fonts = readdirSync(join(out, 'fonts'));
   assert.ok(!fonts.some((f) => f.includes('plex-mono-latin-500')));
 });
+
+test('presenter mode: the flag is read before first paint, and the stylesheet lays the page out for it', () => {
+  assert.match(page, /<script>if\(\/\(\?:\^\\\?\|\[\?&\]\)present=1\(\?:&\|\$\)\/\.test\(location\.search\)\)document\.documentElement\.setAttribute\("data-present",""\)<\/script>/);
+  const css = readFileSync(new URL('../src/observatory.css', import.meta.url), 'utf8');
+  for (const rule of ['html[data-present] .site-nav', 'html[data-present] .reading-prov', 'html[data-present] footer', 'html[data-present] main > .instrument-section[data-present-active]']) {
+    assert.ok(css.includes(rule), `observatory.css has no rule for ${rule}`);
+  }
+  assert.ok(!/<script/i.test(index), 'index.html stays script-free');
+});

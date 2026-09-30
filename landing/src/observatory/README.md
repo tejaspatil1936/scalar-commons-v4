@@ -61,9 +61,11 @@ system; use only its tokens, never redefine `:root`) and
 edits `context.js`, `data.js`, `readout.js`, `observatory.mjs` or
 `observatory.css`; if it needs a change there, it says so in its report.
 
-`statusbar.js`, beside the instruments, is not one: it fills the one line at
-the top of the page from the hero's bus events and the ring's validator read,
-and fetches nothing of its own.
+Two modules beside the instruments are not instruments: `statusbar.js`
+fills the one line at the top of the page from the hero's bus events and the
+ring's validator read (it fetches nothing of its own), and `presenter.js`
+drives `?present=1` — one section at a time, a re-armed `setTimeout` (never
+`setInterval`), cleared while the tab is hidden.
 
 ## Developing one instrument
 

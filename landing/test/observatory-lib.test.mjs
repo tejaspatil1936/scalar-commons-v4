@@ -38,6 +38,7 @@ import {
   TRAIL,
 } from '../src/observatory/instruments/pulse.js';
 import { stateWord, sealingPhrase, init as initStatusBar, SEALING_WINDOW, FINALITY_LAG_ALERT, LATE_MS } from '../src/observatory/statusbar.js';
+import { wantsPresenter, stepFor } from '../src/observatory/presenter.js';
 import { railPositions } from '../src/observatory.mjs';
 
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
@@ -555,4 +556,21 @@ test('rail markers are equally spaced in order, whatever the block heights', () 
   assert.deepEqual(railPositions(0), []);
   const five = railPositions(5);
   for (let i = 1; i < five.length; i += 1) assert.ok(Math.abs(five[i] - five[i - 1] - 21) < 1e-9);
+});
+
+test('presenter mode is asked for by ?present=1 and driven by the arrow keys', () => {
+  assert.equal(wantsPresenter('?present=1'), true);
+  assert.equal(wantsPresenter('?a=b&present=1'), true);
+  assert.equal(wantsPresenter('?present=1&a=b'), true);
+  assert.equal(wantsPresenter('?present=10'), false);
+  assert.equal(wantsPresenter('?present=0'), false);
+  assert.equal(wantsPresenter(''), false);
+  assert.equal(stepFor('ArrowRight', 0, 8), 1);
+  assert.equal(stepFor('ArrowRight', 7, 8), 0, 'wraps');
+  assert.equal(stepFor('ArrowLeft', 0, 8), 7);
+  assert.equal(stepFor('Home', 5, 8), 0);
+  assert.equal(stepFor('End', 5, 8), 7);
+  assert.equal(stepFor(' ', 2, 8), 3);
+  assert.equal(stepFor('a', 2, 8), null);
+  assert.equal(stepFor('ArrowRight', 0, 0), null);
 });

@@ -466,6 +466,15 @@ export function renderSection(name, data) {
 }
 
 /**
+ * Presenter mode is asked for in the URL (`?present=1`), and the stylesheet
+ * lays the page out differently for it, so the flag is read before the first
+ * paint by this one line in the head rather than by the module bundle, which
+ * loads later. It sets an attribute and nothing else.
+ */
+export const PRESENTER_BOOT =
+  '<script>if(/(?:^\\?|[?&])present=1(?:&|$)/.test(location.search))document.documentElement.setAttribute("data-present","")</script>';
+
+/**
  * The document head. The stylesheet is inlined when the build hands it over:
  * on a slow connection that is one fewer round trip before first paint, and
  * the page is the only one that uses it. The same CSS is still written out as
@@ -478,6 +487,7 @@ export function renderHead({ title, description, css = null, scripts = true }) {
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(description)}">
 <meta name="color-scheme" content="dark light">
+${scripts ? PRESENTER_BOOT : ''}
 <link rel="preload" href="fonts/instrument-serif-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preconnect" href="https://${API_HOST}" crossorigin>
