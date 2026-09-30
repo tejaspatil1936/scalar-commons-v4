@@ -244,9 +244,12 @@ pre {
   #pulse .section-head {
     grid-column: 1 / span 8;
   }
-  #pulse .instrument,
+  #pulse .instrument {
+    grid-column: 1 / -1;
+  }
   #pulse .readings {
     grid-column: 1 / -1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   #era .instrument,
   #validators .instrument {
@@ -806,6 +809,33 @@ h2 {
   .pulse-canvas {
     height: 14rem;
   }
+}
+
+/* One sentence under the river: the rhythm and the time to finality. Its
+   room, and its provenance line's, is reserved before either arrives, so the
+   readings beneath do not move when they do. */
+.pulse-sentence {
+  min-height: 3.5rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  border: 0;
+}
+
+@media (max-width: 39.99rem) {
+  .pulse-sentence {
+    min-height: 5.25rem;
+  }
+}
+
+.pulse-sentence .reading-value {
+  display: inline;
+  font-size: clamp(1.25rem, 1.1rem + 0.6vw, 1.625rem);
+  line-height: 1.3;
+}
+
+.pulse-sentence .reading-prov {
+  display: block;
+  margin-top: 0.25rem;
 }
 
 /* ── 02 era dial ──────────────────────────────────────────────────────── */

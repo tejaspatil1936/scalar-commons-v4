@@ -26,7 +26,17 @@ import {
   cmnNumber,
 } from '../src/observatory/format.js';
 import { field, countSince, pageOf, fetchAllPages, Scheduler, SOURCES } from '../src/observatory/data.js';
-import { Stream, cadenceOf, median } from '../src/observatory/instruments/pulse.js';
+import {
+  Stream,
+  cadenceOf,
+  median,
+  timestampOf,
+  barHeight,
+  trailAlpha,
+  riverLayout,
+  riverSentence,
+  TRAIL,
+} from '../src/observatory/instruments/pulse.js';
 import { stateWord, sealingPhrase, init as initStatusBar, SEALING_WINDOW, FINALITY_LAG_ALERT, LATE_MS } from '../src/observatory/statusbar.js';
 
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
@@ -178,32 +188,125 @@ test('Scheduler fetches a shared source once per interval and pauses', async () 
 
 test('Stream: seeding, arrival, forks and finality', () => {
   const s = new Stream();
-  s.seed({ number: 10, id: '10:a', at: 1_000 });
-  s.seed({ number: 11, id: '11:a', at: 7_000 });
-  s.seed({ number: 12, id: '12:a', at: 13_000 });
+  s.seed({ number: 10, id: '10:a', at: 1_000, count: 1 });
+  s.seed({ number: 11, id: '11:a', at: 7_000, count: 3 });
+  s.seed({ number: 12, id: '12:a', at: 13_000, count: 1 });
   assert.equal(s.best, 12);
-  assert.deepEqual(s.head({ number: 13, id: '13:a', at: 19_000 }), { added: true, advanced: true, superseded: 0 });
+  assert.deepEqual(s.head({ number: 13, id: '13:a', arrivedAt: 19_000 }), { added: true, advanced: true, superseded: 0 });
+  // A live head is placed at its arrival less the learned offset (none yet), with its count unknown.
+  const live = s.blocks.find((b) => b.id === '13:a');
+  assert.equal(live.at, 19_000);
+  assert.equal(live.count, null);
+  assert.equal(live.settle, 0);
   // A competing head at the same height supersedes the earlier one.
-  assert.deepEqual(s.head({ number: 13, id: '13:b', at: 19_500 }), { added: true, advanced: false, superseded: 1 });
+  assert.deepEqual(s.head({ number: 13, id: '13:b', arrivedAt: 19_500 }), { added: true, advanced: false, superseded: 1 });
   assert.deepEqual(
     s.chain().map((b) => b.id),
     ['13:b', '12:a', '11:a', '10:a'],
   );
   assert.equal(s.blocks.filter((b) => b.superseded).length, 1);
   // A head below the best means a re-org: everything above it is superseded.
-  s.head({ number: 12, id: '12:z', at: 20_000 });
+  s.head({ number: 12, id: '12:z', arrivedAt: 20_000 });
   assert.equal(s.best, 12);
   assert.deepEqual(s.chain()[0].id, '12:z');
   assert.equal(s.lag(), null);
-  assert.deepEqual(s.finalize(11, 21_000), { advanced: true });
+  const fin = s.finalize(11, 21_000);
+  assert.equal(fin.advanced, true);
+  assert.deepEqual(
+    fin.settled.map((b) => b.id),
+    ['10:a', '11:a'],
+    'the blocks that just became final are returned so the view can settle them',
+  );
   assert.equal(s.lag(), 1);
-  assert.deepEqual(s.finalize(11, 22_000), { advanced: false });
+  assert.deepEqual(s.finalize(11, 22_000), { advanced: false, settled: [] });
   const cadence = cadenceOf(s.blocks);
   // Three surviving blocks (10, 11, 12:z) span 1 000 → 20 000 ms: two intervals.
   assert.ok(Math.abs(cadence.perMinute - 60_000 / ((20_000 - 1_000) / 2)) < 1e-9);
   assert.equal(median([3, 1, 2]), 2);
   assert.equal(median([4, 1, 2, 3]), 2.5);
   assert.equal(cadenceOf([]), null);
+});
+
+test('Stream: a block body sets the count and the chain time, and the arrival offset is learned from it', () => {
+  const s = new Stream();
+  s.head({ number: 20, id: '20:a', arrivedAt: 101_200 });
+  assert.equal(s.body(20, '20:a', { count: 2, at: 100_000 }), true);
+  const block = s.blocks[0];
+  assert.equal(block.count, 2);
+  assert.equal(block.at, 100_000, 'the chain clock replaces the arrival estimate');
+  assert.equal(s.offset(), 1_200);
+  // The next arrival is estimated with that offset until its own body is read.
+  s.head({ number: 21, id: '21:a', arrivedAt: 107_300 });
+  assert.equal(s.blocks[1].at, 106_100);
+  assert.equal(s.body(99, '99:a', { count: 1, at: 1 }), false, 'a body for a block not in the model is ignored');
+  // Finality measures the wall-clock arrival, not the chain time.
+  const fin = s.finalize(21, 110_000);
+  assert.deepEqual(s.finalitySamples, [110_000 - 101_200, 110_000 - 107_300]);
+  assert.equal(fin.settled.length, 2);
+});
+
+/** SCALE compact encoding, for building test vectors. */
+function compact(n) {
+  if (n < 64) return [n << 2];
+  if (n < 2 ** 14) return [((n << 2) | 1) & 0xff, n >> 6];
+  if (n < 2 ** 30) return [((n << 2) | 2) & 0xff, (n >> 6) & 0xff, (n >> 14) & 0xff, (n >> 22) & 0xff];
+  const bytes = [];
+  let v = BigInt(n);
+  while (v > 0n) {
+    bytes.push(Number(v & 0xffn));
+    v >>= 8n;
+  }
+  return [((bytes.length - 4) << 2) | 3, ...bytes];
+}
+const toHex = (bytes) => `0x${bytes.map((b) => b.toString(16).padStart(2, '0')).join('')}`;
+
+test('the timestamp inherent decodes from the first extrinsic, and nothing else passes for it', () => {
+  const moment = 1_790_718_348_000; // 2026-09-29, as on the live chain
+  const call = [0x04, 0x01, 0x00, ...compact(moment)];
+  assert.equal(timestampOf(toHex([...compact(call.length), ...call])), moment);
+  // A signed extrinsic (high bit of the version byte) is not the inherent.
+  const signed = [0x84, 0x01, 0x00, ...compact(moment)];
+  assert.throws(() => timestampOf(toHex([...compact(signed.length), ...signed])), /signed/);
+  // Another pallet's call, or another call of the timestamp pallet, is refused rather than read as a time.
+  const other = [0x04, 0x04, 0x00, ...compact(moment)];
+  assert.throws(() => timestampOf(toHex([...compact(other.length), ...other])), /not timestamp\.set/);
+  const otherCall = [0x04, 0x01, 0x01, ...compact(moment)];
+  assert.throws(() => timestampOf(toHex([...compact(otherCall.length), ...otherCall])), /not timestamp\.set/);
+  assert.throws(() => timestampOf('0x0c0401'), /too short/);
+  assert.throws(() => timestampOf(toHex([...compact(3), 0x04, 0x01, 0x00])), /truncated|empty/);
+});
+
+test('bars are as tall as their extrinsic count, never off the plate, and the trail fades left', () => {
+  assert.equal(barHeight(1), 0.26);
+  assert.equal(barHeight(null), 0.26, 'an unread body stands at the floor');
+  assert.equal(barHeight(0), 0.26);
+  assert.ok(barHeight(2) > barHeight(1));
+  assert.ok(Math.abs(barHeight(3) - barHeight(2) - (barHeight(2) - barHeight(1))) < 1e-12, 'each extrinsic adds one step');
+  assert.ok(Math.abs(barHeight(100) - 0.94) < 1e-12, 'capped');
+  assert.equal(trailAlpha(0), 1);
+  assert.ok(trailAlpha(30) < trailAlpha(10));
+  assert.ok(Math.abs(trailAlpha(TRAIL) - 0.16) < 1e-12, 'the oldest bar is faint, never gone');
+  assert.equal(trailAlpha(10_000), 0.16);
+});
+
+test('the river holds sixty blocks on a wide plate and about two dozen on a phone, labels spaced to fit', () => {
+  const wide = riverLayout(1200);
+  assert.equal(wide.visible, 60);
+  assert.ok(Math.abs(wide.slotPx - (1200 - 26) / 60) < 1e-9);
+  assert.ok(wide.bar >= 3 && wide.bar <= 8);
+  assert.equal(wide.labelEvery, Math.ceil(84 / wide.slotPx));
+  const phone = riverLayout(358);
+  assert.ok(phone.visible >= 20 && phone.visible < 25, `phone holds ${phone.visible}`);
+  assert.ok(phone.bar >= 3 && phone.bar <= wide.bar, `phone bar ${phone.bar}, wide bar ${wide.bar}`);
+  assert.ok(phone.labelEvery >= wide.labelEvery);
+  assert.equal(riverLayout(100).visible, 20, 'never fewer than twenty');
+});
+
+test('the sentence under the river names the rhythm and the time to finality, hedging an estimate', () => {
+  assert.equal(riverSentence({ perMinute: 9.84 }, { seconds: 12.4, measured: true }), '9.8 blocks per minute · finality within 12 seconds');
+  assert.equal(riverSentence({ perMinute: 10 }, { seconds: 12, measured: false }), '10.0 blocks per minute · finality within about 12 seconds');
+  assert.equal(riverSentence({ perMinute: 10 }, null), '10.0 blocks per minute');
+  assert.equal(riverSentence(null, null), '');
 });
 
 test('the status bar’s state word follows stated rules, worst first', () => {
