@@ -795,7 +795,7 @@ export function init(root, ctx) {
         const left = `#${formatInteger(series.start)}`;
         const departures = series.unstakes === 0 ? 'none has left' : `${formatInteger(series.unstakes)} left`;
         ctx.readout.showValue(strip.target, agents, {
-          live: false,
+        live: false,
           value: totalNow,
           unit: totalNow === 1 ? ' agent' : ' agents',
           motion: ctx.motion,
