@@ -1472,11 +1472,24 @@ fn e18e2_expire_before_deadline_is_rejected() {
     });
 }
 
-/// E2 — expiry must never strip a provider that did the work. A recorded delivery, whether
-/// it went on to be disputed or not, closes the expiry door permanently.
+/// E2 — every status has a permissionless exit, and the buyer's own door always opens first.
+///
+/// REPLACES `e18e2_expire_agreement_rejects_when_delivered`, which asserted that a recorded
+/// delivery "closes the expiry door permanently". That was the defect, not the feature: it
+/// left the exact stake-pinning attack E18 exists to kill, moved one step later. Buyer
+/// creates the minimum agreement, provider accepts, provider delivers, buyer goes silent —
+/// `confirm_delivery`, `dispute_delivery` and `claim_refund` are all buyer-signed, so nothing
+/// could ever close it and the provider's whole stake stayed frozen behind
+/// `ActiveEscrowCount > 0`. Found by the tokenomics-security-reviewer on PR #233.
+///
+/// The property that replaces it is stronger, not weaker: expiry is reachable from every
+/// status, but only AFTER the window belonging to that status plus EXPIRY_GRACE — so a slow
+/// buyer always outranks a stranger, and the payee is the buyer of record either way.
+///
+/// Fixture: deliver_by 500, BuyerResponseWindow 50, DisputeTimeout 200, EXPIRY_GRACE 10.
 #[test]
-fn e18e2_expire_agreement_rejects_when_delivered() {
-    // Delivered, awaiting the buyer's confirmation.
+fn e18e2_expire_agreement_reaches_every_status_but_never_before_the_buyer() {
+    // Delivered, buyer silent. Expiry opens at 500 + 50 + 10 = 560.
     new_test_ext().execute_with(|| {
         setup_agreement(1_000);
         assert_ok!(Escrow::accept_agreement(
@@ -1492,18 +1505,42 @@ fn e18e2_expire_agreement_rejects_when_delivered() {
             [2u8; 32]
         ));
         let reserved0 = Balances::reserved_balance(ALICE);
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
 
-        System::set_block_number(5_000); // long past deliver_by + GRACE
+        // The buyer's window has not elapsed: nobody may expire it.
+        System::set_block_number(540);
         assert_noop!(
             Escrow::expire_agreement(RuntimeOrigin::signed(CAROL), ALICE, BOB, 0),
-            Error::<Test>::AlreadyDelivered
+            Error::<Test>::AgreementNotExpired
         );
-        assert_eq!(Balances::reserved_balance(ALICE), reserved0);
-        assert_eq!(Agreements::<Test>::get(ALICE, BOB).len(), 1);
-        // The provider keeps its slot; it is still owed a settlement.
-        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
+
+        // The buyer's own door is open (550) while expiry is still shut (560). This gap is
+        // the priority guarantee, and it is the reason EXPIRY_GRACE is added on top.
+        System::set_block_number(555);
+        assert_noop!(
+            Escrow::expire_agreement(RuntimeOrigin::signed(CAROL), ALICE, BOB, 0),
+            Error::<Test>::AgreementNotExpired
+        );
+
+        // Past the window plus grace: a stranger can close it, and the provider's stake is
+        // released. Without this the agreement was unclosable and the stake frozen forever.
+        System::set_block_number(561);
+        assert_ok!(Escrow::expire_agreement(
+            RuntimeOrigin::signed(CAROL),
+            ALICE,
+            BOB,
+            0
+        ));
+        assert_eq!(Balances::reserved_balance(ALICE), reserved0 - 1_000);
+        assert_eq!(Agreements::<Test>::get(ALICE, BOB).len(), 0);
+        assert_eq!(
+            pallet_agents::ActiveEscrowCount::<Test>::get(BOB),
+            0,
+            "the provider's slot must be released or its stake is pinned forever"
+        );
     });
-    // Delivered and then disputed — the oracle owns the outcome, not expiry.
+
+    // Disputed and abandoned. Dispute opened at block 10, so expiry opens at 10 + 200 + 10.
     new_test_ext().execute_with(|| {
         setup_agreement(1_000);
         assert_ok!(Escrow::accept_agreement(
@@ -1524,15 +1561,77 @@ fn e18e2_expire_agreement_rejects_when_delivered() {
             0
         ));
         let reserved0 = Balances::reserved_balance(ALICE);
-        System::set_block_number(5_000);
+
+        System::set_block_number(200);
         assert_noop!(
             Escrow::expire_agreement(RuntimeOrigin::signed(CAROL), ALICE, BOB, 0),
-            Error::<Test>::AlreadyDelivered
+            Error::<Test>::AgreementNotExpired
         );
-        assert_eq!(Balances::reserved_balance(ALICE), reserved0);
+
+        System::set_block_number(221);
+        assert_ok!(Escrow::expire_agreement(
+            RuntimeOrigin::signed(CAROL),
+            ALICE,
+            BOB,
+            0
+        ));
+        // 980, not 1 000: `dispute_delivery` carves the bounty OUT of the agreement
+        // amount (`a.amount = a.amount.saturating_sub(bounty)`, bounty = max(2%, MinBounty)
+        // = 20). Expiry releases the agreement and deliberately does NOT touch the bounty —
+        // that is the oracle's to release through its own `expire_request`. So exactly the
+        // bounty stays reserved here, and this assertion is the one that says so.
+        assert_eq!(Balances::reserved_balance(ALICE), reserved0 - 980);
         assert_eq!(
-            Agreements::<Test>::get(ALICE, BOB)[0].status,
-            AgreementStatus::Disputed
+            Balances::reserved_balance(ALICE),
+            20,
+            "the oracle's bounty, untouched"
+        );
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 0);
+    });
+}
+
+/// E2 — the stake-pinning attack, run end to end, as the thing that must not work.
+///
+/// This is the HIGH finding from PR #233's tokenomics review stated as a test: a buyer
+/// spending the minimum reserve must not be able to freeze a provider's entire stake by
+/// accepting delivery and then going silent. The leverage was better than 100:1 (a 10 CMN
+/// reserve against a 1 000 CMN stake), and it made DELIVERING the provider's risky move,
+/// which inverts the emissions thesis.
+#[test]
+fn e18e2_a_silent_buyer_cannot_pin_a_providers_stake_forever() {
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000);
+        assert_ok!(Escrow::accept_agreement(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0
+        ));
+        System::set_block_number(10);
+        assert_ok!(Escrow::record_delivery(
+            RuntimeOrigin::signed(BOB),
+            ALICE,
+            0,
+            [2u8; 32]
+        ));
+
+        // The provider has done the work and is blocked from unstaking, correctly, while
+        // the agreement is live.
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 1);
+
+        // The buyer never returns. Anyone at all can now end it.
+        System::set_block_number(1_000);
+        assert_ok!(Escrow::expire_agreement(
+            RuntimeOrigin::signed(CAROL),
+            ALICE,
+            BOB,
+            0
+        ));
+
+        // The count is what gates request_unstake; at 0 the provider is free again.
+        assert_eq!(
+            pallet_agents::ActiveEscrowCount::<Test>::get(BOB),
+            0,
+            "a silent buyer must not be able to freeze a provider's stake"
         );
     });
 }

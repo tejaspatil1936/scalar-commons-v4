@@ -78,6 +78,8 @@ reopened in the opposite direction.
 |---|---|---|---|---|---|
 | A | never accepted | `Created` | no | `cancel_pending` (buyer) / `reject_agreement` (provider) | immediately |
 | B | never accepted | `Created` | no | `expire_agreement` (anyone) | `deliver_by + EXPIRY_GRACE` |
+| B2 | accepted | `Delivered` | yes | `expire_agreement` (anyone) | `deliver_by + BuyerResponseWindow + EXPIRY_GRACE` |
+| B3 | accepted | `Disputed` | yes | `expire_agreement` (anyone) | `dispute_opened_at + DisputeTimeoutWindow + EXPIRY_GRACE` |
 | C | accepted | `Created` | yes | `claim_refund` (buyer) | `deliver_by + BuyerResponseWindow` |
 | D | accepted | `Created` | yes | `expire_agreement` (anyone) | `deliver_by + EXPIRY_GRACE` |
 | E | accepted | `Delivered` | yes | `claim_refund` (buyer) | `deliver_by + BuyerResponseWindow` |
@@ -178,7 +180,7 @@ Mechanically, in `pallets/escrow/src/lib.rs`:
 |---|---|---|
 | `confirm_delivery` | `status == Delivered` | yes |
 | `claim_refund` | `ConsentState::Accepted` | yes |
-| `expire_agreement` | either arm | only in the `Accepted` arm |
+| `expire_agreement` | any status, past its own window + grace | only in the `Accepted` arm |
 | `close_pending` (reject/cancel) | `ConsentState::Pending` | no — correctly |
 | `settle_dispute_from_oracle` | `status == Disputed` | yes |
 
@@ -194,8 +196,50 @@ guard and by `expire_agreement`'s `Pending` arm. Covered by
 accepted obligation on the provider and assert the slot survives.
 
 **Upward drift** (pinning a provider's stake forever) needs an agreement that
-increments and never releases. There is no such path: one increment site, and
-every removal from `Agreements` is in the table above.
+increments and never releases.
+
+**This section previously claimed "There is no such path". That was wrong, and
+it was the most serious defect in this design.** `expire_agreement` was
+`status == Created` only, so a delivered-and-abandoned agreement had *no*
+permissionless exit: `confirm_delivery`, `dispute_delivery` and `claim_refund`
+are all buyer-signed. A buyer could create the minimum agreement, wait for the
+provider to accept and deliver, and then go silent — leaving the provider's
+count pinned at 1 and its whole stake (>= `MinStake`) frozen behind
+`request_unstake`, for the price of a sacrificed minimum reserve. Better than
+100:1 leverage, and the same attack E18 exists to prevent, relocated one step
+later. `Disputed` had the same shape, reachable because the oracle's
+`expire_request` can unreserve the bounty and drop the request without ever
+invoking `DisputeCallback`.
+
+It was also worse than a liveness bug: with no exit from `Delivered`, a
+provider's *risky* move was doing the work, because refusing to deliver let the
+agreement expire and released the slot. First principle 2 says emissions reward
+verifiable work; nothing in this pallet may make delivering the dangerous
+option.
+
+Found by the `tokenomics-security-reviewer` subagent on PR #233, which is the
+review CLAUDE.md requires for an escrow change and the reason it is required.
+
+**Now** every status has a permissionless exit, each behind the window belonging
+to that status plus `EXPIRY_GRACE`:
+
+| Status | `expire_agreement` opens at |
+|---|---|
+| `Created` | `deliver_by + EXPIRY_GRACE` |
+| `Delivered` | `deliver_by + BuyerResponseWindow + EXPIRY_GRACE` |
+| `Disputed` | `dispute_opened_at + DisputeTimeoutWindow + EXPIRY_GRACE` |
+
+The grace is added *on top of* the buyer's own window in every case, so a buyer
+who is merely slow always outranks a stranger closing its agreement, and the
+payee is the buyer of record either way — this adds liveness without moving
+value. A `Disputed` expiry also clears `DisputeToAgreement`, so no oracle
+callback can later resolve against an agreement that no longer exists. The
+oracle's bounty is deliberately left reserved: `dispute_delivery` carves it out
+of the agreement amount and `expire_request` is what releases it.
+
+Upward drift now needs an agreement that increments and never releases, and
+there is no such path: one increment site, and every removal from `Agreements`
+is in the table above.
 
 ### 8.2 Vectors considered and why each fails
 

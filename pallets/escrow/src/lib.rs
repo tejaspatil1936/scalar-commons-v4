@@ -852,17 +852,50 @@ pub mod pallet {
                     .position(|a| a.seq == seq)
                     .ok_or(Error::<T>::AgreementNotFound)?;
                 let agreement = &vec[idx];
-                // `Delivered` and `Disputed` both mean a delivery exists; the oracle and the
-                // buyer own those outcomes, not expiry.
-                ensure!(
-                    agreement.status == AgreementStatus::Created,
-                    Error::<T>::AlreadyDelivered
-                );
                 let now = frame_system::Pallet::<T>::block_number();
-                ensure!(
-                    now > agreement.deliver_by.saturating_add(EXPIRY_GRACE.into()),
-                    Error::<T>::AgreementNotExpired
-                );
+                // EVERY status gets a permissionless exit, each behind the window that
+                // belongs to it, plus the grace.
+                //
+                // This was `status == Created` only, and that left the exact attack E18
+                // exists to kill, relocated one step later: buyer creates the minimum
+                // agreement, provider accepts (count = 1), provider records delivery, buyer
+                // goes silent forever. `confirm_delivery`, `dispute_delivery` and
+                // `claim_refund` are all buyer-signed, so nothing could close it — the
+                // provider's ActiveEscrowCount never returned to 0 and `request_unstake`
+                // refused permanently. A sacrificed 10 CMN reserve froze a >= 1 000 CMN
+                // stake: better than 100:1 leverage for the attacker.
+                //
+                // It also inverted the thesis. With no exit from `Delivered`, a provider's
+                // *risky* move was doing the work, because refusing to deliver let the
+                // agreement expire and freed the slot. Emissions are supposed to reward
+                // verifiable work; nothing should make delivering the dangerous option.
+                //
+                // The buyer's own doors stay strictly first: each window below is the
+                // buyer's window PLUS EXPIRY_GRACE, so a buyer who is merely slow always
+                // has priority over a stranger closing its agreement, and the payee is the
+                // buyer of record either way — so this adds liveness without moving value.
+                let expiry_due = match agreement.status {
+                    // Never delivered: the deadline plus grace is the whole story.
+                    AgreementStatus::Created => {
+                        agreement.deliver_by.saturating_add(EXPIRY_GRACE.into())
+                    }
+                    // Delivered and unanswered: the buyer had BuyerResponseWindow to
+                    // confirm or dispute, and `claim_refund` opens at that point.
+                    AgreementStatus::Delivered => agreement
+                        .deliver_by
+                        .saturating_add(T::BuyerResponseWindow::get())
+                        .saturating_add(EXPIRY_GRACE.into()),
+                    // Disputed and abandoned: the oracle's window, from when the dispute
+                    // was opened. `expire_request` can unreserve the bounty and drop the
+                    // request without ever calling back, which is how an agreement gets
+                    // stranded in `Disputed` with only a buyer-signed door.
+                    AgreementStatus::Disputed => agreement
+                        .dispute_opened_at
+                        .unwrap_or(agreement.created_at)
+                        .saturating_add(T::DisputeTimeoutWindow::get())
+                        .saturating_add(EXPIRY_GRACE.into()),
+                };
+                ensure!(now > expiry_due, Error::<T>::AgreementNotExpired);
                 // Classified before any funds move, and stated as a match so the two cases
                 // are named rather than left implicit in the order of the guards above.
                 let consent = Self::consent_state(&buyer, &provider, seq);
@@ -879,6 +912,12 @@ pub mod pallet {
                     ConsentState::Accepted => {
                         agents_pallet::Pallet::<T>::decrement_active_escrow(&provider);
                     }
+                }
+                // A disputed agreement owns an oracle request mapping. Left behind it would
+                // point at an agreement that no longer exists, so a later callback would
+                // resolve nothing — `claim_refund` clears it for the same reason.
+                if let Some(rid) = agreement.dispute_request_id {
+                    DisputeToAgreement::<T>::remove(rid);
                 }
                 ActiveAgreementCount::<T>::mutate(|c| *c = c.saturating_sub(1));
                 // Removal from `Agreements` is the once-only token: every refund door starts
