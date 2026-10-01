@@ -39,6 +39,7 @@ import {
   TRAIL,
 } from '../src/observatory/instruments/pulse.js';
 import { stateWord, sealingPhrase, init as initStatusBar, SEALING_WINDOW, FINALITY_LAG_ALERT, LATE_MS } from '../src/observatory/statusbar.js';
+import { railPositions } from '../src/observatory.mjs';
 
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 
@@ -565,4 +566,12 @@ test('status bar wiring: a height far below the best is a reset, not a stall', (
   h.bus.emit('finalized', { record: { ok: true }, number: 4 });
   assert.equal(h.slots['.sb-finality'].textContent, 'finality 2 blocks');
   assert.equal(h.slots['.sb-state'].textContent, 'Network normal');
+});
+
+test('rail markers are equally spaced in order, whatever the block heights', () => {
+  assert.deepEqual(railPositions(4), [8, 36, 64, 92]);
+  assert.deepEqual(railPositions(1), [50]);
+  assert.deepEqual(railPositions(0), []);
+  const five = railPositions(5);
+  for (let i = 1; i < five.length; i += 1) assert.ok(Math.abs(five[i] - five[i - 1] - 21) < 1e-9);
 });

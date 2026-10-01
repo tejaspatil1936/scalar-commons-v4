@@ -1,9 +1,12 @@
 // 03 · Agent constellation. Every registered agent is a point on the plate,
-// sized by the square root of its stake; every agreement between two of them
-// is a line — open ones in the active colour, disputed ones heavier in the
-// dispute colour, recently settled ones dashed in the settled colour. A party
-// to a line that is no longer in the agent list is drawn as a small hollow
-// point and said to be so.
+// sized by its activity — the agreements it has completed as provider plus
+// the lines drawn to it now — so the busy agents are visibly larger; every
+// agreement between two of them is a line — open ones in the active colour,
+// disputed ones heavier in the dispute colour, recently settled ones dashed
+// in the settled colour. Points carry no label on the plate: an agent's name
+// and address show on hover or tap, and the list beneath has them all. A
+// party to a line that is no longer in the agent list is drawn as a small
+// hollow point and said to be so.
 //
 // Data: /v1/agents (live chain state, read whole), /v1/escrows (the open
 // agreements, live chain state, read whole) and the most recent
@@ -20,7 +23,8 @@
 // line draws itself in from buyer to provider over 400 ms, a line whose
 // status became disputed pulses once, a line that has gone fades out over
 // 400 ms. Nothing else moves; under prefers-reduced-motion every layout is
-// computed synchronously to rest and drawn once.
+// computed synchronously to rest and drawn once. A line drawing in glows
+// briefly and the glow fades over the same 400 ms.
 
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY } from 'd3-force';
 
@@ -37,8 +41,7 @@ const AGENT_PAGES = 3; // 3 × the indexer's page size: its live scan stops at 5
 const ESCROW_PAGES = 3;
 const SETTLED_PAGES = 2; // the most recent two pages of settled agreements
 
-/** Labels beside the points need this much viewport and no more than this many points. */
-export const LABEL_MIN_VIEWPORT_REM = 64;
+/** Above this many points the points shrink; labels are never drawn on the plate (they show on hover or tap). */
 export const LABEL_MAX_NODES = 120;
 /** Above this many points, the ones with no line are faded back. */
 export const FADE_ISOLATED_ABOVE = 300;
@@ -58,6 +61,7 @@ const LINK_DISTANCE = 70;
 const CHARGE = -90;
 const BOUNDS_PULL = 0.04;
 const DRAW_IN_MS = 400;
+const GLOW_MS = 400; // the glow on a line just drawn in fades over this
 const PULSE_MS = 600;
 const FADE_MS = 400;
 const FIRST_LAYOUT_GRACE_MS = 1_500; // how long the first layout waits for the line sources
@@ -172,21 +176,34 @@ export function linesAt(edges, id, { open = false, drawnOnly = false } = {}) {
 }
 
 /**
- * Point radius by the square root of stake: area is proportional to stake,
- * which is how the eye reads "twice as much". Range 3–11 px, times the
- * crowding factor.
+ * Point radius by the square root of activity: area is proportional to the
+ * agreements an agent has taken part in, which is how the eye reads "twice
+ * as busy". Range 3–12 px, times the crowding factor; an agent with no
+ * activity at all is the smallest point, never invisible.
  */
-export function nodeRadius(stakeCmn, maxStakeCmn, factor = 1) {
-  const share = maxStakeCmn > 0 ? Math.sqrt(Math.max(0, stakeCmn) / maxStakeCmn) : 1;
-  return (3 + 8 * Math.min(1, share)) * factor;
+export function nodeRadius(activity, maxActivity, factor = 1) {
+  const share = maxActivity > 0 ? Math.sqrt(Math.max(0, activity) / maxActivity) : 1;
+  return (3 + 9 * Math.min(1, share)) * factor;
+}
+
+/** An agent's activity: the agreements it has completed as provider, plus the lines drawn to it now. */
+export function activityOf(agent, degree = 0) {
+  const completed = Number(agent?.completedAgreements);
+  const lines = Number(degree);
+  return (Number.isFinite(completed) ? completed : 0) + (Number.isFinite(lines) ? Math.max(0, lines) : 0);
 }
 
 /** Smaller than any registered agent's point (which starts at 3 px). */
 export const GHOST_RADIUS = 2.5;
 
-/** Whether labels fit, how much to shrink the points, and how far to fade lone ones. */
-export function labelPolicy(viewportPx, nodeCount, remPx = 16) {
-  const labels = viewportPx >= LABEL_MIN_VIEWPORT_REM * remPx && nodeCount <= LABEL_MAX_NODES;
+/**
+ * How much to shrink the points and how far to fade lone ones. `labels` is
+ * always false: address labels are not drawn on the plate; they show on
+ * hover or tap and in the list. (Kept in the policy so a plate that wants
+ * them back changes one line.)
+ */
+export function labelPolicy(nodeCount) {
+  const labels = false;
   const radiusFactor = nodeCount <= LABEL_MAX_NODES ? 1 : nodeCount <= FADE_ISOLATED_ABOVE ? 0.7 : 0.5;
   const isolatedAlpha = nodeCount > FADE_ISOLATED_ABOVE ? ISOLATED_ALPHA : 1;
   return { labels, radiusFactor, isolatedAlpha };
@@ -297,7 +314,7 @@ export function init(root, ctx) {
     slashes: ctx.reading('slashes', root),
     messages: ctx.reading('messages', root),
   };
-  const { formatCmn, cmnNumber, formatInteger, shortAddress } = ctx.format;
+  const { formatCmn, formatInteger, shortAddress } = ctx.format;
   const colour = (name) => ctx.theme.color(name);
 
   // ── source state ──
@@ -316,8 +333,7 @@ export function init(root, ctx) {
   const edges = new Map(); // key -> line (persistent objects)
   let fading = []; // lines on their way out
   let settledShown = 0;
-  let maxStakePlancks = 0n;
-  let maxStakeCmn = 0;
+  let maxActivity = 0;
   let ghostCount = 0;
   let laidOut = false; // the first layout has run
   let graceTimer = null; // the first layout's wait for the line sources
@@ -387,22 +403,14 @@ export function init(root, ctx) {
   let lastBox = box();
 
   // ── model ──
-  function viewportWidth() {
-    return window.innerWidth || document.documentElement.clientWidth || 0;
-  }
-
-  function remPx() {
-    return parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
-  }
-
   function policy() {
-    return labelPolicy(viewportWidth(), nodes.size, remPx());
+    return labelPolicy(nodes.size);
   }
 
   function computeRadii() {
     const { radiusFactor } = policy();
     for (const node of nodes.values()) {
-      node.r = node.ghost ? GHOST_RADIUS * radiusFactor : nodeRadius(node.stakeCmn, maxStakeCmn, radiusFactor);
+      node.r = node.ghost ? GHOST_RADIUS * radiusFactor : nodeRadius(node.activity, maxActivity, radiusFactor);
     }
   }
 
@@ -459,18 +467,18 @@ export function init(root, ctx) {
         nodesRemoved += 1;
       }
     }
-    maxStakePlancks = 0n;
+    maxActivity = 0;
     ghostCount = 0;
+    // `degree` was counted by synthesizeNodes from the line map just built,
+    // so the sizes and the lines drawn come from the same poll.
     for (const node of nodes.values()) {
       if (node.ghost) {
         ghostCount += 1;
         continue;
       }
-      const stake = BigInt(node.stakePlancks);
-      if (stake > maxStakePlancks) maxStakePlancks = stake;
-      node.stakeCmn = cmnNumber(node.stakePlancks);
+      node.activity = activityOf(node, node.degree);
+      if (node.activity > maxActivity) maxActivity = node.activity;
     }
-    maxStakeCmn = maxStakePlancks > 0n ? cmnNumber(maxStakePlancks.toString()) : 0;
     computeRadii();
     aimForces(); // the key strip's height and the collide radii follow the data
     for (const node of nodes.values()) if (!Number.isFinite(node.x)) placeNew(node);
@@ -489,6 +497,7 @@ export function init(root, ctx) {
           source: nodes.get(data.buyer),
           target: nodes.get(data.provider),
           progress: fresh ? 0 : 1,
+          glow: 0,
           alpha: 1,
           pulse: 0,
         });
@@ -531,8 +540,19 @@ export function init(root, ctx) {
     const arriving = [...edges.values()].filter((e) => e.progress === 0);
     if (arriving.length) {
       ctx.motion.tween(DRAW_IN_MS, (t) => {
-        for (const e of arriving) e.progress = t;
+        for (const e of arriving) {
+          e.progress = t;
+          e.glow = 1;
+        }
         draw();
+      }, {
+        done: () => {
+          // The glow fades once the line is whole.
+          ctx.motion.tween(GLOW_MS, (t) => {
+            for (const e of arriving) e.glow = 1 - t;
+            draw();
+          });
+        },
       });
     }
     const pulsing = diff.disputed.map((d) => edges.get(d.key)).filter(Boolean);
@@ -682,8 +702,19 @@ export function init(root, ctx) {
     if (isolatedAlpha < 1 && (edge.source.degree <= 1 || edge.target.degree <= 1)) alpha *= 0.7;
     g.globalAlpha = Math.max(0, alpha);
     g.lineWidth = width;
+    if (edge.glow > 0) {
+      g.shadowColor = colour('live-glow');
+      g.shadowBlur = 16 * edge.glow;
+    }
     edgePath(g, edge, edge.progress);
     g.stroke();
+    g.shadowBlur = 0;
+    if (edge.glow > 0) {
+      // A brief halo along the new line, fading with the glow.
+      g.globalAlpha = Math.max(0, alpha) * 0.35 * edge.glow;
+      g.lineWidth = width + 4 * edge.glow;
+      g.stroke();
+    }
     if (state === 'disputed' && edge.pulse > 0) {
       g.globalAlpha = 0.35 * edge.pulse;
       g.lineWidth = width + 6 * edge.pulse;
@@ -735,8 +766,8 @@ export function init(root, ctx) {
       g.fillText(listComplete() ? 'no longer registered' : 'not among the agents listed', 20, y);
       y -= KEY_ROW;
     }
-    if (maxStakePlancks > 0n) {
-      const r = nodeRadius(maxStakeCmn, maxStakeCmn, policy().radiusFactor);
+    if (maxActivity > 0) {
+      const r = nodeRadius(maxActivity, maxActivity, policy().radiusFactor);
       g.fillStyle = colour('text');
       g.globalAlpha = 0.9;
       g.beginPath();
@@ -745,9 +776,11 @@ export function init(root, ctx) {
       g.globalAlpha = 1;
       g.fillStyle = colour('text-dim');
       const x = Math.max(20, 12 + r + 6);
-      const scale = `this size = ${formatCmn(maxStakePlancks.toString())} CMN staked`;
-      const full = `${scale} · area grows with stake`;
+      const scale = `this size = ${formatInteger(maxActivity)} agreements`;
+      const full = `${scale} · area grows with activity · point at an agent for its name`;
       g.fillText(x + g.measureText(full).width <= width - 4 ? full : scale, x, y);
+    } else if (nodes.size > 0) {
+      g.fillText('no agreements yet · point at an agent for its name', 20, y);
     }
   }
 
@@ -991,7 +1024,7 @@ export function init(root, ctx) {
       parts.push(`Where more than ${BUNDLE_CAP} lines of one kind join the same two agents, ${BUNDLE_CAP} are drawn and the count is written beside them.`);
     }
     if (agentsList !== null && !failures.agents) {
-      parts.push('On hover and in the list, “open here” counts an agent’s open lines from the open-agreement list; the “as provider” figures are the chain’s own counters, which count an agent only as provider.');
+      parts.push('Points are sized by activity: completed agreements as provider (the chain’s own counter) plus the lines drawn to the agent now. Names and addresses are not printed on the plate; point at an agent, or open the list. On hover and in the list, “open here” counts an agent’s open lines from the open-agreement list; the “as provider” figures are the chain’s own counters, which count an agent only as provider.');
     }
     if (!listComplete()) parts.push('The agent list was cut short at the indexer’s scan cap; agents beyond it are not drawn.');
     if (!settledComplete && !failures.settled && settledList !== null) {
@@ -1013,7 +1046,8 @@ export function init(root, ctx) {
       lines.push([shortAddress(node.id), true], [node.reason, false], [`${drawn} ${drawn === 1 ? 'line' : 'lines'} drawn`, false]);
     } else {
       lines.push([node.name ? `${node.name} · ${shortAddress(node.id)}` : shortAddress(node.id), true]);
-      lines.push([`${formatCmn(node.stakePlancks)} CMN staked`, false]);
+      lines.push([node.id, false]);
+      lines.push([`${formatCmn(node.stakePlancks)} CMN staked · activity ${formatInteger(node.activity ?? 0)}`, false]);
       lines.push([openHereText(node.id), false]);
       lines.push([providerText(node), false]);
       if (node.leaving) lines.push(['leaving — unstake requested', false]);

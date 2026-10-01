@@ -138,7 +138,7 @@ function constellationSection() {
     label: 'Agent constellation',
     heading: 'Who is working with whom',
     lede:
-      'Each point is an autonomous agent that has staked money to take part. Each line is a contract between two of them, with payment held in escrow until the work is confirmed.',
+      'Each point is an autonomous agent that has staked money to take part, larger the more agreements it has taken part in. Each line is a contract between two of them, with payment held in escrow until the work is confirmed. Point at an agent for its name and address; the list below has them all.',
     head: `      <ul class="legend" aria-label="Line colours">
         <li><span class="swatch swatch-active" aria-hidden="true"></span> Open — payment held, work under way</li>
         <li><span class="swatch swatch-disputed" aria-hidden="true"></span> Disputed — the buyer contests the delivery</li>
@@ -184,7 +184,7 @@ function validatorsSection() {
     label: 'Validator ring',
     heading: 'Who seals the blocks',
     lede:
-      'Independent validators take turns sealing blocks and vote on which are final. A block is final once more than two thirds of them agree — with five validators, that is four.',
+      'Independent validators take turns sealing blocks and vote on which are final. A block is final once more than two thirds of them agree — with five validators, that is four. The one sealing now is lit; point at a validator for its address.',
     instrument: `      <div class="ring-host">
         <svg class="ring" role="img" aria-label="The active validators as points on a ring"></svg>
       </div>
@@ -252,38 +252,40 @@ ${[
   });
 }
 
+/**
+ * Marker positions along the rail: ordinal, with equal gaps, in block order.
+ * A rail spaced by block height put two upgrades a day apart on top of each
+ * other and left weeks of empty line; the block number under each marker
+ * carries the distance instead. Exported for the test.
+ */
+export function railPositions(count, { first = 8, last = 92 } = {}) {
+  if (count <= 0) return [];
+  if (count === 1) return [(first + last) / 2];
+  return Array.from({ length: count }, (_, i) => first + (i * (last - first)) / (count - 1));
+}
+
 function railMarkers(history) {
-  const applied = history.upgrades.filter((u) => u.status === 'applied');
-  const min = Math.min(...applied.map((u) => u.appliedAtBlock));
-  const max = Math.max(...applied.map((u) => u.appliedAtBlock));
-  // Applied upgrades occupy the left 78 % of the rail by block height; a
-  // scheduled one sits past the end, in the space reserved for the future.
-  // Two upgrades a day apart on a rail that spans weeks would print on top of
-  // each other, so markers are pushed right to keep a minimum gap: the rail
-  // keeps its order and rough proportion, and every label stays legible.
-  const x = (block) => 5 + ((block - min) / Math.max(1, max - min)) * 73;
-  const MIN_GAP = 16;
-  const positions = new Map();
-  let last = -Infinity;
-  for (const u of history.upgrades) {
-    let left = u.status === 'applied' ? x(u.appliedAtBlock) : 92;
-    if (left - last < MIN_GAP) left = last + MIN_GAP;
-    positions.set(u.specVersion, left);
-    last = left;
-  }
+  const positions = railPositions(history.upgrades.length);
   return history.upgrades
-    .map((u) => {
+    .map((u, i) => {
       const applied = u.status === 'applied';
-      const left = positions.get(u.specVersion);
-      // Labels near either edge hang inward so nothing prints off the rail.
-      const align = left < 10 ? ' rail-align-start' : left > 90 ? ' rail-align-end' : '';
-      return `          <li class="rail-marker rail-${escapeHtml(u.status)}${align}" style="--x:${left.toFixed(2)}%" data-spec="${u.specVersion}" data-status="${escapeHtml(u.status)}"${applied ? ` data-block="${u.appliedAtBlock}"` : ''}>
+      const left = positions[i];
+      return `          <li class="rail-marker rail-${escapeHtml(u.status)}" style="--x:${left.toFixed(2)}%" data-spec="${u.specVersion}" data-status="${escapeHtml(u.status)}"${applied ? ` data-block="${u.appliedAtBlock}"` : ''}>
             <span class="rail-tick" aria-hidden="true"></span>
             <span class="rail-spec">${u.specVersion}</span>
             <span class="rail-meta mono">${applied ? `#${escapeHtml(u.appliedAtBlock.toLocaleString('en-US'))}` : 'scheduled'}</span>
           </li>`;
     })
     .join('\n');
+}
+
+/** Where the dashed "future" continuation of the rail begins: past the last applied marker. */
+function railFutureStart(history) {
+  const positions = railPositions(history.upgrades.length);
+  const lastApplied = history.upgrades.map((u) => u.status).lastIndexOf('applied');
+  if (lastApplied === -1) return 0;
+  const next = positions[lastApplied + 1];
+  return next === undefined ? Math.min(100, positions[lastApplied] + 6) : (positions[lastApplied] + next) / 2;
 }
 
 function upgradeRows(history) {
@@ -315,11 +317,11 @@ function upgradesSection(history) {
     label: 'Upgrade rail',
     heading: 'How the rules have changed',
     lede:
-      'The chain’s rules are a program that can be replaced in place, without stopping it. Each marker is one such replacement. This is a checked-in record, not a live reading; each block is re-confirmed against the chain’s own upgrade events when the page loads.',
+      'The chain’s rules are a program that can be replaced in place, without stopping it. Each marker is one such replacement, in order, with the block it took effect at. This is a checked-in record, not a live reading; each block is re-confirmed against the chain’s own upgrade events when the page loads.',
     head: `${reading({ key: 'specVersion', label: 'Rules in force now', note: 'The runtime version the network is running.' })}
 ${reading({ key: 'lastUpgrade', label: 'Last change took effect', note: 'The block at which the current rules began.' })}
 `,
-    instrument: `      <div class="rail" role="img" aria-label="Runtime upgrades in block order along the chain, spaced to stay legible">
+    instrument: `      <div class="rail" role="img" aria-label="Runtime upgrades in order along the rail, equally spaced, each with the block it took effect at" style="--future:${railFutureStart(history).toFixed(2)}%">
         <span class="rail-line" aria-hidden="true"></span>
         <ol class="rail-markers">
 ${railMarkers(history)}
