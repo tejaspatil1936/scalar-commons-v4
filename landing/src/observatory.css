@@ -7,8 +7,7 @@
    provenance, hashes and addresses; Source Sans 3 for reading, at a measure
    of sixty characters. One luminous accent, reserved for live data; four
    semantic colours for states. Hairlines, dots and type — no gradients, no
-   drop shadows, no pills, no icons; the one glow is the live accent's, on
-   live data only (the newest bars, a line drawing in).
+   shadows, no pills, no icons.
    The dark and light values of --text, --text-dim, --border and --accent match
    styles.css (test/observatory.test.mjs keeps them in step). */
 
@@ -282,10 +281,10 @@ pre {
 /* ── status bar ───────────────────────────────────────────────────────────
    One slim line at the very top, sticky so the live dot is never out of
    view: the state word, who is sealing, the finality lag, the height. The
-   provenance sits at the line's end, in mono, as under every reading. */
-
-/* `.statusbar.reading`: the bar carries the reading class so the readout can
+   provenance sits at the line's end, in mono, as under every reading.
+   `.statusbar.reading`: the bar carries the reading class so the readout can
    find its slots, and must not take the reading tile's padding and rule. */
+
 .statusbar.reading {
   position: sticky;
   top: 0;
@@ -294,7 +293,7 @@ pre {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0.15rem 0.5rem;
-  max-width: none;
+  max-width: none; /* a <p>, but not reading text: the measure does not apply */
   /* The bar's height is reserved for its longest state, so a state change
      never moves the page beneath it (the first screen's layout shift). */
   min-height: 2.15rem;
@@ -367,7 +366,7 @@ pre {
   color: var(--border);
 }
 
-/* The height's slot never wraps: a failure reads "unavailable…" here, with
+/* The height's slot never wraps: a failure reads "unavailable" here, with
    the full reason under the hero's own reading, so a state change cannot
    change the bar's height. */
 .statusbar .sb-block {
@@ -555,6 +554,7 @@ h1 {
   color: var(--text-dim);
 }
 
+
 .noscript span {
   grid-column: 1 / -1;
   padding: 1rem 0;
@@ -565,7 +565,7 @@ h1 {
 /* ── sections ─────────────────────────────────────────────────────────── */
 
 .instrument-section {
-  padding-block: 1rem 3.5rem;
+  padding-block: 1.25rem 3.5rem;
 }
 
 .instrument-section::before {
@@ -576,14 +576,6 @@ h1 {
   margin-bottom: 1.25rem;
 }
 
-#pulse {
-  padding-top: 0.5rem;
-}
-
-#pulse::before {
-  margin-bottom: 0.75rem;
-}
-
 h2 {
   margin: 0 0 0.75rem;
   font-size: clamp(1.875rem, 1.5rem + 1.2vw, 2.75rem);
@@ -591,20 +583,12 @@ h2 {
   letter-spacing: -0.01em;
 }
 
-#pulse h2 {
-  margin-bottom: 0.4rem;
-}
-
 .lede {
   margin: 0 0 1.25rem;
-  font-size: 1.0625rem;
+  font-size: 1rem;
   line-height: 1.5;
   color: var(--text-dim);
   text-wrap: pretty;
-}
-
-#pulse .lede {
-  margin-bottom: 0.5rem;
 }
 
 /* The reticle: hairlines every --grid-step behind an instrument. */
@@ -624,7 +608,7 @@ h2 {
 
 .instrument-note {
   margin: 0.75rem 0 0;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   line-height: 1.5;
   color: var(--text-dim);
 }
@@ -641,8 +625,7 @@ h2 {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  min-height: 1.25rem;
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.75rem;
   font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.1em;
@@ -707,14 +690,14 @@ h2 {
 .reading-label {
   margin: 0;
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: 0.9375rem;
   font-weight: 600;
   line-height: 1.3;
 }
 
 .reading-note {
   margin: 0.15rem 0 0.75rem;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   line-height: 1.4;
   color: var(--text-dim);
 }
@@ -738,10 +721,6 @@ h2 {
   text-align: center;
 }
 
-#pulse .readings .reading-value {
-  font-size: clamp(2.5rem, 2rem + 2.2vw, 4.25rem);
-}
-
 .reading-value.is-live .digits {
   text-shadow: 0 0 12px var(--live-glow);
 }
@@ -751,7 +730,7 @@ h2 {
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-decoration-color: var(--border);
-  text-underline-offset: 0.12em;
+  text-underline-offset: 0.14em;
 }
 
 .reading-value .num:hover {
@@ -759,9 +738,9 @@ h2 {
 }
 
 .reading-value .unit {
-  margin-left: 0.25em;
+  margin-left: 0.2em;
   font-family: var(--font-sans);
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   font-weight: 400;
   letter-spacing: 0;
   color: var(--text-dim);
@@ -781,12 +760,10 @@ h2 {
 
 .reading-value .sub {
   display: block;
-  max-width: var(--measure);
-  margin-top: 0.35rem;
-  font-family: var(--font-sans);
-  font-size: 0.875rem;
+  margin-top: 0.3rem;
+  font-family: var(--font-sans); /* the figure is serif now; its sub-line is reading text */
+  font-size: 0.8125rem;
   font-weight: 400;
-  line-height: 1.4;
   letter-spacing: 0;
   color: var(--text);
   text-shadow: none;
@@ -795,8 +772,8 @@ h2 {
 .reading-value .error {
   display: block;
   margin-top: 0.35rem;
-  font-family: var(--font-sans);
-  font-size: 0.8125rem;
+  font-family: var(--font-sans); /* as above */
+  font-size: 0.75rem;
   font-weight: 400;
   line-height: 1.4;
   letter-spacing: 0;
@@ -853,11 +830,11 @@ h2 {
   }
 }
 
-/* One sentence under the river: the rhythm and the time to finality. */
+/* One sentence under the river: the rhythm and the time to finality. Its
+   room, and its provenance line's, is reserved before either arrives, so the
+   readings beneath do not move when they do. */
 .pulse-sentence {
-  max-width: none;
-  /* Room for the sentence and its provenance line before either arrives, so
-     the readings beneath do not move when they do. */
+  max-width: none; /* a <p>, but a figure, not reading text */
   min-height: 3.5rem;
   margin: 0.5rem 0 0;
   padding: 0;
@@ -938,7 +915,7 @@ h2 {
   margin: 0 0 1rem;
   padding: 0;
   list-style: none;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   color: var(--text-dim);
 }
 
@@ -1012,7 +989,7 @@ h2 {
 
 .constellation-list {
   margin-top: 0.75rem;
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
 }
 
 .constellation-list summary {
@@ -1133,8 +1110,6 @@ h2 {
 
 .validator-list .v-meta {
   grid-column: 2;
-  font-family: var(--font-sans);
-  font-size: 0.8125rem;
   color: var(--text-dim);
 }
 
@@ -1215,7 +1190,7 @@ h2 {
 }
 
 .strip .reading-value {
-  font-size: 1.625rem;
+  font-size: 1.375rem;
 }
 
 /* ── 06 upgrade rail ──────────────────────────────────────────────────── */
@@ -1422,7 +1397,7 @@ h2 {
 
 .posture-row dt {
   font-weight: 600;
-  font-size: 1rem;
+  font-size: 0.9375rem;
 }
 
 .posture-row dt .reading-note {
@@ -1454,7 +1429,6 @@ h2 {
   color: var(--text-dim);
   font-style: italic;
   font-family: var(--font-sans);
-  font-size: 1rem;
 }
 
 /* ── 08 verify ────────────────────────────────────────────────────────── */
@@ -1541,7 +1515,7 @@ h2 {
 
 .command-reads {
   margin: 0.5rem 0 0;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   color: var(--text-dim);
 }
 
@@ -1579,7 +1553,7 @@ h2 {
 
 footer {
   padding-block: 1rem 4rem;
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   color: var(--text-dim);
 }
 
@@ -1589,11 +1563,11 @@ footer p {
   border-top: 1px solid var(--border);
 }
 
+/* "Last merge to master": a small line in the footer, not a masthead feature. */
 footer .merge {
   max-width: none;
   padding-top: 0.75rem;
   border-top: 0;
-  font-size: 0.8125rem;
 }
 
 .merge-label {
