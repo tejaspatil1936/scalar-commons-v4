@@ -46,7 +46,7 @@ create_agreement            → reserved, PendingAcceptance entry, provider coun
   │    └─ record_delivery → confirm_delivery / dispute_delivery / claim_refund   (unchanged)
   ├─ reject_agreement       (provider) → entry removed, buyer refunded, agreement closed
   ├─ cancel_pending         (buyer)    → entry removed, buyer refunded, agreement closed
-  └─ expire_agreement       (anyone, after deliver_by + EXPIRY_GRACE) → buyer refunded, closed
+  └─ expire_agreement       (anyone, past this status's own window + EXPIRY_GRACE) → buyer refunded, closed
 ```
 
 `create_agreement` keeps its signature and still counts toward
@@ -157,9 +157,21 @@ In every new call all `ensure!`s precede the first `unreserve` /
 
 ## 7. Out of scope
 
-`dispute_delivery`, the dispute→oracle bridge, and `runtime/src/lib.rs` are
-untouched. The SDK's missing `acceptAgreement` and indexer decoding for the four
-new events are follow-ups, not part of this change.
+`dispute_delivery` and `runtime/src/lib.rs` are untouched.
+
+**The dispute→oracle bridge is NOT untouched, and this section used to say it
+was.** A `Disputed` expiry clears `DisputeToAgreement` (`lib.rs`, in
+`expire_agreement`), because without it a later oracle callback would resolve
+against an agreement that no longer exists. Issue #180's amendment of
+2026-10-01 permits exactly this one change and nothing else in the bridge. The
+bounty is deliberately left reserved: `dispute_delivery` carves it out of the
+agreement amount and `expire_request` releases it.
+
+The SDK's missing `acceptAgreement` is a follow-up (#277). Indexer decoding for
+the four new events is **in this change**, not a follow-up — CLAUDE.md requires
+it in the same PR, and the activity classifier is an allow-list, so omitting
+them would have silently reported every rejected, cancelled and expired
+agreement as permanently open.
 
 ## 8. Gaming-vector analysis (first principle 4)
 
@@ -259,8 +271,13 @@ is in the table above.
   `EraEscrowVolume == 0` after an expiry.
 - **Provider escapes a commitment by rejecting late.** `reject_agreement` requires
   `ConsentState::Pending`, so it is unavailable once accepted.
-- **Expiry races a provider that delivered.** `status == Created` is required, and
-  `EXPIRY_GRACE` (10 blocks) covers the same-block race at the deadline.
+- **Expiry races a provider that delivered.** Not prevented by refusing to expire
+  delivered agreements — that was the original rule and it was the vulnerability
+  (§8.1). It is prevented by WHEN expiry opens: each status waits for the
+  buyer's own window and then `EXPIRY_GRACE` on top, so every door the provider
+  or buyer could use is already open and has been open for at least the grace
+  before a stranger can act. The payee is the buyer of record either way, so a
+  racer gains nothing even if it wins.
 - **`NextSeq` exhaustion by create/cancel churn.** `u32` behind the existing
   `SeqOverflow` guard, one tx fee per step; identical to the pre-existing
   create/`claim_refund` churn. Not a new surface.

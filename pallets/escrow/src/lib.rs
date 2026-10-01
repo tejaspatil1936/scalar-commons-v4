@@ -216,7 +216,8 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// Blocks past `deliver_by` before anyone may expire an undelivered agreement (E2).
+    /// Blocks added ON TOP of each status's own window before anyone may expire an
+    /// agreement (E2). See `expire_agreement` for the per-status table.
     ///
     /// The grace period exists so a provider that delivers in the same block the deadline
     /// lands is not raced out of its payment by an expiry transaction. A pallet-level
@@ -324,7 +325,7 @@ pub mod pallet {
             seq: u32,
             amount: BalanceOf<T>,
         },
-        /// An undelivered agreement outlived `deliver_by + EXPIRY_GRACE` and was closed by
+        /// An agreement outlived its status's window plus `EXPIRY_GRACE` and was closed by
         /// any caller; the buyer was refunded in full (E2).
         AgreementExpired {
             buyer: T::AccountId,
@@ -361,7 +362,8 @@ pub mod pallet {
         /// The agreement is not awaiting acceptance — it was already accepted, or it
         /// predates `PendingAcceptance` and is grandfathered as accepted.
         NotPending,
-        /// `deliver_by + EXPIRY_GRACE` has not passed, so the agreement is not expirable yet.
+        /// This status's own window plus `EXPIRY_GRACE` has not passed, so the agreement is
+        /// not expirable yet. The window depends on the status — see `expire_agreement`.
         AgreementNotExpired,
     }
 
