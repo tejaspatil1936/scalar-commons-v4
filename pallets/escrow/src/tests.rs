@@ -1345,6 +1345,16 @@ fn e18e2_unaccepted_agreement_refunds_the_buyer_in_full() {
         ));
         assert_eq!(Balances::free_balance(ALICE), free0 + 1_000);
         assert_eq!(Balances::reserved_balance(ALICE), 0);
+        // The EVENT, not only the balances. #180 asks for both ("assert on emitted
+        // events and on reserved balances") and these doors asserted only the
+        // second half. Each door must name ITS OWN event, or the assertion would
+        // pass on any refund from any path.
+        assert!(
+            last_escrow_events()
+                .iter()
+                .any(|e| matches!(e, crate::pallet::Event::AgreementRejected { amount, .. } if *amount == 1_000)),
+            "door 1 is reject_agreement and must emit AgreementRejected"
+        );
         assert_eq!(Balances::free_balance(TREASURY), 0);
     });
     // Door 2 — the buyer cancels.
@@ -1358,6 +1368,12 @@ fn e18e2_unaccepted_agreement_refunds_the_buyer_in_full() {
         assert_ok!(Escrow::cancel_pending(RuntimeOrigin::signed(ALICE), BOB, 0));
         assert_eq!(Balances::free_balance(ALICE), free0 + 1_000);
         assert_eq!(Balances::reserved_balance(ALICE), 0);
+        assert!(
+            last_escrow_events()
+                .iter()
+                .any(|e| matches!(e, crate::pallet::Event::PendingCancelled { amount, .. } if *amount == 1_000)),
+            "door 2 is cancel_pending and must emit PendingCancelled"
+        );
         assert_eq!(Balances::free_balance(TREASURY), 0);
     });
     // Door 3 — anyone expires it after deliver_by + EXPIRY_GRACE.

@@ -290,6 +290,18 @@ is in the table above.
 No new path mints, burns, or calls `on_unbalanced`: the only balance operation is
 `unreserve`, which leaves `total_issuance` untouched.
 `e18e2_expire_agreement_is_permissionless_after_deadline` asserts that directly.
-Balance values are copied, never computed. The one new arithmetic expression is
-`deliver_by.saturating_add(EXPIRY_GRACE.into())`; both `ActiveAgreementCount`
-mutations use `saturating_sub`.
+Balance values are copied, never computed. The new arithmetic is BlockNumber
+only, and all of it saturating — the amendment added two expressions beyond the
+original one, so this paragraph listing "the one new expression" was stale:
+
+```
+Created    deliver_by.saturating_add(EXPIRY_GRACE.into())
+Delivered  deliver_by.saturating_add(BuyerResponseWindow).saturating_add(EXPIRY_GRACE.into())
+Disputed   dispute_opened_at.unwrap_or(created_at)
+             .saturating_add(DisputeTimeoutWindow).saturating_add(EXPIRY_GRACE.into())
+```
+
+`unwrap_or(created_at)` is not new behaviour: `claim_refund` already resolves a
+missing `dispute_opened_at` the same way, so expiry and refund agree on what a
+`Disputed` agreement with no recorded open time means. Both
+`ActiveAgreementCount` mutations use `saturating_sub`.
