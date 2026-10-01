@@ -297,3 +297,30 @@ test('renderSection renders each section on its own for the harness', () => {
   }
   assert.throws(() => renderSection('nope', { history, posture }), /no section named/);
 });
+
+test('the first screen: a status bar above the nav, a one-line title, a two-line intro, the merge line in the footer', () => {
+  const bar = page.indexOf('class="statusbar reading" data-reading="networkStatus"');
+  const nav = page.indexOf('<nav class="site-nav"');
+  const h1 = page.indexOf('<h1>');
+  assert.ok(bar > 0 && bar < nav, 'the status bar comes before the nav');
+  assert.ok(nav < h1);
+  for (const part of ['sb-state', 'sb-validators', 'sb-finality', 'sb-block']) assert.match(page, new RegExp(`class="${part}"`));
+  assert.match(page, /<h1>Observatory <span class="h1-sub">Scalar Commons · public test network<\/span><\/h1>/);
+  const dek = page.match(/<p class="dek">([\s\S]*?)<\/p>/)[1];
+  assert.ok(dek.length <= 132, `the intro is ${dek.length} characters; two lines at a sixty-character measure is about 130`);
+  assert.ok(!/<aside class="masthead-aside">/.test(page), 'the masthead aside (the empty band) is gone');
+  const footer = page.slice(page.indexOf('<footer'));
+  assert.match(footer, /class="merge" data-reading="lastMerge"/, 'the merge line lives in the footer');
+  assert.ok(!page.slice(0, page.indexOf('<main>')).includes('data-reading="lastMerge"'));
+  // The bar's height is reserved and its block slot never wraps, so a state change moves nothing beneath it.
+  const css = readFileSync(new URL('../src/observatory.css', import.meta.url), 'utf8');
+  assert.match(css, /\.statusbar\.reading \{[^}]*min-height/);
+  assert.match(css, /\.statusbar \.sb-block \{[^}]*white-space: nowrap/);
+});
+
+test('the river: its sentence sits under the canvas, before the readings, and the lede names the bar’s measure', () => {
+  const pulse = page.match(/<section id="pulse"[\s\S]*?<\/section>/)[0];
+  assert.ok(pulse.indexOf('pulse-canvas') < pulse.indexOf('class="pulse-sentence reading" data-reading="cadence"'));
+  assert.ok(pulse.indexOf('data-reading="cadence"') < pulse.indexOf('class="readings"'));
+  assert.match(pulse, /each bar as tall as its transaction count/);
+});

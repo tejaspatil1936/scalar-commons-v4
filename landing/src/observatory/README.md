@@ -43,7 +43,7 @@ and `ctx` is created by `context.js`:
 | `ctx.watchAll(name, handler, ms, { maxPages })` | the same for a list endpoint read whole: the record has `items`, `total`, `complete` |
 | `ctx.fetchAll(source, { maxPages })` | one whole-list read |
 | `ctx.subscribe(name, handler)` | a pushed source (`newHeads`, `finalizedHeads`); the hero owns these |
-| `ctx.bus.on(event, fn)` | page events: `head` `{ record, number, header, author: { kind, authorityIndex, slot } \| null, forked }`, `finalized` `{ record, number }`, `cadence` `{ perMinute, intervalMs, blocks, record }`, `socket` `{ state }`, `visibility` `{ hidden }`, `theme` `{ dark }` |
+| `ctx.bus.on(event, fn)` | page events: `head` `{ record, number, header, author: { kind, authorityIndex, slot } \| null, forked, arrivedAt }` (a live header from the socket, always with a header), `finalized` `{ record, number }`, `poll` `{ record, number, finalized, arrivedAt }` (a height from the polling fallback or the first indexed position: no header, no author; `number` and `finalized` are null when the read failed), `cadence` `{ perMinute, intervalMs, blocks, record }`, `socket` `{ state, detail, attempts }` (`state` is `open` \| `closed` \| `failed`; `attempts` is the reconnect count, and the status bar reads it to tell a first drop from a give-up), `visibility` `{ hidden }`, `theme` `{ dark }` |
 | `ctx.reading(key, root)` | the `[data-reading=key]` element |
 | `ctx.readout` | `showValue`, `showError`, `showAbsent`, `apply`, `provenance`, `rawLink` — see `readout.js` |
 | `ctx.format` | `formatInteger`, `formatDuration`, `formatCmn`, `cmnNumber`, `shortAddress`, `shortHash`, `utcTime`, `relativeTime` |
@@ -60,6 +60,10 @@ system; use only its tokens, never redefine `:root`) and
 `test/instruments/<name>.test.mjs` (pure functions, `node --test`). It never
 edits `context.js`, `data.js`, `readout.js`, `observatory.mjs` or
 `observatory.css`; if it needs a change there, it says so in its report.
+
+`statusbar.js`, beside the instruments, is not one: it fills the one line at
+the top of the page from the hero's bus events and the ring's validator read,
+and fetches nothing of its own.
 
 ## Developing one instrument
 
