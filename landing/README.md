@@ -58,10 +58,32 @@ never the previous value.
 | File | What it holds |
 |---|---|
 | `src/observatory.mjs` | Build-time frame: the status bar, one section per instrument with a plain sentence before it, empty reading slots, the upgrade rail, the posture strip, the verification commands. Also `renderSection` for the harness. |
-| `src/observatory.css` | The design system: the plate, the reticle grid, the three self-hosted faces, the tokens. Each instrument's own rules live beside it in `src/observatory/instruments/<name>.css` and are appended at build time. |
-| `src/observatory/` | The client. `context.js` gives every instrument one WebSocket (calls and subscriptions, paused when the tab is hidden), deduplicated polling, provenance records, motion and theme; `instruments/*.js` draw; `statusbar.js` fills the top line from the hero's records. See `src/observatory/README.md` for the contract. |
-| `runtime-history.json` | The upgrade record. Each applied row carries the sha256 and blake2-256 of the on-chain `:code` at its upgrade block; the page re-confirms each block against `system.CodeUpdated` events live. |
-| `public/posture.json` | The security-posture record, written by the operators. A `null` value renders as "not yet recorded"; nothing here is ever read from the chain. |
+| `src/observatory.css` | The design system: the plate, the reticle grid, the three self-hosted faces, the tokens, presenter mode. Each instrument's own rules live beside it in `src/observatory/instruments/<name>.css` and are appended at build time. |
+| `src/observatory/` | The client. `context.js` gives every instrument one WebSocket (calls and subscriptions, paused when the tab is hidden), deduplicated polling, provenance records, motion and theme; `instruments/*.js` draw; `statusbar.js` fills the top line from the hero's records; `presenter.js` drives `?present=1`. See `src/observatory/README.md` for the contract. |
+| `runtime-history.json` | The upgrade record. Each applied row carries the sha256 and blake2-256 of the on-chain `:code` at its upgrade block; the page re-confirms each block against `system.CodeUpdated` events live. A `summaryNote` says how a summary was checked against the chain. |
+| `public/posture.json` | The security-posture record, written by the operators. Each recorded value names the document in this repository it was taken from (`source`) and the date it was true (`asOf`); a `null` value renders as "not yet recorded"; nothing here is ever read from the chain. |
+
+**Presenter mode.** `/observatory?present=1` hides the nav, the masthead,
+the provenance lines, the instrument notes, the list alternatives under the
+constellation and the ring, and the footer; pins the status bar; and shows
+one instrument per screen, filling the viewport, advancing every 20 seconds
+or on the arrow keys (Home and End jump to the first and last). Every
+instrument stays live; the type is set for a projector. It is a projection
+of the ordinary page, not a substitute for it: the notes and lists are on
+the page without the flag.
+
+**The sky.** `/observatory?sky=1` lays a WebGL star field (three.js, GSAP;
+fetched only when the flag is on) behind the plates: one star per registered
+agent (the constellation's own `/v1/agents` read) at a place fixed by a hash
+of its address, sized by stake and brighter the more recent its activity; the
+active validators as bright fixed stars with a faint reticle; a thin line per
+open agreement, amber flickering once for a dispute, a settlement's low glow
+fading over ten minutes; a faint light front per block and a steady glow
+behind the finality marker; a camera that drifts one degree a minute. Off by
+default; the footer says what is drawn, from which reads, when. It stands
+down for the canvas hero, and says so, without WebGL, under reduced motion,
+or when it runs under 30 frames a second for three seconds. With `?present=1`
+as well it shows the live block height alone on the first screen.
 
 Develop one instrument on its own, against the live services:
 
@@ -80,8 +102,10 @@ and SS58 decoders, formatting, the data layer and the hero's stream model.
 
 When a runtime upgrade is applied, add its row to `runtime-history.json`,
 including the hashes of the on-chain `:code` at the upgrade block (the
-"Verify it yourself" section shows the command). When a posture value is
-established, fill it in `public/posture.json` with its date.
+"Verify it yourself" section shows the command), and a `summary` that says
+what the runtime's own metadata carries, not what was planned for it. When a
+posture value is established, fill it in `public/posture.json` with its date
+and the repository document it comes from; the page prints both.
 
 ## Refreshing the chain facts
 

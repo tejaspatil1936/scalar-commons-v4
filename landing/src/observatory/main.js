@@ -1,7 +1,9 @@
 // Boot for /observatory: one shared context, then the instruments in order of
-// what the reader sees first. The hero starts immediately; the status bar
-// listens to it, so it starts right after; the rest yield to the browser
-// between them so the page never blocks on an instrument.
+// what the reader sees first. The hero starts immediately; the rest yield to
+// the browser between them so the page never blocks on an instrument. The
+// status bar listens to the hero, so it starts right after it; the sky
+// (`?sky=1`) and presenter mode (`?present=1`), when the URL asks for them,
+// are wired last, once every section exists.
 
 import { createContext } from './context.js';
 import { relativeTime } from './format.js';
@@ -14,6 +16,8 @@ import * as upgrades from './instruments/upgrade-rail.js';
 import * as posture from './instruments/posture.js';
 import * as verify from './instruments/verify.js';
 import * as statusbar from './statusbar.js';
+import * as presenter from './presenter.js';
+import * as sky from './sky.js';
 
 const INSTRUMENTS = [
   ['pulse', pulse],
@@ -56,7 +60,6 @@ async function boot() {
       markFailed(root, error);
     }
     if (name === 'pulse') {
-      // The status bar listens to the hero's bus events, so it starts right after it.
       try {
         const bar = statusbar.init(document.querySelector('[data-reading="networkStatus"]'), ctx);
         // A stalled chain emits no events, so the bar cannot notice a stall
@@ -78,6 +81,13 @@ async function boot() {
   }
 
   lastMerge(ctx);
+  try {
+    // `?sky=1` only; off by default. A sky that cannot start must not take the page with it.
+    sky.init(document, ctx);
+  } catch (error) {
+    console.error(error);
+  }
+  presenter.init(document, ctx);
 }
 
 /** "Last merge to master: N hours ago" — from the public GitHub API, retried each minute on failure. */

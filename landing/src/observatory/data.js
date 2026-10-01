@@ -69,18 +69,23 @@ export const SOURCES = {
   blocks: api(`/v1/blocks?limit=${INDEXER_MAX_LIMIT}`, ['cadence', 'blockTime']),
   era: api('/v1/eras/current', ['era', 'eraSettlement', 'eraCountdown']),
   // The era in progress plus 13 settled ones: 12 whole eras need 13 boundaries.
-  eras: api('/v1/eras?limit=14', ['lastSettled', 'emissionPerEra', 'agreementsPerEra']),
+  eras: api('/v1/eras?limit=14', ['lastSettled', 'agreementsCumulative']),
+  // Every settled era the index holds (read whole, in pages), for the running total of CMN issued to agents.
+  erasAll: api(`/v1/eras?limit=${INDEXER_MAX_LIMIT}`, ['emissionCumulative']),
+  // Total issuance from every source against the hard cap: context for the agent figure, never the figure itself.
+  supply: api('/v1/emissions/supply', ['emissionCumulative']),
   upgrades: events('system', 'CodeUpdated', ['lastUpgrade']),
   genesis: rpc('chain_getBlockHash', [0], 'chain_getBlockHash(0)', ['genesis']),
 
   // Agents and their contracts.
-  agents: api(`/v1/agents?limit=${INDEXER_MAX_LIMIT}`, ['agents']),
-  escrows: api(`/v1/escrows?limit=${INDEXER_MAX_LIMIT}`, []),
+  // The sky (?sky=1) draws one star per row of the same read.
+  agents: api(`/v1/agents?limit=${INDEXER_MAX_LIMIT}`, ['agents', 'sky']),
+  escrows: api(`/v1/escrows?limit=${INDEXER_MAX_LIMIT}`, ['sky']),
   escrowStats: api('/v1/escrows/stats', ['activeAgreements', 'openDisputes']),
   slashes: events('agents', 'SlashExecuted', ['slashes']),
   messages: api('/v1/events?section=messages&method=MessageSent&limit=1', ['messages']),
-  agreementsCreated: events('escrow', 'AgreementCreated', ['agreementsPerEra']),
-  deliveriesConfirmed: events('escrow', 'DeliveryConfirmed', []),
+  agreementsCreated: events('escrow', 'AgreementCreated', ['agreementsCumulative']),
+  deliveriesConfirmed: events('escrow', 'DeliveryConfirmed', ['sky']),
   disputesOpened: events('escrow', 'DisputeOpened', []),
   registrations: events('agents', 'AgentRegistered', ['agentsOverTime']),
   unstakes: events('agents', 'UnstakeCompleted', ['agentsOverTime']),

@@ -38,7 +38,32 @@ import {
   polledNote,
   TRAIL,
 } from '../src/observatory/instruments/pulse.js';
-import { stateWord, sealingPhrase, init as initStatusBar, SEALING_WINDOW, FINALITY_LAG_ALERT, LATE_MS } from '../src/observatory/statusbar.js';
+import { stateWord, sealingPhrase, init as initStatusBar, SEALING_GRACE_MS, FINALITY_LAG_ALERT, LATE_MS } from '../src/observatory/statusbar.js';
+import { wantsPresenter, stepFor } from '../src/observatory/presenter.js';
+import { railPositions } from '../src/observatory.mjs';
+import {
+  wantsSky,
+  hashAddress,
+  placeOf,
+  activityOf,
+  starOf,
+  validatorStar,
+  starsFor,
+  recentSettlements,
+  linesFor,
+  markerX,
+  settleGlow,
+  fpsTooLow,
+  frameStats,
+  parseColor,
+  fallbackReason,
+  skyExtra,
+  init as initSky,
+  MAX_STARS,
+  SETTLE_FADE_MS,
+  SLOT_MS,
+  HEARTBEAT_RECENT_BLOCKS,
+} from '../src/observatory/sky.js';
 
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 
@@ -328,6 +353,44 @@ test('polled heights are named as such: no body was read, so the bar stands at t
   assert.equal(polledNote([]), '');
 });
 
+test('a serif figure is set digit by digit in cells, and once unbroken for screen readers', async () => {
+  // readout.js touches the DOM only inside its functions; a four-method stub is enough to see what setDigits builds.
+  const element = (tag) => ({
+    tag,
+    className: '',
+    textContent: '',
+    attrs: {},
+    children: [],
+    setAttribute(k, v) { this.attrs[k] = v; },
+    append(...nodes) { this.children.push(...nodes); },
+    replaceChildren() { this.children = []; },
+  });
+  const had = 'document' in globalThis;
+  const before = globalThis.document;
+  globalThis.document = { createElement: element };
+  try {
+    const { setDigits } = await import('../src/observatory/readout.js');
+    const node = element('span');
+    node.children.push('stale');
+    setDigits(node, '847,724');
+    assert.equal(node.children.length, 2, 'the old content is replaced by the spoken copy and the cells');
+    const [spoken, cells] = node.children;
+    assert.equal(spoken.className, 'visually-hidden');
+    assert.equal(spoken.textContent, '847,724', 'the whole figure, once, unbroken, for screen readers');
+    assert.equal(cells.className, 'dcells');
+    assert.equal(cells.attrs['aria-hidden'], 'true', 'the cells are not read aloud as separate words');
+    const run = cells.children.map((c) => (typeof c === 'string' ? c : `[${c.textContent}]`)).join('');
+    assert.equal(run, '[8][4][7],[7][2][4]', 'each digit in its own cell; the separator keeps its own width');
+    assert.ok(cells.children.filter((c) => typeof c !== 'string').every((c) => c.className === 'dc'));
+    setDigits(node, 12);
+    assert.equal(node.children[0].textContent, 12, 'a number is accepted as given');
+    assert.equal(node.children[1].children.length, 2);
+  } finally {
+    if (had) globalThis.document = before;
+    else delete globalThis.document;
+  }
+});
+
 test('the status bar’s state word follows stated rules, worst first', () => {
   const normal = { socket: 'live', lastOk: true, seen: true, lag: 2, intervalMs: 6_000, hidden: false };
   assert.equal(stateWord(normal), 'Network normal');
@@ -342,14 +405,16 @@ test('the status bar’s state word follows stated rules, worst first', () => {
   assert.equal(stateWord({ ...normal, lag: null, intervalMs: null }), 'Network normal', 'unknowns are not faults');
 });
 
-test('the sealing phrase says "seen so far" until the window has filled, and never invents a count', () => {
-  assert.equal(sealingPhrase({ authors: 5, total: 5, observed: SEALING_WINDOW }), '5 of 5 validators sealing');
-  assert.equal(sealingPhrase({ authors: 5, total: 5, observed: 6 }), '5 of 5 validators sealing', 'all seen: no hedge needed');
-  assert.equal(sealingPhrase({ authors: 3, total: 5, observed: 6 }), '3 of 5 validators seen sealing so far');
-  assert.equal(sealingPhrase({ authors: 4, total: 5, observed: SEALING_WINDOW }), '4 of 5 validators sealing');
-  assert.equal(sealingPhrase({ authors: null, total: 5, observed: 0 }), '5 validators in the set', 'polling: no author to count');
-  assert.equal(sealingPhrase({ authors: 2, total: null, observed: 10 }), 'validators not yet read');
-  assert.equal(sealingPhrase({ authors: 5, total: 5, observed: 30, error: 'could not decode the set: bad length' }), 'validators unavailable · could not decode the set: bad length');
+test('the sealing phrase states the active set from the chain read, and counts who has sealed only after a minute', () => {
+  // On load the page has seen a block or two: "2 of 5 seen so far" read as three validators down.
+  assert.equal(sealingPhrase({ seen: 2, total: 5, sinceMs: 0 }), '5 validators in the active set');
+  assert.equal(sealingPhrase({ seen: 5, total: 5, sinceMs: SEALING_GRACE_MS - 1 }), '5 validators in the active set', 'even a full count waits for the minute');
+  assert.equal(sealingPhrase({ seen: 3, total: 5, sinceMs: SEALING_GRACE_MS }), '5 validators in the active set · 3 seen sealing since you opened this page');
+  assert.equal(sealingPhrase({ seen: 5, total: 5, sinceMs: 600_000 }), '5 validators in the active set · 5 seen sealing since you opened this page');
+  assert.equal(sealingPhrase({ seen: null, total: 5, sinceMs: 600_000 }), '5 validators in the active set', 'polling from the start: no author was ever seen');
+  assert.equal(sealingPhrase({ seen: 1, total: 1, sinceMs: 600_000 }), '1 validator in the active set · 1 seen sealing since you opened this page');
+  assert.equal(sealingPhrase({ seen: 2, total: null, sinceMs: 600_000 }), 'validators not yet read');
+  assert.equal(sealingPhrase({ seen: 5, total: 5, sinceMs: 600_000, error: 'could not decode the set: bad length' }), 'validators unavailable · could not decode the set: bad length');
   assert.equal(sealingPhrase({ authors: null, total: null, observed: 0, error: 'HTTP 502' }), 'validators unavailable · HTTP 502');
 });
 
@@ -447,9 +512,9 @@ test('status bar: returning from a hidden tab is not a late block', async () => 
 });
 
 test('sealing phrase never claims more validators than the set holds', async () => {
-  const { sealingPhrase: phrase, SEALING_WINDOW: win } = await import('../src/observatory/statusbar.js');
-  // The window still holds indices from a larger, previous set.
-  assert.equal(phrase({ authors: 6, total: 5, observed: win }), '5 of 5 validators sealing');
+  const { sealingPhrase: phrase, SEALING_GRACE_MS: grace } = await import('../src/observatory/statusbar.js');
+  // Validators seen before the set shrank were still seen; the count is clamped to the set.
+  assert.equal(phrase({ seen: 6, total: 5, sinceMs: grace }), '5 validators in the active set · 5 seen sealing since you opened this page');
 });
 
 // A second harness for the paths the block above does not reach: the `poll`
@@ -523,14 +588,16 @@ test('status bar wiring: the finality lag is held, not read from the DOM, and gr
   assert.equal(h.slots['.sb-state'].textContent, 'Finality lagging', 'the worse fault stays first');
 });
 
-test('status bar wiring: the validators read is said honestly — decoded, undecodable, or failed — and a changed set restarts the window', () => {
+test('status bar wiring: the validators read is said honestly — decoded, undecodable, or failed — and a changed set restarts the count', () => {
   const h = statusBarHarness();
   for (const n of [10, 11, 12]) { h.head(n); h.tick(6_000); }
   const validators = h.watches.get('validators');
   const five = { ok: true, data: { result: '0x' + '14' + '11'.repeat(32).repeat(5) } };
   validators(five);
   assert.equal(h.controller.state().total, 5);
-  assert.equal(h.slots['.sb-validators'].textContent, '3 of 5 validators seen sealing so far', 'the first read keeps the window');
+  assert.equal(h.slots['.sb-validators'].textContent, '5 validators in the active set', 'the first minute states the set alone');
+  h.tick(SEALING_GRACE_MS);
+  assert.equal(h.slots['.sb-validators'].textContent, '5 validators in the active set · 3 seen sealing since you opened this page', 'the ticker adds the count once the minute has passed');
   const quiet = mock.method(console, 'error', () => {});
   validators({ ok: true, data: { result: '0x' + '05' + '11'.repeat(16) } });
   quiet.mock.restore();
@@ -540,12 +607,12 @@ test('status bar wiring: the validators read is said honestly — decoded, undec
   validators({ ok: false, error: 'HTTP 502' });
   assert.equal(h.slots['.sb-validators'].textContent, 'validators unavailable · HTTP 502');
   validators(five);
-  assert.equal(h.slots['.sb-validators'].textContent, '5 validators in the set', 'the window restarted when the set changed');
+  assert.equal(h.slots['.sb-validators'].textContent, '5 validators in the active set', 'the count restarted when the set changed');
   h.head(13);
-  assert.equal(h.slots['.sb-validators'].textContent, '1 of 5 validators seen sealing so far');
-  // Falling back to polling drops the window too: polled heights have no author.
+  assert.equal(h.slots['.sb-validators'].textContent, '5 validators in the active set · 1 seen sealing since you opened this page');
+  // Falling back to polling adds nothing: a polled height has no author, but what was seen stays true.
   h.poll(14, 12);
-  assert.equal(h.slots['.sb-validators'].textContent, '5 validators in the set');
+  assert.equal(h.slots['.sb-validators'].textContent, '5 validators in the active set · 1 seen sealing since you opened this page');
 });
 
 test('status bar wiring: a height far below the best is a reset, not a stall', () => {
@@ -565,4 +632,220 @@ test('status bar wiring: a height far below the best is a reset, not a stall', (
   h.bus.emit('finalized', { record: { ok: true }, number: 4 });
   assert.equal(h.slots['.sb-finality'].textContent, 'finality 2 blocks');
   assert.equal(h.slots['.sb-state'].textContent, 'Network normal');
+});
+
+test('rail markers are equally spaced in order, whatever the block heights', () => {
+  assert.deepEqual(railPositions(4), [8, 36, 64, 92]);
+  assert.deepEqual(railPositions(1), [50]);
+  assert.deepEqual(railPositions(0), []);
+  const five = railPositions(5);
+  for (let i = 1; i < five.length; i += 1) assert.ok(Math.abs(five[i] - five[i - 1] - 21) < 1e-9);
+});
+
+test('presenter mode is asked for by ?present=1 and driven by the arrow keys', () => {
+  assert.equal(wantsPresenter('?present=1'), true);
+  assert.equal(wantsPresenter('?a=b&present=1'), true);
+  assert.equal(wantsPresenter('?present=1&a=b'), true);
+  assert.equal(wantsPresenter('?present=10'), false);
+  assert.equal(wantsPresenter('?present=0'), false);
+  assert.equal(wantsPresenter(''), false);
+  assert.equal(stepFor('ArrowRight', 0, 8), 1);
+  assert.equal(stepFor('ArrowRight', 7, 8), 0, 'wraps');
+  assert.equal(stepFor('ArrowLeft', 0, 8), 7);
+  assert.equal(stepFor('Home', 5, 8), 0);
+  assert.equal(stepFor('End', 5, 8), 7);
+  assert.equal(stepFor(' ', 2, 8), 3);
+  assert.equal(stepFor('a', 2, 8), null);
+  assert.equal(stepFor('ArrowRight', 0, 0), null);
+});
+
+test('the sky is asked for by ?sky=1 and places every address by its hash, the same on every visit', () => {
+  assert.equal(wantsSky('?sky=1'), true);
+  assert.equal(wantsSky('?present=1&sky=1'), true);
+  assert.equal(wantsSky('?sky=10'), false);
+  assert.equal(wantsSky(''), false);
+  assert.equal(wantsSky(undefined), false);
+  assert.equal(hashAddress(''), 0x811c9dc5);
+  assert.equal(hashAddress('a'), 0xe40c292c);
+  const a = placeOf('5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty');
+  assert.deepEqual(placeOf('5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty'), a, 'deterministic');
+  for (const v of [a.x, a.y, a.depth]) assert.ok(v >= 0 && v < 1);
+  // The documented mapping: x from the low sixteen bits, y from the high sixteen, depth from the hash of address + ':depth'.
+  const h = hashAddress('5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty');
+  assert.equal(a.x, (h & 0xffff) / 0x10000);
+  assert.equal(a.y, (h >>> 16) / 0x10000);
+  assert.equal(a.depth, (hashAddress('5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty:depth') & 0xffff) / 0x10000);
+  assert.notDeepEqual(placeOf('5FHneW47'), a);
+});
+
+test('a star is sized by stake and brightened by recent activity; a validator is a fixed bright star with the reticle', () => {
+  const scale = { maxStake: '10000000000000000', maxActivity: 4 };
+  const big = starOf('x', { stakePlancks: '10000000000000000', activity: 4 }, scale);
+  const small = starOf('x', { stakePlancks: '0', activity: 0 }, scale);
+  assert.deepEqual([big.x, big.y, big.depth], [small.x, small.y, small.depth], 'stake and activity change size and light, never place');
+  assert.ok(Math.abs(big.size - 12) < 1e-9 && Math.abs(big.bright - 1) < 1e-9);
+  assert.ok(Math.abs(small.size - 3) < 1e-9 && Math.abs(small.bright - 0.35) < 1e-9);
+  assert.ok(Math.abs(starOf('x', { stakePlancks: '2500000000000000', activity: 1 }, scale).size - 7.5) < 1e-9, 'a quarter of the stake is half the size step');
+  assert.equal(starOf('x', { stakePlancks: '5', activity: 5 }).size, 3, 'with no scale every star is the smallest and dimmest');
+  assert.equal(starOf('x', { stakePlancks: '5', activity: 5 }).bright, 0.35);
+  assert.equal(starOf('x', { stakePlancks: 'nope', activity: 0 }, scale).size, 3, 'a non-numeric stake is no stake, never NaN');
+  const v = validatorStar('5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
+  assert.deepEqual([v.kind, v.size, v.bright], [1, 16, 1]);
+  assert.deepEqual([v.x, v.y, v.depth], Object.values(placeOf('5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY')));
+
+  // Recent activity: open agreements now, settlements in the last ten minutes, a heartbeat within about an hour.
+  const recentSettled = new Map([['a', 2]]);
+  assert.equal(activityOf({ address: 'a', activeEscrowCount: 3, lastHeartbeatBlock: 1000 }, { best: 1000 + HEARTBEAT_RECENT_BLOCKS, recentSettled }), 6);
+  assert.equal(activityOf({ address: 'a', activeEscrowCount: 3, lastHeartbeatBlock: 1000 }, { best: 1001 + HEARTBEAT_RECENT_BLOCKS, recentSettled }), 5, 'an older heartbeat is not recent');
+  assert.equal(activityOf({ address: 'b', activeEscrowCount: 0, lastHeartbeatBlock: null }, { best: 5000, recentSettled }), 0);
+  assert.equal(activityOf({ address: 'b' }, {}), 0, 'missing counters count as none, never NaN');
+  const counts = recentSettlements([{ buyer: 'a', provider: 'b', seq: 1, blockNumber: 990 }, { buyer: 'a', provider: 'c', seq: 1, blockNumber: 1 }], { best: 1000 });
+  assert.deepEqual([...counts], [['a', 1], ['b', 1]], 'a settlement older than ten minutes no longer counts');
+});
+
+test('the field lists agents then validators, capped, and lines only between stars it has', () => {
+  const agents = [
+    { address: 'a', stakePlancks: '4', activeEscrowCount: 1, lastHeartbeatBlock: 0 },
+    { address: 'b', stakePlancks: '1', activeEscrowCount: 0, lastHeartbeatBlock: 0 },
+    { address: 'v', stakePlancks: '1', activeEscrowCount: 0, lastHeartbeatBlock: 0 },
+  ];
+  const placed = starsFor(agents, ['v', 'w'], { best: 10 });
+  assert.equal(placed.stars.length, 5);
+  assert.deepEqual(placed.stars.map((s) => s.kind), [0, 0, 0, 1, 1]);
+  assert.deepEqual([...placed.index], [['a', 0], ['b', 1], ['v', 2], ['w', 4]], 'an address that is both agent and validator is drawn as the agent');
+  assert.ok(Math.abs(placed.stars[0].size - 12) < 1e-9 && Math.abs(placed.stars[1].size - 7.5) < 1e-9);
+  assert.equal(placed.maxActivity, 2, 'one open agreement and a heartbeat within the hour');
+  assert.ok(Math.abs(placed.stars[0].bright - 1) < 1e-9 && Math.abs(placed.stars[1].bright - (0.35 + 0.65 * Math.sqrt(0.5))) < 1e-9);
+  const many = starsFor(Array.from({ length: MAX_STARS + 10 }, (_, i) => ({ address: `agent-${i}`, stakePlancks: '1' })), ['v']);
+  assert.equal(many.stars.length, MAX_STARS, 'validators never push the field past its cap');
+
+  const seen = new Map();
+  const open = [
+    { buyer: 'a', provider: 'b', seq: 1, status: 'Created' },
+    { buyer: 'a', provider: 'b', seq: 2, status: 'Disputed' },
+    { buyer: 'a', provider: 'zz', seq: 1, status: 'Created' },
+  ];
+  const settled = [
+    { buyer: 'a', provider: 'b', seq: 1, blockNumber: 999 }, // still open under the same key: not drawn twice
+    { buyer: 'b', provider: 'v', seq: 7, blockNumber: 990 },
+    { buyer: 'b', provider: 'v', seq: 6, blockNumber: 1000 - SETTLE_FADE_MS / SLOT_MS }, // ten minutes ago: gone
+    { buyer: 'b', provider: 'zz', seq: 1, blockNumber: 999 },
+  ];
+  const first = linesFor(open, settled, placed.index, { best: 1000, now: 50, seen });
+  assert.deepEqual(first.lines, [
+    { key: 'a/b/1', from: 0, to: 1, state: 0, t0: 0 },
+    { key: 'a/b/2', from: 0, to: 1, state: 1, t0: 50 },
+    { key: 'b/v/7', from: 1, to: 2, state: 2, t0: 50 - (10 * SLOT_MS) / 1000 },
+  ]);
+  assert.equal(first.omitted, 2, 'a line to an address that is not a star is counted, never placed');
+  assert.equal(first.capped, 0);
+  // `now` and `t0` are the scene's clock in seconds, as the shader reads them: a
+  // settlement ten blocks old is a minute into its ten-minute fade, so it glows.
+  const settledLine = first.lines[2];
+  const ageSeconds = 50 - settledLine.t0;
+  assert.equal(ageSeconds, 60);
+  assert.ok(ageSeconds < SETTLE_FADE_MS / 1000, 'a recent settlement is inside the fade the shader applies, so it is drawn');
+  // The scene holds a fixed number of lines; any past it are counted, never claimed as drawn.
+  const capped = linesFor(open, settled, placed.index, { best: 1000, now: 50, seen: new Map(), max: 2 });
+  assert.deepEqual(capped.lines.map((l) => l.key), ['a/b/1', 'a/b/2']);
+  assert.equal(capped.capped, 1);
+  assert.equal(capped.omitted, 2);
+  const later = linesFor(open, settled, placed.index, { best: 1000, now: 80, seen });
+  assert.equal(later.lines[1].t0, 50, 'a dispute keeps the moment it was first seen: it flickers once');
+  const gone = linesFor([open[0]], [], placed.index, { best: 1000, now: 90, seen });
+  assert.equal(seen.size, 0, 'a dispute that has left the list is forgotten');
+  assert.equal(gone.lines.length, 1);
+});
+
+test('the sky’s marker, glow, frame judge and fallbacks follow stated rules', () => {
+  assert.equal(markerX(0), 1);
+  assert.equal(markerX(30), 0);
+  assert.equal(markerX(60), -1);
+  assert.equal(markerX(600), -1, 'never past the left edge');
+  assert.equal(markerX(NaN), 1);
+  assert.equal(settleGlow(0), 1);
+  assert.equal(settleGlow(SETTLE_FADE_MS / 2), 0.5);
+  assert.equal(settleGlow(SETTLE_FADE_MS), 0);
+  assert.equal(settleGlow(SETTLE_FADE_MS * 3), 0);
+  assert.equal(fpsTooLow([20, 20]), false, 'two slow seconds are not three');
+  assert.equal(fpsTooLow([60, 20, 20, 20]), true);
+  assert.equal(fpsTooLow([20, 20, 31]), false);
+  assert.equal(fpsTooLow([20, 29.9, 20]), true);
+  assert.deepEqual(frameStats([]), { frames: 0, fps: null, worstMs: null });
+  assert.deepEqual(frameStats([16.6, 16.8, 16.6]), { frames: 3, fps: 60, worstMs: 16.8 });
+  assert.deepEqual(frameStats([50]), { frames: 1, fps: 20, worstMs: 50 });
+  assert.deepEqual(parseColor('#8a97a8'), [0x8a / 255, 0x97 / 255, 0xa8 / 255]);
+  assert.deepEqual(parseColor('#fff'), [1, 1, 1]);
+  assert.deepEqual(parseColor('rgba(111, 211, 199, 0.35)'), [111 / 255, 211 / 255, 199 / 255]);
+  assert.equal(parseColor('teal'), null);
+  assert.equal(parseColor(undefined), null);
+  assert.equal(fallbackReason({ webgl: true, reduced: false }), null);
+  assert.match(fallbackReason({ webgl: false, reduced: false }), /no WebGL/);
+  assert.match(fallbackReason({ webgl: true, reduced: true }), /reduced motion/);
+  assert.match(fallbackReason({ webgl: false, reduced: true }), /reduced motion/, 'reduced motion is named first: it is the reader’s choice');
+  assert.equal(
+    skyExtra({ validators: 5, lines: 1, omitted: 0, settled: 2, complete: true }),
+    'one per registered agent, sized by stake, brighter the more recent its activity; 5 validators as fixed stars (Session.Validators); 1 line, one per open agreement (/v1/escrows); 2 settlements of the last ten minutes glowing (escrow.DeliveryConfirmed); the field moves once per block and drifts 1° a minute',
+  );
+  assert.match(skyExtra({ validators: 5, lines: 3, omitted: 2, settled: 0, complete: false }), /agent listed, .*3 lines, .*2 not drawn: a party is not a registered agent; 0 settlements/);
+  assert.match(
+    skyExtra({ validators: 5, lines: 2048, omitted: 0, settled: 0, complete: true, capped: 7, limit: 2048 }),
+    /2048 lines, one per open agreement \(\/v1\/escrows\), 7 more not drawn: the scene holds 2048 lines; 0 settlements/,
+  );
+  // A read that failed is said, so an empty part of the sky is never mistaken for an empty chain.
+  assert.match(
+    skyExtra({ validators: 0, lines: 0, omitted: 0, settled: 0, complete: true, faults: ['validators (Session.Validators): HTTP 502', 'open agreements (/v1/escrows): missing field "status"'] }),
+    /a minute; could not read validators \(Session\.Validators\): HTTP 502; could not read open agreements \(\/v1\/escrows\): missing field "status"$/,
+  );
+});
+
+test('the sky never loads its scene without the flag, and stands down before loading it under reduced motion or without WebGL', async () => {
+  const note = { hidden: true, querySelector: (sel) => (sel === '.reading-prov' ? prov : value) };
+  const value = { textContent: '', classList: { remove() {} } };
+  const prov = { cleared: 0, replaceChildren() { this.cleared += 1; } };
+  const html = { attrs: new Map(), setAttribute(k, v) { this.attrs.set(k, v); }, removeAttribute(k) { this.attrs.delete(k); }, hasAttribute(k) { return this.attrs.has(k); } };
+  // A stub element: enough of the DOM for the probe canvas and the presenter's height figure.
+  const element = (webgl, owner) => ({
+    className: '', textContent: '', removed: 0, attrs: new Map(), children: [],
+    ownerDocument: owner,
+    getContext: () => (webgl ? {} : null),
+    setAttribute(k, v) { this.attrs.set(k, v); },
+    replaceChildren(...nodes) { this.children = nodes; },
+    append(...nodes) { this.children.push(...nodes); },
+    remove() { this.removed += 1; },
+  });
+  const doc = (webgl) => {
+    const d = { documentElement: html, defaultView: { location: { search: '?sky=1' } }, querySelector: () => note, body: { append() {} } };
+    d.createElement = () => element(webgl, d);
+    return d;
+  };
+  let loads = 0;
+  const load = async () => { loads += 1; return { start: () => ({ stopped: false }) }; };
+  const ctx = (reduced) => ({ motion: { reduced: () => reduced }, bus: { on() {} }, format: { formatInteger: String } });
+  assert.equal(initSky(doc(true), ctx(false), { search: '', load }), null, 'off by default');
+  assert.equal(loads, 0);
+  const reduced = initSky(doc(true), ctx(true), { load });
+  assert.match(reduced.reason, /reduced motion/);
+  assert.match(value.textContent, /reduced motion/);
+  assert.equal(await reduced.ready, null);
+  const noGl = initSky(doc(false), ctx(false), { load });
+  assert.match(noGl.reason, /no WebGL/);
+  assert.equal(loads, 0, 'neither fallback fetched the scene');
+  assert.equal(prov.cleared, 2, 'a fallback clears the provenance line it no longer describes');
+  const on = initSky(doc(true), ctx(false), { load });
+  assert.equal(on.reason, null);
+  assert.ok(html.hasAttribute('data-sky'));
+  assert.deepEqual(await on.ready, { stopped: false });
+  assert.equal(loads, 1, 'the scene is fetched once, only when it can run');
+
+  // Presenter: the height listeners are dropped when the sky stands down, so nothing writes to a detached node.
+  html.setAttribute('data-present', '');
+  let removed = 0;
+  const presentCtx = { motion: { reduced: () => false }, bus: { on: () => () => { removed += 1; } }, format: { formatInteger: String } };
+  const failing = initSky(doc(true), presentCtx, { load: async () => { throw new Error('offline'); } });
+  assert.ok(html.hasAttribute('data-sky-present'));
+  assert.equal(await failing.ready, null);
+  assert.ok(!html.hasAttribute('data-sky-present'), 'the ordinary presenter returns');
+  assert.equal(removed, 2, 'both bus listeners are removed');
+  assert.match(value.textContent, /could not start \(offline\)/);
 });

@@ -1,10 +1,13 @@
 /* /observatory — the design system for the instruments.
    The plate: a deep, not-pure black with a hairline reticle grid behind each
    instrument; on light, a warm paper with ink. Type: Instrument Serif for
-   headings and the large numerals inside instruments, IBM Plex Mono with
-   tabular lining figures for every readout, Source Sans 3 for reading. One
-   luminous accent, reserved for live data; four semantic colours for states.
-   Hairlines, dots and type — no gradients, no shadows, no pills, no icons.
+   headings and every figure — the hero readouts, the dial, the ring's count —
+   with each digit set in its own cell for tabular alignment (the face has no
+   tabular figures of its own); IBM Plex Mono, light and small, only for
+   provenance, hashes and addresses; Source Sans 3 for reading, at a measure
+   of sixty characters. One luminous accent, reserved for live data; four
+   semantic colours for states. Hairlines, dots and type — no gradients, no
+   shadows, no pills, no icons.
    The dark and light values of --text, --text-dim, --border and --accent match
    styles.css (test/observatory.test.mjs keeps them in step). */
 
@@ -16,25 +19,11 @@
   src: url("fonts/instrument-serif-latin-400-normal.woff2") format("woff2");
 }
 @font-face {
-  font-family: "Instrument Serif";
-  font-style: italic;
-  font-weight: 400;
-  font-display: swap;
-  src: url("fonts/instrument-serif-latin-400-italic.woff2") format("woff2");
-}
-@font-face {
   font-family: "IBM Plex Mono";
   font-style: normal;
   font-weight: 400;
   font-display: swap;
   src: url("fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
-}
-@font-face {
-  font-family: "IBM Plex Mono";
-  font-style: normal;
-  font-weight: 500;
-  font-display: swap;
-  src: url("fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
 }
 @font-face {
   font-family: "Source Sans 3";
@@ -101,6 +90,7 @@
   --font-sans: "Source Sans 3", "Source Sans 3 Fallback", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --gutter: 1rem;
   --grid-step: 2rem;
+  --measure: 60ch;
 }
 
 @media (prefers-color-scheme: light) {
@@ -135,7 +125,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 400 1.0625rem / 1.55 var(--font-sans);
+  font: 400 1.125rem / 1.55 var(--font-sans);
   overflow-wrap: break-word;
 }
 
@@ -166,10 +156,24 @@ h2 {
   font-family: var(--font-serif);
 }
 
+/* Reading text never runs past sixty characters. */
+p,
+dd,
+li,
+.lede,
+.dek,
+.instrument-note,
+.reading-note {
+  max-width: var(--measure);
+}
+
+/* Monospace is for provenance, hashes and addresses only: light, one step
+   below the text around it. */
 .mono,
 code,
 pre {
   font-family: var(--font-mono);
+  font-weight: 400;
   font-variant-numeric: tabular-nums lining-nums;
 }
 
@@ -289,6 +293,7 @@ pre {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0.15rem 0.5rem;
+  max-width: none; /* a <p>, but not reading text: the measure does not apply */
   /* The bar's height is reserved for its longest state, so a state change
      never moves the page beneath it (the first screen's layout shift). */
   min-height: 2.15rem;
@@ -373,6 +378,7 @@ pre {
   color: var(--text);
 }
 
+/* The height is a hero readout: the display serif, in digit cells, inline. */
 .statusbar .reading-value {
   display: inline;
   margin: 0;
@@ -383,6 +389,7 @@ pre {
 
 .statusbar .reading-prov {
   margin: 0 0 0 auto;
+  font-size: 0.625rem;
 }
 
 .statusbar .reading-value.is-error .unavailable {
@@ -421,6 +428,7 @@ pre {
   .statusbar .reading-prov {
     flex-basis: 100%;
     margin: 0;
+    font-size: 0.5625rem;
     line-height: 1.3;
   }
 }
@@ -468,7 +476,7 @@ pre {
 
 .instrument-label .mono {
   margin-right: 0.35em;
-  font-weight: 400;
+  font-family: var(--font-sans); /* a section number is a label, not provenance */
   letter-spacing: 0.1em;
 }
 
@@ -502,9 +510,7 @@ h1 {
   }
 }
 
-/* Two lines at a sixty-character measure. */
 .dek {
-  max-width: 60ch;
   margin: 0 0 0.5rem;
   font-size: clamp(1.0625rem, 1rem + 0.35vw, 1.25rem);
   line-height: 1.45;
@@ -697,15 +703,23 @@ h2 {
   color: var(--text-dim);
 }
 
+/* Figures are set in the display serif. The face has no tabular figures, so
+   each digit sits in a cell one `ch` wide (its widest digit, the zero) and a
+   figure that counts up moves nothing beside it. */
 .reading-value {
   margin: 0;
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums lining-nums;
-  font-weight: 500;
-  font-size: clamp(1.75rem, 1.5rem + 1vw, 2.5rem);
-  line-height: 1.1;
-  letter-spacing: -0.01em;
+  font-family: var(--font-serif);
+  font-weight: 400;
+  font-size: clamp(2rem, 1.6rem + 1.4vw, 3rem);
+  line-height: 1.05;
+  letter-spacing: -0.005em;
   color: var(--text);
+}
+
+.dc {
+  display: inline-block;
+  width: 1ch;
+  text-align: center;
 }
 
 .reading-value.is-live .digits {
@@ -735,6 +749,7 @@ h2 {
 
 .reading-value.is-error .unavailable,
 .reading-value.is-absent .digits {
+  font-family: var(--font-sans);
   font-size: 1.25rem;
   letter-spacing: 0;
   text-shadow: none;
@@ -747,6 +762,7 @@ h2 {
 .reading-value .sub {
   display: block;
   margin-top: 0.3rem;
+  font-family: var(--font-sans); /* the figure is serif now; its sub-line is reading text */
   font-size: 0.8125rem;
   font-weight: 400;
   letter-spacing: 0;
@@ -757,6 +773,7 @@ h2 {
 .reading-value .error {
   display: block;
   margin-top: 0.35rem;
+  font-family: var(--font-sans); /* as above */
   font-size: 0.75rem;
   font-weight: 400;
   line-height: 1.4;
@@ -765,10 +782,13 @@ h2 {
   overflow-wrap: anywhere;
 }
 
+/* Provenance: mono, light, a step below the note around it. */
 .reading-prov {
+  max-width: none;
   margin: 0.5rem 0 0;
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-weight: 400;
+  font-size: 0.625rem;
   line-height: 1.5;
   color: var(--text-dim);
   overflow-wrap: anywhere;
@@ -815,6 +835,7 @@ h2 {
    room, and its provenance line's, is reserved before either arrives, so the
    readings beneath do not move when they do. */
 .pulse-sentence {
+  max-width: none; /* a <p>, but a figure, not reading text */
   min-height: 3.5rem;
   margin: 0.5rem 0 0;
   padding: 0;
@@ -891,6 +912,7 @@ h2 {
 /* ── 03 constellation ─────────────────────────────────────────────────── */
 
 .legend {
+  max-width: none;
   margin: 0 0 1rem;
   padding: 0;
   list-style: none;
@@ -963,7 +985,7 @@ h2 {
 }
 
 .constellation-tip strong {
-  font-weight: 500;
+  font-weight: 400;
 }
 
 .constellation-list {
@@ -977,6 +999,7 @@ h2 {
 }
 
 .agent-list {
+  max-width: none;
   margin: 0.5rem 0 0;
   padding: 0;
   list-style: none;
@@ -987,6 +1010,7 @@ h2 {
 }
 
 .agent-list li {
+  max-width: none;
   break-inside: avoid;
   padding: 0.25rem 0;
   border-top: 1px solid var(--border);
@@ -994,8 +1018,6 @@ h2 {
 
 /* ── 04 validator ring ────────────────────────────────────────────────── */
 
-/* The ring may take the whole instrument column (≈ 26 rem at 1440 px) so the
-   address labels have room at a legible size; narrower, it draws compact. */
 .ring-host {
   width: 100%;
   max-width: 26rem;
@@ -1051,7 +1073,7 @@ h2 {
 }
 
 .ring .ring-label {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: 0.6875rem;
   fill: var(--text-dim);
 }
@@ -1064,6 +1086,7 @@ h2 {
 }
 
 .validator-list {
+  max-width: none;
   margin: 1rem 0 0;
   padding: 0;
   list-style: none;
@@ -1073,15 +1096,17 @@ h2 {
 }
 
 .validator-list li {
+  max-width: none;
   display: grid;
-  grid-template-columns: 1.25rem minmax(0, 1fr);
+  grid-template-columns: 5.5rem minmax(0, 1fr);
   gap: 0.25rem 0.5rem;
   padding: 0.4rem 0;
   border-top: 1px solid var(--border);
 }
 
 .validator-list .v-index {
-  color: var(--text-dim);
+  font-family: var(--font-sans);
+  color: var(--text);
 }
 
 .validator-list .v-meta {
@@ -1189,7 +1214,7 @@ h2 {
   /* The future: a dashed continuation past the last applied upgrade. */
   content: "";
   position: absolute;
-  left: 82%;
+  left: var(--future, 82%);
   right: 0;
   top: -1px;
   border-top: 1px dashed var(--text-dim);
@@ -1197,6 +1222,7 @@ h2 {
 }
 
 .rail-markers {
+  max-width: none;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -1207,6 +1233,7 @@ h2 {
   left: var(--x);
   top: 50%;
   width: 0;
+  max-width: none;
 }
 
 .rail-tick {
@@ -1251,19 +1278,9 @@ h2 {
   color: var(--text-dim);
 }
 
-.rail-align-start .rail-spec,
-.rail-align-start .rail-meta {
-  transform: none;
-}
-
-.rail-align-end .rail-spec,
-.rail-align-end .rail-meta {
-  transform: translateX(-100%);
-}
-
 @media (max-width: 39.99rem) {
   .rail-meta {
-    display: none;
+    font-size: 0.625rem;
   }
   .rail-spec {
     font-size: 1.375rem;
@@ -1271,12 +1288,14 @@ h2 {
 }
 
 .upgrades {
+  max-width: none;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .upgrade {
+  max-width: none;
   padding: 0.9rem 0;
   border-top: 1px solid var(--border);
 }
@@ -1288,9 +1307,10 @@ h2 {
   font-weight: 600;
 }
 
-.upgrade-title .mono {
-  font-size: 1.125rem;
-  font-weight: 500;
+/* The spec number is a figure: the display serif, as every figure on the page. */
+.upgrade-spec {
+  font-family: var(--font-serif);
+  font-size: 1.375rem;
 }
 
 .status {
@@ -1310,11 +1330,11 @@ h2 {
 
 .upgrade-change {
   margin: 0 0 0.4rem;
-  max-width: 44rem;
 }
 
 .upgrade-facts {
   margin: 0 0 0.5rem;
+  font-family: var(--font-sans); /* facts are reading text; the hash beneath them stays mono */
   font-size: 0.75rem;
   color: var(--text-dim);
 }
@@ -1345,14 +1365,14 @@ h2 {
 }
 
 .chip-label {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans); /* a label; the hash it introduces is the mono part */
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
 
 .hash {
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
   word-break: break-all;
 }
 
@@ -1390,6 +1410,20 @@ h2 {
 .posture-row dd {
   margin: 0;
   font-size: 1rem;
+}
+
+.posture-value {
+  font-family: var(--font-serif);
+  font-size: 1.625rem;
+  line-height: 1.1;
+}
+
+.posture-source {
+  display: block;
+  margin-top: 0.3rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--text-dim);
 }
 
 .not-recorded {
@@ -1432,13 +1466,16 @@ h2 {
 }
 
 .fact dd {
+  max-width: none;
   margin: 0;
   font-size: 0.875rem;
   overflow-wrap: anywhere;
 }
 
+/* A hash is a hash: mono, whatever the readings around it are set in. */
 .fact .reading-value {
-  font-size: 0.875rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
   font-weight: 400;
   letter-spacing: 0;
   word-break: break-all;
@@ -1468,11 +1505,12 @@ h2 {
 .command pre {
   flex: 1;
   min-width: 0;
+  max-width: none;
   margin: 0;
   padding: 0.75rem 1rem;
   overflow-x: auto;
   border-left: 1px solid var(--text-dim);
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   line-height: 1.55;
 }
 
@@ -1528,6 +1566,7 @@ footer p {
 
 /* "Last merge to master": a small line in the footer, not a masthead feature. */
 footer .merge {
+  max-width: none;
   padding-top: 0.75rem;
   border-top: 0;
 }
@@ -1559,6 +1598,170 @@ footer .sr-status {
   padding-top: 2rem;
 }
 
+/* ── the sky (?sky=1) ─────────────────────────────────────────────────────
+   A WebGL star field behind everything: one star per registered agent. It
+   sits under the page (z-index -1, above the body's background), takes no
+   pointer events, and is drawn only when the URL asks for it. */
+
+.sky {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Under the canvas: the steady glow behind the finality marker and the
+   marker's hairline, a gradient the script colours and places (`--sky-marker`,
+   a percentage of the width: the right edge is now, sixty slots back is the
+   left edge). It costs nothing per frame. */
+.sky-settled {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  --sky-marker: 100%;
+  pointer-events: none;
+}
+
+/* The sky's provenance line in the footer, beside the merge line. */
+footer .sky-note {
+  max-width: none;
+  padding-top: 0.5rem;
+  border-top: 0;
+  font-size: 0.8125rem;
+}
+
+/* `?present=1&sky=1`: the sky fills the first screen with the live block
+   height in the display serif at 160 px and nothing else. The attribute is
+   set by the script once the sky has started and removed if it stands down,
+   so the ordinary presenter returns on its own. */
+html[data-sky-present] .statusbar.reading,
+html[data-sky-present] main,
+html[data-sky-present] .present-counter {
+  display: none;
+}
+
+.sky-height {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 160px;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  pointer-events: none;
+}
+
+@media (max-width: 60rem) {
+  .sky-height {
+    font-size: clamp(3rem, 18vw, 160px);
+  }
+}
+
+/* ── presenter mode ───────────────────────────────────────────────────────
+   `?present=1`: the nav, the masthead, the provenance lines and the footer
+   are hidden; the status bar is pinned; each instrument section is laid over
+   the viewport and only the active one is shown; type is set for a room. */
+
+html[data-present] {
+  font-size: 118.75%;
+}
+
+@media (min-width: 100rem) {
+  html[data-present] {
+    font-size: 137.5%;
+  }
+}
+
+html[data-present] .site-nav,
+html[data-present] .masthead,
+html[data-present] .sky-note,
+html[data-present] .noscript,
+html[data-present] footer,
+html[data-present] .reading-prov,
+html[data-present] .live,
+html[data-present] .instrument-note,
+html[data-present] .constellation-list,
+html[data-present] .validator-list {
+  display: none;
+}
+
+html[data-present] .statusbar.reading {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  font-size: 0.9375rem;
+}
+
+html[data-present] main > .instrument-section {
+  position: fixed;
+  inset: 3rem 0 0;
+  overflow: auto;
+  align-content: start;
+  padding: 1rem var(--gutter) 3rem;
+  background: var(--bg);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 300ms ease-out, visibility 0s linear 300ms;
+}
+
+html[data-present] main > .instrument-section[data-present-active] {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition: opacity 300ms ease-out;
+}
+
+html[data-present] .instrument-section::before {
+  margin-bottom: 0.75rem;
+}
+
+html[data-present] .pulse-canvas {
+  height: 36vh;
+}
+
+html[data-present] .dial,
+html[data-present] .ring-host {
+  max-width: min(58vh, 34rem);
+}
+
+html[data-present] .constellation-host {
+  height: 60vh;
+  min-height: 0;
+  max-height: none;
+  aspect-ratio: auto;
+}
+
+html[data-present] .strips {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  row-gap: 1rem;
+}
+
+html[data-present] .strip-plot {
+  height: 22vh;
+}
+
+html[data-present] .rail {
+  height: 9rem;
+}
+
+.present-counter {
+  position: fixed;
+  right: var(--gutter);
+  bottom: 0.75rem;
+  z-index: 3;
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
 /* ── motion ───────────────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
@@ -1567,5 +1770,8 @@ footer .sr-status {
   }
   .reading-value.is-live .digits {
     text-shadow: none;
+  }
+  html[data-present] main > .instrument-section {
+    transition: none;
   }
 }
