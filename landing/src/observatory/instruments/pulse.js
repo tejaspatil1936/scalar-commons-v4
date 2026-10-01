@@ -248,6 +248,19 @@ export function riverSentence(cadence, finality) {
   return parts.join(' · ');
 }
 
+/**
+ * Names the heights that were polled from /v1/status rather than streamed: they
+ * have no header and no body, so their bars can only stand at the floor. A
+ * polled height carries the `:status` id suffix. Empty when there are none.
+ */
+export function polledNote(blocks) {
+  const n = blocks.filter((b) => !b.superseded && b.id.endsWith(':status')).length;
+  if (!n) return '';
+  return `${n} polled height${n === 1 ? '' : 's'} without a body, drawn at the floor`;
+}
+
+const POLLING_TEXT = 'Polling every 6 s — live stream unavailable, block bodies not read';
+
 export function init(root, ctx) {
   const canvas = root.querySelector('.pulse-canvas');
   const live = root.querySelector('.live');
@@ -312,12 +325,14 @@ export function init(root, ctx) {
     if (cadence) ctx.bus.emit('cadence', { ...cadence, record: blocksRecord });
     if (blocksRecord && cadence) {
       const finality = stream.finalitySeconds(cadence);
+      const polled = polledNote(stream.blocks);
       ctx.readout.showValue(targets.cadence, blocksRecord, {
         value: riverSentence(cadence, finality),
         extra:
           `${cadence.blocks} block times${liveCount ? `, ${liveCount} observed live` : ''}` +
           `${decodedCount ? `, ${decodedCount} bodies read over ${ctx.RPC_URL.replace('wss://', '')}` : ''}` +
-          `${finality?.measured ? ' · finality measured' : ''}${bodyNote ? ` · ${bodyNote}` : ''}`,
+          `${finality?.measured ? ' · finality measured' : ''}${bodyNote ? ` · ${bodyNote}` : ''}` +
+          `${polled ? ` · ${polled}` : ''}`,
       });
     }
     announce(cadence);
@@ -601,7 +616,7 @@ export function init(root, ctx) {
       const fin = stream.finalize(finalized, ctx.now());
       headRecord = record;
       finalRecord = record;
-      if (mode === 'polling') setMode('polling', 'Polling every 6 s — live stream unavailable');
+      if (mode === 'polling') setMode('polling', POLLING_TEXT);
       // A polled height is not a head: it has no header and no author, so it
       // goes out as `poll`, and `head` keeps its contract for the instruments.
       ctx.bus.emit('poll', { record, number: best, finalized, arrivedAt: ctx.now() });
@@ -621,7 +636,7 @@ export function init(root, ctx) {
 
   function startPolling() {
     if (stopPolling) return;
-    setMode('polling', 'Polling every 6 s — live stream unavailable');
+    setMode('polling', POLLING_TEXT);
     stopPolling = ctx.watch('status', onStatus, STATUS_POLL_MS);
   }
 

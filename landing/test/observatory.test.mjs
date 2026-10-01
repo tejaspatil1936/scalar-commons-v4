@@ -353,7 +353,7 @@ test('the first screen: a status bar above the nav, a one-line title, a two-line
   assert.match(css, /\.statusbar \.sb-block \{[^}]*white-space: nowrap/);
 });
 
-test('the river: its sentence sits under the canvas, before the readings, and reads only fields the node serves', () => {
+test('the river: its sentence sits under the canvas, before the readings, and the lede names the bar’s measure', () => {
   const pulse = page.match(/<section id="pulse"[\s\S]*?<\/section>/)[0];
   assert.ok(pulse.indexOf('pulse-canvas') < pulse.indexOf('class="pulse-sentence reading" data-reading="cadence"'));
   assert.ok(pulse.indexOf('data-reading="cadence"') < pulse.indexOf('class="readings"'));

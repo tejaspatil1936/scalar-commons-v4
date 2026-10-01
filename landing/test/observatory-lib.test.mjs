@@ -35,6 +35,7 @@ import {
   trailAlpha,
   riverLayout,
   riverSentence,
+  polledNote,
   TRAIL,
 } from '../src/observatory/instruments/pulse.js';
 import { stateWord, sealingPhrase, init as initStatusBar, SEALING_WINDOW, FINALITY_LAG_ALERT, LATE_MS } from '../src/observatory/statusbar.js';
@@ -309,6 +310,24 @@ test('the sentence under the river names the rhythm and the time to finality, he
   assert.equal(riverSentence({ perMinute: 10 }, { seconds: 12, measured: false }), '10.0 blocks per minute · finality within about 12 seconds');
   assert.equal(riverSentence({ perMinute: 10 }, null), '10.0 blocks per minute');
   assert.equal(riverSentence(null, null), '');
+});
+
+test('polled heights are named as such: no body was read, so the bar stands at the floor', () => {
+  // A height taken from /v1/status while the socket is down has no header and
+  // no body: its bar can only stand at the one-extrinsic floor. The sentence's
+  // provenance line must say so rather than leave a half-toned bar unexplained.
+  const s = new Stream();
+  s.seed({ number: 10, id: '10:a', at: 1_000, count: 1 });
+  s.head({ number: 11, id: '11:b', arrivedAt: 7_000 });
+  assert.equal(polledNote(s.blocks), '', 'live heads with a pending body are not polled heights');
+  s.head({ number: 12, id: '12:status', arrivedAt: 13_000 });
+  assert.equal(polledNote(s.blocks), '1 polled height without a body, drawn at the floor');
+  s.head({ number: 13, id: '13:status', arrivedAt: 19_000 });
+  assert.equal(polledNote(s.blocks), '2 polled heights without a body, drawn at the floor');
+  // The socket returns and the real header for 13 supersedes the polled one: it no longer counts.
+  s.head({ number: 13, id: '13:c', arrivedAt: 19_500 });
+  assert.equal(polledNote(s.blocks), '1 polled height without a body, drawn at the floor');
+  assert.equal(polledNote([]), '');
 });
 
 test('the status bar’s state word follows stated rules, worst first', () => {
