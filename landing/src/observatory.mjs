@@ -293,7 +293,7 @@ function upgradeRows(history) {
     .map((u) => {
       const applied = u.status === 'applied';
       return `          <li class="upgrade" data-spec="${u.specVersion}" data-status="${escapeHtml(u.status)}">
-            <h3 class="upgrade-title"><span class="mono">${u.specVersion}</span> <span class="status status-${escapeHtml(u.status)}">${applied ? 'Applied' : 'Scheduled'}</span></h3>
+            <h3 class="upgrade-title"><span class="upgrade-spec">${u.specVersion}</span> <span class="status status-${escapeHtml(u.status)}">${applied ? 'Applied' : 'Scheduled'}</span></h3>
             <p class="upgrade-change">${escapeHtml(u.summary)}</p>
             <p class="upgrade-facts mono">${
               applied
@@ -335,8 +335,8 @@ ${upgradeRows(history)}
 }
 
 const POSTURE_FIELDS = [
-  ['findingsExamined', 'Findings examined', 'Security findings reviewed against the runtime.'],
-  ['fixedIn307', 'Fixed in runtime 307', 'Of those, the number closed by the current rules.'],
+  ['findingsExamined', 'Findings examined', 'Security findings the testnet audit examined against the runtime and its operation.'],
+  ['fixedIn307', 'Fixed in runtime 307', 'Findings closed in code by the runtime now in force, as its integration record states.'],
   ['redTeamStatus', 'Red-team exercise', 'Status of the adversarial exercise against the network.'],
   ['lastIndependentRehearsal', 'Last independent rehearsal', 'Most recent upgrade or recovery rehearsal by an outside party.'],
 ];
@@ -347,9 +347,10 @@ function postureSection(posture) {
     const recorded = entry.value !== null && entry.value !== undefined;
     const value = recorded ? escapeHtml(String(entry.value)) : '<span class="not-recorded">not yet recorded</span>';
     const asOf = entry.asOf ? ` <span class="dim mono">as of ${escapeHtml(entry.asOf)}</span>` : '';
+    const source = recorded && entry.source ? `<span class="posture-source">${escapeHtml(entry.source)}</span>` : '';
     return `        <div class="posture-row" data-posture="${key}" data-recorded="${recorded}">
           <dt>${escapeHtml(label)}<span class="reading-note">${escapeHtml(note)}</span></dt>
-          <dd class="mono">${value}${asOf}</dd>
+          <dd><span class="posture-value">${value}</span>${asOf}${source}</dd>
         </div>`;
   }).join('\n');
   return section({
@@ -358,7 +359,7 @@ function postureSection(posture) {
     label: 'Security posture',
     heading: 'Record, not live',
     lede:
-      'These four entries are written by the operators, not read from the chain. They are shown here so the page never implies a security claim it cannot source. An entry that has not been recorded says so.',
+      'These four entries are written by the operators, not read from the chain. They are shown here so the page never implies a security claim it cannot source: each recorded value names the document in this repository it was taken from, and an entry that has not been recorded says so.',
     instrument: `      <dl class="posture">
 ${rows}
       </dl>
@@ -466,6 +467,15 @@ export function renderSection(name, data) {
 }
 
 /**
+ * Presenter mode is asked for in the URL (`?present=1`), and the stylesheet
+ * lays the page out differently for it, so the flag is read before the first
+ * paint by this one line in the head rather than by the module bundle, which
+ * loads later. It sets an attribute and nothing else.
+ */
+export const PRESENTER_BOOT =
+  '<script>if(/(?:^\\?|[?&])present=1(?:&|$)/.test(location.search))document.documentElement.setAttribute("data-present","")</script>';
+
+/**
  * The document head. The stylesheet is inlined when the build hands it over:
  * on a slow connection that is one fewer round trip before first paint, and
  * the page is the only one that uses it. The same CSS is still written out as
@@ -478,8 +488,9 @@ export function renderHead({ title, description, css = null, scripts = true }) {
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(description)}">
 <meta name="color-scheme" content="dark light">
+${scripts ? PRESENTER_BOOT : ''}
 <link rel="preload" href="fonts/instrument-serif-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="fonts/ibm-plex-mono-latin-500-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preconnect" href="https://${API_HOST}" crossorigin>
 ${styles}
 ${scripts ? '<script type="module" src="observatory.js"></script>' : ''}`;

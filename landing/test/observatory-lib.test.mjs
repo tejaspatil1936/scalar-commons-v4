@@ -38,7 +38,8 @@ import {
   polledNote,
   TRAIL,
 } from '../src/observatory/instruments/pulse.js';
-import { stateWord, sealingPhrase, init as initStatusBar, SEALING_WINDOW, FINALITY_LAG_ALERT, LATE_MS } from '../src/observatory/statusbar.js';
+import { stateWord, sealingPhrase, init as initStatusBar, SEALING_GRACE_MS, FINALITY_LAG_ALERT, LATE_MS } from '../src/observatory/statusbar.js';
+import { wantsPresenter, stepFor } from '../src/observatory/presenter.js';
 import { railPositions } from '../src/observatory.mjs';
 
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
@@ -329,6 +330,44 @@ test('polled heights are named as such: no body was read, so the bar stands at t
   assert.equal(polledNote([]), '');
 });
 
+test('a serif figure is set digit by digit in cells, and once unbroken for screen readers', async () => {
+  // readout.js touches the DOM only inside its functions; a four-method stub is enough to see what setDigits builds.
+  const element = (tag) => ({
+    tag,
+    className: '',
+    textContent: '',
+    attrs: {},
+    children: [],
+    setAttribute(k, v) { this.attrs[k] = v; },
+    append(...nodes) { this.children.push(...nodes); },
+    replaceChildren() { this.children = []; },
+  });
+  const had = 'document' in globalThis;
+  const before = globalThis.document;
+  globalThis.document = { createElement: element };
+  try {
+    const { setDigits } = await import('../src/observatory/readout.js');
+    const node = element('span');
+    node.children.push('stale');
+    setDigits(node, '847,724');
+    assert.equal(node.children.length, 2, 'the old content is replaced by the spoken copy and the cells');
+    const [spoken, cells] = node.children;
+    assert.equal(spoken.className, 'visually-hidden');
+    assert.equal(spoken.textContent, '847,724', 'the whole figure, once, unbroken, for screen readers');
+    assert.equal(cells.className, 'dcells');
+    assert.equal(cells.attrs['aria-hidden'], 'true', 'the cells are not read aloud as separate words');
+    const run = cells.children.map((c) => (typeof c === 'string' ? c : `[${c.textContent}]`)).join('');
+    assert.equal(run, '[8][4][7],[7][2][4]', 'each digit in its own cell; the separator keeps its own width');
+    assert.ok(cells.children.filter((c) => typeof c !== 'string').every((c) => c.className === 'dc'));
+    setDigits(node, 12);
+    assert.equal(node.children[0].textContent, 12, 'a number is accepted as given');
+    assert.equal(node.children[1].children.length, 2);
+  } finally {
+    if (had) globalThis.document = before;
+    else delete globalThis.document;
+  }
+});
+
 test('the status bar’s state word follows stated rules, worst first', () => {
   const normal = { socket: 'live', lastOk: true, seen: true, lag: 2, intervalMs: 6_000, hidden: false };
   assert.equal(stateWord(normal), 'Network normal');
@@ -343,14 +382,16 @@ test('the status bar’s state word follows stated rules, worst first', () => {
   assert.equal(stateWord({ ...normal, lag: null, intervalMs: null }), 'Network normal', 'unknowns are not faults');
 });
 
-test('the sealing phrase says "seen so far" until the window has filled, and never invents a count', () => {
-  assert.equal(sealingPhrase({ authors: 5, total: 5, observed: SEALING_WINDOW }), '5 of 5 validators sealing');
-  assert.equal(sealingPhrase({ authors: 5, total: 5, observed: 6 }), '5 of 5 validators sealing', 'all seen: no hedge needed');
-  assert.equal(sealingPhrase({ authors: 3, total: 5, observed: 6 }), '3 of 5 validators seen sealing so far');
-  assert.equal(sealingPhrase({ authors: 4, total: 5, observed: SEALING_WINDOW }), '4 of 5 validators sealing');
-  assert.equal(sealingPhrase({ authors: null, total: 5, observed: 0 }), '5 validators in the set', 'polling: no author to count');
-  assert.equal(sealingPhrase({ authors: 2, total: null, observed: 10 }), 'validators not yet read');
-  assert.equal(sealingPhrase({ authors: 5, total: 5, observed: 30, error: 'could not decode the set: bad length' }), 'validators unavailable · could not decode the set: bad length');
+test('the sealing phrase states the active set from the chain read, and counts who has sealed only after a minute', () => {
+  // On load the page has seen a block or two: "2 of 5 seen so far" read as three validators down.
+  assert.equal(sealingPhrase({ seen: 2, total: 5, sinceMs: 0 }), '5 validators in the active set');
+  assert.equal(sealingPhrase({ seen: 5, total: 5, sinceMs: SEALING_GRACE_MS - 1 }), '5 validators in the active set', 'even a full count waits for the minute');
+  assert.equal(sealingPhrase({ seen: 3, total: 5, sinceMs: SEALING_GRACE_MS }), '5 validators in the active set · 3 seen sealing since you opened this page');
+  assert.equal(sealingPhrase({ seen: 5, total: 5, sinceMs: 600_000 }), '5 validators in the active set · 5 seen sealing since you opened this page');
+  assert.equal(sealingPhrase({ seen: null, total: 5, sinceMs: 600_000 }), '5 validators in the active set', 'polling from the start: no author was ever seen');
+  assert.equal(sealingPhrase({ seen: 1, total: 1, sinceMs: 600_000 }), '1 validator in the active set · 1 seen sealing since you opened this page');
+  assert.equal(sealingPhrase({ seen: 2, total: null, sinceMs: 600_000 }), 'validators not yet read');
+  assert.equal(sealingPhrase({ seen: 5, total: 5, sinceMs: 600_000, error: 'could not decode the set: bad length' }), 'validators unavailable · could not decode the set: bad length');
   assert.equal(sealingPhrase({ authors: null, total: null, observed: 0, error: 'HTTP 502' }), 'validators unavailable · HTTP 502');
 });
 
@@ -448,9 +489,9 @@ test('status bar: returning from a hidden tab is not a late block', async () => 
 });
 
 test('sealing phrase never claims more validators than the set holds', async () => {
-  const { sealingPhrase: phrase, SEALING_WINDOW: win } = await import('../src/observatory/statusbar.js');
-  // The window still holds indices from a larger, previous set.
-  assert.equal(phrase({ authors: 6, total: 5, observed: win }), '5 of 5 validators sealing');
+  const { sealingPhrase: phrase, SEALING_GRACE_MS: grace } = await import('../src/observatory/statusbar.js');
+  // Validators seen before the set shrank were still seen; the count is clamped to the set.
+  assert.equal(phrase({ seen: 6, total: 5, sinceMs: grace }), '5 validators in the active set · 5 seen sealing since you opened this page');
 });
 
 // A second harness for the paths the block above does not reach: the `poll`
@@ -524,14 +565,16 @@ test('status bar wiring: the finality lag is held, not read from the DOM, and gr
   assert.equal(h.slots['.sb-state'].textContent, 'Finality lagging', 'the worse fault stays first');
 });
 
-test('status bar wiring: the validators read is said honestly — decoded, undecodable, or failed — and a changed set restarts the window', () => {
+test('status bar wiring: the validators read is said honestly — decoded, undecodable, or failed — and a changed set restarts the count', () => {
   const h = statusBarHarness();
   for (const n of [10, 11, 12]) { h.head(n); h.tick(6_000); }
   const validators = h.watches.get('validators');
   const five = { ok: true, data: { result: '0x' + '14' + '11'.repeat(32).repeat(5) } };
   validators(five);
   assert.equal(h.controller.state().total, 5);
-  assert.equal(h.slots['.sb-validators'].textContent, '3 of 5 validators seen sealing so far', 'the first read keeps the window');
+  assert.equal(h.slots['.sb-validators'].textContent, '5 validators in the active set', 'the first minute states the set alone');
+  h.tick(SEALING_GRACE_MS);
+  assert.equal(h.slots['.sb-validators'].textContent, '5 validators in the active set · 3 seen sealing since you opened this page', 'the ticker adds the count once the minute has passed');
   const quiet = mock.method(console, 'error', () => {});
   validators({ ok: true, data: { result: '0x' + '05' + '11'.repeat(16) } });
   quiet.mock.restore();
@@ -541,12 +584,12 @@ test('status bar wiring: the validators read is said honestly — decoded, undec
   validators({ ok: false, error: 'HTTP 502' });
   assert.equal(h.slots['.sb-validators'].textContent, 'validators unavailable · HTTP 502');
   validators(five);
-  assert.equal(h.slots['.sb-validators'].textContent, '5 validators in the set', 'the window restarted when the set changed');
+  assert.equal(h.slots['.sb-validators'].textContent, '5 validators in the active set', 'the count restarted when the set changed');
   h.head(13);
-  assert.equal(h.slots['.sb-validators'].textContent, '1 of 5 validators seen sealing so far');
-  // Falling back to polling drops the window too: polled heights have no author.
+  assert.equal(h.slots['.sb-validators'].textContent, '5 validators in the active set · 1 seen sealing since you opened this page');
+  // Falling back to polling adds nothing: a polled height has no author, but what was seen stays true.
   h.poll(14, 12);
-  assert.equal(h.slots['.sb-validators'].textContent, '5 validators in the set');
+  assert.equal(h.slots['.sb-validators'].textContent, '5 validators in the active set · 1 seen sealing since you opened this page');
 });
 
 test('status bar wiring: a height far below the best is a reset, not a stall', () => {
@@ -574,4 +617,21 @@ test('rail markers are equally spaced in order, whatever the block heights', () 
   assert.deepEqual(railPositions(0), []);
   const five = railPositions(5);
   for (let i = 1; i < five.length; i += 1) assert.ok(Math.abs(five[i] - five[i - 1] - 21) < 1e-9);
+});
+
+test('presenter mode is asked for by ?present=1 and driven by the arrow keys', () => {
+  assert.equal(wantsPresenter('?present=1'), true);
+  assert.equal(wantsPresenter('?a=b&present=1'), true);
+  assert.equal(wantsPresenter('?present=1&a=b'), true);
+  assert.equal(wantsPresenter('?present=10'), false);
+  assert.equal(wantsPresenter('?present=0'), false);
+  assert.equal(wantsPresenter(''), false);
+  assert.equal(stepFor('ArrowRight', 0, 8), 1);
+  assert.equal(stepFor('ArrowRight', 7, 8), 0, 'wraps');
+  assert.equal(stepFor('ArrowLeft', 0, 8), 7);
+  assert.equal(stepFor('Home', 5, 8), 0);
+  assert.equal(stepFor('End', 5, 8), 7);
+  assert.equal(stepFor(' ', 2, 8), 3);
+  assert.equal(stepFor('a', 2, 8), null);
+  assert.equal(stepFor('ArrowRight', 0, 0), null);
 });
