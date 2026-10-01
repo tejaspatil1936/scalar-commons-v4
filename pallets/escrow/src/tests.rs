@@ -2000,3 +2000,34 @@ pub fn reset_gov_state() {
     HELD_VOTES.with(|v| v.borrow_mut().clear());
     ONGOING_POLLS.with(|p| p.borrow_mut().clear());
 }
+
+/// `accept_agreement` refuses once `deliver_by` has passed.
+///
+/// This rule is not in issue #180 — the spec-conformance lens flagged it as an
+/// unrequested addition that no required test covered. It is sound (consenting to an
+/// offer whose deadline has already gone commits a provider to work it cannot be paid
+/// for, since `record_delivery` would then be late), so it stays — but untested
+/// behaviour in a T1 pallet is a gap whether or not anyone asked for the behaviour.
+///
+/// The buyer is not stranded by the refusal: the agreement is still `Pending`, so
+/// `cancel_pending` refunds it in full immediately, and `expire_agreement` reaches it
+/// once the grace has passed.
+#[test]
+fn e18e2_accept_agreement_refuses_after_the_deadline() {
+    new_test_ext().execute_with(|| {
+        setup_agreement(1_000); // deliver_by = 500
+        System::set_block_number(501);
+        assert_noop!(
+            Escrow::accept_agreement(RuntimeOrigin::signed(BOB), ALICE, 0),
+            Error::<Test>::DeadlinePassed
+        );
+        // Refused, and nothing moved: no slot taken, still pending, funds still reserved.
+        assert_eq!(pallet_agents::ActiveEscrowCount::<Test>::get(BOB), 0);
+        assert!(PendingAcceptance::<Test>::contains_key(ALICE, (BOB, 0)));
+        assert_eq!(Balances::reserved_balance(ALICE), 1_000);
+
+        // And the buyer still has a door out, which is why the refusal is safe.
+        assert_ok!(Escrow::cancel_pending(RuntimeOrigin::signed(ALICE), BOB, 0));
+        assert_eq!(Balances::reserved_balance(ALICE), 0);
+    });
+}
