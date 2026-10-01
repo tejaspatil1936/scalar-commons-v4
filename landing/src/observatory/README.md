@@ -65,9 +65,11 @@ Two modules beside the instruments are not instruments: `statusbar.js`
 fills the one line at the top of the page from the hero's bus events and the
 ring's validator read (it fetches nothing of its own), and `presenter.js`
 drives `?present=1` — one section at a time, a re-armed `setTimeout` (never
-`setInterval`), cleared while the tab is hidden. `sky.js` draws the `?sky=1` star field
-behind the plates from the constellation's agents read, one tween per block,
-never a free-running loop.
+`setInterval`), cleared while the tab is hidden. `sky.js` holds the `?sky=1`
+sky's model (places, sizes, lines, the frame judge; pure, tested) and the
+three ways it stands down; `sky-field.js` is the three.js scene it fetches
+only when the flag is on, run on GSAP's ticker and removed while the tab is
+hidden.
 
 ## Developing one instrument
 

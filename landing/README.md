@@ -72,12 +72,18 @@ instrument stays live; the type is set for a projector. It is a projection
 of the ordinary page, not a substitute for it: the notes and lists are on
 the page without the flag.
 
-**The sky.** `/observatory?sky=1` lays a WebGL star field behind the plates:
-one star per registered agent (the constellation's own `/v1/agents` read),
-placed by a hash of its address, larger and brighter the more agreements it
-has completed. It moves once per block and otherwise rests; under reduced
-motion it is drawn once. Off by default; the footer says what the stars are
-and when the list was read. A browser without WebGL gets that line and no sky.
+**The sky.** `/observatory?sky=1` lays a WebGL star field (three.js, GSAP;
+fetched only when the flag is on) behind the plates: one star per registered
+agent (the constellation's own `/v1/agents` read) at a place fixed by a hash
+of its address, sized by stake and brighter the more recent its activity; the
+active validators as bright fixed stars with a faint reticle; a thin line per
+open agreement, amber flickering once for a dispute, a settlement's low glow
+fading over ten minutes; a faint light front per block and a steady glow
+behind the finality marker; a camera that drifts one degree a minute. Off by
+default; the footer says what is drawn, from which reads, when. It stands
+down for the canvas hero, and says so, without WebGL, under reduced motion,
+or when it runs under 30 frames a second for three seconds. With `?present=1`
+as well it shows the live block height alone on the first screen.
 
 Develop one instrument on its own, against the live services:
 

@@ -41,7 +41,29 @@ import {
 import { stateWord, sealingPhrase, init as initStatusBar, SEALING_WINDOW, FINALITY_LAG_ALERT, LATE_MS } from '../src/observatory/statusbar.js';
 import { wantsPresenter, stepFor } from '../src/observatory/presenter.js';
 import { railPositions } from '../src/observatory.mjs';
-import { wantsSky, hashAddress, starOf, starsFor, frameStats, parseColor, MAX_STARS } from '../src/observatory/sky.js';
+import {
+  wantsSky,
+  hashAddress,
+  placeOf,
+  activityOf,
+  starOf,
+  validatorStar,
+  starsFor,
+  recentSettlements,
+  linesFor,
+  markerX,
+  settleGlow,
+  fpsTooLow,
+  frameStats,
+  parseColor,
+  fallbackReason,
+  skyExtra,
+  init as initSky,
+  MAX_STARS,
+  SETTLE_FADE_MS,
+  SLOT_MS,
+  HEARTBEAT_RECENT_BLOCKS,
+} from '../src/observatory/sky.js';
 
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 
@@ -595,7 +617,7 @@ test('presenter mode is asked for by ?present=1 and driven by the arrow keys', (
   assert.equal(stepFor('ArrowRight', 0, 0), null);
 });
 
-test('the sky is asked for by ?sky=1 and places each agent by a hash of its address', () => {
+test('the sky is asked for by ?sky=1 and places every address by its hash, the same on every visit', () => {
   assert.equal(wantsSky('?sky=1'), true);
   assert.equal(wantsSky('?present=1&sky=1'), true);
   assert.equal(wantsSky('?sky=10'), false);
@@ -603,29 +625,98 @@ test('the sky is asked for by ?sky=1 and places each agent by a hash of its addr
   assert.equal(wantsSky(undefined), false);
   assert.equal(hashAddress(''), 0x811c9dc5);
   assert.equal(hashAddress('a'), 0xe40c292c);
-  assert.equal(hashAddress('5FHneW46'), hashAddress('5FHneW46'), 'deterministic');
-  assert.notEqual(hashAddress('5FHneW46'), hashAddress('5FHneW47'));
-  const busy = starOf('5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty', 100, 100);
-  const idle = starOf('5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty', 0, 100);
-  assert.deepEqual([busy.x, busy.y, busy.phase], [idle.x, idle.y, idle.phase], 'activity changes size, never place');
-  for (const v of [busy.x, busy.y, busy.phase]) assert.ok(v >= 0 && v < 1);
-  assert.ok(Math.abs(busy.size - 12) < 1e-9 && Math.abs(busy.bright - 1) < 1e-9);
-  assert.ok(Math.abs(idle.size - 4) < 1e-9 && Math.abs(idle.bright - 0.55) < 1e-9);
-  assert.ok(Math.abs(starOf('x', 25, 100).size - 8) < 1e-9, 'a quarter of the activity is half the size step');
-  assert.equal(starOf('x', 5, 0).size, 4, 'with no scale every star is the smallest');
+  const a = placeOf('5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty');
+  assert.deepEqual(placeOf('5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty'), a, 'deterministic');
+  for (const v of [a.x, a.y, a.depth]) assert.ok(v >= 0 && v < 1);
+  // The documented mapping: x from the low sixteen bits, y from the high sixteen, depth from the hash of address + ':depth'.
+  const h = hashAddress('5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty');
+  assert.equal(a.x, (h & 0xffff) / 0x10000);
+  assert.equal(a.y, (h >>> 16) / 0x10000);
+  assert.equal(a.depth, (hashAddress('5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty:depth') & 0xffff) / 0x10000);
+  assert.notDeepEqual(placeOf('5FHneW47'), a);
 });
 
-test('the sky packs five floats per star, caps the count, and reports frames honestly', () => {
-  const agents = [{ address: 'a', completedAgreements: 4 }, { address: 'b', completedAgreements: 0 }, { address: 'c' }];
-  const stars = starsFor(agents);
-  assert.equal(stars.count, 3);
-  assert.equal(stars.maxActivity, 4);
-  assert.equal(stars.data.length, 15);
-  assert.ok(Math.abs(stars.data[2] - 12) < 1e-6, 'the busiest agent is the largest star');
-  assert.ok(Math.abs(stars.data[7] - 4) < 1e-6);
-  assert.ok(Math.abs(stars.data[12] - 4) < 1e-6, 'a missing counter counts as none, never NaN');
-  const many = starsFor(Array.from({ length: MAX_STARS + 10 }, (_, i) => ({ address: `agent-${i}`, completedAgreements: i })));
-  assert.equal(many.count, MAX_STARS);
+test('a star is sized by stake and brightened by recent activity; a validator is a fixed bright star with the reticle', () => {
+  const scale = { maxStake: '10000000000000000', maxActivity: 4 };
+  const big = starOf('x', { stakePlancks: '10000000000000000', activity: 4 }, scale);
+  const small = starOf('x', { stakePlancks: '0', activity: 0 }, scale);
+  assert.deepEqual([big.x, big.y, big.depth], [small.x, small.y, small.depth], 'stake and activity change size and light, never place');
+  assert.ok(Math.abs(big.size - 12) < 1e-9 && Math.abs(big.bright - 1) < 1e-9);
+  assert.ok(Math.abs(small.size - 3) < 1e-9 && Math.abs(small.bright - 0.35) < 1e-9);
+  assert.ok(Math.abs(starOf('x', { stakePlancks: '2500000000000000', activity: 1 }, scale).size - 7.5) < 1e-9, 'a quarter of the stake is half the size step');
+  assert.equal(starOf('x', { stakePlancks: '5', activity: 5 }).size, 3, 'with no scale every star is the smallest and dimmest');
+  assert.equal(starOf('x', { stakePlancks: '5', activity: 5 }).bright, 0.35);
+  assert.equal(starOf('x', { stakePlancks: 'nope', activity: 0 }, scale).size, 3, 'a non-numeric stake is no stake, never NaN');
+  const v = validatorStar('5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY');
+  assert.deepEqual([v.kind, v.size, v.bright], [1, 16, 1]);
+  assert.deepEqual([v.x, v.y, v.depth], Object.values(placeOf('5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY')));
+
+  // Recent activity: open agreements now, settlements in the last ten minutes, a heartbeat within about an hour.
+  const recentSettled = new Map([['a', 2]]);
+  assert.equal(activityOf({ address: 'a', activeEscrowCount: 3, lastHeartbeatBlock: 1000 }, { best: 1000 + HEARTBEAT_RECENT_BLOCKS, recentSettled }), 6);
+  assert.equal(activityOf({ address: 'a', activeEscrowCount: 3, lastHeartbeatBlock: 1000 }, { best: 1001 + HEARTBEAT_RECENT_BLOCKS, recentSettled }), 5, 'an older heartbeat is not recent');
+  assert.equal(activityOf({ address: 'b', activeEscrowCount: 0, lastHeartbeatBlock: null }, { best: 5000, recentSettled }), 0);
+  assert.equal(activityOf({ address: 'b' }, {}), 0, 'missing counters count as none, never NaN');
+  const counts = recentSettlements([{ buyer: 'a', provider: 'b', seq: 1, blockNumber: 990 }, { buyer: 'a', provider: 'c', seq: 1, blockNumber: 1 }], { best: 1000 });
+  assert.deepEqual([...counts], [['a', 1], ['b', 1]], 'a settlement older than ten minutes no longer counts');
+});
+
+test('the field lists agents then validators, capped, and lines only between stars it has', () => {
+  const agents = [
+    { address: 'a', stakePlancks: '4', activeEscrowCount: 1, lastHeartbeatBlock: 0 },
+    { address: 'b', stakePlancks: '1', activeEscrowCount: 0, lastHeartbeatBlock: 0 },
+    { address: 'v', stakePlancks: '1', activeEscrowCount: 0, lastHeartbeatBlock: 0 },
+  ];
+  const placed = starsFor(agents, ['v', 'w'], { best: 10 });
+  assert.equal(placed.stars.length, 5);
+  assert.deepEqual(placed.stars.map((s) => s.kind), [0, 0, 0, 1, 1]);
+  assert.deepEqual([...placed.index], [['a', 0], ['b', 1], ['v', 2], ['w', 4]], 'an address that is both agent and validator is drawn as the agent');
+  assert.ok(Math.abs(placed.stars[0].size - 12) < 1e-9 && Math.abs(placed.stars[1].size - 7.5) < 1e-9);
+  assert.equal(placed.maxActivity, 2, 'one open agreement and a heartbeat within the hour');
+  assert.ok(Math.abs(placed.stars[0].bright - 1) < 1e-9 && Math.abs(placed.stars[1].bright - (0.35 + 0.65 * Math.sqrt(0.5))) < 1e-9);
+  const many = starsFor(Array.from({ length: MAX_STARS + 10 }, (_, i) => ({ address: `agent-${i}`, stakePlancks: '1' })), ['v']);
+  assert.equal(many.stars.length, MAX_STARS, 'validators never push the field past its cap');
+
+  const seen = new Map();
+  const open = [
+    { buyer: 'a', provider: 'b', seq: 1, status: 'Created' },
+    { buyer: 'a', provider: 'b', seq: 2, status: 'Disputed' },
+    { buyer: 'a', provider: 'zz', seq: 1, status: 'Created' },
+  ];
+  const settled = [
+    { buyer: 'a', provider: 'b', seq: 1, blockNumber: 999 }, // still open under the same key: not drawn twice
+    { buyer: 'b', provider: 'v', seq: 7, blockNumber: 990 },
+    { buyer: 'b', provider: 'v', seq: 6, blockNumber: 1000 - SETTLE_FADE_MS / SLOT_MS }, // ten minutes ago: gone
+    { buyer: 'b', provider: 'zz', seq: 1, blockNumber: 999 },
+  ];
+  const first = linesFor(open, settled, placed.index, { best: 1000, now: 50, seen });
+  assert.deepEqual(first.lines, [
+    { key: 'a/b/1', from: 0, to: 1, state: 0, t0: 0 },
+    { key: 'a/b/2', from: 0, to: 1, state: 1, t0: 50 },
+    { key: 'b/v/7', from: 1, to: 2, state: 2, t0: 50 - 10 * SLOT_MS },
+  ]);
+  assert.equal(first.omitted, 2, 'a line to an address that is not a star is counted, never placed');
+  const later = linesFor(open, settled, placed.index, { best: 1000, now: 80, seen });
+  assert.equal(later.lines[1].t0, 50, 'a dispute keeps the moment it was first seen: it flickers once');
+  const gone = linesFor([open[0]], [], placed.index, { best: 1000, now: 90, seen });
+  assert.equal(seen.size, 0, 'a dispute that has left the list is forgotten');
+  assert.equal(gone.lines.length, 1);
+});
+
+test('the sky’s marker, glow, frame judge and fallbacks follow stated rules', () => {
+  assert.equal(markerX(0), 1);
+  assert.equal(markerX(30), 0);
+  assert.equal(markerX(60), -1);
+  assert.equal(markerX(600), -1, 'never past the left edge');
+  assert.equal(markerX(NaN), 1);
+  assert.equal(settleGlow(0), 1);
+  assert.equal(settleGlow(SETTLE_FADE_MS / 2), 0.5);
+  assert.equal(settleGlow(SETTLE_FADE_MS), 0);
+  assert.equal(settleGlow(SETTLE_FADE_MS * 3), 0);
+  assert.equal(fpsTooLow([20, 20]), false, 'two slow seconds are not three');
+  assert.equal(fpsTooLow([60, 20, 20, 20]), true);
+  assert.equal(fpsTooLow([20, 20, 31]), false);
+  assert.equal(fpsTooLow([20, 29.9, 20]), true);
   assert.deepEqual(frameStats([]), { frames: 0, fps: null, worstMs: null });
   assert.deepEqual(frameStats([16.6, 16.8, 16.6]), { frames: 3, fps: 60, worstMs: 16.8 });
   assert.deepEqual(frameStats([50]), { frames: 1, fps: 20, worstMs: 50 });
@@ -634,4 +725,39 @@ test('the sky packs five floats per star, caps the count, and reports frames hon
   assert.deepEqual(parseColor('rgba(111, 211, 199, 0.35)'), [111 / 255, 211 / 255, 199 / 255]);
   assert.equal(parseColor('teal'), null);
   assert.equal(parseColor(undefined), null);
+  assert.equal(fallbackReason({ webgl: true, reduced: false }), null);
+  assert.match(fallbackReason({ webgl: false, reduced: false }), /no WebGL/);
+  assert.match(fallbackReason({ webgl: true, reduced: true }), /reduced motion/);
+  assert.match(fallbackReason({ webgl: false, reduced: true }), /reduced motion/, 'reduced motion is named first: it is the reader’s choice');
+  assert.equal(
+    skyExtra({ validators: 5, lines: 1, omitted: 0, settled: 2, complete: true }),
+    'one per registered agent, sized by stake, brighter the more recent its activity; 5 validators as fixed stars (Session.Validators); 1 line, one per open agreement (/v1/escrows); 2 settlements of the last ten minutes glowing (escrow.DeliveryConfirmed); the field moves once per block and drifts 1° a minute',
+  );
+  assert.match(skyExtra({ validators: 5, lines: 3, omitted: 2, settled: 0, complete: false }), /agent listed, .*3 lines, .*2 not drawn: a party is not a registered agent; 0 settlements/);
+});
+
+test('the sky never loads its scene without the flag, and stands down before loading it under reduced motion or without WebGL', async () => {
+  const note = { hidden: true, querySelector: (sel) => (sel === '.reading-prov' ? prov : value) };
+  const value = { textContent: '', classList: { remove() {} } };
+  const prov = { cleared: 0, replaceChildren() { this.cleared += 1; } };
+  const html = { attrs: new Map(), setAttribute(k, v) { this.attrs.set(k, v); }, removeAttribute(k) { this.attrs.delete(k); }, hasAttribute(k) { return this.attrs.has(k); } };
+  const doc = (webgl) => ({ documentElement: html, defaultView: { location: { search: '?sky=1' } }, querySelector: () => note, createElement: () => ({ getContext: () => (webgl ? {} : null) }), body: { append() {} } });
+  let loads = 0;
+  const load = async () => { loads += 1; return { start: () => ({ stopped: false }) }; };
+  const ctx = (reduced) => ({ motion: { reduced: () => reduced }, bus: { on() {} }, format: { formatInteger: String } });
+  assert.equal(initSky(doc(true), ctx(false), { search: '', load }), null, 'off by default');
+  assert.equal(loads, 0);
+  const reduced = initSky(doc(true), ctx(true), { load });
+  assert.match(reduced.reason, /reduced motion/);
+  assert.match(value.textContent, /reduced motion/);
+  assert.equal(await reduced.ready, null);
+  const noGl = initSky(doc(false), ctx(false), { load });
+  assert.match(noGl.reason, /no WebGL/);
+  assert.equal(loads, 0, 'neither fallback fetched the scene');
+  assert.equal(prov.cleared, 2, 'a fallback clears the provenance line it no longer describes');
+  const on = initSky(doc(true), ctx(false), { load });
+  assert.equal(on.reason, null);
+  assert.ok(html.hasAttribute('data-sky'));
+  assert.deepEqual(await on.ready, { stopped: false });
+  assert.equal(loads, 1, 'the scene is fetched once, only when it can run');
 });

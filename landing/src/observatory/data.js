@@ -80,12 +80,12 @@ export const SOURCES = {
   // Agents and their contracts.
   // The sky (?sky=1) draws one star per row of the same read.
   agents: api(`/v1/agents?limit=${INDEXER_MAX_LIMIT}`, ['agents', 'sky']),
-  escrows: api(`/v1/escrows?limit=${INDEXER_MAX_LIMIT}`, []),
+  escrows: api(`/v1/escrows?limit=${INDEXER_MAX_LIMIT}`, ['sky']),
   escrowStats: api('/v1/escrows/stats', ['activeAgreements', 'openDisputes']),
   slashes: events('agents', 'SlashExecuted', ['slashes']),
   messages: api('/v1/events?section=messages&method=MessageSent&limit=1', ['messages']),
   agreementsCreated: events('escrow', 'AgreementCreated', ['agreementsCumulative']),
-  deliveriesConfirmed: events('escrow', 'DeliveryConfirmed', []),
+  deliveriesConfirmed: events('escrow', 'DeliveryConfirmed', ['sky']),
   disputesOpened: events('escrow', 'DisputeOpened', []),
   registrations: events('agents', 'AgentRegistered', ['agentsOverTime']),
   unstakes: events('agents', 'UnstakeCompleted', ['agentsOverTime']),

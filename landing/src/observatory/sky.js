@@ -1,24 +1,58 @@
 // Part B · the sky. `/observatory?sky=1` lays a WebGL star field behind the
-// plates: one star per registered agent — the same `/v1/agents` read the
-// constellation makes, on the same schedule, so the two can never disagree —
-// placed by a hash of its address so a star stays where it was, sized and
-// brightened by the agreements it has completed. The sky moves only when the
-// chain does: each new head runs one tween (a faint pulse through the field
-// and a small drift), then the field rests. There is no free-running loop
-// (nothing on this page loops forever), no fetch of its own, and under
-// prefers-reduced-motion the field is drawn once at rest and redrawn only
-// when the data, the theme or the viewport changes. Off by default: without
-// the flag nothing here runs and nothing is drawn.
+// plates, drawn from the same reads the plates make, so the two can never
+// disagree:
 //
-// The footer carries the sky's own provenance line — how many stars, from
-// which endpoint, read when — so a reader knows what the points are. A
-// browser without WebGL gets that line saying so, and no sky.
+//   · one star per registered agent (`/v1/agents`), at a position fixed by a
+//     hash of its address (see `placeOf`), sized by its stake and brightened
+//     by its recent activity;
+//   · the active validators (`Session.Validators`) as bright fixed stars with
+//     a faint reticle;
+//   · one thin line per open agreement (`/v1/escrows`) between its two stars;
+//     a dispute flickers amber once; a settlement (`escrow.DeliveryConfirmed`)
+//     resolves to a steady low glow that fades over ten minutes;
+//   · each new block sends a faint light front right to left across the
+//     field, and the region behind the finality marker settles to a steady
+//     glow, as the river's finalized band does.
+//
+// The camera drifts one degree a minute and the field has depth: point size
+// falls with distance and stars add their light where they overlap. The
+// scene itself (three.js and GSAP) lives in `sky-field.js` and is fetched
+// only when the flag is on, so the ordinary page never pays for it. This
+// module holds the pure model — tested without a GPU — and the three ways
+// the sky stands down for the canvas hero: no WebGL, prefers-reduced-motion,
+// or fewer than 30 frames a second for three seconds. The footer carries the
+// sky's own provenance line — how many stars, lines and validators, from
+// which reads, when — and says which fallback took effect, if one did. Off
+// by default: without the flag nothing here runs and nothing is drawn.
+//
+// With `?present=1&sky=1` the sky fills the first screen with the live
+// block height in the display serif and nothing else.
 
-export const SKY_BEAT_MS = 1400;
+import { decodeValidators } from './scale.js';
+import { encodeSs58 } from './ss58.js';
+
 /** The most stars drawn; the indexer's live scan stops well before this. */
 export const MAX_STARS = 4096;
-/** How far the field drifts per block, as a fraction of the viewport width. */
-export const DRIFT_PER_BLOCK = 0.0012;
+/** Block slots across the field, right to left, as the river's trail. */
+export const TRAIL = 60;
+/** A light front crosses the field in this long. */
+export const FRONT_MS = 1_600;
+/** A dispute's amber flicker lasts this long, once. */
+export const FLICKER_MS = 1_500;
+/** A settlement's glow fades over ten minutes. */
+export const SETTLE_FADE_MS = 600_000;
+/** The chain's slot time, used to date an event by its block. */
+export const SLOT_MS = 6_000;
+/** A heartbeat within this many blocks (about an hour) counts as recent activity. */
+export const HEARTBEAT_RECENT_BLOCKS = 600;
+/** The camera's drift, in degrees per minute. */
+export const DRIFT_DEG_PER_MIN = 1;
+/** Below this many frames a second, for this many whole seconds, the sky stands down. */
+export const MIN_FPS = 30;
+export const SLOW_SECONDS = 3;
+/** Frames in the warm-up are not judged: the first frames load shaders and buffers. */
+export const WARMUP_MS = 2_000;
+export const SS58_FORMAT = 42;
 /** Frame durations kept for the frame statistics the canvas reports. */
 const STATS_WINDOW = 240;
 
@@ -38,31 +72,148 @@ export function hashAddress(text) {
 }
 
 /**
- * A star from an agent: a position in [0, 1)² from the address hash (so it
- * is the same on every visit and every screen), a size of 4–12 px and a
- * brightness of 0.55–1 by the square root of its share of the busiest
- * agent's activity (area grows with activity, as the constellation's points
- * do), and a phase that keys its place in the pulse. Pure; tested.
+ * Where an address sits in the field, in [0, 1)³: `x` from the low sixteen
+ * bits of the FNV-1a hash of the SS58 address, `y` from the high sixteen,
+ * and `depth` from the low sixteen bits of the hash of the address with
+ * `:depth` appended. The address alone decides, so a star is in the same
+ * place on every visit, on every screen, whatever else is on the chain; two
+ * addresses share a place only by a hash collision at one part in 2³². Pure; tested.
  */
-export function starOf(address, activity, maxActivity) {
+export function placeOf(address) {
   const h = hashAddress(String(address));
-  const x = (h & 0xffff) / 0x10000;
-  const y = ((h >>> 16) & 0xffff) / 0x10000;
-  const phase = (hashAddress(`${address}:phase`) & 0xffff) / 0x10000;
-  const share = maxActivity > 0 ? Math.min(1, Math.sqrt(Math.max(0, activity) / maxActivity)) : 0;
-  return { x, y, phase, size: 4 + 8 * share, bright: 0.55 + 0.45 * share };
+  const d = hashAddress(`${address}:depth`);
+  return { x: (h & 0xffff) / 0x10000, y: ((h >>> 16) & 0xffff) / 0x10000, depth: (d & 0xffff) / 0x10000 };
 }
 
-/** Packed vertex data, five floats per star: x, y, size, phase, brightness. Pure; tested. */
-export function starsFor(agents, activityOf = (agent) => Number(agent.completedAgreements) || 0) {
+/**
+ * An agent's recent activity, in counts: the agreements it holds open now,
+ * its settlements in the last ten minutes, and one more if it has heart-
+ * beaten within the last HEARTBEAT_RECENT_BLOCKS. Pure; tested.
+ */
+export function activityOf(agent, { best = null, recentSettled = new Map() } = {}) {
+  const open = Number(agent.activeEscrowCount) || 0;
+  const settled = recentSettled.get(agent.address) ?? 0;
+  const beat = Number(agent.lastHeartbeatBlock);
+  const recent = Number.isFinite(best) && Number.isFinite(beat) && best - beat <= HEARTBEAT_RECENT_BLOCKS ? 1 : 0;
+  return open + settled + recent;
+}
+
+/**
+ * A star from an agent: its place from the address, a size of 3–12 px by the
+ * square root of its share of the largest stake (area grows with stake), and
+ * a brightness of 0.35–1 by the square root of its share of the busiest
+ * agent's recent activity. Pure; tested.
+ */
+export function starOf(address, { stakePlancks = 0, activity = 0 } = {}, { maxStake = 0, maxActivity = 0 } = {}) {
+  const share = (value, max) => (max > 0 ? Math.min(1, Math.sqrt(Math.max(0, value) / max)) : 0);
+  const stake = Number(stakePlancks) || 0;
+  return { address, ...placeOf(address), kind: 0, size: 3 + 9 * share(stake, maxStake), bright: 0.35 + 0.65 * share(activity, maxActivity) };
+}
+
+/** A validator's star: the same place rule, a fixed size and full brightness, with the reticle (`kind` 1). Pure; tested. */
+export function validatorStar(address) {
+  return { address, ...placeOf(address), kind: 1, size: 16, bright: 1 };
+}
+
+/** The settlements in the last ten minutes, counted per party. Pure; tested. */
+export function recentSettlements(settled, { best }) {
+  const counts = new Map();
+  for (const s of settled) {
+    if (settlementAge(s.blockNumber, best) >= SETTLE_FADE_MS) continue;
+    for (const party of [s.buyer, s.provider]) counts.set(party, (counts.get(party) ?? 0) + 1);
+  }
+  return counts;
+}
+
+/** How long ago a block was, by its distance from the best block and the slot time. */
+export function settlementAge(blockNumber, best) {
+  if (!Number.isFinite(best) || !Number.isFinite(blockNumber)) return Infinity;
+  return Math.max(0, best - blockNumber) * SLOT_MS;
+}
+
+/**
+ * Every star: agents first, then validators, capped at MAX_STARS, with an
+ * index by address for the lines. Pure; tested.
+ */
+export function starsFor(agents, validators = [], { best = null, recentSettled = new Map() } = {}) {
   const rows = agents.slice(0, MAX_STARS);
-  const maxActivity = rows.reduce((max, agent) => Math.max(max, activityOf(agent)), 0);
-  const data = new Float32Array(rows.length * 5);
-  rows.forEach((agent, i) => {
-    const s = starOf(agent.address, activityOf(agent), maxActivity);
-    data.set([s.x, s.y, s.size, s.phase, s.bright], i * 5);
+  const activities = rows.map((agent) => activityOf(agent, { best, recentSettled }));
+  const maxStake = rows.reduce((max, agent) => Math.max(max, Number(agent.stakePlancks) || 0), 0);
+  const maxActivity = activities.reduce((max, a) => Math.max(max, a), 0);
+  const stars = rows.map((agent, i) => starOf(agent.address, { stakePlancks: agent.stakePlancks, activity: activities[i] }, { maxStake, maxActivity }));
+  for (const address of validators.slice(0, Math.max(0, MAX_STARS - stars.length))) stars.push(validatorStar(address));
+  const index = new Map();
+  stars.forEach((star, i) => {
+    if (!index.has(star.address)) index.set(star.address, i);
   });
-  return { data, count: rows.length, maxActivity };
+  return { stars, index, maxStake, maxActivity };
+}
+
+/** An agreement's identity on chain, as the constellation keys it. */
+export const lineKey = (buyer, provider, seq) => `${buyer}/${provider}/${seq}`;
+
+/**
+ * The lines to draw between stars: one per open agreement (`state` 0, or 1
+ * when disputed), then one per settlement of the last ten minutes that is
+ * not still open under the same key (`state` 2, `t0` its time). A line whose
+ * party is not a star is counted, not drawn: the sky never invents a place.
+ * `t0` for a dispute is when this page first saw it disputed (`seen`), so the
+ * flicker runs once. Pure; tested.
+ */
+export function linesFor(open, settled, index, { best = null, now = 0, seen = new Map() } = {}) {
+  const lines = [];
+  const keys = new Set();
+  let omitted = 0;
+  for (const a of open) {
+    const key = lineKey(a.buyer, a.provider, a.seq);
+    keys.add(key);
+    const from = index.get(a.buyer);
+    const to = index.get(a.provider);
+    if (from === undefined || to === undefined) {
+      omitted += 1;
+      continue;
+    }
+    const disputed = a.status === 'Disputed';
+    let t0 = 0;
+    if (disputed) {
+      if (!seen.has(key)) seen.set(key, now);
+      t0 = seen.get(key);
+    }
+    lines.push({ key, from, to, state: disputed ? 1 : 0, t0 });
+  }
+  for (const s of settled) {
+    const key = lineKey(s.buyer, s.provider, s.seq);
+    if (keys.has(key)) continue;
+    keys.add(key);
+    const age = settlementAge(s.blockNumber, best);
+    if (age >= SETTLE_FADE_MS) continue;
+    const from = index.get(s.buyer);
+    const to = index.get(s.provider);
+    if (from === undefined || to === undefined) {
+      omitted += 1;
+      continue;
+    }
+    lines.push({ key, from, to, state: 2, t0: now - age });
+  }
+  for (const key of seen.keys()) if (!keys.has(key)) seen.delete(key);
+  return { lines, omitted };
+}
+
+/** The finality marker's place across the field, in clip space: the right edge is now, TRAIL slots back is the left. Pure; tested. */
+export function markerX(lag, trail = TRAIL) {
+  if (!Number.isFinite(lag)) return 1;
+  return 1 - 2 * Math.min(1, Math.max(0, lag) / trail);
+}
+
+/** A settlement's glow by its age: steady and low at first, gone after ten minutes. Pure; tested. */
+export function settleGlow(ageMs) {
+  return Math.min(1, Math.max(0, 1 - ageMs / SETTLE_FADE_MS));
+}
+
+/** Whether the last SLOW_SECONDS whole seconds each ran under MIN_FPS. Pure; tested. */
+export function fpsTooLow(secondsFps, { minFps = MIN_FPS, run = SLOW_SECONDS } = {}) {
+  if (secondsFps.length < run) return false;
+  return secondsFps.slice(-run).every((fps) => fps < minFps);
 }
 
 /** Mean frames per second and the slowest frame from a list of frame durations in ms. Pure; tested. */
@@ -90,212 +241,140 @@ export function parseColor(text) {
   return null;
 }
 
-const VERTEX = `
-attribute vec2 a_pos;
-attribute float a_size;
-attribute float a_phase;
-attribute float a_bright;
-uniform float u_dpr;
-uniform float u_time;
-uniform float u_beat;
-uniform float u_drift;
-uniform float u_light;
-varying float v_alpha;
-void main() {
-  float x = fract(a_pos.x + u_drift);
-  vec2 clip = vec2(x, a_pos.y) * 2.0 - 1.0;
-  clip.y = -clip.y;
-  gl_Position = vec4(clip, 0.0, 1.0);
-  // The pulse: while a beat runs, each star brightens by its phase, then rests.
-  float twinkle = 0.5 + 0.5 * sin(6.2832 * (a_phase + u_time));
-  float wave = u_beat * twinkle;
-  gl_PointSize = a_size * u_dpr * (1.0 + 0.6 * wave);
-  v_alpha = a_bright * (0.75 + 0.25 * wave) * mix(1.0, 0.75, u_light);
-}`;
-
-const FRAGMENT = `
-precision mediump float;
-uniform vec3 u_color;
-varying float v_alpha;
-void main() {
-  vec2 d = gl_PointCoord - 0.5;
-  float r = length(d) * 2.0;
-  float a = (smoothstep(1.0, 0.0, r) * 0.45 + smoothstep(0.35, 0.0, r) * 0.55) * v_alpha;
-  gl_FragColor = vec4(u_color * a, a);
-}`;
-
-function compile(gl, type, source) {
-  const shader = gl.createShader(type);
-  gl.shaderSource(shader, source);
-  gl.compileShader(shader);
-  if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(shader) || 'shader failed to compile');
-  return shader;
+/** Why the sky stands down before it starts, in the footer's words; null when it can start. Pure; tested. */
+export function fallbackReason({ webgl, reduced }) {
+  if (reduced) return 'no sky: reduced motion is preferred, so the hero stands';
+  if (!webgl) return 'no sky: this browser has no WebGL, so the hero stands';
+  return null;
 }
 
-/** Wires the sky when the document carries the flag. Returns the controller, or null when off or unavailable. */
-export function init(doc, ctx, { search = doc.defaultView?.location?.search } = {}) {
+/** The validator addresses in a `Session.Validators` record. */
+export function validatorAddresses(data, field) {
+  return decodeValidators(field(data, 'result')).map((key) => encodeSs58(key, SS58_FORMAT));
+}
+
+/** The footer's account of what is drawn. Pure; tested. */
+export function skyExtra({ validators, lines, omitted, settled, complete }) {
+  const n = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
+  return (
+    `one per registered agent${complete ? '' : ' listed'}, sized by stake, brighter the more recent its activity` +
+    `; ${n(validators, 'validator')} as fixed stars (Session.Validators)` +
+    `; ${n(lines, 'line')}, one per open agreement (/v1/escrows)${omitted ? `, ${omitted} not drawn: a party is not a registered agent` : ''}` +
+    `; ${n(settled, 'settlement')} of the last ten minutes glowing (escrow.DeliveryConfirmed)` +
+    `; the field moves once per block and drifts ${DRIFT_DEG_PER_MIN}° a minute`
+  );
+}
+
+/** The model handed to the scene, so the scene imports nothing of the page's. */
+export const model = {
+  MAX_STARS,
+  TRAIL,
+  FRONT_MS,
+  FLICKER_MS,
+  SETTLE_FADE_MS,
+  SLOT_MS,
+  DRIFT_DEG_PER_MIN,
+  MIN_FPS,
+  SLOW_SECONDS,
+  WARMUP_MS,
+  STATS_WINDOW,
+  starsFor,
+  linesFor,
+  recentSettlements,
+  settlementAge,
+  markerX,
+  settleGlow,
+  fpsTooLow,
+  frameStats,
+  parseColor,
+  validatorAddresses,
+  skyExtra,
+};
+
+function say(note, text) {
+  if (!note) return;
+  const value = note.querySelector('.reading-value');
+  value.textContent = text;
+  value.classList.remove('is-loading');
+  // The line under it described a read that is no longer drawn.
+  note.querySelector('.reading-prov')?.replaceChildren();
+}
+
+/** The block height for the presenter's first screen, each digit in a cell as every serif figure on the page. */
+function setHeight(node, text) {
+  node.replaceChildren();
+  const spoken = node.ownerDocument.createElement('span');
+  spoken.className = 'visually-hidden';
+  spoken.textContent = text;
+  const cells = node.ownerDocument.createElement('span');
+  cells.className = 'dcells';
+  cells.setAttribute('aria-hidden', 'true');
+  for (const ch of String(text)) {
+    if (/\d/.test(ch)) {
+      const cell = node.ownerDocument.createElement('span');
+      cell.className = 'dc';
+      cell.textContent = ch;
+      cells.append(cell);
+    } else cells.append(ch);
+  }
+  node.append(spoken, cells);
+}
+
+/**
+ * Wires the sky when the document carries the flag. Returns a controller
+ * (`ready` resolves to the scene, or null when the sky stood down), or null
+ * when the flag is off.
+ */
+export function init(doc, ctx, { search = doc.defaultView?.location?.search, load = () => import('./sky-field.js') } = {}) {
   if (!wantsSky(search)) return null;
   const html = doc.documentElement;
   const win = doc.defaultView;
   const note = doc.querySelector('[data-reading="sky"]');
   if (note) note.hidden = false;
+
+  const probe = doc.createElement('canvas');
+  const webgl = Boolean(probe.getContext?.('webgl2') || probe.getContext?.('webgl'));
+  const reason = fallbackReason({ webgl, reduced: ctx.motion.reduced() });
+  if (reason) {
+    say(note, reason);
+    return { ready: Promise.resolve(null), reason };
+  }
+
   html.setAttribute('data-sky', '');
+  let height = null;
+  let onNumber = null;
+  if (html.hasAttribute('data-present')) {
+    // The first screen: the sky and the live block height, nothing else.
+    html.setAttribute('data-sky-present', '');
+    height = doc.createElement('p');
+    height.className = 'sky-height reading-value';
+    height.setAttribute('aria-live', 'off');
+    setHeight(height, '—');
+    doc.body.append(height);
+    onNumber = ({ number }) => {
+      if (Number.isFinite(number)) setHeight(height, ctx.format.formatInteger(number));
+    };
+    ctx.bus.on('head', onNumber);
+    ctx.bus.on('poll', onNumber);
+  }
 
-  const canvas = doc.createElement('canvas');
-  canvas.className = 'sky';
-  canvas.setAttribute('aria-hidden', 'true');
-  doc.body.prepend(canvas);
-  const gl = canvas.getContext('webgl2', { alpha: true, antialias: false, premultipliedAlpha: true }) ||
-    canvas.getContext('webgl', { alpha: true, antialias: false, premultipliedAlpha: true });
-  if (!gl) {
-    canvas.remove();
+  let scene = null;
+  const standDown = (why) => {
     html.removeAttribute('data-sky');
-    if (note) {
-      note.querySelector('.reading-value').textContent = 'no sky: this browser has no WebGL';
-      note.querySelector('.reading-value').classList.remove('is-loading');
-    }
-    return null;
-  }
-
-  const program = gl.createProgram();
-  gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, VERTEX));
-  gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, FRAGMENT));
-  gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program) || 'program failed to link');
-  gl.useProgram(program);
-  const buffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-  const stride = 5 * 4;
-  for (const [name, size, offset] of [['a_pos', 2, 0], ['a_size', 1, 8], ['a_phase', 1, 12], ['a_bright', 1, 16]]) {
-    const at = gl.getAttribLocation(program, name);
-    gl.enableVertexAttribArray(at);
-    gl.vertexAttribPointer(at, size, gl.FLOAT, false, stride, offset);
-  }
-  const uniforms = Object.fromEntries(['u_dpr', 'u_time', 'u_beat', 'u_drift', 'u_light', 'u_color'].map((n) => [n, gl.getUniformLocation(program, n)]));
-  gl.enable(gl.BLEND);
-  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-  gl.clearColor(0, 0, 0, 0);
-
-  let count = 0;
-  let time = 0;
-  let beat = 0;
-  let drift = 0;
-  let dpr = 1;
-  let lastHead = null;
-  let cancelBeat = () => {};
-  let lastFrameAt = null;
-  const durations = [];
-
-  function fit() {
-    // Stars are soft discs, never text: one device pixel per CSS pixel is enough and keeps the
-    // fill cost of a full-viewport layer low (a 5 MP clear on a software renderer was the bottleneck).
-    dpr = 1;
-    const width = Math.max(1, Math.round(win.innerWidth || html.clientWidth));
-    const height = Math.max(1, Math.round(win.innerHeight || html.clientHeight));
-    if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
-      canvas.width = width * dpr;
-      canvas.height = height * dpr;
-    }
-    gl.viewport(0, 0, canvas.width, canvas.height);
-  }
-
-  function colour() {
-    return parseColor(ctx.theme.color('text')) ?? [0.85, 0.87, 0.9];
-  }
-
-  function draw() {
-    const now = win.performance.now();
-    if (lastFrameAt !== null && beat > 0) {
-      durations.push(now - lastFrameAt);
-      if (durations.length > STATS_WINDOW) durations.shift();
-    }
-    lastFrameAt = now;
-    gl.clear(gl.COLOR_BUFFER_BIT);
-    if (count === 0) return;
-    gl.uniform1f(uniforms.u_dpr, dpr);
-    gl.uniform1f(uniforms.u_time, time);
-    gl.uniform1f(uniforms.u_beat, beat);
-    gl.uniform1f(uniforms.u_drift, drift);
-    gl.uniform1f(uniforms.u_light, ctx.theme.isDark() ? 0 : 1);
-    gl.uniform3fv(uniforms.u_color, colour());
-    gl.drawArrays(gl.POINTS, 0, count);
-  }
-
-  function report() {
-    const stats = frameStats(durations);
-    canvas.dataset.frames = String(stats.frames);
-    canvas.dataset.fps = stats.fps === null ? '' : String(stats.fps);
-    canvas.dataset.worstMs = stats.worstMs === null ? '' : String(stats.worstMs);
-    canvas.dataset.stars = String(count);
-  }
-
-  /** One beat per block: the pulse rises and settles, the field drifts by one step, then rests. */
-  function onBlock() {
-    cancelBeat();
-    const timeFrom = time;
-    const driftFrom = drift;
-    lastFrameAt = null;
-    cancelBeat = ctx.motion.tween(SKY_BEAT_MS, (t) => {
-      beat = ctx.motion.reduced() ? 0 : Math.sin(Math.PI * t); // up and down once
-      time = timeFrom + 0.08 * t;
-      drift = (driftFrom + DRIFT_PER_BLOCK * t) % 1;
-      draw();
-    }, { done: () => { beat = 0; draw(); report(); } });
-  }
-
-  ctx.watchAll('agents', (record) => {
-    // The same read the constellation makes; a missing field is a shown failure, never a guessed star.
-    const ok = ctx.readout.apply(note ? [note] : [], record, () => {
-      const agents = record.items.map((item) => ({
-        address: ctx.field(item, 'address'),
-        completedAgreements: ctx.field(item, 'completedAgreements'),
-      }));
-      const stars = starsFor(agents);
-      count = stars.count;
-      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-      gl.bufferData(gl.ARRAY_BUFFER, stars.data, gl.STATIC_DRAW);
-      if (note) {
-        ctx.readout.showValue(note, record, {
-          value: count,
-          unit: count === 1 ? 'star' : 'stars',
-          extra: `one per registered agent${record.complete ? '' : ' listed'}, larger and brighter the more agreements it has completed; the sky moves once per block`,
-          motion: ctx.motion,
-          live: false,
-        });
-      }
-    });
-    if (!ok) count = 0; // a failed read empties the sky: no stale stars
-    draw();
-    report();
-  }, 60_000, { maxPages: 3 });
-
-  // A block is a block whether it came as a live header or a polled height.
-  const onHeight = ({ number }) => {
-    if (!Number.isFinite(number) || number === lastHead) return;
-    lastHead = number;
-    if (doc.hidden) return;
-    onBlock();
+    html.removeAttribute('data-sky-present');
+    height?.remove();
+    say(note, why);
+    scene = null;
   };
-  ctx.bus.on('head', onHeight);
-  ctx.bus.on('poll', onHeight);
-  ctx.bus.on('theme', () => draw());
-  ctx.bus.on('visibility', ({ hidden }) => {
-    if (hidden) {
-      cancelBeat();
-      beat = 0;
-    } else draw();
-  });
-  win.addEventListener('resize', () => {
-    fit();
-    draw();
-  });
-  ctx.motion.onChange(() => {
-    cancelBeat();
-    beat = 0;
-    draw();
-  });
 
-  fit();
-  draw();
-  return { stats: () => frameStats(durations), stars: () => count, canvas };
+  const ready = load()
+    .then(({ start }) => {
+      scene = start({ doc, win, ctx, model, note, onFallback: standDown });
+      return scene;
+    })
+    .catch((error) => {
+      standDown(`no sky: it could not start (${error.message}), so the hero stands`);
+      return null;
+    });
+  return { ready, reason: null, scene: () => scene };
 }
