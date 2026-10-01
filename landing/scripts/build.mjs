@@ -9,7 +9,11 @@
 // /observatory is the exception, and the one place a bundler is used: its
 // instruments are drawn with d3-force, d3-scale and d3-shape, and esbuild
 // bundles just those modules with the page's own script into one file. The
-// landing page itself still ships no script at all.
+// sky (`?sky=1`, three.js and GSAP) is built apart: `sky.js` imports
+// `./sky-field.js` dynamically, that path is left external in the page's
+// bundle, and a second build emits `sky-field.js` beside it, so the page
+// fetches the scene only when the flag is on and the ordinary page is still
+// one file. The landing page itself still ships no script at all.
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -52,21 +56,28 @@ for (const [source, name] of FONTS) {
   copyFileSync(here(`../node_modules/${source}`), join(outDir, 'fonts', name));
 }
 
-const bundle = await build({
-  entryPoints: [here('../src/observatory/main.js')],
+const common = {
   bundle: true,
   minify: true,
   format: 'esm',
   target: ['es2022', 'chrome100', 'safari16', 'firefox100'],
-  outfile: join(outDir, 'observatory.js'),
   legalComments: 'none',
   metafile: true,
   logLevel: 'silent',
+};
+const bundle = await build({
+  ...common,
+  entryPoints: [here('../src/observatory/main.js')],
+  outfile: join(outDir, 'observatory.js'),
+  // The sky's scene is fetched by this path at run time, from the second build below.
+  external: ['./sky-field.js'],
 });
+const sky = await build({ ...common, entryPoints: [here('../src/observatory/sky-field.js')], outfile: join(outDir, 'sky-field.js') });
 const bundleBytes = Object.values(bundle.metafile.outputs)[0]?.bytes ?? 0;
+const skyBytes = Object.values(sky.metafile.outputs)[0]?.bytes ?? 0;
 
 console.log(
   `built ${outDir}/index.html (${(html.length / 1024).toFixed(1)} kB) from ${facts.provenance.specName} spec ` +
     `${facts.provenance.specVersion}, metadata v${facts.provenance.metadataVersion}, block ` +
-    `#${facts.provenance.readAtBlock}; observatory.js ${(bundleBytes / 1024).toFixed(1)} kB`,
+    `#${facts.provenance.readAtBlock}; observatory.js ${(bundleBytes / 1024).toFixed(1)} kB; sky chunk ${(skyBytes / 1024).toFixed(1)} kB`,
 );

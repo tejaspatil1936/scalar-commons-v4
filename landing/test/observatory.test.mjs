@@ -9,6 +9,7 @@
 // checked into the repository.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { gzipSync } from 'node:zlib';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -383,4 +384,34 @@ test('presenter mode: the flag is read before first paint, and the stylesheet la
     assert.ok(css.includes(rule), `observatory.css has no rule for ${rule}`);
   }
   assert.ok(!/<script/i.test(index), 'index.html stays script-free');
+});
+
+test('the sky: off by default, its provenance line waits hidden in the footer, its canvas sits under the page', () => {
+  const footer = page.slice(page.indexOf('<footer'));
+  assert.match(footer, /<p class="sky-note" data-reading="sky" hidden>/);
+  assert.ok(!page.includes('class="sky"'), 'no canvas is in the frame: the script adds one only under ?sky=1');
+  const css = readFileSync(new URL('../src/observatory.css', import.meta.url), 'utf8');
+  assert.match(css, /\.sky \{[^}]*z-index: -1/);
+  assert.match(css, /\.sky \{[^}]*pointer-events: none/);
+  assert.ok(bundle.includes('sky=1'), 'the bundle carries the flag check');
+  // With ?present=1 as well: the live block height in the display serif at 160 px, nothing else.
+  assert.match(css, /html\[data-sky-present\] \.statusbar\.reading,\s*html\[data-sky-present\] main,\s*html\[data-sky-present\] \.present-counter \{\s*display: none/);
+  assert.match(css, /\.sky-height \{[^}]*font-family: var\(--font-serif\)/);
+  assert.match(css, /\.sky-height \{[^}]*font-size: 160px/);
+});
+
+test('the sky’s scene is its own file, fetched only under the flag, within 200 kB gzipped; the page’s bundle carries none of it', () => {
+  const chunk = readFileSync(join(out, 'sky-field.js'));
+  const gzipped = gzipSync(chunk).length;
+  assert.ok(gzipped <= 200 * 1024, `sky-field.js is ${(gzipped / 1024).toFixed(1)} kB gzipped; the budget is 200 kB`);
+  assert.ok(chunk.includes('WebGLRenderer'), 'the scene carries three.js');
+  assert.ok(!bundle.includes('WebGLRenderer'), 'three.js is not in the ordinary page’s bundle');
+  assert.ok(!bundle.includes('gsap'), 'GSAP is not in the ordinary page’s bundle');
+  assert.ok(bundle.includes('import("./sky-field.js")'), 'the bundle fetches the scene by its path, at run time');
+  const scripts = readdirSync(out).filter((name) => name.endsWith('.js'));
+  assert.deepEqual(scripts.sort(), ['observatory.js', 'sky-field.js'], 'two scripts and no shared chunk');
+  // Pinned, so the scene is reproducible: the manifest names exact versions.
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.match(pkg.dependencies.three, /^\d+\.\d+\.\d+$/);
+  assert.match(pkg.dependencies.gsap, /^\d+\.\d+\.\d+$/);
 });

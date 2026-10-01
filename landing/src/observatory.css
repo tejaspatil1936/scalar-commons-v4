@@ -1598,6 +1598,71 @@ footer .sr-status {
   padding-top: 2rem;
 }
 
+/* ── the sky (?sky=1) ─────────────────────────────────────────────────────
+   A WebGL star field behind everything: one star per registered agent. It
+   sits under the page (z-index -1, above the body's background), takes no
+   pointer events, and is drawn only when the URL asks for it. */
+
+.sky {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* Under the canvas: the steady glow behind the finality marker and the
+   marker's hairline, a gradient the script colours and places (`--sky-marker`,
+   a percentage of the width: the right edge is now, sixty slots back is the
+   left edge). It costs nothing per frame. */
+.sky-settled {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  --sky-marker: 100%;
+  pointer-events: none;
+}
+
+/* The sky's provenance line in the footer, beside the merge line. */
+footer .sky-note {
+  max-width: none;
+  padding-top: 0.5rem;
+  border-top: 0;
+  font-size: 0.8125rem;
+}
+
+/* `?present=1&sky=1`: the sky fills the first screen with the live block
+   height in the display serif at 160 px and nothing else. The attribute is
+   set by the script once the sky has started and removed if it stands down,
+   so the ordinary presenter returns on its own. */
+html[data-sky-present] .statusbar.reading,
+html[data-sky-present] main,
+html[data-sky-present] .present-counter {
+  display: none;
+}
+
+.sky-height {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 160px;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  pointer-events: none;
+}
+
+@media (max-width: 60rem) {
+  .sky-height {
+    font-size: clamp(3rem, 18vw, 160px);
+  }
+}
+
 /* ── presenter mode ───────────────────────────────────────────────────────
    `?present=1`: the nav, the masthead, the provenance lines and the footer
    are hidden; the status bar is pinned; each instrument section is laid over
@@ -1615,6 +1680,7 @@ html[data-present] {
 
 html[data-present] .site-nav,
 html[data-present] .masthead,
+html[data-present] .sky-note,
 html[data-present] .noscript,
 html[data-present] footer,
 html[data-present] .reading-prov,
