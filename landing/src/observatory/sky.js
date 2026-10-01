@@ -158,9 +158,13 @@ export const lineKey = (buyer, provider, seq) => `${buyer}/${provider}/${seq}`;
  * not still open under the same key (`state` 2, `t0` its time). A line whose
  * party is not a star is counted, not drawn: the sky never invents a place.
  * `t0` for a dispute is when this page first saw it disputed (`seen`), so the
- * flicker runs once. Pure; tested.
+ * flicker runs once. `now` and every `t0` are the scene's clock in SECONDS, the
+ * unit the line shader compares them in; a settlement's age is reckoned in
+ * milliseconds of slots and converted once, here. At most `max` lines are
+ * returned, the scene's buffer size; any beyond it are counted in `capped`, so
+ * the footer never claims a line it could not draw. Pure; tested.
  */
-export function linesFor(open, settled, index, { best = null, now = 0, seen = new Map() } = {}) {
+export function linesFor(open, settled, index, { best = null, now = 0, seen = new Map(), max = Infinity } = {}) {
   const lines = [];
   const keys = new Set();
   let omitted = 0;
@@ -193,10 +197,13 @@ export function linesFor(open, settled, index, { best = null, now = 0, seen = ne
       omitted += 1;
       continue;
     }
-    lines.push({ key, from, to, state: 2, t0: now - age });
+    lines.push({ key, from, to, state: 2, t0: now - age / 1000 }); // age is ms, the scene's clock is seconds
   }
   for (const key of seen.keys()) if (!keys.has(key)) seen.delete(key);
-  return { lines, omitted };
+  // Open lines come first, so a cap drops the oldest kind of line, the settled glow, before an open agreement.
+  const capped = Math.max(0, lines.length - max);
+  if (capped) lines.length = max;
+  return { lines, omitted, capped };
 }
 
 /** The finality marker's place across the field, in clip space: the right edge is now, TRAIL slots back is the left. Pure; tested. */
@@ -258,12 +265,13 @@ export function validatorAddresses(data, field) {
  * (`faults`: "name: reason", one per source), so an empty part of the sky is
  * never mistaken for an empty chain. Pure; tested.
  */
-export function skyExtra({ validators, lines, omitted, settled, complete, faults = [] }) {
+export function skyExtra({ validators, lines, omitted, settled, complete, faults = [], capped = 0, limit = null }) {
   const n = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
   return (
     `one per registered agent${complete ? '' : ' listed'}, sized by stake, brighter the more recent its activity` +
     `; ${n(validators, 'validator')} as fixed stars (Session.Validators)` +
     `; ${n(lines, 'line')}, one per open agreement (/v1/escrows)${omitted ? `, ${omitted} not drawn: a party is not a registered agent` : ''}` +
+    `${capped ? `, ${capped} more not drawn: the scene holds ${limit} lines` : ''}` +
     `; ${n(settled, 'settlement')} of the last ten minutes glowing (escrow.DeliveryConfirmed)` +
     `; the field moves once per block and drifts ${DRIFT_DEG_PER_MIN}° a minute` +
     faults.map((fault) => `; could not read ${fault}`).join('')
@@ -338,7 +346,10 @@ export function init(doc, ctx, { search = doc.defaultView?.location?.search, loa
   if (note) note.hidden = false;
 
   const probe = doc.createElement('canvas');
-  const webgl = Boolean(probe.getContext?.('webgl2') || probe.getContext?.('webgl'));
+  const gl = probe.getContext?.('webgl2') || probe.getContext?.('webgl');
+  const webgl = Boolean(gl);
+  // The probe only asks the question; its context is given back so it does not hold one of the browser's few.
+  gl?.getExtension?.('WEBGL_lose_context')?.loseContext();
   const reason = fallbackReason({ webgl, reduced: ctx.motion.reduced() });
   if (reason) {
     say(note, reason);

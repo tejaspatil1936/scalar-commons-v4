@@ -260,7 +260,7 @@ export function start({ doc, win, ctx, model, note, onFallback }) {
   let settled = [];
   let validators = [];
   let placed = { stars: [], index: new Map() };
-  let drawn = { lines: [], omitted: 0 };
+  let drawn = { lines: [], omitted: 0, capped: 0 };
   const seen = new Map(); // dispute key → when this page first saw it disputed, in scene seconds
   const faults = new Map(); // a read that failed or could not be decoded, by name, for the footer
   let best = null;
@@ -339,7 +339,7 @@ export function start({ doc, win, ctx, model, note, onFallback }) {
     for (const name of ['position', 'aSize', 'aBright', 'aKind']) starGeometry.getAttribute(name).needsUpdate = true;
     starGeometry.setDrawRange(0, n);
 
-    const m = Math.min(MAX_LINES, drawn.lines.length);
+    const m = drawn.lines.length; // linesFor already holds it to MAX_LINES
     const { position: lp, state, t0 } = lineBuffers;
     for (let i = 0; i < m; i += 1) {
       const line = drawn.lines[i];
@@ -379,7 +379,7 @@ export function start({ doc, win, ctx, model, note, onFallback }) {
   function rebuild() {
     const recentSettled = model.recentSettlements(settled, { best });
     placed = model.starsFor(agents, validators, { best, recentSettled });
-    drawn = model.linesFor(open, settled, placed.index, { best, now: now(), seen });
+    drawn = model.linesFor(open, settled, placed.index, { best, now: now(), seen, max: MAX_LINES });
     layout();
     if (note && agentsRecord) {
       const settledShown = drawn.lines.filter((l) => l.state === 2).length;
@@ -390,6 +390,8 @@ export function start({ doc, win, ctx, model, note, onFallback }) {
           validators: validators.length,
           lines: drawn.lines.length - settledShown,
           omitted: drawn.omitted,
+          capped: drawn.capped,
+          limit: MAX_LINES,
           settled: settledShown,
           complete: agentsRecord.complete !== false,
           faults: [...faults].map(([name, message]) => `${name}: ${message}`),
@@ -463,7 +465,7 @@ export function start({ doc, win, ctx, model, note, onFallback }) {
     canvas.dataset.fps = stats.fps === null ? '' : String(stats.fps);
     canvas.dataset.worstMs = stats.worstMs === null ? '' : String(stats.worstMs);
     canvas.dataset.stars = String(placed.stars.length);
-    canvas.dataset.lines = String(Math.min(MAX_LINES, drawn.lines.length));
+    canvas.dataset.lines = String(drawn.lines.length);
     canvas.dataset.faults = String(faults.size);
     canvas.dataset.seconds = secondFps.map((f) => f.toFixed(1)).join(' ');
   }
@@ -508,6 +510,8 @@ export function start({ doc, win, ctx, model, note, onFallback }) {
     pause();
     for (const slot of frontSlots) gsap.killTweensOf(slot);
     gsap.killTweensOf(markerState);
+    // pause() paused GSAP's global timeline; with the sky's tweens killed, give it back running for anything else on the page.
+    gsap.globalTimeline.resume();
     for (const g of [starGeometry, lineGeometry, frontGeometry]) g.dispose();
     for (const m of [starMaterial, lineMaterial, frontMaterial]) m.dispose();
     renderer.dispose();
@@ -631,7 +635,7 @@ export function start({ doc, win, ctx, model, note, onFallback }) {
     stats: () => model.frameStats(durations),
     seconds: () => secondFps.slice(),
     stars: () => placed.stars.length,
-    lines: () => Math.min(MAX_LINES, drawn.lines.length),
+    lines: () => drawn.lines.length,
     faults: () => new Map(faults),
   };
 }

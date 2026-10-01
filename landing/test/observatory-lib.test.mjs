@@ -735,9 +735,21 @@ test('the field lists agents then validators, capped, and lines only between sta
   assert.deepEqual(first.lines, [
     { key: 'a/b/1', from: 0, to: 1, state: 0, t0: 0 },
     { key: 'a/b/2', from: 0, to: 1, state: 1, t0: 50 },
-    { key: 'b/v/7', from: 1, to: 2, state: 2, t0: 50 - 10 * SLOT_MS },
+    { key: 'b/v/7', from: 1, to: 2, state: 2, t0: 50 - (10 * SLOT_MS) / 1000 },
   ]);
   assert.equal(first.omitted, 2, 'a line to an address that is not a star is counted, never placed');
+  assert.equal(first.capped, 0);
+  // `now` and `t0` are the scene's clock in seconds, as the shader reads them: a
+  // settlement ten blocks old is a minute into its ten-minute fade, so it glows.
+  const settledLine = first.lines[2];
+  const ageSeconds = 50 - settledLine.t0;
+  assert.equal(ageSeconds, 60);
+  assert.ok(ageSeconds < SETTLE_FADE_MS / 1000, 'a recent settlement is inside the fade the shader applies, so it is drawn');
+  // The scene holds a fixed number of lines; any past it are counted, never claimed as drawn.
+  const capped = linesFor(open, settled, placed.index, { best: 1000, now: 50, seen: new Map(), max: 2 });
+  assert.deepEqual(capped.lines.map((l) => l.key), ['a/b/1', 'a/b/2']);
+  assert.equal(capped.capped, 1);
+  assert.equal(capped.omitted, 2);
   const later = linesFor(open, settled, placed.index, { best: 1000, now: 80, seen });
   assert.equal(later.lines[1].t0, 50, 'a dispute keeps the moment it was first seen: it flickers once');
   const gone = linesFor([open[0]], [], placed.index, { best: 1000, now: 90, seen });
@@ -776,6 +788,10 @@ test('the sky’s marker, glow, frame judge and fallbacks follow stated rules', 
     'one per registered agent, sized by stake, brighter the more recent its activity; 5 validators as fixed stars (Session.Validators); 1 line, one per open agreement (/v1/escrows); 2 settlements of the last ten minutes glowing (escrow.DeliveryConfirmed); the field moves once per block and drifts 1° a minute',
   );
   assert.match(skyExtra({ validators: 5, lines: 3, omitted: 2, settled: 0, complete: false }), /agent listed, .*3 lines, .*2 not drawn: a party is not a registered agent; 0 settlements/);
+  assert.match(
+    skyExtra({ validators: 5, lines: 2048, omitted: 0, settled: 0, complete: true, capped: 7, limit: 2048 }),
+    /2048 lines, one per open agreement \(\/v1\/escrows\), 7 more not drawn: the scene holds 2048 lines; 0 settlements/,
+  );
   // A read that failed is said, so an empty part of the sky is never mistaken for an empty chain.
   assert.match(
     skyExtra({ validators: 0, lines: 0, omitted: 0, settled: 0, complete: true, faults: ['validators (Session.Validators): HTTP 502', 'open agreements (/v1/escrows): missing field "status"'] }),
