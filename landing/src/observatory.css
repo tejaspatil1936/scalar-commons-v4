@@ -382,7 +382,7 @@ pre {
 .statusbar .reading-value {
   display: inline;
   margin: 0;
-  font-size: 1.0625rem;
+  font-size: 1rem;
   line-height: 1;
   color: var(--text);
 }
@@ -476,6 +476,7 @@ pre {
 
 .instrument-label .mono {
   margin-right: 0.35em;
+  font-family: var(--font-sans); /* a section number is a label, not provenance */
   letter-spacing: 0.1em;
 }
 
@@ -1333,7 +1334,8 @@ h2 {
 
 .upgrade-facts {
   margin: 0 0 0.5rem;
-  font-size: 0.6875rem;
+  font-family: var(--font-sans); /* facts are reading text; the hash beneath them stays mono */
+  font-size: 0.75rem;
   color: var(--text-dim);
 }
 
@@ -1363,8 +1365,7 @@ h2 {
 }
 
 .chip-label {
-  font-family: var(--font-mono);
-  font-size: 0.625rem;
+  font-family: var(--font-sans); /* a label; the hash it introduces is the mono part */
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-dim);

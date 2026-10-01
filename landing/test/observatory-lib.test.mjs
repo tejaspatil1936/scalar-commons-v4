@@ -353,6 +353,44 @@ test('polled heights are named as such: no body was read, so the bar stands at t
   assert.equal(polledNote([]), '');
 });
 
+test('a serif figure is set digit by digit in cells, and once unbroken for screen readers', async () => {
+  // readout.js touches the DOM only inside its functions; a four-method stub is enough to see what setDigits builds.
+  const element = (tag) => ({
+    tag,
+    className: '',
+    textContent: '',
+    attrs: {},
+    children: [],
+    setAttribute(k, v) { this.attrs[k] = v; },
+    append(...nodes) { this.children.push(...nodes); },
+    replaceChildren() { this.children = []; },
+  });
+  const had = 'document' in globalThis;
+  const before = globalThis.document;
+  globalThis.document = { createElement: element };
+  try {
+    const { setDigits } = await import('../src/observatory/readout.js');
+    const node = element('span');
+    node.children.push('stale');
+    setDigits(node, '847,724');
+    assert.equal(node.children.length, 2, 'the old content is replaced by the spoken copy and the cells');
+    const [spoken, cells] = node.children;
+    assert.equal(spoken.className, 'visually-hidden');
+    assert.equal(spoken.textContent, '847,724', 'the whole figure, once, unbroken, for screen readers');
+    assert.equal(cells.className, 'dcells');
+    assert.equal(cells.attrs['aria-hidden'], 'true', 'the cells are not read aloud as separate words');
+    const run = cells.children.map((c) => (typeof c === 'string' ? c : `[${c.textContent}]`)).join('');
+    assert.equal(run, '[8][4][7],[7][2][4]', 'each digit in its own cell; the separator keeps its own width');
+    assert.ok(cells.children.filter((c) => typeof c !== 'string').every((c) => c.className === 'dc'));
+    setDigits(node, 12);
+    assert.equal(node.children[0].textContent, 12, 'a number is accepted as given');
+    assert.equal(node.children[1].children.length, 2);
+  } finally {
+    if (had) globalThis.document = before;
+    else delete globalThis.document;
+  }
+});
+
 test('the status bar’s state word follows stated rules, worst first', () => {
   const normal = { socket: 'live', lastOk: true, seen: true, lag: 2, intervalMs: 6_000, hidden: false };
   assert.equal(stateWord(normal), 'Network normal');
