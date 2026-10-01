@@ -262,6 +262,7 @@ export function start({ doc, win, ctx, model, note, onFallback }) {
   let placed = { stars: [], index: new Map() };
   let drawn = { lines: [], omitted: 0 };
   const seen = new Map(); // dispute key → when this page first saw it disputed, in scene seconds
+  const faults = new Map(); // a read that failed or could not be decoded, by name, for the footer
   let best = null;
   let finalized = null;
   let lastHead = null;
@@ -353,6 +354,27 @@ export function start({ doc, win, ctx, model, note, onFallback }) {
     lineGeometry.setDrawRange(0, m * 2);
   }
 
+  /**
+   * A list read, as the honesty rules want it: a failed record or a missing
+   * field empties what it fed AND is said in the footer, never swallowed. The
+   * error is logged so a schema drift is seen in the console too.
+   */
+  function readList(name, record, map) {
+    if (!record?.ok) {
+      faults.set(name, record?.error ?? 'unavailable');
+      return [];
+    }
+    try {
+      const out = map(record);
+      faults.delete(name);
+      return out;
+    } catch (error) {
+      console.error(error);
+      faults.set(name, error.message);
+      return [];
+    }
+  }
+
   /** Recomputes stars and lines from the latest reads, then the footer's line. */
   function rebuild() {
     const recentSettled = model.recentSettlements(settled, { best });
@@ -364,7 +386,14 @@ export function start({ doc, win, ctx, model, note, onFallback }) {
       ctx.readout.showValue(note, agentsRecord, {
         value: agents.length,
         unit: agents.length === 1 ? 'star' : 'stars',
-        extra: model.skyExtra({ validators: validators.length, lines: drawn.lines.length - settledShown, omitted: drawn.omitted, settled: settledShown, complete: agentsRecord.complete !== false }),
+        extra: model.skyExtra({
+          validators: validators.length,
+          lines: drawn.lines.length - settledShown,
+          omitted: drawn.omitted,
+          settled: settledShown,
+          complete: agentsRecord.complete !== false,
+          faults: [...faults].map(([name, message]) => `${name}: ${message}`),
+        }),
         motion: ctx.motion,
         live: false,
       });
@@ -434,7 +463,8 @@ export function start({ doc, win, ctx, model, note, onFallback }) {
     canvas.dataset.fps = stats.fps === null ? '' : String(stats.fps);
     canvas.dataset.worstMs = stats.worstMs === null ? '' : String(stats.worstMs);
     canvas.dataset.stars = String(placed.stars.length);
-    canvas.dataset.lines = String(drawn.lines.length);
+    canvas.dataset.lines = String(Math.min(MAX_LINES, drawn.lines.length));
+    canvas.dataset.faults = String(faults.size);
     canvas.dataset.seconds = secondFps.map((f) => f.toFixed(1)).join(' ');
   }
 
@@ -513,18 +543,14 @@ export function start({ doc, win, ctx, model, note, onFallback }) {
     ctx.watchAll(
       'escrows',
       (record) => {
-        try {
-          open = record.ok
-            ? record.items.map((item) => ({
-                buyer: ctx.field(item, 'buyer'),
-                provider: ctx.field(item, 'provider'),
-                seq: ctx.field(item, 'seq'),
-                status: ctx.field(item, 'status'),
-              }))
-            : [];
-        } catch {
-          open = [];
-        }
+        open = readList('open agreements (/v1/escrows)', record, (r) =>
+          r.items.map((item) => ({
+            buyer: ctx.field(item, 'buyer'),
+            provider: ctx.field(item, 'provider'),
+            seq: ctx.field(item, 'seq'),
+            status: ctx.field(item, 'status'),
+          })),
+        );
         rebuild();
       },
       ESCROWS_INTERVAL_MS,
@@ -535,18 +561,14 @@ export function start({ doc, win, ctx, model, note, onFallback }) {
     ctx.watchAll(
       'deliveriesConfirmed',
       (record) => {
-        try {
-          settled = record.ok
-            ? record.items.map((item) => ({
-                blockNumber: ctx.field(item, 'blockNumber'),
-                buyer: ctx.field(item, 'data.buyer'),
-                provider: ctx.field(item, 'data.provider'),
-                seq: ctx.field(item, 'data.seq'),
-              }))
-            : [];
-        } catch {
-          settled = [];
-        }
+        settled = readList('settlements (escrow.DeliveryConfirmed)', record, (r) =>
+          r.items.map((item) => ({
+            blockNumber: ctx.field(item, 'blockNumber'),
+            buyer: ctx.field(item, 'data.buyer'),
+            provider: ctx.field(item, 'data.provider'),
+            seq: ctx.field(item, 'data.seq'),
+          })),
+        );
         rebuild();
       },
       SETTLED_INTERVAL_MS,
@@ -557,11 +579,7 @@ export function start({ doc, win, ctx, model, note, onFallback }) {
     ctx.watch(
       'validators',
       (record) => {
-        try {
-          validators = record.ok ? model.validatorAddresses(record.data, ctx.field) : [];
-        } catch {
-          validators = [];
-        }
+        validators = readList('validators (Session.Validators)', record, (r) => model.validatorAddresses(r.data, ctx.field));
         rebuild();
       },
       VALIDATORS_INTERVAL_MS,
@@ -613,6 +631,7 @@ export function start({ doc, win, ctx, model, note, onFallback }) {
     stats: () => model.frameStats(durations),
     seconds: () => secondFps.slice(),
     stars: () => placed.stars.length,
-    lines: () => drawn.lines.length,
+    lines: () => Math.min(MAX_LINES, drawn.lines.length),
+    faults: () => new Map(faults),
   };
 }

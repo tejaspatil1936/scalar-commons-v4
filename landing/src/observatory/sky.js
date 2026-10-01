@@ -253,15 +253,20 @@ export function validatorAddresses(data, field) {
   return decodeValidators(field(data, 'result')).map((key) => encodeSs58(key, SS58_FORMAT));
 }
 
-/** The footer's account of what is drawn. Pure; tested. */
-export function skyExtra({ validators, lines, omitted, settled, complete }) {
+/**
+ * The footer's account of what is drawn, and of any read that could not be
+ * (`faults`: "name: reason", one per source), so an empty part of the sky is
+ * never mistaken for an empty chain. Pure; tested.
+ */
+export function skyExtra({ validators, lines, omitted, settled, complete, faults = [] }) {
   const n = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
   return (
     `one per registered agent${complete ? '' : ' listed'}, sized by stake, brighter the more recent its activity` +
     `; ${n(validators, 'validator')} as fixed stars (Session.Validators)` +
     `; ${n(lines, 'line')}, one per open agreement (/v1/escrows)${omitted ? `, ${omitted} not drawn: a party is not a registered agent` : ''}` +
     `; ${n(settled, 'settlement')} of the last ten minutes glowing (escrow.DeliveryConfirmed)` +
-    `; the field moves once per block and drifts ${DRIFT_DEG_PER_MIN}° a minute`
+    `; the field moves once per block and drifts ${DRIFT_DEG_PER_MIN}° a minute` +
+    faults.map((fault) => `; could not read ${fault}`).join('')
   );
 }
 
@@ -342,7 +347,7 @@ export function init(doc, ctx, { search = doc.defaultView?.location?.search, loa
 
   html.setAttribute('data-sky', '');
   let height = null;
-  let onNumber = null;
+  const offs = [];
   if (html.hasAttribute('data-present')) {
     // The first screen: the sky and the live block height, nothing else.
     html.setAttribute('data-sky-present', '');
@@ -351,11 +356,10 @@ export function init(doc, ctx, { search = doc.defaultView?.location?.search, loa
     height.setAttribute('aria-live', 'off');
     setHeight(height, '—');
     doc.body.append(height);
-    onNumber = ({ number }) => {
+    const onNumber = ({ number }) => {
       if (Number.isFinite(number)) setHeight(height, ctx.format.formatInteger(number));
     };
-    ctx.bus.on('head', onNumber);
-    ctx.bus.on('poll', onNumber);
+    offs.push(ctx.bus.on('head', onNumber), ctx.bus.on('poll', onNumber));
   }
 
   let scene = null;
@@ -363,6 +367,8 @@ export function init(doc, ctx, { search = doc.defaultView?.location?.search, loa
     html.removeAttribute('data-sky');
     html.removeAttribute('data-sky-present');
     height?.remove();
+    for (const off of offs) if (typeof off === 'function') off();
+    offs.length = 0;
     say(note, why);
     scene = null;
   };

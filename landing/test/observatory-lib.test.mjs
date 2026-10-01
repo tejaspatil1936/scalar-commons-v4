@@ -776,6 +776,11 @@ test('the sky’s marker, glow, frame judge and fallbacks follow stated rules', 
     'one per registered agent, sized by stake, brighter the more recent its activity; 5 validators as fixed stars (Session.Validators); 1 line, one per open agreement (/v1/escrows); 2 settlements of the last ten minutes glowing (escrow.DeliveryConfirmed); the field moves once per block and drifts 1° a minute',
   );
   assert.match(skyExtra({ validators: 5, lines: 3, omitted: 2, settled: 0, complete: false }), /agent listed, .*3 lines, .*2 not drawn: a party is not a registered agent; 0 settlements/);
+  // A read that failed is said, so an empty part of the sky is never mistaken for an empty chain.
+  assert.match(
+    skyExtra({ validators: 0, lines: 0, omitted: 0, settled: 0, complete: true, faults: ['validators (Session.Validators): HTTP 502', 'open agreements (/v1/escrows): missing field "status"'] }),
+    /a minute; could not read validators \(Session\.Validators\): HTTP 502; could not read open agreements \(\/v1\/escrows\): missing field "status"$/,
+  );
 });
 
 test('the sky never loads its scene without the flag, and stands down before loading it under reduced motion or without WebGL', async () => {
@@ -783,7 +788,21 @@ test('the sky never loads its scene without the flag, and stands down before loa
   const value = { textContent: '', classList: { remove() {} } };
   const prov = { cleared: 0, replaceChildren() { this.cleared += 1; } };
   const html = { attrs: new Map(), setAttribute(k, v) { this.attrs.set(k, v); }, removeAttribute(k) { this.attrs.delete(k); }, hasAttribute(k) { return this.attrs.has(k); } };
-  const doc = (webgl) => ({ documentElement: html, defaultView: { location: { search: '?sky=1' } }, querySelector: () => note, createElement: () => ({ getContext: () => (webgl ? {} : null) }), body: { append() {} } });
+  // A stub element: enough of the DOM for the probe canvas and the presenter's height figure.
+  const element = (webgl, owner) => ({
+    className: '', textContent: '', removed: 0, attrs: new Map(), children: [],
+    ownerDocument: owner,
+    getContext: () => (webgl ? {} : null),
+    setAttribute(k, v) { this.attrs.set(k, v); },
+    replaceChildren(...nodes) { this.children = nodes; },
+    append(...nodes) { this.children.push(...nodes); },
+    remove() { this.removed += 1; },
+  });
+  const doc = (webgl) => {
+    const d = { documentElement: html, defaultView: { location: { search: '?sky=1' } }, querySelector: () => note, body: { append() {} } };
+    d.createElement = () => element(webgl, d);
+    return d;
+  };
   let loads = 0;
   const load = async () => { loads += 1; return { start: () => ({ stopped: false }) }; };
   const ctx = (reduced) => ({ motion: { reduced: () => reduced }, bus: { on() {} }, format: { formatInteger: String } });
@@ -802,4 +821,15 @@ test('the sky never loads its scene without the flag, and stands down before loa
   assert.ok(html.hasAttribute('data-sky'));
   assert.deepEqual(await on.ready, { stopped: false });
   assert.equal(loads, 1, 'the scene is fetched once, only when it can run');
+
+  // Presenter: the height listeners are dropped when the sky stands down, so nothing writes to a detached node.
+  html.setAttribute('data-present', '');
+  let removed = 0;
+  const presentCtx = { motion: { reduced: () => false }, bus: { on: () => () => { removed += 1; } }, format: { formatInteger: String } };
+  const failing = initSky(doc(true), presentCtx, { load: async () => { throw new Error('offline'); } });
+  assert.ok(html.hasAttribute('data-sky-present'));
+  assert.equal(await failing.ready, null);
+  assert.ok(!html.hasAttribute('data-sky-present'), 'the ordinary presenter returns');
+  assert.equal(removed, 2, 'both bus listeners are removed');
+  assert.match(value.textContent, /could not start \(offline\)/);
 });
