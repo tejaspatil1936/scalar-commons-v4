@@ -25,6 +25,11 @@ import {
   yCeiling,
   notePosition,
   openBarHeight,
+  withinBand,
+  cumulativeTotals,
+  cumulativePlancks,
+  supplyFigures,
+  TARGET_BAND_S,
 } from '../../src/observatory/instruments/history.js';
 import { field } from '../../src/observatory/data.js';
 import { cmnNumber, formatCmn } from '../../src/observatory/format.js';
@@ -364,4 +369,39 @@ test('the open era bar is never invisible', () => {
   assert.equal(openBarHeight(0), 2);
   assert.equal(openBarHeight(1.5), 2);
   assert.equal(openBarHeight(30), 30);
+});
+
+test('the target band counts measured intervals inside 5.5–6.5 s, edges included, breaks excluded', () => {
+  assert.deepEqual(TARGET_BAND_S, [5.5, 6.5]);
+  const page = blocksPage(100, 6, { at: { 100: 1_790_000_000_000 + 100 * 6_000 + 6_000, 98: 1_790_000_000_000 + 98 * 6_000 - 500 } });
+  const series = blockIntervals(page, field);
+  // 96→97: 6, 97→98: 5.5 (on the edge), 98→99: 6.5 (on the edge), 99→100: 12.
+  const band = withinBand(series.points);
+  assert.equal(band.measured, 5);
+  assert.equal(band.within, 4);
+  assert.deepEqual(withinBand(blockIntervals(blocksPage(100, 5, { missing: [98] }), field).points), { within: 2, measured: 2 });
+  assert.deepEqual(withinBand([]), { within: 0, measured: 0 });
+});
+
+test('running totals are exact, in order, and in plancks stay integers', () => {
+  assert.deepEqual(cumulativeTotals([3, 0, 2, 5]), [3, 3, 5, 10]);
+  assert.deepEqual(cumulativeTotals([]), []);
+  assert.deepEqual(cumulativePlancks(['0', '0', '0']), ['0', '0', '0']);
+  assert.deepEqual(cumulativePlancks(['1000000000000', '2500000000000']), ['1000000000000', '3500000000000']);
+  assert.deepEqual(cumulativePlancks(['123456789012345678901234', '1']), ['123456789012345678901234', '123456789012345678901235']);
+});
+
+test('the emission series can take every era in the run, not only the last twelve', () => {
+  assert.equal(emissionSeries(ERAS, field, cmnNumber).length, 12);
+  assert.equal(emissionSeries(ERAS, field, cmnNumber, Infinity).length, 13);
+  assert.equal(emissionSeries(ERAS, field, cmnNumber, Infinity)[0].era, 67);
+});
+
+test('supply figures are read as planck counts and the indexer’s own percentage, or refused', () => {
+  const live = { capPlancks: '100000000000000000000000', totalIssuancePlancks: '6054850322518573352172', remainingPlancks: '93945149677481426647828', percentIssued: 6.0548 };
+  assert.deepEqual(supplyFigures(live, field), { issuedPlancks: '6054850322518573352172', capPlancks: '100000000000000000000000', percent: 6.0548 });
+  assert.equal(formatCmn(supplyFigures(live, field).issuedPlancks), '6,054,850,322');
+  assert.throws(() => supplyFigures({ ...live, totalIssuancePlancks: '6e21' }, field), /counts of plancks/);
+  assert.throws(() => supplyFigures({ ...live, percentIssued: '6' }, field), /non-numeric percentIssued/);
+  assert.throws(() => supplyFigures({ capPlancks: '1' }, field), /response has no totalIssuancePlancks/);
 });

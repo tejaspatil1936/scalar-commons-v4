@@ -224,19 +224,23 @@ function historySection() {
     label: 'History strips',
     heading: 'How it has been running',
     lede:
-      'Four short records from the chain’s own history. Each strip says where its history begins; nothing here is extrapolated.',
+      'Four short records from the chain’s own history. Each strip says where its history begins; a running total is marked as derived from the record beneath it; nothing is extrapolated.',
     instrument: `      <div class="strips">
 ${[
-  strip({ key: 'blockTime', label: 'Block time', note: 'Seconds between consecutive blocks, last 200 blocks.' }),
   strip({
-    key: 'agreementsPerEra',
-    label: 'Agreements opened per era',
-    note: 'New agreements in each of the last 12 eras, plus the era still open.',
+    key: 'blockTime',
+    label: 'Block time',
+    note: 'Seconds between consecutive blocks, last 200 blocks, against the 5.5–6.5 s target band. A flat line inside the band is a chain keeping time.',
   }),
   strip({
-    key: 'emissionPerEra',
-    label: 'Emission per era',
-    note: 'New CMN paid to agents when each era (a fixed run of blocks) closed, last 12 eras.',
+    key: 'agreementsCumulative',
+    label: 'Agreements opened, cumulative',
+    note: 'The running total of new agreements over the last 12 eras (derived), with each era’s own count as bars behind it.',
+  }),
+  strip({
+    key: 'emissionCumulative',
+    label: 'CMN issued to agents, cumulative',
+    note: 'The running total of CMN paid to agents at each era’s close since this record begins (derived), with the per-era figure as a thin line. Total issuance from every source is given beneath, from the supply endpoint.',
   }),
   strip({
     key: 'agentsOverTime',
@@ -420,6 +424,12 @@ ${[
     caption: 'Open agreements and open disputes',
     command: `curl -s https://${API_HOST}/v1/escrows/stats`,
     reads: 'Reads <code>activeAgreementCount</code> and <code>byStatus.Disputed</code>.',
+  }),
+  codeBlock({
+    id: 'curl-supply',
+    caption: 'Total issuance against the supply cap',
+    command: `curl -s https://${API_HOST}/v1/emissions/supply`,
+    reads: 'Reads <code>totalIssuancePlancks</code>, <code>capPlancks</code> and <code>percentIssued</code>. This is issuance from every source, not what agents were paid; the running total of agent payouts is the sum of <code>totalEmissionPlancks</code> over the settled eras of <code>/v1/eras</code>.',
   }),
   codeBlock({
     id: 'curl-wasm',
