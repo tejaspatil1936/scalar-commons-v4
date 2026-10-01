@@ -1688,6 +1688,15 @@ fn e18e2_refund_cannot_be_claimed_twice_across_paths() {
         ));
         assert_eq!(Balances::free_balance(ALICE), free0 + 1_000);
         assert_eq!(Balances::reserved_balance(ALICE), 0);
+        // The refund that FIRED must say so on chain. #180 asks for events and
+        // balances; this test asserted balances only, which is how a refund that
+        // moved money without announcing it would pass.
+        assert!(
+            last_escrow_events()
+                .iter()
+                .any(|e| matches!(e, crate::pallet::Event::AgreementExpired { amount, .. } if *amount == 1_000)),
+            "the winning door must emit its own event"
+        );
 
         System::set_block_number(551); // claim_refund's window has now opened
         assert_noop!(

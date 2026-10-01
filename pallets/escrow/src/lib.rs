@@ -882,10 +882,28 @@ pub mod pallet {
                 // agreement expire and freed the slot. Emissions are supposed to reward
                 // verifiable work; nothing should make delivering the dangerous option.
                 //
-                // The buyer's own doors stay strictly first: each window below is the
-                // buyer's window PLUS EXPIRY_GRACE, so a buyer who is merely slow always
-                // has priority over a stranger closing its agreement, and the payee is the
-                // buyer of record either way — so this adds liveness without moving value.
+                // WHAT THE WINDOWS BELOW DO AND DO NOT GUARANTEE.
+                //
+                // An earlier version of this comment claimed "each window is the buyer's
+                // window PLUS EXPIRY_GRACE, so a buyer who is merely slow always has
+                // priority". That is true for `Delivered` and `Disputed` and FALSE for
+                // `Created`: there expiry opens at `deliver_by + GRACE` while the buyer's
+                // `claim_refund` opens at `deliver_by + BuyerResponseWindow`, which is
+                // later. So on an accepted-but-undelivered agreement a stranger can close
+                // it before the buyer could have. Caught by the spec-conformance lens; the
+                // code matches issue #180's amended table, so this was an overstated
+                // comment rather than a wrong rule.
+                //
+                // That ordering is harmless, and the reason is the part worth keeping: the
+                // refund goes to the BUYER OF RECORD whoever calls, and expiry earns the
+                // caller nothing. A stranger who wins the race hands the buyer its own
+                // money back and pays the fee for doing so. The buyer also keeps
+                // `cancel_pending` (while pending) and `claim_refund` (once its window
+                // opens) right up until the agreement is closed.
+                //
+                // So the honest statement is: expiry never moves value to anyone but the
+                // buyer, and for the two statuses where a provider has done work it waits
+                // for the buyer's own window first.
                 let expiry_due = match agreement.status {
                     // Never delivered: the deadline plus grace is the whole story.
                     AgreementStatus::Created => {

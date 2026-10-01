@@ -117,9 +117,23 @@ So pending agreements exit through exactly three doors — `cancel_pending`,
 `claim_refund`, `expire_agreement`, or normal settlement.
 
 The classification lives in one function, `consent_state`, returning a two-armed
-`ConsentState`. Both `claim_refund` and `expire_agreement` call it and `match` on
-the result, so the count decision is stated once, in one place, rather than
-emerging from the order the `ensure!`s happen to sit in.
+`ConsentState`. Both `claim_refund` and `expire_agreement` call it, so the
+*classification* is stated once rather than re-derived.
+
+They then use it differently, and this paragraph used to claim both `match` on
+it:
+
+- `expire_agreement` **matches**, because both arms are reachable: a pending
+  agreement and an accepted one are each expirable and differ only in whether
+  the provider's count is released.
+- `claim_refund` **refuses** with an `ensure!`, because only one arm is valid
+  there — a pending agreement has no business being refunded through the
+  accepted path, and `cancel_pending` is open to that buyer for the same amount
+  immediately. An `ensure!` says "this door is not for that case"; a `match`
+  would imply it handles both.
+
+So the count decision does not emerge from `ensure!` ordering, but the two calls
+are not symmetric and the doc should not have implied they were.
 
 ### 4.3 No double refund
 
