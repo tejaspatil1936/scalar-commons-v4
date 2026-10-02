@@ -61,15 +61,28 @@ system; use only its tokens, never redefine `:root`) and
 edits `context.js`, `data.js`, `readout.js`, `observatory.mjs` or
 `observatory.css`; if it needs a change there, it says so in its report.
 
-Two modules beside the instruments are not instruments: `statusbar.js`
+Five modules beside the instruments are not instruments. `statusbar.js`
 fills the one line at the top of the page from the hero's bus events and the
-ring's validator read (it fetches nothing of its own), and `presenter.js`
-drives `?present=1` — one section at a time, a re-armed `setTimeout` (never
-`setInterval`), cleared while the tab is hidden. `sky.js` holds the `?sky=1`
-sky's model (places, sizes, lines, the frame judge; pure, tested) and the
-three ways it stands down; `sky-field.js` is the three.js scene it fetches
-only when the flag is on, run on GSAP's ticker and removed while the tab is
-hidden.
+ring's validator read (it fetches nothing of its own) and plays the
+connection sequence on load. `hero.js` fills the first screen's two figures:
+the live height from the hero's `head` and `poll` events, and the agents
+working now (those holding an open agreement) from the same `/v1/agents`
+read the constellation and the sky make. `sources.js` is the Sources switch:
+every provenance line is in the page as before and hidden by the
+stylesheet until `html[data-sources]` (remembered in localStorage, read by
+the page's head before first paint) or a hover, focus or tap on one reading
+shows it. `presenter.js` drives `?present=1` — one screen at a time, a
+re-armed `setTimeout` (never `setInterval`), cleared while the tab is
+hidden; space pauses, Escape exits in place. `reveal.js` is its own chunk,
+GSAP ScrollTrigger, fetched by `main.js` only when motion is not reduced:
+each section rises in once; a section is hidden by that script alone, never
+by the stylesheet. `sky.js` holds the sky's model (places, sizes, lines, the
+frame judge; pure, tested) and the ways it stands down; `sky-field.js` is
+the three.js scene it fetches once the page has booted, run on GSAP's
+ticker and removed while the tab is hidden. The sky is on by default
+(`?sky=0` turns it off) and shows through the first screen, `main` and the
+footer standing on the plate; in presenter mode it shows through every
+screen.
 
 ## Developing one instrument
 

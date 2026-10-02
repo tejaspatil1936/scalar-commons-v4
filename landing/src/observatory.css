@@ -2070,6 +2070,22 @@ html[data-present] .readings {
   grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
 }
 
+/* A figure never breaks across lines on a screen; the two instruments whose
+   readings share the row with a dial stack them instead and size them to fit. */
+html[data-present] .reading-value .dcells {
+  white-space: nowrap;
+}
+
+html[data-present] #era .readings,
+html[data-present] #validators .readings {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+html[data-present] #era .readings .reading-value,
+html[data-present] #validators .readings .reading-value {
+  font-size: clamp(2.5rem, 6vw, 120px);
+}
+
 html[data-present] .reading {
   padding-bottom: 1rem;
 }
