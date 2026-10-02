@@ -12,8 +12,10 @@
 // sky (`?sky=1`, three.js and GSAP) is built apart: `sky.js` imports
 // `./sky-field.js` dynamically, that path is left external in the page's
 // bundle, and a second build emits `sky-field.js` beside it, so the page
-// fetches the scene only when the flag is on and the ordinary page is still
-// one file. The landing page itself still ships no script at all.
+// fetches the scene only after it has booted and the WebGL and motion checks
+// pass. The scroll reveal (`reveal.js`, GSAP ScrollTrigger) is built the same
+// way and fetched only when motion is not reduced. The landing page itself
+// still ships no script at all.
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,7 +23,7 @@ import { build, transform } from 'esbuild';
 import { content } from '../src/content.mjs';
 import { sourceClaims } from '../src/source-claims.mjs';
 import { renderPage } from '../src/render.mjs';
-import { renderObservatory } from '../src/observatory.mjs';
+import { renderObservatory, faviconSvg } from '../src/observatory.mjs';
 import { FONTS, observatoryCss } from '../src/observatory-assets.mjs';
 
 const here = (relative) => fileURLToPath(new URL(relative, import.meta.url));
@@ -50,6 +52,7 @@ writeFileSync(join(outDir, 'observatory.html'), renderObservatory({ history, pos
 writeFileSync(join(outDir, 'observatory.css'), css);
 copyFileSync(here('../runtime-history.json'), join(outDir, 'runtime-history.json'));
 copyFileSync(here('../public/posture.json'), join(outDir, 'posture.json'));
+writeFileSync(join(outDir, 'favicon.svg'), faviconSvg());
 
 mkdirSync(join(outDir, 'fonts'), { recursive: true });
 for (const [source, name] of FONTS) {
@@ -69,15 +72,17 @@ const bundle = await build({
   ...common,
   entryPoints: [here('../src/observatory/main.js')],
   outfile: join(outDir, 'observatory.js'),
-  // The sky's scene is fetched by this path at run time, from the second build below.
-  external: ['./sky-field.js'],
+  // The sky's scene and the scroll reveal are fetched by these paths at run time, from the builds below.
+  external: ['./sky-field.js', './reveal.js'],
 });
 const sky = await build({ ...common, entryPoints: [here('../src/observatory/sky-field.js')], outfile: join(outDir, 'sky-field.js') });
+const reveal = await build({ ...common, entryPoints: [here('../src/observatory/reveal.js')], outfile: join(outDir, 'reveal.js') });
 const bundleBytes = Object.values(bundle.metafile.outputs)[0]?.bytes ?? 0;
 const skyBytes = Object.values(sky.metafile.outputs)[0]?.bytes ?? 0;
+const revealBytes = Object.values(reveal.metafile.outputs)[0]?.bytes ?? 0;
 
 console.log(
   `built ${outDir}/index.html (${(html.length / 1024).toFixed(1)} kB) from ${facts.provenance.specName} spec ` +
     `${facts.provenance.specVersion}, metadata v${facts.provenance.metadataVersion}, block ` +
-    `#${facts.provenance.readAtBlock}; observatory.js ${(bundleBytes / 1024).toFixed(1)} kB; sky chunk ${(skyBytes / 1024).toFixed(1)} kB`,
+    `#${facts.provenance.readAtBlock}; observatory.js ${(bundleBytes / 1024).toFixed(1)} kB; sky chunk ${(skyBytes / 1024).toFixed(1)} kB; reveal chunk ${(revealBytes / 1024).toFixed(1)} kB`,
 );

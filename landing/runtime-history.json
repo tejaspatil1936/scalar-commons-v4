@@ -43,7 +43,7 @@
       },
       "recordFile": null,
       "summarySource": "pallets/escrow/src/lib.rs",
-      "summaryNote": "Checked against the runtime's own metadata at spec 307 on 2026-09-29: it carries MaxAgreementSpan, SpanTooLong and NoSuchSlash, and no accept_agreement or expire_agreement. The provider-consent and expiry calls the tester guide describes as 'from spec 307' were deferred (issue #180, pull request #204) and are not on chain."
+      "summaryNote": "Checked against the runtime's own metadata at spec 307 on 2026-09-29: it carries MaxAgreementSpan, SpanTooLong and NoSuchSlash, and no accept_agreement or expire_agreement. The provider-consent and expiry calls the tester guide describes as 'from spec 307' were deferred (issue #180, pull request #204) and are not on chain at 307. They were added to the runtime's source on 2026-10-01 (pull request #233) for a later runtime; this record is about what the chain ran at 307 and does not claim them."
     },
     {
       "specVersion": 309,

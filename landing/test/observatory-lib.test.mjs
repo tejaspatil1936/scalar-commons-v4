@@ -38,8 +38,10 @@ import {
   polledNote,
   TRAIL,
 } from '../src/observatory/instruments/pulse.js';
-import { stateWord, sealingPhrase, init as initStatusBar, SEALING_GRACE_MS, FINALITY_LAG_ALERT, LATE_MS } from '../src/observatory/statusbar.js';
-import { wantsPresenter, stepFor } from '../src/observatory/presenter.js';
+import { stateWord, sealingPhrase, bootPhrase, init as initStatusBar, SEALING_GRACE_MS, FINALITY_LAG_ALERT, LATE_MS, BOOT_MS, BOOT_STEP_MS } from '../src/observatory/statusbar.js';
+import { wantsPresenter, stepFor, keyAction } from '../src/observatory/presenter.js';
+import { SOURCES_PREF_KEY, readSourcesPreference, writeSourcesPreference, init as initSources } from '../src/observatory/sources.js';
+import { agentsWorking, workingSentence } from '../src/observatory/hero.js';
 import { railPositions } from '../src/observatory.mjs';
 import {
   wantsSky,
@@ -654,17 +656,28 @@ test('presenter mode is asked for by ?present=1 and driven by the arrow keys', (
   assert.equal(stepFor('ArrowLeft', 0, 8), 7);
   assert.equal(stepFor('Home', 5, 8), 0);
   assert.equal(stepFor('End', 5, 8), 7);
-  assert.equal(stepFor(' ', 2, 8), 3);
+  assert.equal(stepFor(' ', 2, 8), null, 'space no longer advances: it pauses');
   assert.equal(stepFor('a', 2, 8), null);
   assert.equal(stepFor('ArrowRight', 0, 0), null);
+  // v4: arrows go, space pauses, Escape exits; anything else is not ours.
+  assert.deepEqual(keyAction('ArrowRight', 0, 8), { go: 1 });
+  assert.deepEqual(keyAction('ArrowLeft', 0, 8), { go: 7 });
+  assert.deepEqual(keyAction(' ', 3, 8), { pause: true });
+  assert.deepEqual(keyAction('Escape', 3, 8), { exit: true });
+  assert.equal(keyAction('a', 3, 8), null);
+  assert.deepEqual(keyAction('Escape', 0, 0), { exit: true }, 'Escape leaves even an empty deck');
 });
 
-test('the sky is asked for by ?sky=1 and places every address by its hash, the same on every visit', () => {
+test('the sky is on by default, ?sky=0 forces the fallback, and every address is placed by its hash, the same on every visit', () => {
   assert.equal(wantsSky('?sky=1'), true);
   assert.equal(wantsSky('?present=1&sky=1'), true);
-  assert.equal(wantsSky('?sky=10'), false);
-  assert.equal(wantsSky(''), false);
-  assert.equal(wantsSky(undefined), false);
+  assert.equal(wantsSky(''), true, 'on by default');
+  assert.equal(wantsSky(undefined), true);
+  assert.equal(wantsSky('?present=1'), true);
+  assert.equal(wantsSky('?sky=0'), false, '?sky=0 forces the fallback');
+  assert.equal(wantsSky('?present=1&sky=0'), false);
+  assert.equal(wantsSky('?sky=0&a=b'), false);
+  assert.equal(wantsSky('?sky=10'), true, 'only sky=0 turns it off');
   assert.equal(hashAddress(''), 0x811c9dc5);
   assert.equal(hashAddress('a'), 0xe40c292c);
   const a = placeOf('5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty');
@@ -799,7 +812,160 @@ test('the sky’s marker, glow, frame judge and fallbacks follow stated rules', 
   );
 });
 
-test('the sky never loads its scene without the flag, and stands down before loading it under reduced motion or without WebGL', async () => {
+test('the connection sequence: connecting · subscribed · block N over 1.5 s, each step held, then the real state', () => {
+  const f = (n) => n.toLocaleString('en-US');
+  assert.equal(BOOT_MS, 1_500);
+  assert.equal(BOOT_STEP_MS, 500);
+  assert.equal(bootPhrase({ sinceMs: 0, subscribed: false, block: null }), 'connecting');
+  assert.equal(bootPhrase({ sinceMs: 0, subscribed: true, block: 100 }), 'connecting', 'nothing before its step, however fast the socket');
+  assert.equal(bootPhrase({ sinceMs: BOOT_STEP_MS, subscribed: true, block: null }), 'connecting · subscribed');
+  assert.equal(bootPhrase({ sinceMs: BOOT_STEP_MS, subscribed: false, block: null }), 'connecting', 'a step that has not happened is not said');
+  assert.equal(bootPhrase({ sinceMs: 2 * BOOT_STEP_MS, subscribed: true, block: 851_787, formatInteger: f }), 'connecting · subscribed · block 851,787');
+  assert.equal(bootPhrase({ sinceMs: 2 * BOOT_STEP_MS, subscribed: true, block: null }), 'connecting · subscribed');
+  assert.equal(bootPhrase({ sinceMs: 10_000, subscribed: false, block: 5 }), 'connecting', 'a polled height without a socket never claims a subscription');
+});
+
+test('status bar wiring: the sequence runs on the page’s tween, holds the block for a step, and never runs under reduced motion or after a failure', () => {
+  // A harness whose tween is driven by hand, so the sequence's clock is the test's.
+  const run = ({ reduced = false } = {}) => {
+    const el = () => ({ textContent: '', dataset: {}, classList: { add() {}, remove() {} }, offsetWidth: 1 });
+    const slots = { '.pulse-dot': el(), '.sb-state': el(), '.sb-validators': el(), '.sb-finality': el() };
+    const root = { dataset: {}, querySelector: (sel) => slots[sel] ?? null };
+    const listeners = new Map();
+    const bus = {
+      on: (name, fn) => listeners.set(name, [...(listeners.get(name) ?? []), fn]),
+      emit: (name, payload) => (listeners.get(name) ?? []).forEach((fn) => fn(payload)),
+    };
+    const tweens = [];
+    let now = 1_000_000;
+    const ctx = {
+      bus,
+      now: () => now,
+      format: { formatInteger: (n) => n.toLocaleString('en-US') },
+      motion: {
+        reduced: () => reduced,
+        tween: (ms, frame, { done } = {}) => {
+          if (reduced) { frame(1); done?.(); return () => {}; }
+          tweens.push({ ms, frame, done, began: now });
+          return () => {};
+        },
+      },
+      readout: { showValue() {}, showError() {} },
+      field: () => { throw new Error('not used'); },
+      watch() {},
+    };
+    initStatusBar(root, ctx);
+    return {
+      slots, bus, tweens,
+      now: () => now,
+      /** Moves the clock and lets every running tween draw a frame; a tween past its end is done. */
+      advance(ms) {
+        now += ms;
+        for (const t of tweens.splice(0)) {
+          const k = Math.min(1, (now - t.began) / t.ms);
+          t.frame(k);
+          if (k < 1) tweens.push(t); else t.done?.();
+        }
+      },
+      state: () => slots['.sb-state'].textContent,
+    };
+  };
+
+  const h = run();
+  assert.equal(h.state(), 'connecting');
+  h.bus.emit('socket', { state: 'open', attempts: 0 });
+  h.bus.emit('head', { record: { ok: true }, number: 851_787, header: {}, author: { authorityIndex: 1 }, arrivedAt: h.now() });
+  assert.equal(h.state(), 'connecting', 'the first step holds even when everything has already happened');
+  h.advance(BOOT_STEP_MS);
+  assert.equal(h.state(), 'connecting · subscribed');
+  h.advance(BOOT_STEP_MS);
+  assert.equal(h.state(), 'connecting · subscribed · block 851,787');
+  h.advance(BOOT_STEP_MS - 1);
+  assert.equal(h.state(), 'connecting · subscribed · block 851,787', 'the block step is held for its half second');
+  h.advance(1);
+  h.bus.emit('finalized', { number: 851_785 });
+  assert.equal(h.state(), 'Network normal', 'then the real state word');
+  assert.equal(h.tweens.length, 0, 'nothing is left running');
+
+  // A block that arrives late holds the sequence open until it has been shown for a step.
+  const late = run();
+  late.bus.emit('socket', { state: 'open', attempts: 0 });
+  late.advance(BOOT_MS);
+  assert.equal(late.state(), 'connecting · subscribed', 'no block yet: the sequence waits');
+  late.bus.emit('head', { record: { ok: true }, number: 7, header: {}, author: null, arrivedAt: late.now() });
+  assert.equal(late.state(), 'connecting · subscribed · block 7');
+  late.advance(BOOT_STEP_MS - 1);
+  assert.equal(late.state(), 'connecting · subscribed · block 7');
+  late.advance(1);
+  assert.equal(late.state(), 'Network normal');
+
+  // A failure ends the sequence at once: the fault is said, not the ceremony.
+  const failed = run();
+  failed.bus.emit('socket', { state: 'failed', attempts: 3 });
+  assert.equal(failed.state(), 'Connecting', 'a socket that gave up is the real state, in the bar’s own words');
+  failed.bus.emit('poll', { record: { ok: false, error: 'HTTP 502' }, number: null, finalized: null, arrivedAt: failed.now() });
+  assert.equal(failed.state(), 'Not updating');
+
+  // Reduced motion: no sequence at all.
+  const still = run({ reduced: true });
+  still.bus.emit('socket', { state: 'open', attempts: 0 });
+  still.bus.emit('head', { record: { ok: true }, number: 1, header: {}, author: null, arrivedAt: still.now() });
+  assert.equal(still.state(), 'Network normal');
+  assert.equal(still.tweens.length, 0);
+});
+
+test('the Sources switch: off by default, remembered per browser, and a storage that throws is an off switch', () => {
+  assert.equal(SOURCES_PREF_KEY, 'observatory:sources');
+  const store = new Map();
+  const storage = { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
+  assert.equal(readSourcesPreference(storage), false);
+  writeSourcesPreference(storage, true);
+  assert.equal(store.get(SOURCES_PREF_KEY), '1');
+  assert.equal(readSourcesPreference(storage), true);
+  writeSourcesPreference(storage, false);
+  assert.equal(store.has(SOURCES_PREF_KEY), false, 'off is the absence of the key, as a fresh browser is');
+  assert.equal(readSourcesPreference(null), false);
+  assert.equal(readSourcesPreference({ getItem() { throw new Error('private mode'); } }), false);
+  assert.doesNotThrow(() => writeSourcesPreference({ setItem() { throw new Error('quota'); }, removeItem() { throw new Error('quota'); } }, true));
+
+  // The switch: role=switch, aria-checked follows the attribute on <html>, a click flips both and the store.
+  const html = { attrs: new Map(), setAttribute(k, v) { this.attrs.set(k, v); }, removeAttribute(k) { this.attrs.delete(k); }, hasAttribute(k) { return this.attrs.has(k); }, toggleAttribute(k, force) { if (force) this.attrs.set(k, ''); else this.attrs.delete(k); return force; } };
+  const button = { attrs: new Map(), handlers: {}, setAttribute(k, v) { this.attrs.set(k, v); }, addEventListener(name, fn) { this.handlers[name] = fn; } };
+  const doc = { documentElement: html, querySelector: (sel) => (sel === '.sb-sources' ? button : null), defaultView: { localStorage: storage } };
+  const announced = [];
+  initSources(doc, { announce: (t) => announced.push(t) });
+  assert.equal(button.attrs.get('aria-checked'), 'false');
+  button.handlers.click();
+  assert.equal(html.hasAttribute('data-sources'), true);
+  assert.equal(button.attrs.get('aria-checked'), 'true');
+  assert.equal(store.get(SOURCES_PREF_KEY), '1');
+  assert.match(announced.at(-1), /shown/);
+  button.handlers.click();
+  assert.equal(html.hasAttribute('data-sources'), false);
+  assert.equal(store.has(SOURCES_PREF_KEY), false);
+  // A page that booted with the attribute already set (the head script read the store) starts on.
+  html.setAttribute('data-sources', '');
+  const button2 = { attrs: new Map(), handlers: {}, setAttribute(k, v) { this.attrs.set(k, v); }, addEventListener(name, fn) { this.handlers[name] = fn; } };
+  initSources({ ...doc, querySelector: () => button2 }, { announce() {} });
+  assert.equal(button2.attrs.get('aria-checked'), 'true');
+});
+
+test('the hero counts agents working now as those holding an open agreement, and says so honestly', () => {
+  const rows = [
+    { address: 'a', activeEscrowCount: 2 },
+    { address: 'b', activeEscrowCount: 0 },
+    { address: 'c', activeEscrowCount: 1 },
+    { address: 'd', activeEscrowCount: '3' },
+  ];
+  assert.equal(agentsWorking(rows), 3);
+  assert.equal(agentsWorking([]), 0);
+  assert.throws(() => agentsWorking([{ address: 'x' }]), /activeEscrowCount/, 'a row without the field is a missing field, not a zero');
+  assert.equal(workingSentence(3, { complete: true }), '3 agents working now');
+  assert.equal(workingSentence(1, { complete: true }), '1 agent working now');
+  assert.equal(workingSentence(3, { complete: false }), '3 agents working now, of those listed');
+});
+
+test('the sky never loads its scene under ?sky=0, and stands down before loading it under reduced motion or without WebGL', async () => {
   const note = { hidden: true, querySelector: (sel) => (sel === '.reading-prov' ? prov : value) };
   const value = { textContent: '', classList: { remove() {} } };
   const prov = { cleared: 0, replaceChildren() { this.cleared += 1; } };
@@ -822,7 +988,7 @@ test('the sky never loads its scene without the flag, and stands down before loa
   let loads = 0;
   const load = async () => { loads += 1; return { start: () => ({ stopped: false }) }; };
   const ctx = (reduced) => ({ motion: { reduced: () => reduced }, bus: { on() {} }, format: { formatInteger: String } });
-  assert.equal(initSky(doc(true), ctx(false), { search: '', load }), null, 'off by default');
+  assert.equal(initSky(doc(true), ctx(false), { search: '?sky=0', load }), null, '?sky=0 forces the fallback: nothing runs');
   assert.equal(loads, 0);
   const reduced = initSky(doc(true), ctx(true), { load });
   assert.match(reduced.reason, /reduced motion/);
@@ -838,14 +1004,10 @@ test('the sky never loads its scene without the flag, and stands down before loa
   assert.deepEqual(await on.ready, { stopped: false });
   assert.equal(loads, 1, 'the scene is fetched once, only when it can run');
 
-  // Presenter: the height listeners are dropped when the sky stands down, so nothing writes to a detached node.
-  html.setAttribute('data-present', '');
-  let removed = 0;
-  const presentCtx = { motion: { reduced: () => false }, bus: { on: () => () => { removed += 1; } }, format: { formatInteger: String } };
-  const failing = initSky(doc(true), presentCtx, { load: async () => { throw new Error('offline'); } });
-  assert.ok(html.hasAttribute('data-sky-present'));
+  // A scene that cannot start stands the sky down and says why; the page is untouched by it.
+  const failing = initSky(doc(true), ctx(false), { load: async () => { throw new Error('offline'); } });
+  assert.ok(html.hasAttribute('data-sky'));
   assert.equal(await failing.ready, null);
-  assert.ok(!html.hasAttribute('data-sky-present'), 'the ordinary presenter returns');
-  assert.equal(removed, 2, 'both bus listeners are removed');
+  assert.ok(!html.hasAttribute('data-sky'), 'the attribute is removed when the sky stands down');
   assert.match(value.textContent, /could not start \(offline\)/);
 });

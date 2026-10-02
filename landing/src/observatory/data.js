@@ -54,7 +54,7 @@ export const SOURCES = {
     method: 'chain_subscribeNewHeads',
     unsubscribe: 'chain_unsubscribeNewHeads',
     label: 'chain_subscribeNewHeads',
-    readings: ['bestBlock', 'cadence', 'networkStatus'],
+    readings: ['bestBlock', 'cadence', 'networkStatus', 'heroHeight'],
   },
   finalizedHeads: {
     kind: 'subscription',
@@ -65,7 +65,7 @@ export const SOURCES = {
   },
 
   // Chain position and identity.
-  status: api('/v1/status', ['bestBlock', 'finalizedBlock', 'finalityLag', 'specVersion', 'networkStatus']),
+  status: api('/v1/status', ['bestBlock', 'finalizedBlock', 'finalityLag', 'specVersion', 'networkStatus', 'heroHeight']),
   blocks: api(`/v1/blocks?limit=${INDEXER_MAX_LIMIT}`, ['cadence', 'blockTime']),
   era: api('/v1/eras/current', ['era', 'eraSettlement', 'eraCountdown']),
   // The era in progress plus 13 settled ones: 12 whole eras need 13 boundaries.
@@ -78,8 +78,8 @@ export const SOURCES = {
   genesis: rpc('chain_getBlockHash', [0], 'chain_getBlockHash(0)', ['genesis']),
 
   // Agents and their contracts.
-  // The sky (?sky=1) draws one star per row of the same read.
-  agents: api(`/v1/agents?limit=${INDEXER_MAX_LIMIT}`, ['agents', 'sky']),
+  // The sky draws one star per row of the same read, and the hero counts the agents working now from it.
+  agents: api(`/v1/agents?limit=${INDEXER_MAX_LIMIT}`, ['agents', 'sky', 'agentsWorking']),
   escrows: api(`/v1/escrows?limit=${INDEXER_MAX_LIMIT}`, ['sky']),
   escrowStats: api('/v1/escrows/stats', ['activeAgreements', 'openDisputes']),
   slashes: events('agents', 'SlashExecuted', ['slashes']),

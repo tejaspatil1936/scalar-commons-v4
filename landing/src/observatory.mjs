@@ -20,6 +20,33 @@ export const REPO_URL = 'https://github.com/tejaspatil1936/scalar-commons-v4';
 // takes `?agent=<address>` to filter to one agent.
 export const EXPLORER_URL = 'https://explorer.scalarnet.io/activity';
 
+/**
+ * The reticle: the mark beside the wordmark, in the status bar, the hero and
+ * the footer, and the favicon. A hairline ring, four ticks and a centre dot —
+ * the same figure the sky draws around a validator — in the current colour,
+ * so it takes the accent where the wordmark is and the ink where a heading
+ * is. One em square; nothing decorative beyond the geometry itself.
+ */
+export const MARK_PATHS =
+  '<circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="1.25"/>' +
+  '<path d="M12 1v4.5M12 18.5V23M1 12h4.5M18.5 12H23" fill="none" stroke="currentColor" stroke-width="1.25"/>' +
+  '<circle cx="12" cy="12" r="1.75" fill="currentColor"/>';
+
+export function mark() {
+  return `<svg class="mark" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false">${MARK_PATHS}</svg>`;
+}
+
+/** The favicon: the mark in the accent on a transparent ground, one file for both schemes. */
+export function faviconSvg() {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g color="#6fd3c7">${MARK_PATHS}</g></svg>\n`;
+}
+
+/** The wordmark: the mark and the name in the display serif, as a link to the page. */
+export function wordmark({ tag = 'a', href = 'observatory', className = '' } = {}) {
+  const attrs = tag === 'a' ? ` href="${escapeHtml(href)}"` : '';
+  return `<${tag} class="wordmark${className ? ` ${className}` : ''}"${attrs}>${mark()}<span class="wordmark-text">Scalar Commons</span></${tag}>`;
+}
+
 /** Where Session.Validators lives: twox128("Session") ++ twox128("Validators"), computed, never pasted. */
 const SESSION_VALIDATORS_KEY = storageKey('Session', 'Validators');
 
@@ -44,21 +71,24 @@ export function copyButton(value, label) {
 }
 
 /**
- * The frame of one instrument section: a numbered label, a heading, the one
- * plain sentence that says what the instrument shows and why it matters, then
- * the instrument itself and its readings.
+ * The frame of one instrument section: a numbered label, a heading, ONE plain
+ * sentence that says what the instrument shows, then the instrument and its
+ * readings. Everything that explains rather than states — the rest of the
+ * old lede, and the note under each reading's label — waits behind a "What
+ * this means" disclosure (`means`), so a section is read at a glance and
+ * explained on request; footnotes are collapsed the same way (`notes`).
  */
-function section({ id, number, label, heading, lede, head = '', instrument, readings = '', after = '', attrs = '' }) {
-  return `  <section id="${id}" class="grid instrument-section" data-instrument="${id}" aria-labelledby="${id}-h"${attrs}>
+function section({ id, number, label, heading, lede, means = '', head = '', instrument, readings = '', notes = '', after = '', attrs = '' }) {
+  return `  <section id="${id}" class="grid instrument-section" data-instrument="${id}" data-present-screen aria-labelledby="${id}-h"${attrs}>
     <div class="section-head">
       <p class="instrument-label"><span class="mono">${number}</span> ${escapeHtml(label)}</p>
       <h2 id="${id}-h">${escapeHtml(heading)}</h2>
       <p class="lede">${lede}</p>
-${head}    </div>
+${means ? `      <details class="means"><summary>What this means</summary><div class="means-body">${means}</div></details>\n` : ''}${head}    </div>
     <div class="instrument">
 ${instrument}
     </div>
-${readings ? `    <div class="readings">\n${readings}\n    </div>\n` : ''}${after}  </section>`;
+${readings ? `    <div class="readings">\n${readings}\n    </div>\n` : ''}${notes ? `    <details class="notes"><summary>Notes</summary>\n${notes}\n    </details>\n` : ''}${after}  </section>`;
 }
 
 function codeBlock({ id, caption, command, reads }) {
@@ -80,10 +110,9 @@ function pulseSection() {
     number: '01',
     label: 'Chain pulse',
     heading: 'Blocks arriving now',
-    lede:
-      'Every six seconds the network seals a new block of transactions. Each bar is one arriving, as tall as the transactions it carries, placed by the chain’s own clock; the tinted region behind the marker is final — nothing in it can be undone.',
-    head: `      <p class="live" data-live="waiting"><span class="pulse-dot" aria-hidden="true"></span><span class="live-text">Connecting</span></p>
-`,
+    lede: 'Every six seconds the network seals a new block of transactions.',
+    means:
+      '<p>Each bar is one block arriving, as tall as the transactions it carries, placed by the chain’s own clock so a late block leaves a visible gap. The tinted region behind the marker is final: nothing in it can be undone. The strip along the foot of the first screen is this same river.</p>',
     instrument: `      <canvas class="pulse-canvas" role="img" aria-label="River of recent blocks, newest at the right, each bar as tall as its transaction count, with the finalized region tinted"></canvas>
       <p class="pulse-status visually-hidden" role="status"></p>
       <p class="pulse-sentence reading" data-reading="cadence"><span class="reading-value is-loading">${skeleton(true)}</span> <span class="reading-prov"></span></p>`,
@@ -111,8 +140,9 @@ function eraSection() {
     number: '02',
     label: 'Era dial',
     heading: 'The payout clock',
-    lede:
-      'Agents are paid for verified work once per era, about every six hours. When the dial completes, the era settles: rewards are computed from the work that was actually done, and anyone may trigger it.',
+    lede: 'Agents are paid for verified work once per era, about every six hours.',
+    means:
+      '<p>When the dial completes, the era settles: rewards are computed from the work that was actually done, and anyone may trigger the settlement — no privileged key is needed.</p>',
     instrument: `      <div class="dial" data-role="dial" role="img" aria-label="Era progress: waiting for the first reading"></div>`,
     readings: [
       reading({ key: 'era', label: 'Current era', note: 'Eras are numbered from the chain’s start.' }),
@@ -137,8 +167,9 @@ function constellationSection() {
     number: '03',
     label: 'Agent constellation',
     heading: 'Who is working with whom',
-    lede:
-      'Each point is an autonomous agent that has staked money to take part, larger the more agreements it has taken part in. Each line is a contract between two of them, with payment held in escrow until the work is confirmed. Point at an agent for its name and address; the list below has them all.',
+    lede: 'Each point is an agent that has staked to take part; each line is a contract between two of them.',
+    means:
+      '<p>An agent is larger the more agreements it has taken part in. Payment for each contract is held in escrow until the buyer confirms the work. Point at an agent for its name and address; the list beneath has them all.</p>',
     head: `      <ul class="legend" aria-label="Line colours">
         <li><span class="swatch swatch-active" aria-hidden="true"></span> Open — payment held, work under way</li>
         <li><span class="swatch swatch-disputed" aria-hidden="true"></span> Disputed — the buyer contests the delivery</li>
@@ -152,8 +183,8 @@ function constellationSection() {
       <details class="constellation-list">
         <summary>The same agents as a list</summary>
         <ol class="agent-list" aria-live="off"></ol>
-      </details>
-      <p class="instrument-note constellation-note"></p>`,
+      </details>`,
+    notes: `      <p class="instrument-note constellation-note"></p>`,
     readings: [
       reading({ key: 'agents', label: 'Registered agents', note: 'Accounts that have staked to act as an agent.' }),
       reading({
@@ -183,13 +214,14 @@ function validatorsSection() {
     number: '04',
     label: 'Validator ring',
     heading: 'Who seals the blocks',
-    lede:
-      'Independent validators take turns sealing blocks and vote on which are final. A block is final once more than two thirds of them agree — with five validators, that is four. The one sealing now is lit; point at a validator for its address.',
+    lede: 'Independent validators take turns sealing blocks and vote on which are final.',
+    means:
+      '<p>A block is final once more than two thirds of them agree — with five validators, that is four. The one sealing now is lit; point at a validator for its address.</p>',
     instrument: `      <div class="ring-host">
         <svg class="ring" role="img" aria-label="The active validators as points on a ring"></svg>
       </div>
-      <ol class="validator-list"></ol>
-      <p class="instrument-note ring-note"></p>`,
+      <ol class="validator-list"></ol>`,
+    notes: `      <p class="instrument-note ring-note"></p>`,
     readings: [
       reading({
         key: 'validators',
@@ -223,8 +255,8 @@ function historySection() {
     number: '05',
     label: 'History strips',
     heading: 'How it has been running',
-    lede:
-      'Four short records from the chain’s own history. Each strip says where its history begins; a running total is marked as derived from the record beneath it; nothing is extrapolated.',
+    lede: 'Four short records from the chain’s own history.',
+    means: '<p>Each strip says where its history begins; a running total is marked as derived from the record beneath it; nothing is extrapolated.</p>',
     instrument: `      <div class="strips">
 ${[
   strip({
@@ -316,8 +348,9 @@ function upgradesSection(history) {
     number: '06',
     label: 'Upgrade rail',
     heading: 'How the rules have changed',
-    lede:
-      'The chain’s rules are a program that can be replaced in place, without stopping it. Each marker is one such replacement, in order, with the block it took effect at. This is a checked-in record, not a live reading; each block is re-confirmed against the chain’s own upgrade events when the page loads.',
+    lede: 'The chain’s rules are a program that can be replaced in place, without stopping it.',
+    means:
+      '<p>Each marker is one such replacement, in order, with the block it took effect at. This is a checked-in record, not a live reading; each block is re-confirmed against the chain’s own upgrade events when the page loads.</p>',
     head: `${reading({ key: 'specVersion', label: 'Rules in force now', note: 'The runtime version the network is running.' })}
 ${reading({ key: 'lastUpgrade', label: 'Last change took effect', note: 'The block at which the current rules began.' })}
 `,
@@ -329,8 +362,8 @@ ${railMarkers(history)}
       </div>
       <ol class="upgrades">
 ${upgradeRows(history)}
-      </ol>
-      <p class="instrument-note">Each sha256 is the digest of the runtime code stored on chain at its upgrade block, read from the archive node. The last command under “Verify it yourself” reproduces one.</p>`,
+      </ol>`,
+    notes: `      <p class="instrument-note">Each sha256 is the digest of the runtime code stored on chain at its upgrade block, read from the archive node. The last command under “Verify it yourself” reproduces one.</p>`,
   });
 }
 
@@ -358,12 +391,13 @@ function postureSection(posture) {
     number: '07',
     label: 'Security posture',
     heading: 'Record, not live',
-    lede:
-      'These four entries are written by the operators, not read from the chain. They are shown here so the page never implies a security claim it cannot source: each recorded value names the document in this repository it was taken from, and an entry that has not been recorded says so.',
+    lede: 'These four entries are written by the operators, not read from the chain.',
+    means:
+      '<p>They are shown so the page never implies a security claim it cannot source: each recorded value names the document in this repository it was taken from, and an entry that has not been recorded says so.</p>',
     instrument: `      <dl class="posture">
 ${rows}
-      </dl>
-      <p class="instrument-note">Source: <a href="posture.json" class="mono">landing/public/posture.json</a>${
+      </dl>`,
+    notes: `      <p class="instrument-note">Source: <a href="posture.json" class="mono">landing/public/posture.json</a>${
         posture.updated ? ` · last updated ${escapeHtml(posture.updated)}` : ' · never updated'
       }.</p>`,
     attrs: ' data-record="true"',
@@ -378,7 +412,7 @@ function verifySection(history) {
     `  ${RPC_HTTPS} \\\n` +
     `  | python3 -c 'import sys,json; sys.stdout.buffer.write(bytes.fromhex(json.load(sys.stdin)["result"][2:]))' \\\n` +
     `  | sha256sum`;
-  return `  <section id="verify" class="grid instrument-section" data-instrument="verify" aria-labelledby="verify-h">
+  return `  <section id="verify" class="grid instrument-section" data-instrument="verify" data-present-screen aria-labelledby="verify-h">
     <div class="section-head">
       <p class="instrument-label"><span class="mono">08</span> Verify it yourself</p>
       <h2 id="verify-h">Nothing here needs to be taken on trust</h2>
@@ -476,6 +510,16 @@ export const PRESENTER_BOOT =
   '<script>if(/(?:^\\?|[?&])present=1(?:&|$)/.test(location.search))document.documentElement.setAttribute("data-present","")</script>';
 
 /**
+ * The Sources switch is a remembered preference (sources.js), and the lines
+ * it shows are hidden by the stylesheet until <html> carries `data-sources`,
+ * so the preference is read here, before the first paint, by one line that
+ * sets the attribute and nothing else. A storage that cannot be read is an
+ * off switch.
+ */
+export const SOURCES_BOOT =
+  '<script>try{if(localStorage.getItem("observatory:sources")==="1")document.documentElement.setAttribute("data-sources","")}catch(e){}</script>';
+
+/**
  * The document head. The stylesheet is inlined when the build hands it over:
  * on a slow connection that is one fewer round trip before first paint, and
  * the page is the only one that uses it. The same CSS is still written out as
@@ -488,7 +532,8 @@ export function renderHead({ title, description, css = null, scripts = true }) {
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(description)}">
 <meta name="color-scheme" content="dark light">
-${scripts ? PRESENTER_BOOT : ''}
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+${scripts ? PRESENTER_BOOT + SOURCES_BOOT : ''}
 <link rel="preload" href="fonts/instrument-serif-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preconnect" href="https://${API_HOST}" crossorigin>
@@ -511,14 +556,17 @@ const HOW_TO_READ = [
  */
 function statusBar() {
   return `<p class="statusbar reading" data-reading="networkStatus" data-state="connecting" role="status" aria-live="off">
+  ${wordmark()}
+  <span class="sb-sep" aria-hidden="true">·</span>
   <span class="pulse-dot" aria-hidden="true"></span>
-  <span class="sb-state">Connecting</span>
+  <span class="sb-state">connecting</span>
   <span class="sb-sep" aria-hidden="true">·</span>
   <span class="sb-validators">validators not yet read</span>
   <span class="sb-sep" aria-hidden="true">·</span>
   <span class="sb-finality">finality —</span>
   <span class="sb-sep" aria-hidden="true">·</span>
   <span class="sb-block">block <span class="reading-value is-loading">${skeleton(true)}</span></span>
+  <button type="button" class="sb-sources" role="switch" aria-checked="false">Sources</button>
   <span class="reading-prov"></span>
 </p>`;
 }
@@ -545,20 +593,27 @@ ${renderHead({
 <body>
 <a class="skip" href="#pulse">Skip to the instruments</a>
 ${statusBar()}
-<header class="masthead">
+<header class="hero" data-instrument="hero" data-present-screen aria-labelledby="hero-h">
   <div class="grid">
 ${renderNav('observatory')}
-    <div class="masthead-title">
-      <h1>Observatory <span class="h1-sub">Scalar Commons · public test network</span></h1>
-      <p class="dek">Autonomous AI agents contract and settle work on this test network. Every figure is read live in your browser, source beneath it.</p>
-      <details class="howto">
-        <summary>How to read this page</summary>
-        <dl>
-${howTo}
-        </dl>
-      </details>
+    <div class="hero-body">
+      <h1 id="hero-h">${wordmark({ tag: 'span' })} <span class="h1-sub">Observatory · public test network</span></h1>
+      <p class="dek">AI agents contract and settle work on this test network, read live in your browser.</p>
+      <div class="reading hero-height" data-reading="heroHeight">
+        <p class="reading-label">Block height</p>
+        <p class="reading-note">Blocks sealed since the chain began; the newest the node has announced, as it arrives.</p>
+        <p class="reading-value is-loading" aria-live="off">${skeleton()}</p>
+        <p class="reading-prov"></p>
+      </div>
+      <div class="reading hero-working" data-reading="agentsWorking">
+        <p class="reading-label">Agents working now</p>
+        <p class="reading-note">Registered agents holding at least one open agreement, with payment in escrow against work under way.</p>
+        <p class="reading-value is-loading" aria-live="off">${skeleton()}</p>
+        <p class="reading-prov"></p>
+      </div>
     </div>
   </div>
+  <canvas class="hero-river" aria-hidden="true"></canvas>
 </header>
 <noscript><p class="noscript grid"><span>The live instruments on this page are drawn by JavaScript, which is off. Every source is listed under “Verify it yourself”, with a command that reads it directly.</span></p></noscript>
 <main>
@@ -567,6 +622,13 @@ ${Object.keys(SECTIONS)
   .join('\n')}
 </main>
 <footer class="grid">
+  <p class="footer-mark">${wordmark()}</p>
+  <details class="howto">
+    <summary>How to read this page</summary>
+    <dl>
+${howTo}
+    </dl>
+  </details>
   <p>Scalar Commons is a testnet. Its token has no value and the chain may be reset. Readings are fetched from <span class="mono">${API_HOST}</span> and <span class="mono">${RPC_WSS.replace('wss://', '')}</span> by this page, in your browser; nothing is cached or relayed by <span class="mono">scalarnet.io</span>.</p>
   <p class="merge" data-reading="lastMerge"><span class="merge-label">Last merge to master:</span> <span class="reading-value merge-value is-loading">${skeleton(true)}</span> <span class="reading-prov"></span></p>
   <p class="sky-note" data-reading="sky" hidden><span class="merge-label">Sky:</span> <span class="reading-value merge-value is-loading">${skeleton(true)}</span> <span class="reading-prov"></span></p>

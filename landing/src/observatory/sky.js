@@ -23,10 +23,10 @@
 // or fewer than 30 frames a second for three seconds. The footer carries the
 // sky's own provenance line — how many stars, lines and validators, from
 // which reads, when — and says which fallback took effect, if one did. Off
-// by default: without the flag nothing here runs and nothing is drawn.
-//
-// With `?present=1&sky=1` the sky fills the first screen with the live
-// block height in the display serif and nothing else.
+// On by default since v4: the sky is the first screen's background, under
+// the wordmark and the live height (hero.js); `?sky=0` forces the fallback,
+// and so does any of the three stand-downs, under which the first screen
+// stands on the plate alone with the river strip along its foot.
 
 import { decodeValidators } from './scale.js';
 import { encodeSs58 } from './ss58.js';
@@ -56,9 +56,9 @@ export const SS58_FORMAT = 42;
 /** Frame durations kept for the frame statistics the canvas reports. */
 const STATS_WINDOW = 240;
 
-/** Whether the URL asks for the sky. Pure; tested. */
+/** Whether the sky is wanted: on by default, off only when the URL says `sky=0`. Pure; tested. */
 export function wantsSky(search) {
-  return /(?:^\?|[?&])sky=1(?:&|$)/.test(search ?? '');
+  return !/(?:^\?|[?&])sky=0(?:&|$)/.test(search ?? '');
 }
 
 /** FNV-1a over a string, as an unsigned 32-bit integer. Pure; tested. */
@@ -313,26 +313,6 @@ function say(note, text) {
   note.querySelector('.reading-prov')?.replaceChildren();
 }
 
-/** The block height for the presenter's first screen, each digit in a cell as every serif figure on the page. */
-function setHeight(node, text) {
-  node.replaceChildren();
-  const spoken = node.ownerDocument.createElement('span');
-  spoken.className = 'visually-hidden';
-  spoken.textContent = text;
-  const cells = node.ownerDocument.createElement('span');
-  cells.className = 'dcells';
-  cells.setAttribute('aria-hidden', 'true');
-  for (const ch of String(text)) {
-    if (/\d/.test(ch)) {
-      const cell = node.ownerDocument.createElement('span');
-      cell.className = 'dc';
-      cell.textContent = ch;
-      cells.append(cell);
-    } else cells.append(ch);
-  }
-  node.append(spoken, cells);
-}
-
 /**
  * Wires the sky when the document carries the flag. Returns a controller
  * (`ready` resolves to the scene, or null when the sky stood down), or null
@@ -357,29 +337,10 @@ export function init(doc, ctx, { search = doc.defaultView?.location?.search, loa
   }
 
   html.setAttribute('data-sky', '');
-  let height = null;
-  const offs = [];
-  if (html.hasAttribute('data-present')) {
-    // The first screen: the sky and the live block height, nothing else.
-    html.setAttribute('data-sky-present', '');
-    height = doc.createElement('p');
-    height.className = 'sky-height reading-value';
-    height.setAttribute('aria-live', 'off');
-    setHeight(height, '—');
-    doc.body.append(height);
-    const onNumber = ({ number }) => {
-      if (Number.isFinite(number)) setHeight(height, ctx.format.formatInteger(number));
-    };
-    offs.push(ctx.bus.on('head', onNumber), ctx.bus.on('poll', onNumber));
-  }
 
   let scene = null;
   const standDown = (why) => {
     html.removeAttribute('data-sky');
-    html.removeAttribute('data-sky-present');
-    height?.remove();
-    for (const off of offs) if (typeof off === 'function') off();
-    offs.length = 0;
     say(note, why);
     scene = null;
   };

@@ -261,7 +261,13 @@ export function polledNote(blocks) {
 
 const POLLING_TEXT = 'Polling every 6 s — live stream unavailable, block bodies not read';
 
-export function init(root, ctx) {
+/**
+ * `strip`, when given, is a second canvas the river is also drawn into in a
+ * compact form — no labels, the bars and the finalized band only — along the
+ * foot of the first screen. It is the same stream and the same clock; it is
+ * never a second source.
+ */
+export function init(root, ctx, { strip = null } = {}) {
   const canvas = root.querySelector('.pulse-canvas');
   const live = root.querySelector('.live');
   const liveText = live?.querySelector('.live-text');
@@ -287,6 +293,7 @@ export function init(root, ctx) {
 
   // ── view state ──
   const box = ctx.fitCanvas(canvas, () => draw());
+  const stripBox = strip ? ctx.fitCanvas(strip, () => draw()) : null;
   let anchor = { from: null, to: null, t: 1 }; // the chain time drawn at the right edge, sliding on arrival
   let marker = { fromX: null, t: 1 }; // the finality boundary, sliding when finality advances
   let cancelSlide = () => {};
@@ -362,10 +369,15 @@ export function init(root, ctx) {
   }
 
   function draw() {
-    const { context: g, width, height } = box();
+    paint(box(), { compact: false });
+    if (stripBox) paint(stripBox(), { compact: true });
+  }
+
+  /** One plate: the full river with its labels, or the compact strip without them. */
+  function paint({ context: g, width, height }, { compact }) {
     const { pxPerMs, bar, rightPad, labelEvery, visible } = riverLayout(width);
-    const baseline = Math.round(height - 20) + 0.5;
-    const plateTop = 22;
+    const baseline = compact ? height - 0.5 : Math.round(height - 20) + 0.5;
+    const plateTop = compact ? 2 : 22;
     const plateHeight = baseline - plateTop;
     const chain = stream.chain();
     const font = ctx.theme.font('mono');
@@ -402,17 +414,19 @@ export function init(root, ctx) {
       g.moveTo(Math.round(boundary) + 0.5, 4);
       g.lineTo(Math.round(boundary) + 0.5, baseline);
       g.stroke();
-      g.fillStyle = colour('text-dim');
-      g.font = `400 10px ${font}`;
-      g.textBaseline = 'top';
-      const label = `FINAL · ${ctx.format.formatInteger(stream.finalized)}`;
-      const labelWidth = g.measureText(label).width;
-      if (boundary - 6 - labelWidth >= 2) {
-        g.textAlign = 'right';
-        g.fillText(label, boundary - 6, 4);
-      } else {
-        g.textAlign = 'left';
-        g.fillText(label, boundary + 6, 4);
+      if (!compact) {
+        g.fillStyle = colour('text-dim');
+        g.font = `400 10px ${font}`;
+        g.textBaseline = 'top';
+        const label = `FINAL · ${ctx.format.formatInteger(stream.finalized)}`;
+        const labelWidth = g.measureText(label).width;
+        if (boundary - 6 - labelWidth >= 2) {
+          g.textAlign = 'right';
+          g.fillText(label, boundary - 6, 4);
+        } else {
+          g.textAlign = 'left';
+          g.fillText(label, boundary + 6, 4);
+        }
       }
     }
 
@@ -470,7 +484,7 @@ export function init(root, ctx) {
       }
       g.globalAlpha = 1;
       // A label needs room on both sides; one that would be cut by the plate's edge is left off.
-      if ((k === 0 || block.number % labelEvery === 0) && x > 26 && x < width - 26) {
+      if (!compact && (k === 0 || block.number % labelEvery === 0) && x > 26 && x < width - 26) {
         g.fillStyle = k === 0 ? colour('text') : colour('text-dim');
         g.font = `${k === 0 ? 500 : 400} 11px ${font}`;
         g.fillText(ctx.format.formatInteger(block.number), Math.round(x), baseline + 6);

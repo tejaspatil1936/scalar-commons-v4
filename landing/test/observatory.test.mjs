@@ -156,13 +156,16 @@ test('the two records on the page are labelled as records, and the posture recor
   assert.ok(readRepoFile('pallets/agents/src/lib.rs').includes('NoSuchSlash'), 'pallets/agents lacks NoSuchSlash, which the 307 record cites');
 });
 
-test('the 307 record says what is on chain: no consent or expiry calls, which were deferred', () => {
+test('the 307 record says what is on chain: no consent or expiry calls, which came to the source later (#233) and are not claimed for 307', () => {
   const spec307 = history.upgrades.find((u) => u.specVersion === 307);
-  assert.doesNotMatch(spec307.summary, /consent|expiry|expire/i, 'the consent and expiry calls are not in the 307 runtime (issue #180 is open)');
+  assert.doesNotMatch(spec307.summary, /consent|expiry|expire/i, 'the consent and expiry calls are not in the 307 runtime');
   assert.match(spec307.summaryNote, /accept_agreement/);
+  // The calls are in the runtime's source now (pull request #233, 2026-10-01), for a later runtime; the record says so.
   for (const name of ['accept_agreement', 'expire_agreement', 'reject_agreement', 'cancel_pending']) {
-    assert.ok(!readRepoFile('pallets/escrow/src/lib.rs').includes(`fn ${name}`), `pallets/escrow now has ${name}: revisit the 307 record`);
+    assert.ok(readRepoFile('pallets/escrow/src/lib.rs').includes(`fn ${name}`), `pallets/escrow no longer has ${name}: revisit the 307 record's note`);
   }
+  assert.match(spec307.summaryNote, /#233/, 'the note names the pull request that added the calls to the source');
+  assert.match(spec307.summaryNote, /not on chain at 307/);
 });
 
 test('the upgrade record: 305, 306, 307 applied, 309 scheduled, each agreeing with its file', () => {
@@ -334,24 +337,108 @@ test('renderSection renders each section on its own for the harness', () => {
   assert.throws(() => renderSection('nope', { history, posture }), /no section named/);
 });
 
-test('the first screen: a status bar above the nav, a one-line title, a two-line intro, the merge line in the footer', () => {
+test('the first screen: the status bar with the wordmark, then the hero — nav, wordmark, one line, the live height, the river strip — the merge line in the footer', () => {
   const bar = page.indexOf('class="statusbar reading" data-reading="networkStatus"');
   const nav = page.indexOf('<nav class="site-nav"');
-  const h1 = page.indexOf('<h1>');
+  const h1 = page.indexOf('<h1 id="hero-h">');
   assert.ok(bar > 0 && bar < nav, 'the status bar comes before the nav');
   assert.ok(nav < h1);
   for (const part of ['sb-state', 'sb-validators', 'sb-finality', 'sb-block']) assert.match(page, new RegExp(`class="${part}"`));
-  assert.match(page, /<h1>Observatory <span class="h1-sub">Scalar Commons · public test network<\/span><\/h1>/);
+  // The hero: the wordmark as the title, one line, the height, the strip; the masthead is gone.
+  assert.match(page, /<header class="hero" data-instrument="hero" data-present-screen aria-labelledby="hero-h">/);
+  assert.match(page, /<h1 id="hero-h"><span class="wordmark"><svg class="mark"[^>]*>[\s\S]*?<\/svg><span class="wordmark-text">Scalar Commons<\/span><\/span> <span class="h1-sub">Observatory · public test network<\/span><\/h1>/);
   const dek = page.match(/<p class="dek">([\s\S]*?)<\/p>/)[1];
-  assert.ok(dek.length <= 132, `the intro is ${dek.length} characters; two lines at a sixty-character measure is about 130`);
-  assert.ok(!/<aside class="masthead-aside">/.test(page), 'the masthead aside (the empty band) is gone');
+  assert.ok(dek.length <= 110, `the intro is ${dek.length} characters; one line at the hero's measure`);
+  assert.ok(!/class="masthead/.test(page), 'the masthead is gone: the hero is the first screen');
+  const hero = page.match(/<header class="hero"[\s\S]*?<\/header>/)[0];
+  assert.match(hero, /<div class="reading hero-height" data-reading="heroHeight">/);
+  assert.ok(!/\d/.test(hero.match(/data-reading="heroHeight"[\s\S]*?<p class="reading-value[^>]*>([\s\S]*?)<\/p>/)[1].replace(/<[^>]+>/g, '')), 'the height ships empty');
+  assert.match(hero, /<div class="reading hero-working" data-reading="agentsWorking">/);
+  assert.match(hero, /<canvas class="hero-river" aria-hidden="true"><\/canvas>/, 'the river strip is in the frame, drawn by the chain pulse');
+  assert.ok(!hero.includes('class="howto"'), 'the hero says nothing else: the glossary is in the footer');
   const footer = page.slice(page.indexOf('<footer'));
   assert.match(footer, /class="merge" data-reading="lastMerge"/, 'the merge line lives in the footer');
+  assert.match(footer, /<details class="howto">/);
   assert.ok(!page.slice(0, page.indexOf('<main>')).includes('data-reading="lastMerge"'));
   // The bar's height is reserved and its block slot never wraps, so a state change moves nothing beneath it.
   const css = readFileSync(new URL('../src/observatory.css', import.meta.url), 'utf8');
   assert.match(css, /\.statusbar\.reading \{[^}]*min-height/);
   assert.match(css, /\.statusbar \.sb-block \{[^}]*white-space: nowrap/);
+  // The height is the display serif at 160 px where the screen allows; the strip runs the width of the screen.
+  assert.match(css, /\.hero-height \.reading-value \{[^}]*font-size: clamp\(4rem, 11\.2vw, 160px\)/);
+  assert.match(css, /\.hero-river \{[^}]*position: absolute/);
+  // The sky shows through the first screen only: main and the footer stand on the plate.
+  assert.match(css, /main,\s*footer \{[^}]*background: var\(--bg\)/);
+});
+
+test('identity: the wordmark with the reticle mark in the status bar, the hero and the footer; the favicon is the mark', () => {
+  const statusbar = page.match(/<p class="statusbar reading"[\s\S]*?<\/p>/)[0];
+  assert.match(statusbar, /<a class="wordmark" href="observatory"><svg class="mark"/);
+  const footer = page.slice(page.indexOf('<footer'));
+  assert.match(footer, /<p class="footer-mark"><a class="wordmark" href="observatory"><svg class="mark"/);
+  assert.equal((page.match(/<svg class="mark"/g) ?? []).length, 3, 'the mark appears three times: bar, hero, footer');
+  // The mark is geometry: a ring, four ticks and a dot in the current colour, nothing else.
+  const mark = page.match(/<svg class="mark"[^>]*>([\s\S]*?)<\/svg>/)[1];
+  assert.equal((mark.match(/<circle/g) ?? []).length, 2);
+  assert.equal((mark.match(/<path/g) ?? []).length, 1);
+  assert.ok(!/<image|<text|url\(/.test(mark));
+  assert.match(page, /<link rel="icon" type="image\/svg\+xml" href="favicon\.svg">/);
+  assert.match(index, /<link rel="icon" type="image\/svg\+xml" href="favicon\.svg">/, 'the landing page carries the favicon too');
+  assert.ok(!/<script/i.test(index), 'index.html stays script-free');
+  const favicon = readFileSync(join(out, 'favicon.svg'), 'utf8');
+  assert.match(favicon, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 24 24">/);
+  assert.ok(favicon.includes(mark.replace(/\s+/g, ' ').trim().split('<circle')[1].split('/>')[0]), 'the favicon is the same geometry as the mark');
+  assert.match(favicon, /color="#6fd3c7"/, 'the favicon is the mark in the accent');
+});
+
+test('the Sources switch: in the status bar, read before first paint, every provenance line hidden until asked for, shown in place when on, and on hover for one reading', () => {
+  const statusbar = page.match(/<p class="statusbar reading"[\s\S]*?<\/p>/)[0];
+  assert.match(statusbar, /<button type="button" class="sb-sources" role="switch" aria-checked="false">Sources<\/button>/);
+  assert.match(page, /<script>try\{if\(localStorage\.getItem\("observatory:sources"\)==="1"\)document\.documentElement\.setAttribute\("data-sources",""\)\}catch\(e\)\{\}<\/script>/);
+  const css = readFileSync(new URL('../src/observatory.css', import.meta.url), 'utf8');
+  assert.match(css, /\.reading-prov \{\s*display: none;/, 'provenance lines are hidden by default');
+  assert.match(css, /html\[data-sources\] \.reading-prov,\s*\[data-reading\]:hover \.reading-prov,\s*\[data-reading\]:focus-within \.reading-prov,\s*\[data-reading\]\[data-source-open\] \.reading-prov \{\s*display: var\(--prov-display, block\)/);
+  // The raw-bytes link is the figure itself; its underline shows only with its source.
+  assert.match(css, /\.reading-value \.num \{[^}]*text-decoration: none/);
+  assert.match(css, /html\[data-sources\] \.reading-value \.num,[\s\S]*?text-decoration: underline/);
+  // Every provenance line is still in the frame: nothing about what is fetched changes.
+  assert.ok((page.match(/class="reading-prov"/g) ?? []).length >= 20);
+  assert.ok(bundle.includes('observatory:sources'), 'the bundle remembers the choice');
+});
+
+test('density: each section says one sentence, explains behind “What this means”, folds its notes, and sets its figures larger', () => {
+  const sections = [...page.matchAll(/<section id="([a-z]+)" class="grid instrument-section"[\s\S]*?<\/section>/g)];
+  assert.equal(sections.length, 8);
+  for (const [block, id] of sections) {
+    const lede = block.match(/<p class="lede">([\s\S]*?)<\/p>/)[1].replace(/<[^>]+>/g, '');
+    assert.ok(lede.length <= 120, `${id}'s sentence is ${lede.length} characters`);
+    assert.ok(!/[.!?] [A-Z]/.test(lede), `${id} says more than one sentence: ${lede}`);
+    if (id !== 'verify') assert.match(block, /<details class="means"><summary>What this means<\/summary><div class="means-body">/, `${id} has no “What this means”`);
+    if (/class="instrument-note/.test(block)) assert.match(block, /<details class="notes"><summary>Notes<\/summary>/, `${id}'s notes are not folded`);
+  }
+  assert.ok(!page.includes('class="live"'), 'the pulse section no longer repeats the status bar’s state');
+  const css = readFileSync(new URL('../src/observatory.css', import.meta.url), 'utf8');
+  assert.match(css, /\.reading-note \{\s*display: none;/, 'a reading’s note waits behind the disclosure');
+  assert.match(css, /section\[data-explained\] \.reading-note \{\s*display: block/);
+  assert.match(css, /\.reading-value \{[^}]*font-size: clamp\(2\.25rem, 1\.7rem \+ 1\.8vw, 3\.5rem\)/);
+  assert.match(css, /\.instrument-section \{\s*padding-block: 2rem 5rem/);
+  assert.match(css, /--measure: 60ch/);
+  assert.ok(bundle.includes('data-explained'), 'the bundle shows the notes when the disclosure opens');
+});
+
+test('motion: the hover lift, the connection sequence and the reveal are in the page, and reduced motion turns every one off', () => {
+  const css = readFileSync(new URL('../src/observatory.css', import.meta.url), 'utf8');
+  assert.match(css, /\.reading:hover \{\s*transform: translateY\(-2px\)/);
+  const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
+  assert.match(reduced, /\.reading:hover \{\s*transform: none/);
+  assert.match(reduced, /\.reading \{\s*transition: none/);
+  assert.ok(bundle.includes('connecting'), 'the bundle carries the connection sequence');
+  assert.ok(bundle.includes('import("./reveal.js")'), 'the reveal is fetched by its path, at run time');
+  for (const [file, src] of clientSources()) {
+    assert.ok(!/animation-iteration-count|infinite/.test(src), `${file} declares an infinite animation`);
+  }
+  // The reveal hides sections only by script, never by the stylesheet: without it every section is visible.
+  assert.ok(!/instrument-section \{[^}]*opacity: 0/.test(css));
 });
 
 test('the river: its sentence sits under the canvas, before the readings, and the lede names the bar’s measure', () => {
@@ -377,39 +464,51 @@ test('typography: figures in the display serif with digit cells, mono only for p
   assert.ok(!fonts.some((f) => f.includes('plex-mono-latin-500')));
 });
 
-test('presenter mode: the flag is read before first paint, and the stylesheet lays the page out for it', () => {
+test('presenter mode: the flag is read before first paint; the hero is the first screen; every screen stands over the sky with figures for a room', () => {
   assert.match(page, /<script>if\(\/\(\?:\^\\\?\|\[\?&\]\)present=1\(\?:&\|\$\)\/\.test\(location\.search\)\)document\.documentElement\.setAttribute\("data-present",""\)<\/script>/);
   const css = readFileSync(new URL('../src/observatory.css', import.meta.url), 'utf8');
-  for (const rule of ['html[data-present] .site-nav', 'html[data-present] .reading-prov', 'html[data-present] footer', 'html[data-present] main > .instrument-section[data-present-active]']) {
+  for (const rule of ['html[data-present] .site-nav', 'html[data-present] .reading-prov', 'html[data-present] footer', 'html[data-present] [data-present-screen][data-present-active]', 'html[data-present] .hero-working']) {
     assert.ok(css.includes(rule), `observatory.css has no rule for ${rule}`);
   }
+  // The screens: the hero first, then the eight instruments, in order.
+  const screens = [...page.matchAll(/<(?:header|section) (?:class="hero" data-instrument="hero"|id="([a-z]+)" class="grid instrument-section" data-instrument="\1") data-present-screen/g)].map((m) => m[1] ?? 'hero');
+  assert.deepEqual(screens, ['hero', 'pulse', 'era', 'constellation', 'validators', 'history', 'upgrades', 'posture', 'verify']);
+  assert.match(css, /html\[data-present\] \[data-present-screen\] \{[^}]*background: transparent/, 'the sky shows through every screen');
+  assert.match(css, /html\[data-present\] main,\s*html\[data-present\] footer \{\s*background: transparent/);
+  assert.match(css, /html\[data-present\] \.readings \.reading-value \{\s*font-size: clamp\(3rem, 8\.5vw, 160px\)/);
+  assert.match(css, /html\[data-present\] \.hero-height \.reading-value \{\s*font-size: clamp\(4rem, 12vw, 160px\)/);
+  for (const key of ['Escape', '" "', 'paused']) assert.ok(bundle.includes(key), `the bundle does not handle ${key}`);
   assert.ok(!/<script/i.test(index), 'index.html stays script-free');
 });
 
-test('the sky: off by default, its provenance line waits hidden in the footer, its canvas sits under the page', () => {
+test('the sky: on by default, off under ?sky=0, its provenance line waits hidden in the footer, its canvas sits under the page', () => {
   const footer = page.slice(page.indexOf('<footer'));
   assert.match(footer, /<p class="sky-note" data-reading="sky" hidden>/);
-  assert.ok(!page.includes('class="sky"'), 'no canvas is in the frame: the script adds one only under ?sky=1');
+  assert.ok(!page.includes('class="sky"'), 'no canvas is in the frame: the script adds one once it has booted and the checks pass');
   const css = readFileSync(new URL('../src/observatory.css', import.meta.url), 'utf8');
   assert.match(css, /\.sky \{[^}]*z-index: -1/);
   assert.match(css, /\.sky \{[^}]*pointer-events: none/);
-  assert.ok(bundle.includes('sky=1'), 'the bundle carries the flag check');
-  // With ?present=1 as well: the live block height in the display serif at 160 px, nothing else.
-  assert.match(css, /html\[data-sky-present\] \.statusbar\.reading,\s*html\[data-sky-present\] main,\s*html\[data-sky-present\] \.present-counter \{\s*display: none/);
-  assert.match(css, /\.sky-height \{[^}]*font-family: var\(--font-serif\)/);
-  assert.match(css, /\.sky-height \{[^}]*font-size: 160px/);
+  assert.ok(bundle.includes('sky=0'), 'the bundle carries the off switch');
+  assert.ok(!bundle.includes('sky=1'), 'nothing is gated on sky=1 any more');
+  // The v3 presenter overlay is gone: the hero's height is the first screen now.
+  assert.ok(!css.includes('data-sky-present') && !css.includes('.sky-height'));
 });
 
-test('the sky’s scene is its own file, fetched only under the flag, within 200 kB gzipped; the page’s bundle carries none of it', () => {
+test('the sky’s scene and the reveal are their own files, fetched at run time, within budget; the page’s bundle carries neither library', () => {
   const chunk = readFileSync(join(out, 'sky-field.js'));
   const gzipped = gzipSync(chunk).length;
   assert.ok(gzipped <= 200 * 1024, `sky-field.js is ${(gzipped / 1024).toFixed(1)} kB gzipped; the budget is 200 kB`);
   assert.ok(chunk.includes('WebGLRenderer'), 'the scene carries three.js');
   assert.ok(!bundle.includes('WebGLRenderer'), 'three.js is not in the ordinary page’s bundle');
   assert.ok(!bundle.includes('gsap'), 'GSAP is not in the ordinary page’s bundle');
+  assert.ok(!bundle.includes('ScrollTrigger'), 'ScrollTrigger is not in the ordinary page’s bundle');
   assert.ok(bundle.includes('import("./sky-field.js")'), 'the bundle fetches the scene by its path, at run time');
+  const reveal = readFileSync(join(out, 'reveal.js'));
+  const revealGz = gzipSync(reveal).length;
+  assert.ok(revealGz <= 48 * 1024, `reveal.js is ${(revealGz / 1024).toFixed(1)} kB gzipped; the budget is 48 kB`);
+  assert.ok(reveal.includes('ScrollTrigger'), 'the reveal carries ScrollTrigger');
   const scripts = readdirSync(out).filter((name) => name.endsWith('.js'));
-  assert.deepEqual(scripts.sort(), ['observatory.js', 'sky-field.js'], 'two scripts and no shared chunk');
+  assert.deepEqual(scripts.sort(), ['observatory.js', 'reveal.js', 'sky-field.js'], 'three scripts and no shared chunk');
   // Pinned, so the scene is reproducible: the manifest names exact versions.
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   assert.match(pkg.dependencies.three, /^\d+\.\d+\.\d+$/);

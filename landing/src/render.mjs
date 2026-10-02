@@ -225,6 +225,7 @@ export function renderPage({ facts, content, sourceClaims }) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <title>${fill(content.meta.title, facts)}</title>
 <meta name="description" content="${fill(content.meta.description, facts)}">
 <link rel="stylesheet" href="styles.css">
