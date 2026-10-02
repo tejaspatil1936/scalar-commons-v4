@@ -29,7 +29,12 @@ describe('classifyActivity', () => {
   it('classifies each requested activity family', () => {
     expect(classifyActivity('agents', 'AgentRegistered')).toBe('registration');
     expect(classifyActivity('agents', 'HeartbeatSent')).toBe('heartbeat');
-    for (const method of ['AgreementCreated', 'DeliveryRecorded', 'DeliveryConfirmed', 'RefundClaimed', 'DeadlineExtended']) {
+    // All eight agreement endings, including the four from E18/E2 (#180).
+    // The classifier is an allow-list, so a missing method is SILENT — the rows
+    // just never appear — which is why each one is named here rather than
+    // spot-checked.
+    for (const method of ['AgreementCreated', 'DeliveryRecorded', 'DeliveryConfirmed', 'RefundClaimed', 'DeadlineExtended',
+                          'AgreementAccepted', 'AgreementRejected', 'PendingCancelled', 'AgreementExpired']) {
       expect(classifyActivity('escrow', method), method).toBe('agreement');
     }
     expect(classifyActivity('escrow', 'DisputeOpened')).toBe('dispute');
