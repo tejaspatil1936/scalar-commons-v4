@@ -62,27 +62,23 @@ edits `context.js`, `data.js`, `readout.js`, `observatory.mjs` or
 `observatory.css`; if it needs a change there, it says so in its report.
 
 Five modules beside the instruments are not instruments. `statusbar.js`
-fills the one line at the top of the page from the hero's bus events and the
-ring's validator read (it fetches nothing of its own) and plays the
-connection sequence on load. `hero.js` fills the first screen's two figures:
-the live height from the hero's `head` and `poll` events, and the agents
-working now (those holding an open agreement) from the same `/v1/agents`
-read the constellation and the sky make. `sources.js` is the Sources switch:
-every provenance line is in the page as before and hidden by the
-stylesheet until `html[data-sources]` (remembered in localStorage, read by
-the page's head before first paint) or a hover, focus or tap on one reading
-shows it. `presenter.js` drives `?present=1` — one screen at a time, a
-re-armed `setTimeout` (never `setInterval`), cleared while the tab is
-hidden; space pauses, Escape exits in place. `reveal.js` is its own chunk,
-GSAP ScrollTrigger, fetched by `main.js` only when motion is not reduced:
-each section rises in once; a section is hidden by that script alone, never
-by the stylesheet. `sky.js` holds the sky's model (places, sizes, lines, the
-frame judge; pure, tested) and the ways it stands down; `sky-field.js` is
-the three.js scene it fetches once the page has booted, run on GSAP's
-ticker and removed while the tab is hidden. The sky is on by default
-(`?sky=0` turns it off) and shows through the first screen, `main` and the
-footer standing on the plate; in presenter mode it shows through every
-screen.
+fills the one line at the top of the page, and the hero's live line as a
+second view of the same state, from the hero's bus events and the ring's
+validator read (it fetches nothing of its own). `hero.js` fills the first
+screen's block height from the hero's `head` and `poll` events; the other
+two figures there are the constellation's, which draws into the first
+screen's framed panel. `economy.js` is an instrument of section 02 beside the
+era dial: CMN issued to agents (the exact running total of settled-era
+payouts) and open disputes. `sources.js` is the Sources switch: every
+provenance line is in the page and hidden by the stylesheet until
+`html[data-sources]` (remembered in localStorage, read by the page's head
+before first paint), or shown as a tooltip on hover or focus of one figure.
+`presenter.js` is presenter mode, toggled by the P key or the Present button
+— never by the URL — one screen at a time on a re-armed `setTimeout` (never
+`setInterval`), cleared while the tab is hidden; space pauses, P or Escape
+leaves in place. `reveal.js` fades each section up 12 px once with an
+IntersectionObserver; a section is hidden only while `html.reveal-ready` is
+set, which only that module sets, never under reduced motion.
 
 ## Developing one instrument
 
@@ -98,14 +94,16 @@ calling the instrument done.
 
 ## The plate, in one paragraph
 
-Deep plate-black (`--bg`) with a hairline reticle behind each instrument
-(`--grid`); paper and ink in light mode. Instrument Serif for every figure —
+A near-black plate (`--bg`, #0b0e12), text #e8eaed and one secondary grey
+#9aa3ad; paper (#f7f6f2) and ink in light mode. Instrument Serif for every figure —
 the hero readouts, the dial, the ring's count — with each digit set in its own
 `1ch` cell by `readout.setDigits`, since the face has no tabular figures (nor
 has Fraunces: neither carries a `tnum` feature or tabular glyphs); IBM Plex
-Mono, light and one step smaller, only for provenance, hashes and addresses
-(`--font-mono`); Source Sans 3 for sentences, at a sixty-character measure. The accent (`--live`) is for live data only; `--settled`,
-`--active`, `--disputed`, `--slashed` are the four states. Hairlines (1 px),
-dots and type. No gradients, no shadows, no rounded pills, no icons, no
-decoration. A reader who does not know what a block is must be able to read
+Mono at 12 px only for provenance, hashes and addresses (`--font-mono`); IBM
+Plex Sans at 17 px / 1.6 for sentences, at a sixty-character measure. One
+teal accent (`--live`, `--active`) for live state only; amber (`--disputed`)
+for disputes only; grey for everything settled. Every margin, padding and gap
+is one of 4, 8, 16, 24, 40, 64 or 104 px; content is at most 1280 px wide.
+Hairlines (1 px), dots and type. No gradients, no glow, no rounded pills, no
+icons, no decoration. A reader who does not know what a block is must be able to read
 the instrument from its sentence and its labels alone.
