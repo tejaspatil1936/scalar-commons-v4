@@ -1,4 +1,4 @@
-// 02 · Era dial. A circular gauge of the era in progress: the arc fills from
+// 02 · Economy — the era dial. A circular gauge of the era in progress: the arc fills from
 // twelve o'clock as blocks are produced, and when it meets the settlement mark
 // the era is due — rewards are computed from the work actually done, and
 // anyone may trigger the settlement.
@@ -245,7 +245,7 @@ export function init(root, ctx) {
     lastSettled: ctx.reading('lastSettled', root),
   };
   const parts = dial ? buildDial(dial) : null;
-  const { formatInteger, formatDuration, formatCmn } = ctx.format;
+  const { formatInteger, formatCmn } = ctx.format;
 
   let observedMs = null; // block time from the hero, as last received
   let renderedMs = null; // block time the countdown was last rendered with
@@ -326,6 +326,9 @@ export function init(root, ctx) {
    * figure; the readings are aria-live, so a re-render is an announcement.
    */
   function showIfChanged(name, record, key, figure) {
+    // The dial itself carries the era and its settlement block; a page may
+    // show only some of the readings, and a reading it does not carry is skipped.
+    if (!targets[name]) return;
     if (shown[name] === key) {
       ctx.readout.provenance(targets[name], record, figure.extra);
       return;
@@ -375,7 +378,7 @@ export function init(root, ctx) {
         failure = error.message;
       }
     }
-    const ok = ctx.readout.apply([targets.era, targets.settlement, targets.countdown], record, () => {
+    const ok = ctx.readout.apply([targets.era, targets.settlement, targets.countdown].filter(Boolean), record, () => {
       if (failure) throw new Error(failure);
       showReadings(eraState, record);
       drawState(eraState);
@@ -442,5 +445,5 @@ export function init(root, ctx) {
   }
 
   ctx.watch('era', onEra, ERA_INTERVAL_MS);
-  ctx.watch('eras', onEras, ERAS_INTERVAL_MS);
+  if (targets.lastSettled) ctx.watch('eras', onEras, ERAS_INTERVAL_MS);
 }

@@ -1,5 +1,5 @@
-// 01 · Chain pulse. A river, not a ruler: blocks flow in from the right as
-// luminous bars whose height is the number of extrinsics each carried, placed
+// 01 · Chain. A river, not a ruler: blocks flow in from the right as
+// bars whose height is the number of extrinsics each carried, placed
 // along the plate by the chain's own clock so a late block leaves a visible
 // gap. The finalized region is a tinted band that advances behind a labelled
 // marker; when finality reaches a block, its bar settles from the live accent
@@ -21,10 +21,15 @@
 // hidden.
 //
 // Motion: on each arrival the river shifts by the new block's interval with a
-// 200 ms ease and the live dot beats once; the finality marker slides 200 ms
+// 200 ms ease, so the new block slides in; the finality marker slides 200 ms
 // when the finalized head moves; a bar that becomes final changes tone over
 // 300 ms. Nothing moves between blocks; under prefers-reduced-motion every
-// change is drawn in place.
+// change is drawn in place. No bar glows: the live accent is the only mark
+// of a block not yet final.
+//
+// Readings: the height, the finalized height, the finality lag, and blocks
+// per minute over the last CADENCE_WINDOW block times (from the index and the
+// live stream together; the provenance line says how many of each).
 
 import { babePreDigestOf, hexToBytes, readCompact } from '../scale.js';
 import { blockHashSource, blockSource } from '../data.js';
@@ -240,14 +245,6 @@ export class Stream {
   }
 }
 
-/** "9.8 blocks per minute · finality within 12 seconds", or as much of it as is known. */
-export function riverSentence(cadence, finality) {
-  const parts = [];
-  if (cadence) parts.push(`${cadence.perMinute.toFixed(1)} blocks per minute`);
-  if (finality) parts.push(`finality within ${finality.measured ? '' : 'about '}${Math.round(finality.seconds)} seconds`);
-  return parts.join(' · ');
-}
-
 /**
  * Names the heights that were polled from /v1/status rather than streamed: they
  * have no header and no body, so their bars can only stand at the floor. A
@@ -259,8 +256,6 @@ export function polledNote(blocks) {
   return `${n} polled height${n === 1 ? '' : 's'} without a body, drawn at the floor`;
 }
 
-const POLLING_TEXT = 'Polling every 6 s — live stream unavailable, block bodies not read';
-
 /**
  * `strip`, when given, is a second canvas the river is also drawn into in a
  * compact form — no labels, the bars and the finalized band only — along the
@@ -269,15 +264,12 @@ const POLLING_TEXT = 'Polling every 6 s — live stream unavailable, block bodie
  */
 export function init(root, ctx, { strip = null } = {}) {
   const canvas = root.querySelector('.pulse-canvas');
-  const live = root.querySelector('.live');
-  const liveText = live?.querySelector('.live-text');
-  const dot = live?.querySelector('.pulse-dot');
   const status = root.querySelector('.pulse-status');
   const targets = {
     best: ctx.reading('bestBlock', root),
     finalized: ctx.reading('finalizedBlock', root),
     lag: ctx.reading('finalityLag', root),
-    cadence: ctx.reading('cadence', root),
+    perMinute: ctx.reading('blocksPerMinute', root),
   };
 
   const stream = new Stream();
@@ -299,17 +291,9 @@ export function init(root, ctx, { strip = null } = {}) {
   let cancelSlide = () => {};
   let cancelMarker = () => {};
 
-  function setMode(next, text) {
+  /** The stream's mode: waiting, live, polling, down or paused. The status bar says it in words. */
+  function setMode(next) {
     mode = next;
-    if (live) live.dataset.live = next;
-    if (liveText) liveText.textContent = text;
-  }
-
-  function beat() {
-    if (!dot || ctx.motion.reduced()) return;
-    dot.classList.remove('beat');
-    void dot.offsetWidth;
-    dot.classList.add('beat');
   }
 
   // ── readouts ──
@@ -333,12 +317,13 @@ export function init(root, ctx, { strip = null } = {}) {
     if (blocksRecord && cadence) {
       const finality = stream.finalitySeconds(cadence);
       const polled = polledNote(stream.blocks);
-      ctx.readout.showValue(targets.cadence, blocksRecord, {
-        value: riverSentence(cadence, finality),
+      ctx.readout.showValue(targets.perMinute, blocksRecord, {
+        value: cadence.perMinute.toFixed(1),
         extra:
           `${cadence.blocks} block times${liveCount ? `, ${liveCount} observed live` : ''}` +
           `${decodedCount ? `, ${decodedCount} bodies read over ${ctx.RPC_URL.replace('wss://', '')}` : ''}` +
-          `${finality?.measured ? ' · finality measured' : ''}${bodyNote ? ` · ${bodyNote}` : ''}` +
+          `${finality ? ` · finality within ${finality.measured ? '' : 'about '}${Math.round(finality.seconds)} s${finality.measured ? ', measured' : ''}` : ''}` +
+          `${bodyNote ? ` · ${bodyNote}` : ''}` +
           `${polled ? ` · ${polled}` : ''}`,
       });
     }
@@ -404,10 +389,15 @@ export function init(root, ctx, { strip = null } = {}) {
       const target = final ? xOf(final) + bar / 2 + Math.max(3, bar * 0.6) : 0;
       boundary = marker.fromX !== null && marker.t < 1 ? marker.fromX + (target - marker.fromX) * marker.t : target;
       marker.target = target;
-      g.fillStyle = colour('settled');
-      g.globalAlpha = ctx.theme.isDark() ? 0.2 : 0.14;
-      g.fillRect(0, plateTop - 6, Math.max(0, boundary), baseline - plateTop + 6);
-      g.globalAlpha = 1;
+      // On the full plate a faint tint marks the final region; on the strip
+      // along the first screen, only the marker's hairline, so the strip
+      // reads as bars and never as a slab.
+      if (!compact) {
+        g.fillStyle = colour('settled');
+        g.globalAlpha = ctx.theme.isDark() ? 0.06 : 0.05;
+        g.fillRect(0, plateTop - 6, Math.max(0, boundary), baseline - plateTop + 6);
+        g.globalAlpha = 1;
+      }
       g.strokeStyle = colour('settled');
       g.lineWidth = 1;
       g.beginPath();
@@ -475,12 +465,7 @@ export function init(root, ctx, { strip = null } = {}) {
       if (settle < 1) {
         g.globalAlpha = fade * (1 - settle) * pending;
         g.fillStyle = colour('live');
-        if (k < 3 && !final) {
-          g.shadowColor = colour('live-glow');
-          g.shadowBlur = 14;
-        }
         g.fillRect(left, top, bar, h);
-        g.shadowBlur = 0;
       }
       g.globalAlpha = 1;
       // A label needs room on both sides; one that would be cut by the plate's edge is left off.
@@ -591,8 +576,7 @@ export function init(root, ctx, { strip = null } = {}) {
       author = { error: error.message };
     }
     ctx.bus.emit('head', { record, number, header, author, forked: change.superseded > 0, arrivedAt: now });
-    if (mode !== 'live') setMode('live', 'Live');
-    if (change.advanced) beat();
+    if (mode !== 'live') setMode('live');
     showReadouts();
     if (change.advanced && change.added) animateArrival(previousAt, newestAt());
     else draw();
@@ -614,7 +598,7 @@ export function init(root, ctx, { strip = null } = {}) {
   function onStatus(record) {
     // Polling fallback: /v1/status has no headers, so bars are placed by the poll time alone.
     if (!record.ok) {
-      setMode('down', 'Not updating — the last request failed');
+      setMode('down');
       ctx.readout.showError(targets.best, record);
       ctx.readout.showError(targets.finalized, record);
       ctx.readout.showError(targets.lag, record);
@@ -630,13 +614,12 @@ export function init(root, ctx, { strip = null } = {}) {
       const fin = stream.finalize(finalized, ctx.now());
       headRecord = record;
       finalRecord = record;
-      if (mode === 'polling') setMode('polling', POLLING_TEXT);
+      
       // A polled height is not a head: it has no header and no author, so it
       // goes out as `poll`, and `head` keeps its contract for the instruments.
       ctx.bus.emit('poll', { record, number: best, finalized, arrivedAt: ctx.now() });
       showReadouts();
-      if (change.advanced) beat();
-      if (change.advanced && change.added) animateArrival(previousAt, newestAt());
+        if (change.advanced && change.added) animateArrival(previousAt, newestAt());
       if (fin.advanced) {
         animateMarker();
         animateSettle(fin.settled);
@@ -650,7 +633,7 @@ export function init(root, ctx, { strip = null } = {}) {
 
   function startPolling() {
     if (stopPolling) return;
-    setMode('polling', POLLING_TEXT);
+    setMode('polling');
     stopPolling = ctx.watch('status', onStatus, STATUS_POLL_MS);
   }
 
@@ -663,11 +646,11 @@ export function init(root, ctx, { strip = null } = {}) {
   ctx.bus.on('socket', ({ state, attempts }) => {
     if (state === 'open') {
       stopPollingIfAny();
-      if (mode !== 'live') setMode('live', 'Live');
+      if (mode !== 'live') setMode('live');
     } else if (state === 'failed' || (state === 'closed' && attempts >= 1)) {
       startPolling();
     } else if (state === 'paused') {
-      setMode('paused', 'Paused while this tab is hidden');
+      setMode('paused');
     }
   });
 
@@ -690,10 +673,10 @@ export function init(root, ctx, { strip = null } = {}) {
         }
         blocksRecord = blocks;
       } catch (error) {
-        ctx.readout.showError(targets.cadence, blocks, error.message);
+        ctx.readout.showError(targets.perMinute, blocks, error.message);
       }
     } else {
-      ctx.readout.showError(targets.cadence, blocks);
+      ctx.readout.showError(targets.perMinute, blocks);
     }
     if (headRecord === null || finalRecord === null) {
       // Nothing has arrived over the socket yet: show the indexed position now.

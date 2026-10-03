@@ -396,10 +396,13 @@ export function init(root, ctx) {
       'Authorship is decoded from each block’s BABE pre-digest as it arrives. Finality (GRANDPA) votes are sampled from grandpa_roundState every 6 s and are a sample, not a count of every round: a round is counted only when a sample caught its votes past the finality threshold, so a validator missing from it was absent from a round that completed without it. Both counts cover only what arrived while this page was open and visible — blocks sealed while this tab was hidden or the live stream was down are not counted, so they are floors. A validator’s own peer count and sync state are not exposed by a public RPC, so they are not shown.';
   }
 
-  // The key to the marks on the ring, in mono under it.
+  // The key to the marks on the ring: with the section's notes when the page
+  // folds them (the ring itself says "sealing now" beside the lit point),
+  // otherwise in mono under the ring.
   const key = html('p', 'ring-key mono');
   key.textContent = `lit point, “${SEALING_LABEL}”: sealed the latest block · ticks around a point: the last ${VOTE_TICKS} finality rounds sampled, lit where that validator’s vote was seen · dashed point: joining next session · point at a validator for its address`;
-  host.after(key);
+  if (note?.closest('details')) note.before(key);
+  else host.after(key);
 
   // Said once above the list rather than on every row.
   const listHead = html('p', 'ring-list-head mono', 'Since you opened this page');

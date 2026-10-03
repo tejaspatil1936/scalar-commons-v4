@@ -1,4 +1,4 @@
-/* 03 · constellation — rules beyond the design system's base for this section.
+/* The constellation (the first screen's panel) — rules beyond the design system's base for this section.
    Tokens only; nothing here redefines :root. */
 
 .constellation-canvas {
@@ -8,7 +8,7 @@
 /* On a phone's plate the tip cannot sit beside a point; it goes below or
    above it and never wider than the plate. */
 .constellation-tip {
-  max-width: min(16rem, calc(100% - 8px));
+  max-width: min(256px, calc(100% - 8px));
 }
 
 .constellation-tip strong,
@@ -22,7 +22,7 @@
 }
 
 .constellation-tip strong {
-  margin-bottom: 0.15rem;
+  margin-bottom: 4px;
 }
 
 .agent-list a {
@@ -38,7 +38,7 @@
   color: var(--text-dim);
 }
 
-@media (max-width: 40rem) {
+@media (max-width: 39.99rem) {
   .agent-list {
     columns: 1;
   }

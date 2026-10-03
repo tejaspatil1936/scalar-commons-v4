@@ -1,44 +1,41 @@
-// The scroll reveal: each instrument section fades in and rises twelve
-// pixels, once, as it enters the viewport, on GSAP's ScrollTrigger. This
-// module is its own chunk, fetched by main.js only when motion is not
-// reduced and the page is not in presenter mode, so a reader who asked for
-// stillness never downloads it and the ordinary bundle carries no GSAP. A
-// section is hidden by the script here, never by the stylesheet, so without
-// script, without this chunk, or if it fails to load, every section is
-// simply visible. Each reveal runs once and clears its transform when it
-// ends, so no section is left as a containing block for the presenter's
-// fixed screens.
+// The scroll reveal: each section below the first screen fades in and rises
+// 12 px once, as it enters the viewport. CSS does the moving (a 400 ms
+// transition on opacity and transform); this module only says when, with the
+// browser's IntersectionObserver — no animation library.
+//
+// A section is hidden by the stylesheet only while <html> carries
+// `reveal-ready`, and only this module sets that class, so a page whose
+// script never runs, a browser without IntersectionObserver, and a reader who
+// asks for reduced motion all see every section, always. Each section is
+// revealed once and then no longer watched; nothing loops.
 
-import { gsap } from 'gsap';
-import { ScrollTrigger } from 'gsap/ScrollTrigger';
+/** A section starts its reveal when it is this far into the viewport. */
+export const REVEAL_MARGIN = '0px 0px -8% 0px';
 
-export const RISE_PX = 12;
-export const REVEAL_S = 0.6;
-/** A section begins its reveal when its top crosses this far down the viewport. */
-export const START = 'top 85%';
-
-export function start({ targets }) {
-  gsap.registerPlugin(ScrollTrigger);
-  const triggers = [];
-  for (const el of targets) {
-    gsap.set(el, { opacity: 0, y: RISE_PX });
-    triggers.push(
-      ScrollTrigger.create({
-        trigger: el,
-        start: START,
-        once: true,
-        onEnter: () => gsap.to(el, { opacity: 1, y: 0, duration: REVEAL_S, ease: 'power2.out', clearProps: 'transform,opacity' }),
-      }),
-    );
-  }
+/**
+ * Starts the reveal over `targets`. Returns `{ stop }`, which shows every
+ * section and stands the reveal down (used when reduced motion is turned on
+ * mid-visit), or null when nothing is hidden at all.
+ */
+export function start({ targets, html, IntersectionObserver: IO, reduced }) {
+  if (!IO || reduced() || targets.length === 0) return null;
+  const observer = new IO(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        entry.target.classList.add('is-in');
+        observer.unobserve(entry.target);
+      }
+    },
+    { rootMargin: REVEAL_MARGIN, threshold: 0 },
+  );
+  html.classList.add('reveal-ready');
+  for (const target of targets) observer.observe(target);
   return {
-    count: triggers.length,
-    refresh: () => ScrollTrigger.refresh(),
-    /** Shows everything at once and removes the triggers: for reduced motion arriving mid-visit. */
     stop() {
-      for (const t of triggers) t.kill();
-      triggers.length = 0;
-      for (const el of targets) gsap.set(el, { clearProps: 'transform,opacity' });
+      observer.disconnect();
+      for (const target of targets) target.classList.add('is-in');
+      html.classList.remove('reveal-ready');
     },
   };
 }

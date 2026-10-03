@@ -1,4 +1,4 @@
-// 05 · History strips. Four small multiples of the chain's own record, each
+// 04 · History strips. Four small multiples of the chain's own record, each
 // saying where its history begins. Nothing is extrapolated and nothing is
 // faked: a strip that cannot be filled says so instead of drawing a guess,
 // and a running total is marked as derived from the record it is summed from.
@@ -30,6 +30,8 @@
 //                         the strip is unavailable rather than a wrong line.
 //
 // Drawing: one SVG per strip, sized to its box (a ResizeObserver re-fits it),
+// every one drawn from zero, with the zero line (`plot-zero`) in the text's
+// dim ink so the four read as small multiples on one axis style;
 // with d3-scale for the axes and d3-shape for the paths. Colours come from
 // the design system's classes, so light and dark are the stylesheet's. None
 // of it is live data — every figure here is history — so nothing in these
@@ -531,7 +533,7 @@ export function init(root, ctx) {
         g.append(el('rect', { x: frame.left, y: bandTop, width: frame.innerWidth, height: fix(bandBottom - bandTop) }, 'plot-band'));
         g.append(el('line', { x1: frame.left, x2: frame.right, y1: bandTop, y2: bandTop }, 'plot-axis plot-band-edge'));
         g.append(el('line', { x1: frame.left, x2: frame.right, y1: bandBottom, y2: bandBottom }, 'plot-axis plot-band-edge'));
-        g.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-axis'));
+        g.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-zero'));
         g.append(el('path', { d: intervalLine(x, y)(series.points) ?? '' }, 'plot-line'));
         const last = measured[measured.length - 1];
         g.append(el('circle', { cx: fix(x(last.number)), cy: fix(y(last.seconds)), r: 2.5 }, 'plot-dot'));
@@ -647,17 +649,16 @@ export function init(root, ctx) {
         : `eras ${formatInteger(series[0].era)}–${formatInteger(last.era)}, the unbroken run the index holds${record.complete ? '' : ' of the pages read'}`;
       let sub;
       let supplyExtra = '';
-      if (supply === null) sub = 'Total issuance from every source: reading…';
-      else if (!supply.ok) sub = `Total issuance from every source: unavailable — ${supply.error}`;
+      if (supply === null) sub = 'All issuance, every source: reading…';
+      else if (!supply.ok) sub = `All issuance, every source: unavailable — ${supply.error}`;
       else {
         try {
           const figures = supplyFigures(supply.data, ctx.field);
-          sub =
-            `Total issuance from every source: ${formatCmn(figures.issuedPlancks)} CMN, ` +
-            `${figures.percent.toFixed(2)} % of the ${formatCmn(figures.capPlancks)} CMN cap — that count includes the genesis endowment and validator rewards, not only agents.`;
+          // Two lines at most: the context figure, and that it is not what agents were paid.
+          sub = `All issuance, genesis and validators too: ${formatCmn(figures.issuedPlancks)} CMN, ${figures.percent.toFixed(2)} % of the cap.`;
           supplyExtra = ` · total issuance from ${supply.label} · ${utcTime(supply.at)}`;
         } catch (error) {
-          sub = `Total issuance from every source: unavailable — ${error.message}`;
+          sub = `All issuance, every source: unavailable — ${error.message}`;
         }
       }
       ctx.readout.showValue(strip.target, record, {
@@ -692,7 +693,7 @@ export function init(root, ctx) {
           .y1((e, i) => y(cmnNumber(totals[i])))
           .curve(curveLinear);
         g.append(el('path', { d: fill(series) ?? '' }, 'plot-area'));
-        g.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-axis'));
+        g.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-zero'));
         g.append(el('path', { d: perEra(series) ?? '' }, 'plot-line plot-line-secondary'));
         g.append(el('path', { d: total(series) ?? '' }, 'plot-line'));
         g.append(el('circle', { cx: fix(x(last.era)), cy: fix(y(totalCmn)), r: 2.5 }, 'plot-dot'));
@@ -749,7 +750,7 @@ export function init(root, ctx) {
       const lastIndex = settledCount - 1;
       g.append(el('circle', { cx: fix(centre(lastIndex)), cy: fix(y(totals[lastIndex])), r: 2.5 }, 'plot-dot'));
     }
-    svg.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-axis'));
+    svg.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-zero'));
     svg.append(label(frame.left, frame.height - 3, leftLabel));
     svg.append(label(frame.right, frame.height - 3, rightLabel, 'end'));
     svg.append(label(frame.left + 3, frame.top + 8, 'running total · per era as bars', 'start', 'plot-label plot-note'));
@@ -823,7 +824,7 @@ export function init(root, ctx) {
             .y1((p) => y(p.count))
             .curve(curveStepAfter);
           g.append(el('path', { d: fill(points) }, 'plot-area'));
-          g.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-axis'));
+          g.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-zero'));
           g.append(el('path', { d: step(points) }, 'plot-line'));
           const end = points[points.length - 1];
           g.append(el('circle', { cx: fix(x(end.block)), cy: fix(y(end.count)), r: 2.5 }, 'plot-dot'));

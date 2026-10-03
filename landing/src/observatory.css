@@ -1,19 +1,27 @@
-/* /observatory — the design system for the instruments.
-   The plate: a deep, not-pure black with a hairline reticle grid behind each
-   instrument; on light, a warm paper with ink. Type: Instrument Serif for
-   headings and every figure — the hero readouts, the dial, the ring's count —
-   with each digit set in its own cell for tabular alignment (the face has no
-   tabular figures of its own); IBM Plex Mono, light and small, only for
-   provenance, hashes and addresses; Source Sans 3 for reading, at a measure
-   of sixty characters. One luminous accent, reserved for live data and the
-   mark; four semantic colours for states. Hairlines, dots and type — no
-   gradients, no shadows, no pills, no icons but the reticle mark itself.
-   v4: the first screen is the sky (sky.js) under the wordmark, one line and
-   the live height at 160 px, with the river as a strip along its foot; every
-   provenance line waits hidden until the Sources switch or a hover asks for
-   it; each section says one sentence and explains on request.
-   The dark and light values of --text, --text-dim, --border and --accent match
-   styles.css (test/observatory.test.mjs keeps them in step). */
+/* /observatory — the design system.
+
+   One page, one URL. The first screen is a five-and-seven split: the page's
+   name, one sentence, three live figures and the live line on the left; the
+   agent constellation in its own framed panel on the right; the river as a
+   120 px strip along the foot. Below it, six sections, each with one heading
+   in the serif, one plain sentence and its instrument.
+
+   Type: Instrument Serif for display and every figure, each digit set in its
+   own cell for tabular alignment (the face has no tabular figures); IBM Plex
+   Sans for reading, at 17 px / 1.6 and a measure of sixty characters; IBM
+   Plex Mono at 12 px for sources, hashes and addresses only.
+
+   Space: one scale — 4, 8, 16, 24, 40, 64, 104 px — for every margin,
+   padding and gap (test/observatory.test.mjs holds the stylesheet to it).
+   Content is at most 1280 px wide.
+
+   Colour: a near-black plate, or paper in the light theme; text and one
+   secondary grey; one teal accent for live state only; amber for disputes
+   only. No gradients, no glow, no glass, no decorative icons.
+
+   Motion: a figure tweens when it changes, a section fades up 12 px once as
+   it is scrolled to, a new block slides into the river. Nothing loops, and
+   prefers-reduced-motion turns all of it off. */
 
 @font-face {
   font-family: "Instrument Serif";
@@ -23,38 +31,37 @@
   src: url("fonts/instrument-serif-latin-400-normal.woff2") format("woff2");
 }
 @font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2");
+}
+@font-face {
   font-family: "IBM Plex Mono";
   font-style: normal;
   font-weight: 400;
   font-display: swap;
   src: url("fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
 }
-@font-face {
-  font-family: "Source Sans 3";
-  font-style: normal;
-  font-weight: 200 900;
-  font-display: swap;
-  src: url("fonts/source-sans-3-latin-wght-normal.woff2") format("woff2-variations");
-}
-@font-face {
-  font-family: "Source Sans 3";
-  font-style: italic;
-  font-weight: 200 900;
-  font-display: swap;
-  src: url("fonts/source-sans-3-latin-wght-italic.woff2") format("woff2-variations");
-}
 
 /* Fallback faces with the web fonts' metrics, so the swap from a system face
-   to the real one moves nothing. Overrides computed from the font files
-   (frequency-weighted lowercase advance widths against Arial / Courier New /
-   Times New Roman, hhea ascent and descent). Liberation faces carry the same
-   metrics as the Microsoft ones on Linux. */
+   to the real one moves nothing. Widths measured against Arial / Courier New
+   / Times New Roman over a frequency-weighted sample; ascent and descent from
+   each font's hhea table. Liberation faces carry the Microsoft metrics. */
 @font-face {
-  font-family: "Source Sans 3 Fallback";
+  font-family: "IBM Plex Sans Fallback";
   src: local("Arial"), local("Liberation Sans"), local("Helvetica");
-  size-adjust: 90.24%;
-  ascent-override: 113.48%;
-  descent-override: 44.33%;
+  size-adjust: 101.04%;
+  ascent-override: 101.44%;
+  descent-override: 27.22%;
   line-gap-override: 0%;
 }
 @font-face {
@@ -75,44 +82,68 @@
 }
 
 :root {
-  color-scheme: dark light;
-  --bg: #0d1117;
-  --grid: rgba(232, 237, 243, 0.06);
-  --border: #2a3340;
-  --text: #e8edf3;
-  --text-dim: #a3b0c0;
-  --accent: #6fd3c7;
-  --accent-dim: #2f6f68;
-  --live: #6fd3c7;
-  --live-glow: rgba(111, 211, 199, 0.35);
-  --settled: #8a97a8;
-  --active: #6fd3c7;
-  --disputed: #e8c46a;
-  --slashed: #f0716a;
-  --font-serif: "Instrument Serif", "Instrument Serif Fallback", Georgia, serif;
-  --font-mono: "IBM Plex Mono", "IBM Plex Mono Fallback", ui-monospace, Menlo, Consolas, monospace;
-  --font-sans: "Source Sans 3", "Source Sans 3 Fallback", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --gutter: 1rem;
-  --grid-step: 2rem;
-  --measure: 60ch;
-  --bar-height: 2.15rem; /* the status bar's reserved height; the first screen fills the rest */
+  color-scheme: dark;
+  --bg: #0b0e12;
+  --text: #e8eaed;
+  --text-dim: #9aa3ad;
+  --border: #262c34;
+  --grid: #161b21;
+  --accent: #5fd0c2;
+  --live: var(--accent);
+  --active: var(--accent);
+  --settled: #6b747e;
+  --disputed: #e6a23c;
+  --slashed: var(--text-dim);
 }
 
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #f6f4ee;
-    --grid: rgba(20, 24, 29, 0.07);
-    --border: #d6dee7;
-    --text: #10161d;
-    --text-dim: #4d5b6b;
-    --accent: #10645c;
-    --accent-dim: #7fbdb6;
-    --live: #10645c;
-    --live-glow: rgba(16, 100, 92, 0.22);
-    --settled: #6b7280;
-    --active: #10645c;
-    --disputed: #8a5b00;
-    --slashed: #b4231b;
+    color-scheme: light;
+    --bg: #f7f6f2;
+    --text: #16191d;
+    --text-dim: #5b636c;
+    --border: #d9d6cd;
+    --grid: #ecebe5;
+    --accent: #0a7569;
+    --live: var(--accent);
+    --active: var(--accent);
+    --settled: #8a9098;
+    --disputed: #9a5800;
+    --slashed: var(--text-dim);
+  }
+}
+
+:root {
+  --font-serif: "Instrument Serif", "Instrument Serif Fallback", Georgia, serif;
+  --font-sans: "IBM Plex Sans", "IBM Plex Sans Fallback", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "IBM Plex Mono", "IBM Plex Mono Fallback", ui-monospace, Menlo, Consolas, monospace;
+  --text-body: 1.0625rem;
+  --text-small: 0.8125rem;
+  --text-mono: 0.75rem;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 40px;
+  --space-6: 64px;
+  --space-7: 104px;
+  --content: 1280px;
+  --measure: 60ch;
+  --gutter: var(--space-3);
+  /* The status bar's height: two rows on a phone, one from 64rem. The first screen fills the rest. */
+  --bar-height: 80px;
+}
+
+@media (min-width: 40rem) {
+  :root {
+    --gutter: var(--space-4);
+  }
+}
+
+@media (min-width: 64rem) {
+  :root {
+    --gutter: var(--space-5);
+    --bar-height: 48px;
   }
 }
 
@@ -124,41 +155,43 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  scroll-padding-top: var(--bar-height);
 }
 
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 400 1.125rem / 1.55 var(--font-sans);
+  font: 400 1.0625rem / 1.6 var(--font-sans);
   overflow-wrap: break-word;
 }
 
 a {
-  color: var(--accent);
-  text-decoration-color: var(--accent-dim);
+  color: inherit;
+  text-decoration-color: var(--border);
+  text-decoration-thickness: 1px;
   text-underline-offset: 0.2em;
 }
 
 a:hover {
-  text-decoration-color: var(--accent);
+  text-decoration-color: var(--text-dim);
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-}
-
-h1,
-h2,
-h3 {
-  font-weight: 400;
-  text-wrap: balance;
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
 }
 
 h1,
 h2 {
   font-family: var(--font-serif);
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+h3 {
+  font-weight: 600;
 }
 
 /* Reading text never runs past sixty characters. */
@@ -166,18 +199,16 @@ p,
 dd,
 li,
 .lede,
-.dek,
-.instrument-note,
-.reading-note {
+.dek {
   max-width: var(--measure);
 }
 
-/* Monospace is for provenance, hashes and addresses only: light, one step
-   below the text around it. */
+/* Monospace is for sources, hashes and addresses only, at 12 px. */
 .mono,
 code,
 pre {
   font-family: var(--font-mono);
+  font-size: var(--text-mono);
   font-weight: 400;
   font-variant-numeric: tabular-nums lining-nums;
 }
@@ -190,7 +221,7 @@ pre {
   position: absolute;
   width: 1px;
   height: 1px;
-  margin: -1px;
+  margin: 0;
   padding: 0;
   overflow: hidden;
   clip: rect(0 0 0 0);
@@ -201,124 +232,108 @@ pre {
 .skip {
   position: absolute;
   left: var(--gutter);
-  top: -3rem;
-  z-index: 4;
-  padding: 0.5rem 0.75rem;
+  top: -100px;
+  z-index: 20;
+  padding: var(--space-2) var(--space-3);
   background: var(--bg);
-  border: 1px solid var(--accent);
+  border: 1px solid var(--text);
 }
 
 .skip:focus {
-  top: 0.5rem;
+  top: var(--space-2);
 }
 
-/* ── grid ─────────────────────────────────────────────────────────────────
-   One column below 64rem; twelve above. Each instrument section places its
-   head in the first three columns and the instrument in the remaining nine;
-   the hero takes all twelve. */
-
-.grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  column-gap: 2rem;
-  max-width: 86rem;
+/* The frame: content at most 1280 px wide, centred, with the gutter outside it. */
+.frame {
+  width: 100%;
+  max-width: calc(var(--content) + 2 * var(--gutter));
   margin-inline: auto;
   padding-inline: var(--gutter);
 }
 
-@media (min-width: 40rem) {
-  :root {
-    --gutter: 2rem;
-  }
-}
+/* ── the status bar ───────────────────────────────────────────────────────
+   One line at the top, sticky: the wordmark and the site nav; the network's
+   state, the finality lag and the height; the Sources and Present switches.
+   Its height is fixed, so a change of state moves nothing beneath it. */
 
-@media (min-width: 64rem) {
-  :root {
-    --gutter: 3rem;
-  }
-  .grid {
-    grid-template-columns: repeat(12, minmax(0, 1fr));
-  }
-  .masthead-title {
-    grid-column: 1 / -1;
-  }
-  .instrument-section .section-head {
-    grid-column: 1 / span 3;
-    padding-right: 1rem;
-  }
-  .instrument-section .instrument,
-  .instrument-section .readings {
-    grid-column: 4 / -1;
-  }
-  #pulse .section-head {
-    grid-column: 1 / span 8;
-  }
-  #pulse .instrument {
-    grid-column: 1 / -1;
-  }
-  #pulse .readings {
-    grid-column: 1 / -1;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-  #era .instrument,
-  #validators .instrument {
-    grid-column: 4 / span 4;
-  }
-  #era .readings,
-  #validators .readings {
-    grid-column: 8 / -1;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-content: start;
-  }
-  /* Five readings on one row under the constellation, never four and an orphan. */
-  #constellation .readings {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-  footer > * {
-    grid-column: 4 / -1;
-  }
-}
-
-.site-nav {
-  grid-column: 1 / -1;
-}
-
-/* ── status bar ───────────────────────────────────────────────────────────
-   One slim line at the very top, sticky so the live dot is never out of
-   view: the state word, who is sealing, the finality lag, the height. The
-   provenance sits at the line's end, in mono, as under every reading.
-   `.statusbar.reading`: the bar carries the reading class so the readout can
-   find its slots, and must not take the reading tile's padding and rule. */
-
-.statusbar.reading {
+.statusbar {
   position: sticky;
   top: 0;
-  z-index: 3;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.15rem 0.5rem;
-  max-width: none; /* a <p>, but not reading text: the measure does not apply */
-  /* The bar's height is reserved for its longest state, so a state change
-     never moves the page beneath it (the first screen's layout shift). */
-  min-height: 2.15rem;
-  margin: 0;
-  padding: 0.4rem var(--gutter);
+  z-index: 10;
   background: var(--bg);
-  border-top: 0;
   border-bottom: 1px solid var(--border);
-  font-size: 0.8125rem;
+  font-size: var(--text-small);
   line-height: 1.4;
   color: var(--text-dim);
 }
 
-.statusbar .pulse-dot {
-  align-self: center;
+.sb-inner {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--space-4);
+  min-height: calc(var(--bar-height) - 1px); /* the bar's hairline makes up the rest */
+  padding-block: var(--space-2);
 }
 
-.statusbar .sb-state {
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.wordmark .mark,
+.eyebrow .mark {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.wordmark-text {
+  font-size: var(--text-small);
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.site-nav ul {
+  display: flex;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.site-nav a {
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.site-nav a:hover,
+.site-nav a[aria-current="page"] {
+  color: var(--text);
+}
+
+.sb-line {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  min-width: 0;
+  max-width: none;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.sb-line .pulse-dot {
+  margin-right: var(--space-2);
+}
+
+.sb-state {
+  font-weight: 600;
   color: var(--text);
 }
 
@@ -326,128 +341,55 @@ pre {
   color: var(--live);
 }
 
-.statusbar[data-state="finality-lagging"] .sb-state,
-.statusbar[data-state="blocks-late"] .sb-state,
-.statusbar[data-state="polling"] .sb-state {
-  color: var(--disputed);
-}
-
-.statusbar[data-state="not-updating"] .sb-state {
-  color: var(--slashed);
-}
-
-.statusbar[data-state="network-normal"] .pulse-dot {
-  color: var(--live);
-  background: var(--live);
-}
-
-.statusbar[data-state="finality-lagging"] .pulse-dot,
-.statusbar[data-state="blocks-late"] .pulse-dot,
-.statusbar[data-state="polling"] .pulse-dot {
-  color: var(--disputed);
-  background: var(--disputed);
-}
-
-.statusbar[data-state="not-updating"] .pulse-dot {
-  color: var(--slashed);
-  background: var(--slashed);
-}
-
-/* The bar's dot beats in the colour of its state; the hero's own beat is untouched. */
-.statusbar .pulse-dot.beat {
-  animation: sb-beat 700ms ease-out 1;
-}
-
-@keyframes sb-beat {
-  from {
-    box-shadow: 0 0 0 0 currentColor;
-  }
-  to {
-    box-shadow: 0 0 0 0.5rem transparent;
-  }
-}
-
-.statusbar .sb-sep {
-  color: var(--border);
-}
-
-/* The height's slot never wraps: a failure reads "unavailable" here, with
-   the full reason under the hero's own reading, so a state change cannot
-   change the bar's height. */
-.statusbar .sb-block {
-  min-width: 0;
-  max-width: 100%;
+/* The bar's name, and who is sealing, are for a screen reader; on screen the Validators section shows the set. */
+.statusbar .reading-label,
+.sb-validators,
+.sb-validators + .sb-sep {
+  position: absolute;
+  width: 1px;
+  height: 1px;
   overflow: hidden;
-  white-space: nowrap;
+  clip: rect(0 0 0 0);
+}
+
+.sb-sep {
+  white-space: pre;
+  color: var(--text-dim);
+}
+
+.sb-block {
+  overflow: hidden;
   text-overflow: ellipsis;
   color: var(--text);
 }
 
-/* The height is a hero readout: the display serif, in digit cells, inline. */
+/* The height on the bar: the display serif in digit cells, inline, small. */
 .statusbar .reading-value {
   display: inline;
   margin: 0;
+  font-family: var(--font-serif);
   font-size: 1rem;
   line-height: 1;
   color: var(--text);
 }
 
-.statusbar .reading-prov {
-  margin: 0 0 0 auto;
-  font-size: 0.625rem;
-}
-
-.statusbar .reading-value.is-error .unavailable {
-  display: inline;
-  margin: 0;
-  font-size: 0.8125rem;
-}
-
-/* The reason a height could not be read stays in the accessibility tree
-   here, but takes no room on the bar: the hero's own reading, one screen
-   below, prints it in full, and a bar that grows with its message would
-   move the whole page beneath it. */
 .statusbar .reading-value .error {
   position: absolute;
   width: 1px;
   height: 1px;
-  margin: -1px;
-  padding: 0;
   overflow: hidden;
   clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
 }
 
-/* The wordmark: the mark in the accent, the name in the display serif. */
-.wordmark {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4em;
-  color: var(--text);
-  font-family: var(--font-serif);
-  font-size: 1.0625rem;
-  line-height: 1;
-  letter-spacing: 0.005em;
-  text-decoration: none;
-  white-space: nowrap;
+.statusbar .reading-value.is-error .unavailable {
+  font-family: var(--font-sans);
+  font-size: var(--text-small);
 }
 
-.wordmark .mark {
-  flex: none;
-  width: 0.95em;
-  height: 0.95em;
-  color: var(--accent);
-}
-
-.statusbar .wordmark {
-  align-self: center;
-}
-
-/* The Sources switch: a word with a hairline, on when the lines are shown. */
-.sb-sources {
-  margin-left: auto;
-  padding: 0.15rem 0.5rem;
+/* Sources and Present: words with a hairline, quiet until pressed. */
+.sb-sources,
+.sb-present {
+  padding: var(--space-1) var(--space-2);
   font: 600 0.6875rem / 1.4 var(--font-sans);
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -458,533 +400,484 @@ pre {
   cursor: pointer;
 }
 
-.sb-sources::before {
-  content: "";
-  display: inline-block;
-  width: 0.4rem;
-  height: 0.4rem;
-  margin-right: 0.45rem;
-  vertical-align: 0.05em;
-  border: 1px solid currentColor;
-  border-radius: 50%;
-}
-
-.sb-sources:hover {
+.sb-sources:hover,
+.sb-present:hover {
   color: var(--text);
   border-color: var(--text-dim);
 }
 
-.sb-sources[aria-checked="true"] {
-  color: var(--accent);
-  border-color: var(--accent-dim);
+.sb-sources[aria-checked="true"],
+.sb-present[aria-pressed="true"] {
+  color: var(--bg);
+  background: var(--text);
+  border-color: var(--text);
 }
 
-.sb-sources[aria-checked="true"]::before {
-  background: currentColor;
-}
-
-/* The bar's provenance, when asked for, hangs under the bar's right end rather than growing it. */
-.statusbar > .reading-prov {
+/* The bar's own source, when asked for, hangs below its right end rather than growing it. */
+.statusbar .reading-prov {
   position: absolute;
   top: 100%;
   right: var(--gutter);
-  left: auto;
-  bottom: auto;
-  max-height: none;
-  margin: 0;
-  padding: 0.2rem 0.5rem;
+  z-index: 11;
+  padding: var(--space-1) var(--space-2);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-top: 0;
+}
+
+/* Below 64rem the bar is two rows: the wordmark and the nav; the state and
+   the switches. On a phone the wordmark is the mark alone (the hero names the
+   page just beneath), the height is left to the hero, and Present — a room's
+   mode, driven from a keyboard — is not offered. */
+@media (max-width: 63.99rem) {
+  .sb-inner {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas:
+      "mark nav nav"
+      "line sources present";
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+  }
+  .sb-inner > .wordmark {
+    grid-area: mark;
+  }
+  .site-nav {
+    grid-area: nav;
+    justify-self: end;
+  }
+  .sb-line {
+    grid-area: line;
+    overflow: hidden;
+  }
+  .sb-sources {
+    grid-area: sources;
+  }
+  .sb-present {
+    grid-area: present;
+  }
 }
 
 @media (max-width: 39.99rem) {
-  .statusbar .wordmark {
-    font-size: 0.9375rem;
-  }
-  .statusbar .wordmark-text {
+  .sb-inner > .wordmark .wordmark-text {
     position: absolute;
     width: 1px;
     height: 1px;
     overflow: hidden;
     clip: rect(0 0 0 0);
   }
-  :root {
-    --bar-height: 3.4rem;
+  .sb-block,
+  .sb-finality,
+  .sb-sep,
+  .sb-present {
+    display: none;
   }
-  .statusbar.reading {
-    gap: 0 0.4rem;
-    min-height: 3.4rem;
-    padding: 0.3rem var(--gutter);
-    font-size: 0.75rem;
-    line-height: 1.35;
+  .sb-sources {
+    justify-self: end;
   }
-  .statusbar .reading-value {
-    font-size: 0.9375rem;
+  .sb-inner {
+    grid-template-areas:
+      "mark nav nav"
+      "line sources sources";
   }
-  .statusbar .reading-prov {
-    flex-basis: 100%;
-    margin: 0;
-    font-size: 0.5625rem;
-    line-height: 1.3;
-  }
+}
+
+/* The live dot: filled in the accent only while the network reads normal; a hollow ring otherwise. Still, always. */
+.pulse-dot {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--text-dim);
+  border-radius: 50%;
+}
+
+.statusbar[data-state="network-normal"] .pulse-dot,
+.live-line[data-state="network-normal"] .pulse-dot {
+  background: var(--live);
+  border-color: var(--live);
 }
 
 /* ── the first screen ─────────────────────────────────────────────────────
-   The sky (a fixed layer under the page, sky.js) shows through here and only
-   here: `main` and the footer stand on the plate. Over it, the nav, the
-   wordmark, one line, and the live height at 160 px in the display serif;
-   along the foot, the river as a strip, full-bleed, drawn by the chain pulse. */
+   100 vh less the bar. Five columns of text and figures, seven of framed
+   constellation, the river along the foot. */
 
 .hero {
-  position: relative;
   display: grid;
-  min-height: calc(100vh - var(--bar-height));
+  grid-template-rows: minmax(0, 1fr) auto;
   min-height: calc(100svh - var(--bar-height));
-  padding-bottom: 5rem; /* the strip's room */
 }
 
-.hero > .grid {
-  width: 100%;
-  grid-template-rows: auto minmax(0, 1fr);
-  align-content: start;
-  row-gap: 0;
-}
-
-.hero .site-nav {
-  padding-top: 0.75rem;
-}
-
-.hero-body {
-  grid-column: 1 / -1;
-  align-self: center;
-  padding: 3rem 0 3rem;
-}
-
-/* The river as a strip: the same stream, no labels, the width of the screen. */
-.hero-river {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  display: block;
-  width: 100%;
-  height: 4.5rem;
-}
-
-.hero .reading {
-  padding: 0;
-  border-top: 0;
-}
-
-.hero .reading-label {
-  margin-top: 0.75rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-}
-
-.hero .reading-note,
-.hero-working .reading-label {
-  display: none; /* the first screen explains nothing; section 01 does */
-}
-
-.hero .dek {
-  max-width: none;
-  font-size: clamp(1.0625rem, 1rem + 0.5vw, 1.3125rem);
-}
-
-/* The live height, as large as the brief asks and as the screen allows. */
-.hero-height .reading-value {
-  margin-top: 1.5rem;
-  font-size: clamp(4rem, 11.2vw, 160px);
-  line-height: 0.95;
-  letter-spacing: -0.02em;
-}
-
-.hero-height .reading-value.is-live .digits {
-  text-shadow: 0 0 28px var(--live-glow);
-}
-
-/* The count of agents working now is the presenter's first screen; on the page the hero says nothing else. */
-.hero-working {
-  display: none;
-}
-
-html[data-present] .hero-working {
-  display: block;
-}
-
-.hero-working .reading-value {
-  font-size: clamp(2rem, 4vw, 3.5rem);
-}
-
-/* Over the sky, the first screen's provenance lines overlay rather than reflow. */
-.hero .reading-prov {
-  position: static;
-}
-
-.site-nav ul {
+.hero-grid {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.25rem 1.5rem;
-  margin: 0 0 0.75rem;
-  padding: 0;
-  list-style: none;
-  font-size: 0.9375rem;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-5);
+  padding-block: var(--space-5);
 }
 
-.site-nav a {
-  display: inline-block;
-  padding: 0.35rem 0;
-  color: var(--text-dim);
-  text-decoration: none;
+@media (min-width: 64rem) {
+  .hero-grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    align-items: center;
+    column-gap: var(--space-5);
+    padding-block: var(--space-6);
+  }
 }
 
-.site-nav a:hover,
-.site-nav a[aria-current="page"] {
-  color: var(--text);
-  text-decoration: underline;
-  text-decoration-color: var(--accent);
-  text-underline-offset: 0.3em;
+.hero-text {
+  grid-column: 1 / span 5;
+  min-width: 0;
 }
 
-.kicker,
-.instrument-label {
-  margin: 0 0 0.75rem;
-  font-size: 0.75rem;
+.hero-panel {
+  grid-column: 6 / span 7;
+  min-width: 0;
+}
+
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-small);
   font-weight: 600;
+  line-height: 1;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
 
-.instrument-label .mono {
-  margin-right: 0.35em;
-  font-family: var(--font-sans); /* a section number is a label, not provenance */
-  letter-spacing: 0.1em;
-}
-
-/* The title: the wordmark in the serif, the page's name beside it. */
-h1 {
-  margin: 0 0 0.5rem;
-  font-size: clamp(2rem, 1.5rem + 1.8vw, 2.75rem);
-  line-height: 1.1;
-  letter-spacing: -0.01em;
-  text-wrap: nowrap;
-}
-
-h1 .wordmark {
-  font-size: 1em;
-  letter-spacing: -0.01em;
-}
-
-.h1-sub {
-  margin-left: 0.5em;
-  font-family: var(--font-sans);
-  font-size: 0.4em;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  vertical-align: 0.25em;
-  color: var(--text-dim);
-}
-
-@media (max-width: 39.99rem) {
-  h1 {
-    text-wrap: balance;
-  }
-  .h1-sub {
-    display: block;
-    margin: 0.35rem 0 0;
-  }
+.hero h1 {
+  margin: 0 0 var(--space-4);
+  font-size: clamp(3.5rem, 0.5rem + 6.2vw, 6rem);
+  line-height: 0.95;
 }
 
 .dek {
-  margin: 0 0 0.5rem;
-  font-size: clamp(1.0625rem, 1rem + 0.35vw, 1.25rem);
-  line-height: 1.45;
+  margin: 0 0 var(--space-5);
   color: var(--text-dim);
   text-wrap: pretty;
 }
 
-/* The glossary, collapsed in the footer. */
-.howto {
-  max-width: var(--measure);
-  padding: 0.75rem 0;
-  border-top: 1px solid var(--border);
+.hero-figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4) var(--space-5);
+  margin: 0 0 var(--space-5);
 }
 
-.howto summary {
-  cursor: pointer;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+.hero-figure {
+  position: relative;
+  min-width: 0;
 }
 
-.howto dl {
-  margin: 0.75rem 0 0.25rem;
+/* The three figures: 56–64 px on a desktop, never under 44 px anywhere. */
+.hero-figure .reading-value {
+  margin: 0;
+  font-size: clamp(2.75rem, 1.5rem + 2.6vw, 4rem);
+  line-height: 1;
 }
 
-.howto dl div {
-  margin: 0 0 0.6rem;
-}
-
-.howto dt {
-  display: inline;
-  font-weight: 600;
-}
-
-.howto dt::after {
-  content: " — ";
+/* One word under each figure. */
+.hero-figure .reading-label {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-small);
   font-weight: 400;
   color: var(--text-dim);
 }
 
-.howto dd {
-  display: inline;
+.live-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   margin: 0;
+  font-size: var(--text-small);
   color: var(--text-dim);
 }
 
+.live-line .ll-state {
+  font-weight: 600;
+  color: var(--text);
+}
 
-.noscript span {
-  grid-column: 1 / -1;
-  padding: 1rem 0;
+.live-line[data-state="network-normal"] .ll-state {
+  color: var(--live);
+}
+
+/* The constellation's frame: a hairline, and the canvas clipped to it — nothing is drawn outside, nothing sits behind the text. */
+.panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  margin: 0;
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.panel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-small);
+}
+
+.panel-title {
+  font-weight: 600;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   color: var(--text-dim);
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* The key samples the plate: open 1 px in the accent, disputed 2 px in amber, settled 1 px dashed grey. */
+.swatch {
+  width: 16px;
+  height: 0;
+  border-top: 1px solid var(--active);
+}
+
+.swatch-disputed {
+  border-top: 2px solid var(--disputed);
+}
+
+.swatch-settled {
+  border-top: 1px dashed var(--settled);
+}
+
+.constellation-host {
+  position: relative;
+  height: clamp(320px, 56vh, 600px);
+}
+
+.constellation-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: manipulation;
+}
+
+.constellation-tip {
+  position: absolute;
+  z-index: 2;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  line-height: 1.5;
+  pointer-events: none;
+}
+
+.constellation-list {
+  padding: var(--space-2) var(--space-4);
   border-top: 1px solid var(--border);
+  font-size: var(--text-small);
+}
+
+.constellation-list summary {
+  cursor: pointer;
+  color: var(--text-dim);
+}
+
+.agent-list {
+  max-width: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+  columns: 2;
+  column-gap: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+}
+
+.agent-list li {
+  break-inside: avoid;
+  padding-block: var(--space-1);
+  border-top: 1px solid var(--border);
+}
+
+/* The river along the foot: the same stream as section 01, no labels, the width of the screen. */
+.hero-river {
+  display: block;
+  width: 100%;
+  height: 120px;
 }
 
 /* ── sections ─────────────────────────────────────────────────────────── */
 
-/* `main` and the footer stand on the plate: the sky shows through the first screen only. */
-main,
-footer {
-  position: relative;
-  background: var(--bg);
+.section {
+  padding-block: var(--space-6);
+  border-top: 1px solid var(--border);
 }
 
-.instrument-section {
-  padding-block: 2rem 5rem;
+@media (min-width: 64rem) {
+  .section {
+    padding-block: var(--space-7);
+  }
 }
 
-.instrument-section::before {
-  /* A full-measure rule over each section, as on a printed plate. */
-  content: "";
-  grid-column: 1 / -1;
-  border-top: 1px solid var(--text);
-  margin-bottom: 1.75rem;
+.section-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-5);
+}
+
+@media (min-width: 64rem) {
+  .section-grid {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: var(--space-5);
+  }
+  .section-head,
+  .section .instrument,
+  .section .readings,
+  .notes {
+    grid-column: 1 / -1;
+  }
+  /* A dial or a ring beside its figures: five columns and seven. */
+  #economy .instrument,
+  #validators .instrument {
+    grid-column: 1 / span 5;
+  }
+  #economy .readings,
+  #validators .readings {
+    grid-column: 6 / span 7;
+    grid-template-columns: minmax(0, 1fr);
+    align-content: start;
+  }
+  #validators .notes {
+    grid-column: 1 / span 5;
+  }
+}
+
+.section-number {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-small);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
 }
 
 h2 {
-  margin: 0 0 0.75rem;
-  font-size: clamp(1.875rem, 1.5rem + 1.2vw, 2.75rem);
-  line-height: 1.05;
-  letter-spacing: -0.01em;
+  margin: 0 0 var(--space-3);
+  font-size: clamp(2.5rem, 1.75rem + 1.6vw, 3.5rem);
+  line-height: 1;
 }
 
 .lede {
-  margin: 0 0 1rem;
-  font-size: 1.0625rem;
-  line-height: 1.5;
+  margin: 0;
   color: var(--text-dim);
   text-wrap: pretty;
 }
 
-/* "What this means": the explanation, and the note under each reading, on request. */
-.means,
-.notes {
-  margin: 0 0 1.25rem;
-  font-size: 0.9375rem;
-  line-height: 1.5;
-  color: var(--text-dim);
-}
-
-.means summary,
-.notes summary {
-  display: inline-block;
-  cursor: pointer;
-  padding-bottom: 0.1rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: var(--text-dim);
-  border-bottom: 1px solid var(--border);
-  list-style: none;
-}
-
-.means summary::-webkit-details-marker,
-.notes summary::-webkit-details-marker {
-  display: none;
-}
-
-.means summary:hover,
-.notes summary:hover {
-  color: var(--text);
-  border-color: var(--text-dim);
-}
-
-.means[open] summary,
-.notes[open] summary {
-  color: var(--text);
-}
-
-.means-body {
-  margin-top: 0.75rem;
-}
-
-.means-body p {
-  margin: 0 0 0.6rem;
-}
-
-.notes {
-  grid-column: 1 / -1;
-  margin: 1rem 0 0;
-}
-
-.notes .instrument-note {
-  margin-top: 0.6rem;
-}
-
-@media (min-width: 64rem) {
-  .notes {
-    grid-column: 4 / -1;
-  }
-}
-
-/* The reticle: hairlines every --grid-step behind an instrument. */
 .instrument {
   position: relative;
   min-width: 0;
-  background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-  background-size: var(--grid-step) var(--grid-step);
-  background-position: 0 0;
-}
-
-@media (min-width: 64rem) {
-  :root {
-    --grid-step: 3rem;
-  }
 }
 
 .instrument-note {
-  margin: 0.75rem 0 0;
-  font-size: 0.8125rem;
-  line-height: 1.5;
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-small);
   color: var(--text-dim);
 }
 
 .instrument-failed {
   margin: 0;
-  padding: 1rem 0;
+  padding: var(--space-3) 0;
   font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  color: var(--slashed);
-}
-
-.live {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0 0 0.75rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  font-size: var(--text-mono);
   color: var(--text-dim);
 }
 
-.live[data-live="live"] {
-  color: var(--live);
+.notes {
+  margin: 0;
+  font-size: var(--text-small);
+  color: var(--text-dim);
 }
 
-.live[data-live="polling"] {
+.notes summary,
+.upgrade-detail summary,
+.verify summary,
+.howto summary {
+  display: inline-block;
+  padding-bottom: var(--space-1);
+  font-weight: 600;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  list-style: none;
+}
+
+.notes summary::-webkit-details-marker,
+.upgrade-detail summary::-webkit-details-marker,
+.verify summary::-webkit-details-marker,
+.howto summary::-webkit-details-marker {
+  display: none;
+}
+
+.notes summary:hover,
+.upgrade-detail summary:hover,
+.verify summary:hover,
+.howto summary:hover,
+details[open] > summary {
   color: var(--text);
-}
-
-.pulse-dot {
-  flex: none;
-  width: 0.5rem;
-  height: 0.5rem;
-  border-radius: 50%;
-  border: 1px solid currentColor;
-}
-
-.live[data-live="live"] .pulse-dot {
-  background: var(--live);
-}
-
-/* One beat per new block: a ring that expands and fades once, then stops. */
-.pulse-dot.beat {
-  animation: beat 700ms ease-out 1;
-}
-
-@keyframes beat {
-  from {
-    box-shadow: 0 0 0 0 var(--live);
-  }
-  to {
-    box-shadow: 0 0 0 0.5rem transparent;
-  }
+  border-color: var(--text-dim);
 }
 
 /* ── readings ─────────────────────────────────────────────────────────── */
 
 .readings {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
-  column-gap: 2rem;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: var(--space-4) var(--space-5);
   align-content: start;
-  margin-top: 1rem;
 }
 
 .reading {
   position: relative;
   min-width: 0;
-  padding: 0.9rem 0 2.6rem; /* room beneath for the provenance line when it is asked for */
+}
+
+.readings .reading {
+  padding-top: var(--space-3);
   border-top: 1px solid var(--border);
-  transition: transform 150ms ease-out;
 }
 
-/* Hovering a readout lifts it two pixels and shows its source. */
-.reading:hover {
-  transform: translateY(-2px);
-}
-
-.section-head .reading {
-  padding-bottom: 1rem;
-}
-
+/* Labels are short and quiet; the figure is what is read. */
 .reading-label {
   margin: 0;
   font-family: var(--font-sans);
-  font-size: 0.9375rem;
+  font-size: var(--text-small);
   font-weight: 600;
-  line-height: 1.3;
-}
-
-.reading-note {
-  display: none; /* behind "What this means" */
-  margin: 0.15rem 0 0.75rem;
-  font-size: 0.8125rem;
   line-height: 1.4;
   color: var(--text-dim);
 }
 
-section[data-explained] .reading-note {
-  display: block;
-}
-
-/* Figures are set in the display serif. The face has no tabular figures, so
-   each digit sits in a cell one `ch` wide (its widest digit, the zero) and a
+/* Figures are the display serif. The face has no tabular figures, so each
+   digit sits in a cell one `ch` wide (its widest digit, the zero) and a
    figure that counts up moves nothing beside it. */
 .reading-value {
-  margin: 0.35rem 0 0;
+  margin: var(--space-2) 0 0;
   font-family: var(--font-serif);
   font-weight: 400;
-  font-size: clamp(2.25rem, 1.7rem + 1.8vw, 3.5rem);
+  font-size: clamp(2.5rem, 1.75rem + 1.5vw, 3.5rem);
   line-height: 1.05;
-  letter-spacing: -0.01em;
   color: var(--text);
 }
 
@@ -994,36 +887,40 @@ section[data-explained] .reading-note {
   text-align: center;
 }
 
-.reading-value.is-live .digits {
-  text-shadow: 0 0 12px var(--live-glow);
+.reading-value .dcells {
+  white-space: nowrap;
 }
 
-/* The figure is a link to the raw bytes it was read from; the link shows itself only with its source. */
+/* The figure links to the raw bytes it was read from; the link shows itself only with its source. */
 .reading-value .num {
   color: inherit;
   text-decoration: none;
 }
 
 html[data-sources] .reading-value .num,
-[data-reading]:hover .reading-value .num,
-[data-reading]:focus-within .reading-value .num,
-[data-reading][data-source-open] .reading-value .num {
+.reading-value .num:hover,
+.reading-value .num:focus-visible {
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-decoration-color: var(--border);
-  text-underline-offset: 0.14em;
+  text-underline-offset: 0.12em;
 }
 
-.reading-value .num:hover {
-  text-decoration-color: var(--accent);
-}
-
+/* Units small and grey, beside the figure. */
 .reading-value .unit {
-  margin-left: 0.2em;
+  margin-left: var(--space-1);
   font-family: var(--font-sans);
-  font-size: 0.875rem;
+  font-size: var(--text-small);
   font-weight: 400;
-  letter-spacing: 0;
+  color: var(--text-dim);
+}
+
+.reading-value .sub {
+  display: block;
+  margin-top: var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--text-small);
+  line-height: 1.5;
   color: var(--text-dim);
 }
 
@@ -1031,86 +928,29 @@ html[data-sources] .reading-value .num,
 .reading-value.is-absent .digits {
   font-family: var(--font-sans);
   font-size: 1.25rem;
-  letter-spacing: 0;
-  text-shadow: none;
-}
-
-.reading-value.is-error .unavailable {
-  color: var(--slashed);
-}
-
-.reading-value .sub {
-  display: block;
-  margin-top: 0.3rem;
-  font-family: var(--font-sans); /* the figure is serif now; its sub-line is reading text */
-  font-size: 0.8125rem;
-  font-weight: 400;
-  letter-spacing: 0;
-  color: var(--text);
-  text-shadow: none;
+  color: var(--text-dim);
 }
 
 .reading-value .error {
   display: block;
-  margin-top: 0.35rem;
-  font-family: var(--font-sans); /* as above */
-  font-size: 0.75rem;
-  font-weight: 400;
+  margin-top: var(--space-1);
+  font-family: var(--font-sans);
+  font-size: var(--text-small);
   line-height: 1.4;
-  letter-spacing: 0;
   color: var(--text-dim);
   overflow-wrap: anywhere;
 }
 
-/* Provenance: mono, light, a step below the note around it. Hidden until
-   asked for — by the Sources switch (`html[data-sources]`, every line in
-   place) or by hovering, focusing or tapping one reading (its line alone).
-   Under a reading tile the line overlays the room reserved beneath the
-   figure, so a hover moves nothing. */
-.reading-prov {
-  display: none;
-  max-width: none;
-  margin: 0.5rem 0 0;
-  font-family: var(--font-mono);
-  font-weight: 400;
-  font-size: 0.625rem;
-  line-height: 1.5;
-  color: var(--text-dim);
-  overflow-wrap: anywhere;
+/* Amber is for disputes only: the count of open disputes, when it is not zero. */
+.reading-disputes .reading-value[data-number]:not([data-number="0"]) .digits {
+  color: var(--disputed);
 }
 
-html[data-sources] .reading-prov,
-[data-reading]:hover .reading-prov,
-[data-reading]:focus-within .reading-prov,
-[data-reading][data-source-open] .reading-prov {
-  display: var(--prov-display, block);
-}
-
-.reading > .reading-prov {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0.45rem;
-  margin: 0;
-  max-height: 2.2rem; /* two lines */
-  overflow: hidden;
-}
-
-.reading-prov a {
-  color: var(--text-dim);
-  text-decoration-color: var(--border);
-}
-
-.reading-prov a:hover {
-  color: var(--accent);
-}
-
-/* First load only: a flat placeholder the height of a figure. No shimmer. */
+/* A flat placeholder the height of a figure, on first load only. No shimmer. */
 .skeleton {
   display: inline-block;
-  width: 5ch;
-  height: 0.75em;
-  vertical-align: -0.05em;
+  width: 4ch;
+  height: 0.7em;
   background: var(--border);
 }
 
@@ -1119,59 +959,73 @@ html[data-sources] .reading-prov,
   height: 0.7em;
 }
 
-/* ── 01 chain pulse ───────────────────────────────────────────────────── */
+/* ── provenance ───────────────────────────────────────────────────────────
+   Every figure carries its source line — the endpoint, the UTC time, a link
+   to the raw bytes — hidden until asked for. With the Sources switch on,
+   every line shows in place, under its figure; with it off, hovering or
+   focusing a figure shows its line as a tooltip beneath it. */
+
+.reading-prov {
+  display: none;
+  max-width: none;
+  margin: var(--space-2) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+}
+
+html[data-sources] .reading-prov {
+  display: block;
+  position: static;
+}
+
+html:not([data-sources]) [data-reading]:hover > .reading-prov,
+html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
+  display: block;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 5;
+  width: max-content;
+  max-width: min(28rem, 86vw);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--border);
+}
+
+.reading-prov a {
+  color: var(--text-dim);
+}
+
+.reading-prov a:hover {
+  color: var(--text);
+}
+
+/* ── 01 chain ─────────────────────────────────────────────────────────── */
 
 .pulse-canvas {
   display: block;
   width: 100%;
-  height: 11rem;
+  height: 200px;
 }
 
 @media (min-width: 64rem) {
   .pulse-canvas {
-    height: 14rem;
+    height: 240px;
   }
 }
 
-/* One sentence under the river: the rhythm and the time to finality. Its
-   room, and its provenance line's, is reserved before either arrives, so the
-   readings beneath do not move when they do. */
-.pulse-sentence {
-  max-width: none; /* a <p>, but a figure, not reading text */
-  min-height: 4.25rem;
-  margin: 0.5rem 0 0;
-  padding: 0;
-  border: 0;
-}
-
-.pulse-sentence:hover {
-  transform: none; /* a sentence is not a tile */
-}
-
-@media (max-width: 39.99rem) {
-  .pulse-sentence {
-    min-height: 6rem;
-  }
-}
-
-.pulse-sentence .reading-value {
-  display: inline;
-  font-size: clamp(1.25rem, 1.1rem + 0.6vw, 1.625rem);
-  line-height: 1.3;
-}
-
-.pulse-sentence > .reading-prov {
-  bottom: 0;
-  max-height: 2.9rem; /* three lines: the river's line is the longest on the page */
-}
-
-/* ── 02 era dial ──────────────────────────────────────────────────────── */
+/* ── 02 economy ───────────────────────────────────────────────────────── */
 
 .dial {
   width: 100%;
-  max-width: 20rem;
+  max-width: 360px;
   aspect-ratio: 1;
-  margin: 0 auto;
+  margin-inline: auto;
 }
 
 .dial svg {
@@ -1191,7 +1045,6 @@ html[data-sources] .reading-prov,
   fill: none;
   stroke: var(--live);
   stroke-width: 6;
-  stroke-linecap: butt;
 }
 
 .dial .dial-tick {
@@ -1208,127 +1061,20 @@ html[data-sources] .reading-prov,
 
 .dial .dial-caption {
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: var(--text-mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   fill: var(--text-dim);
   text-anchor: middle;
 }
 
-/* ── 03 constellation ─────────────────────────────────────────────────── */
-
-.legend {
-  max-width: none;
-  margin: 0 0 1rem;
-  padding: 0;
-  list-style: none;
-  font-size: 0.8125rem;
-  color: var(--text-dim);
-}
-
-.legend li {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  margin: 0 0 0.35rem;
-}
-
-/* The key is a faithful sample of the plate: open 1 px, disputed 2 px, settled 1 px dashed. */
-.swatch {
-  flex: none;
-  width: 1.25rem;
-  height: 0;
-  border-top: 1px solid var(--text);
-  transform: translateY(-0.2em);
-}
-
-.swatch-active {
-  border-color: var(--active);
-}
-
-.swatch-disputed {
-  border-color: var(--disputed);
-  border-top-width: 2px;
-}
-
-.swatch-settled {
-  border-color: var(--settled);
-  border-top-style: dashed;
-}
-
-.constellation-host {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 4 / 3;
-  min-height: 20rem;
-  max-height: 36rem;
-}
-
-@media (min-width: 64rem) {
-  .constellation-host {
-    aspect-ratio: 16 / 10;
-  }
-}
-
-.constellation-canvas {
-  display: block;
-  width: 100%;
-  height: 100%;
-  touch-action: manipulation;
-}
-
-.constellation-tip {
-  position: absolute;
-  z-index: 1;
-  max-width: 16rem;
-  padding: 0.5rem 0.65rem;
-  background: var(--bg);
-  border: 1px solid var(--text);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  line-height: 1.45;
-  pointer-events: none;
-}
-
-.constellation-tip strong {
-  font-weight: 400;
-}
-
-.constellation-list {
-  margin-top: 0.75rem;
-  font-size: 0.875rem;
-}
-
-.constellation-list summary {
-  cursor: pointer;
-  color: var(--text-dim);
-}
-
-.agent-list {
-  max-width: none;
-  margin: 0.5rem 0 0;
-  padding: 0;
-  list-style: none;
-  columns: 2;
-  column-gap: 2rem;
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-}
-
-.agent-list li {
-  max-width: none;
-  break-inside: avoid;
-  padding: 0.25rem 0;
-  border-top: 1px solid var(--border);
-}
-
-/* ── 04 validator ring ────────────────────────────────────────────────── */
+/* ── 03 validators ────────────────────────────────────────────────────── */
 
 .ring-host {
   width: 100%;
-  max-width: 26rem;
+  max-width: 400px;
   aspect-ratio: 1;
-  margin: 0 auto;
+  margin-inline: auto;
 }
 
 .ring {
@@ -1372,16 +1118,9 @@ html[data-sources] .reading-prov,
   opacity: 0;
 }
 
-/* Finality votes: a group of hairline ticks, one per sampled round. */
 .ring .ring-votes {
   fill: none;
   stroke-width: 1;
-}
-
-.ring .ring-label {
-  font-family: var(--font-sans);
-  font-size: 0.6875rem;
-  fill: var(--text-dim);
 }
 
 .ring .ring-centre {
@@ -1393,20 +1132,20 @@ html[data-sources] .reading-prov,
 
 .validator-list {
   max-width: none;
-  margin: 1rem 0 0;
+  margin: var(--space-3) 0 0;
   padding: 0;
   list-style: none;
   font-family: var(--font-mono);
-  font-size: 0.75rem;
+  font-size: var(--text-mono);
   line-height: 1.5;
 }
 
 .validator-list li {
-  max-width: none;
   display: grid;
-  grid-template-columns: 5.5rem minmax(0, 1fr);
-  gap: 0.25rem 0.5rem;
-  padding: 0.4rem 0;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: var(--space-1) var(--space-2);
+  max-width: none;
+  padding-block: var(--space-2);
   border-top: 1px solid var(--border);
 }
 
@@ -1420,12 +1159,14 @@ html[data-sources] .reading-prov,
   color: var(--text-dim);
 }
 
-/* ── 05 history strips ────────────────────────────────────────────────── */
+/* ── 04 history ───────────────────────────────────────────────────────────
+   Four small multiples on one axis style: a title, a one-line caption, the
+   plot from zero with its zero line, and the figure beneath. */
 
 .strips {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  column-gap: 2rem;
+  gap: var(--space-5);
 }
 
 @media (min-width: 40rem) {
@@ -1434,7 +1175,7 @@ html[data-sources] .reading-prov,
   }
 }
 
-@media (min-width: 88rem) {
+@media (min-width: 80rem) {
   .strips {
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
@@ -1442,16 +1183,29 @@ html[data-sources] .reading-prov,
 
 .strip {
   margin: 0;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
 }
 
 .strip figcaption {
   margin: 0;
 }
 
+.strip .reading-label {
+  color: var(--text);
+}
+
+.strip-caption {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-small);
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
 .strip-plot {
   width: 100%;
-  height: 5.5rem;
-  margin: 0.25rem 0 0.5rem;
+  height: 120px;
+  margin: var(--space-3) 0 var(--space-2);
 }
 
 .strip-plot svg {
@@ -1475,13 +1229,12 @@ html[data-sources] .reading-prov,
   fill: var(--text-dim);
 }
 
-/* Strips are polled history, not live data: emphasis is by ink weight, never the live accent. */
 .strip-plot .plot-bar.is-last {
   fill: var(--text);
 }
 
 .strip-plot .plot-axis {
-  stroke: var(--text-dim);
+  stroke: var(--border);
   stroke-width: 1;
 }
 
@@ -1491,21 +1244,21 @@ html[data-sources] .reading-prov,
 
 .strip-plot .plot-label {
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 11px;
   font-variant-numeric: tabular-nums lining-nums;
   fill: var(--text-dim);
 }
 
 .strip .reading-value {
-  font-size: 1.375rem;
+  font-size: 2rem;
 }
 
-/* ── 06 upgrade rail ──────────────────────────────────────────────────── */
+/* ── 05 upgrades ──────────────────────────────────────────────────────── */
 
 .rail {
   position: relative;
-  height: 6.5rem;
-  margin: 0.5rem 0 1.5rem;
+  height: 120px;
+  margin: 0 0 var(--space-4);
 }
 
 .rail-line {
@@ -1513,7 +1266,7 @@ html[data-sources] .reading-prov,
   left: 0;
   right: 0;
   top: 50%;
-  border-top: 1px solid var(--text);
+  border-top: 1px solid var(--text-dim);
 }
 
 .rail-line::after {
@@ -1544,10 +1297,10 @@ html[data-sources] .reading-prov,
 
 .rail-tick {
   position: absolute;
-  left: -0.3125rem;
-  top: -0.3125rem;
-  width: 0.625rem;
-  height: 0.625rem;
+  left: -5px;
+  top: -5px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   background: var(--text);
 }
@@ -1557,101 +1310,80 @@ html[data-sources] .reading-prov,
   border: 1px dashed var(--text-dim);
 }
 
+/* The runtime in force: the one marker in the accent, since it is the live state. */
 .rail-marker.is-current .rail-tick {
   background: var(--live);
-  box-shadow: 0 0 0 4px var(--live-glow);
 }
 
 .rail-spec {
   position: absolute;
-  bottom: 1rem;
+  bottom: 16px;
   left: 0;
   transform: translateX(-50%);
   font-family: var(--font-serif);
-  font-size: 1.75rem;
+  font-size: 2rem;
   line-height: 1;
   white-space: nowrap;
 }
 
 .rail-meta {
   position: absolute;
-  top: 1rem;
+  top: 16px;
   left: 0;
   transform: translateX(-50%);
-  font-size: 0.6875rem;
   line-height: 1.3;
   white-space: nowrap;
   color: var(--text-dim);
 }
 
-@media (max-width: 39.99rem) {
-  .rail-meta {
-    font-size: 0.625rem;
-  }
-  .rail-spec {
-    font-size: 1.375rem;
-  }
+.upgrade-detail {
+  margin: 0;
 }
 
 .upgrades {
   max-width: none;
-  margin: 0;
+  margin: var(--space-3) 0 0;
   padding: 0;
   list-style: none;
 }
 
 .upgrade {
   max-width: none;
-  padding: 0.9rem 0;
+  padding-block: var(--space-3);
   border-top: 1px solid var(--border);
 }
 
 .upgrade-title {
-  margin: 0 0 0.25rem;
-  font-family: var(--font-sans);
+  margin: 0 0 var(--space-1);
   font-size: 1rem;
-  font-weight: 600;
 }
 
-/* The spec number is a figure: the display serif, as every figure on the page. */
 .upgrade-spec {
   font-family: var(--font-serif);
-  font-size: 1.375rem;
+  font-size: 1.5rem;
+  font-weight: 400;
 }
 
 .status {
-  margin-left: 0.5rem;
-  font-size: 0.75rem;
+  margin-left: var(--space-2);
+  font-size: var(--text-small);
   font-weight: 600;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
 
-.status-scheduled {
-  font-style: italic;
-  text-transform: none;
-  letter-spacing: 0;
-}
-
 .upgrade-change {
-  margin: 0 0 0.4rem;
+  margin: 0 0 var(--space-1);
 }
 
 .upgrade-facts {
-  margin: 0 0 0.5rem;
-  font-family: var(--font-sans); /* facts are reading text; the hash beneath them stays mono */
-  font-size: 0.75rem;
+  margin: 0 0 var(--space-2);
   color: var(--text-dim);
 }
 
 .confirm[data-state="confirmed"] {
-  color: var(--live);
-}
-
-.confirm[data-state="missing"],
-.confirm[data-state="error"] {
-  color: var(--disputed);
+  color: var(--text);
 }
 
 .confirm a {
@@ -1662,154 +1394,89 @@ html[data-sources] .reading-prov,
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem 0.6rem;
+  gap: var(--space-1) var(--space-2);
   max-width: 100%;
   margin: 0;
-  padding: 0.3rem 0.6rem;
+  padding: var(--space-1) var(--space-2);
   border: 1px solid var(--border);
-  font-size: 0.75rem;
 }
 
 .chip-label {
-  font-family: var(--font-sans); /* a label; the hash it introduces is the mono part */
+  font-size: var(--text-mono);
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
 
 .hash {
-  font-size: 0.6875rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-mono);
   word-break: break-all;
 }
 
-/* ── 07 posture ───────────────────────────────────────────────────────── */
+/* ── 06 verify ────────────────────────────────────────────────────────── */
 
-.posture {
-  margin: 0;
-}
-
-.posture-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.25rem 2rem;
-  padding: 0.9rem 0;
-  border-top: 1px solid var(--border);
-}
-
-@media (min-width: 48rem) {
-  .posture-row {
-    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  }
-}
-
-.posture-row dt {
-  font-weight: 600;
-  font-size: 0.9375rem;
-}
-
-.posture-row dt .reading-note {
-  display: block;
-  margin: 0.15rem 0 0;
-  font-weight: 400;
-}
-
-.posture-row dd {
-  margin: 0;
-  font-size: 1rem;
-}
-
-.posture-value {
-  font-family: var(--font-serif);
-  font-size: 1.625rem;
-  line-height: 1.1;
-}
-
-.posture-source {
-  display: block;
-  margin-top: 0.3rem;
-  font-size: 0.8125rem;
-  line-height: 1.4;
-  color: var(--text-dim);
-}
-
-.not-recorded {
-  color: var(--text-dim);
-  font-style: italic;
-  font-family: var(--font-sans);
-}
-
-/* ── 08 verify ────────────────────────────────────────────────────────── */
-
-.verify summary {
-  cursor: pointer;
-  padding: 0.75rem 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  font-weight: 600;
+.verify {
+  max-width: 960px;
 }
 
 .facts {
-  margin: 1rem 0 2rem;
+  margin: var(--space-4) 0 var(--space-5);
 }
 
 .fact {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 0.25rem 2rem;
-  padding: 0.75rem 0;
+  gap: var(--space-1) var(--space-5);
+  padding-block: var(--space-3);
   border-top: 1px solid var(--border);
 }
 
 @media (min-width: 48rem) {
   .fact {
-    grid-template-columns: 11rem minmax(0, 1fr);
+    grid-template-columns: 176px minmax(0, 1fr);
   }
 }
 
 .fact dt {
-  font-size: 0.875rem;
+  font-size: var(--text-small);
   font-weight: 600;
 }
 
 .fact dd {
   max-width: none;
   margin: 0;
-  font-size: 0.875rem;
+  font-size: var(--text-small);
   overflow-wrap: anywhere;
 }
 
-/* A hash is a hash: mono, whatever the readings around it are set in. */
+/* A hash is a hash: mono, whatever the figures around it are set in. */
 .fact .reading-value {
+  display: inline;
   font-family: var(--font-mono);
-  font-size: 0.8125rem;
-  font-weight: 400;
-  letter-spacing: 0;
+  font-size: var(--text-mono);
   word-break: break-all;
-  text-shadow: none;
 }
 
 .fact .reading-prov {
-  --prov-display: block;
-}
-
-.fact:hover {
-  transform: none;
+  display: inline;
+  margin: 0 0 0 var(--space-2);
 }
 
 .command {
-  margin: 0 0 1.5rem;
+  margin: 0 0 var(--space-4);
 }
 
 .command figcaption {
-  margin-bottom: 0.4rem;
-  font-size: 0.875rem;
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-small);
   font-weight: 600;
 }
 
 .command-body {
   display: flex;
   align-items: flex-start;
-  gap: 0.75rem;
+  gap: var(--space-3);
 }
 
 .command pre {
@@ -1817,30 +1484,22 @@ html[data-sources] .reading-prov,
   min-width: 0;
   max-width: none;
   margin: 0;
-  padding: 0.75rem 1rem;
+  padding: var(--space-3);
   overflow-x: auto;
   border-left: 1px solid var(--text-dim);
-  font-size: 0.75rem;
   line-height: 1.55;
 }
 
 .command-reads {
-  margin: 0.5rem 0 0;
-  font-size: 0.8125rem;
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-small);
   color: var(--text-dim);
-}
-
-.command-reads code {
-  font-size: 0.75rem;
-  color: var(--text);
 }
 
 .copy {
   flex: none;
-  min-width: 3.5rem;
-  min-height: 1.75rem;
-  padding: 0.3rem 0.6rem;
-  font: 600 0.6875rem / 1 var(--font-sans);
+  padding: var(--space-1) var(--space-2);
+  font: 600 0.6875rem / 1.4 var(--font-sans);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-dim);
@@ -1860,44 +1519,100 @@ html[data-sources] .reading-prov,
   display: none;
 }
 
-/* ── footer ───────────────────────────────────────────────────────────── */
+/* The security posture: a record inside Verify, labelled as one. */
+.posture-record {
+  margin: var(--space-5) 0 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--text-dim);
+}
 
-footer {
-  padding-block: 1rem 4rem;
-  font-size: 0.8125rem;
+.posture-record h3 {
+  margin: 0 0 var(--space-1);
+  font-size: 1rem;
+}
+
+.posture-lede {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-small);
   color: var(--text-dim);
 }
 
-footer p {
+.posture {
   margin: 0;
-  padding-top: 1.25rem;
+}
+
+.posture-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-1) var(--space-5);
+  padding-block: var(--space-3);
   border-top: 1px solid var(--border);
 }
 
-footer .footer-mark {
-  padding-top: 2rem;
-  border-top: 1px solid var(--text);
+@media (min-width: 48rem) {
+  .posture-row {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  }
 }
 
-footer .footer-mark .wordmark {
-  font-size: 1.25rem;
+.posture-row dt {
+  font-size: var(--text-small);
+  font-weight: 600;
 }
 
-footer .howto {
-  margin-top: 1rem;
-  border-top: 0;
-  border-bottom: 0;
+.posture-note {
+  display: block;
+  margin-top: var(--space-1);
+  font-weight: 400;
+  color: var(--text-dim);
 }
 
-footer .howto summary {
-  font-size: 0.8125rem;
+.posture-row dd {
+  margin: 0;
 }
 
-/* "Last merge to master": a small line in the footer, not a masthead feature. */
-footer .merge {
+.posture-value {
+  font-family: var(--font-serif);
+  font-size: 2rem;
+  line-height: 1.1;
+}
+
+.posture-source {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: var(--text-small);
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+
+.not-recorded {
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  font-style: italic;
+  color: var(--text-dim);
+}
+
+/* ── footer ───────────────────────────────────────────────────────────── */
+
+.footer {
+  padding-block: var(--space-6) var(--space-7);
+  border-top: 1px solid var(--border);
+  font-size: var(--text-small);
+  color: var(--text-dim);
+}
+
+.footer-grid {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.footer-grid > p {
+  margin: 0;
+}
+
+.merge {
+  position: relative;
   max-width: none;
-  padding-top: 0.75rem;
-  border-top: 0;
 }
 
 .merge-label {
@@ -1906,271 +1621,176 @@ footer .merge {
 
 .merge .reading-value {
   display: inline;
+  margin: 0;
   font-family: var(--font-sans);
-  font-size: 0.8125rem;
+  font-size: var(--text-small);
   color: var(--text);
 }
 
-.merge .reading-prov,
-.sky-note .reading-prov {
-  --prov-display: inline;
-  position: static;
-  margin: 0 0 0 0.5rem;
+.howto {
+  max-width: var(--measure);
 }
 
-.merge:hover,
-.sky-note:hover,
-.statusbar:hover {
-  transform: none;
+.howto dl {
+  margin: var(--space-3) 0 0;
 }
 
-footer .sr-status {
-  padding: 0;
-  border: 0;
+.howto dl div {
+  margin: 0 0 var(--space-2);
 }
 
-/* ── harness ──────────────────────────────────────────────────────────── */
+.howto dt {
+  display: inline;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.howto dt::after {
+  content: " — ";
+  font-weight: 400;
+  color: var(--text-dim);
+}
+
+.howto dd {
+  display: inline;
+  margin: 0;
+}
+
+.noscript {
+  margin: 0;
+  padding-block: var(--space-3);
+  color: var(--text-dim);
+}
 
 .harness {
-  padding-top: 2rem;
+  padding-top: var(--space-5);
 }
 
-/* ── the sky ──────────────────────────────────────────────────────────────
-   A WebGL star field, one star per registered agent, under the page (z-index
-   -1, above the body's background), taking no pointer events. On by default;
-   `main` and the footer stand on the plate, so it shows through the first
-   screen, and in presenter mode through every screen. `?sky=0` turns it off. */
+/* ── motion ───────────────────────────────────────────────────────────────
+   Sections fade up 12 px once as they enter the viewport. Only reveal.js
+   sets `reveal-ready`, so without the script every section is visible. */
 
-.sky {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
+html.reveal-ready [data-reveal]:not(.is-in) {
+  opacity: 0;
+  transform: translateY(12px);
 }
 
-/* Under the canvas: the steady glow behind the finality marker and the
-   marker's hairline, a gradient the script colours and places (`--sky-marker`,
-   a percentage of the width: the right edge is now, sixty slots back is the
-   left edge). It costs nothing per frame. */
-.sky-settled {
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  --sky-marker: 100%;
-  pointer-events: none;
-}
-
-/* The sky's provenance line in the footer, beside the merge line. */
-footer .sky-note {
-  max-width: none;
-  padding-top: 0.5rem;
-  border-top: 0;
-  font-size: 0.8125rem;
+[data-reveal] {
+  transition: opacity 400ms ease-out, transform 400ms ease-out;
 }
 
 /* ── presenter mode ───────────────────────────────────────────────────────
-   `?present=1`: the nav, the provenance lines and the footer are hidden; the
-   status bar is pinned; each screen — the first screen, then one instrument
-   a time — is laid over the viewport with the sky showing through, and only
-   the active one is shown; figures are set for a room, 160 px where the
-   screen has the width. */
+   The P key or the Present button: one screen at a time — the first screen,
+   then the six sections — each filling the viewport under the status bar,
+   with figures set for a room. */
 
-html[data-present] {
-  font-size: 118.75%;
-}
-
-@media (min-width: 100rem) {
-  html[data-present] {
-    font-size: 137.5%;
-  }
+html[data-present] body {
+  overflow: hidden;
 }
 
 html[data-present] .site-nav,
-html[data-present] .hero .dek,
-html[data-present] .hero-river,
-html[data-present] .sky-note,
-html[data-present] .noscript,
-html[data-present] footer,
 html[data-present] .reading-prov,
-html[data-present] .reading-note,
-html[data-present] .means,
-html[data-present] .notes,
+html[data-present] footer,
+html[data-present] .noscript,
 html[data-present] .sb-sources,
-html[data-present] .live,
-html[data-present] .instrument-note,
+html[data-present] .notes,
 html[data-present] .constellation-list,
-html[data-present] .validator-list {
+html[data-present] .validator-list,
+html[data-present] .upgrade-detail,
+html[data-present] .skip {
   display: none;
 }
 
-/* No provenance on a screen nobody can click, whatever the pointer rests on. */
-html[data-present] [data-reading]:hover .reading-prov,
-html[data-present] [data-reading]:focus-within .reading-prov {
+html[data-present] [data-reading]:hover > .reading-prov,
+html[data-present] [data-reading]:focus-within > .reading-prov {
   display: none;
-}
-
-/* The screens stand over the sky, not on the plate. */
-html[data-present] main,
-html[data-present] footer {
-  background: transparent;
-}
-
-html[data-present] .statusbar.reading {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  font-size: 0.9375rem;
 }
 
 html[data-present] [data-present-screen] {
   position: fixed;
-  inset: 3rem 0 0;
+  inset: var(--bar-height) 0 0;
+  z-index: 1;
   min-height: 0;
   overflow: auto;
-  align-content: start;
-  padding: 1rem var(--gutter) 3rem;
-  background: transparent;
+  background: var(--bg);
   opacity: 0;
   visibility: hidden;
-  pointer-events: none;
+  transform: none;
   transition: opacity 300ms ease-out, visibility 0s linear 300ms;
 }
 
 html[data-present] [data-present-screen][data-present-active] {
   opacity: 1;
   visibility: visible;
-  pointer-events: auto;
   transition: opacity 300ms ease-out;
 }
 
-/* The first screen: the wordmark, the height at 160 px, the agents working now. */
-html[data-present] .hero {
+/* A section the reveal has not reached is not held 12 px low on a screen of its own. */
+html[data-present].reveal-ready [data-reveal]:not(.is-in) {
+  transform: none;
+}
+
+html[data-present] .section {
   display: grid;
   align-content: center;
-  padding-bottom: 3rem;
+  padding-block: var(--space-5);
+  border-top: 0;
 }
 
-html[data-present] .hero-body {
-  padding: 0;
-}
-
-html[data-present] .hero-height .reading-value {
-  font-size: clamp(4rem, 12vw, 160px);
-}
-
-/* Figures for a room: 160 px where the screen is wide enough, never past the viewport. */
-html[data-present] .readings .reading-value {
+html[data-present] .section .reading-value {
   font-size: clamp(3rem, 8.5vw, 160px);
 }
 
-html[data-present] .readings {
-  grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
-}
-
-/* A figure never breaks across lines on a screen; the two instruments whose
-   readings share the row with a dial stack them instead and size them to fit. */
-html[data-present] .reading-value .dcells {
-  white-space: nowrap;
-}
-
-html[data-present] #era .readings,
-html[data-present] #validators .readings {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-html[data-present] #era .readings .reading-value,
+html[data-present] #economy .readings .reading-value,
 html[data-present] #validators .readings .reading-value {
   font-size: clamp(2.5rem, 6vw, 120px);
 }
 
-html[data-present] .reading {
-  padding-bottom: 1rem;
+/* Four figures under the river: two-up, sized so a seven-digit height never meets its neighbour. */
+html[data-present] #chain .readings {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-html[data-present] .reading:hover {
-  transform: none;
+html[data-present] #chain .readings .reading-value {
+  font-size: clamp(2.5rem, 6vw, 120px);
 }
 
-html[data-present] .dial .dial-era {
-  font-size: 7rem;
-}
-
-html[data-present] .ring .ring-centre {
-  font-size: 5.5rem;
+html[data-present] #chain .pulse-canvas {
+  height: 28vh;
 }
 
 html[data-present] .strip .reading-value {
-  font-size: clamp(2rem, 4.5vw, 4.5rem);
-}
-
-html[data-present] .posture-value {
-  font-size: clamp(2rem, 5vw, 5rem);
-}
-
-html[data-present] .rail-spec {
-  font-size: 3rem;
-}
-
-html[data-present] .instrument-section::before {
-  margin-bottom: 0.75rem;
+  font-size: clamp(2rem, 3.5vw, 4rem);
 }
 
 html[data-present] .pulse-canvas {
-  height: 36vh;
+  height: 40vh;
+}
+
+html[data-present] .strip-plot {
+  height: 24vh;
 }
 
 html[data-present] .dial,
 html[data-present] .ring-host {
-  max-width: min(58vh, 34rem);
-}
-
-html[data-present] .constellation-host {
-  height: 60vh;
-  min-height: 0;
-  max-height: none;
-  aspect-ratio: auto;
-}
-
-html[data-present] .strips {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  row-gap: 1rem;
-}
-
-html[data-present] .strip-plot {
-  height: 22vh;
-}
-
-html[data-present] .rail {
-  height: 9rem;
+  max-width: min(60vh, 560px);
 }
 
 .present-counter {
   position: fixed;
   right: var(--gutter);
-  bottom: 0.75rem;
-  z-index: 3;
+  bottom: var(--space-3);
+  z-index: 12;
   margin: 0;
-  font-size: 0.75rem;
   color: var(--text-dim);
 }
 
-/* ── motion ───────────────────────────────────────────────────────────── */
-
 @media (prefers-reduced-motion: reduce) {
-  .pulse-dot.beat {
-    animation: none;
-  }
-  .reading-value.is-live .digits {
-    text-shadow: none;
-  }
-  .reading {
-    transition: none;
-  }
-  .reading:hover {
+  html.reveal-ready [data-reveal]:not(.is-in),
+  [data-reveal] {
+    opacity: 1;
     transform: none;
+    transition: none;
   }
   html[data-present] [data-present-screen] {
     transition: none;
