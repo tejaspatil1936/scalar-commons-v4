@@ -360,6 +360,7 @@ test('the top bar: two zones, 56 px, sticky, a bottom hairline — wordmark and 
   assert.match(right, /<button type="button" class="btn sb-sources" role="switch" aria-checked="false">Sources<\/button>/);
   assert.match(right, /<button type="button" class="btn sb-present" aria-pressed="false" aria-keyshortcuts="P">Present<\/button>/);
   assert.match(css, /--bar-height: 56px/);
+  assert.deepEqual(css.match(/--bar-height: [^;]+/g), ['--bar-height: 56px'], 'the bar is 56 px at every width: one row, never two');
   assert.match(rule('.statusbar'), /position: sticky/);
   assert.match(rule('.statusbar'), /border-bottom: 1px solid var\(--border\)/);
   assert.match(rule('.btn'), /min-height: 32px/);
@@ -445,7 +446,9 @@ test('sections: an eyebrow, an h2, one sentence, the instrument and a row of fig
   for (const [, block] of section('chain').matchAll(/<div class="reading" data-reading="[^"]+">([\s\S]*?)<\/div>/g)) {
     assert.ok(block.indexOf('reading-value') < block.indexOf('reading-label'), 'a section figure carries its caption under it');
   }
-  assert.match(rule('.section'), /padding-block: var\(--space-7\)/);
+  // 104 px from the last section's content to the hairline, 40 px from it to the eyebrow.
+  assert.match(rule('.section'), /margin-block-start: var\(--space-7\)/);
+  assert.match(rule('.section'), /padding-block-start: var\(--space-5\)/);
   assert.match(rule('.section-grid'), /gap: var\(--space-5\)/);
   // Charts: titles in h3, axes in mono at 0.75 rem in the secondary colour, one zero line.
   for (const [, key, block] of page.matchAll(/<figure class="strip reading" data-reading="([^"]+)">([\s\S]*?)<\/figure>/g)) {
@@ -576,15 +579,20 @@ test('components: one button, one disclosure, one tooltip, one focus ring; 40 px
   assert.ok(buttons.every((c) => /\bbtn\b|\bcopy\b/.test(c)), `a button outside the one style: ${buttons.join(' | ')}`);
   assert.match(rule('.copy'), /^/); // copy controls share .btn in markup
   for (const [, cls] of page.matchAll(/<details class="([^"]*)"/g)) assert.match(cls, /\bdisclosure\b/, `a disclosure outside the one style: ${cls}`);
-  // The tooltip: the constellation's tip and a figure's source on hover are the same component.
-  const tip = rule('.tooltip');
-  for (const decl of ['background: var(--surface)', 'border: 1px solid var(--border)', 'padding: var(--space-2) var(--space-3)']) {
-    assert.ok(tip.includes(decl), `.tooltip lacks ${decl}`);
+  // The tooltip: the constellation's tip, a figure's source on hover or focus
+  // and the bar's source are one component, its box declared once.
+  const stripped = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const tipRule = stripped.match(/\}\s*(\.tooltip,[^{]*)\{([^}]*)\}/);
+  assert.ok(tipRule, 'the tooltip box is one rule that starts with .tooltip');
+  for (const sel of ['html:not([data-sources]) [data-reading]:hover > .reading-prov', 'html:not([data-sources]) [data-reading]:focus-within > .reading-prov', '.statusbar .reading-prov']) {
+    assert.ok(tipRule[1].includes(sel), `the tooltip rule does not cover ${sel}`);
   }
-  const hover = css.match(/html:not\(\[data-sources\]\) \[data-reading\]:hover > \.reading-prov,\s*html:not\(\[data-sources\]\) \[data-reading\]:focus-within > \.reading-prov \{([^}]*)\}/)?.[1] ?? '';
-  for (const decl of ['background: var(--surface)', 'border: 1px solid var(--border)', 'padding: var(--space-2) var(--space-3)']) {
-    assert.ok(hover.includes(decl), `the source tooltip lacks ${decl}`);
+  for (const decl of ['background: var(--surface)', 'border: 1px solid var(--border)', 'padding: var(--space-2) var(--space-3)', 'border-radius: 6px']) {
+    assert.ok(tipRule[2].includes(decl), `the tooltip lacks ${decl}`);
   }
+  const boxes = [...stripped.matchAll(/\{([^{}]*)\}/g)].filter(([, body]) =>
+    ['background: var(--surface)', 'border: 1px solid var(--border)', 'padding: var(--space-2) var(--space-3)'].every((decl) => body.includes(decl)));
+  assert.equal(boxes.length, 1, 'no second tooltip box anywhere in the stylesheet');
   const coarse = css.slice(css.indexOf('@media (pointer: coarse)'));
   assert.match(coarse, /min-height: 40px/);
 });

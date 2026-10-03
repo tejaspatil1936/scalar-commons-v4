@@ -352,8 +352,14 @@ pre {
   border-color: var(--border);
 }
 
-/* The tooltip: a figure's source on hover, and an agent's details in the constellation. */
-.tooltip {
+/* The one tooltip (issue §7). Its box is declared here once, for every
+   tooltip on the page: an agent's details in the constellation, a figure's
+   source on hover or focus, and the status bar's source. Each brings only
+   its own type and its own anchor. */
+.tooltip,
+html:not([data-sources]) [data-reading]:hover > .reading-prov,
+html:not([data-sources]) [data-reading]:focus-within > .reading-prov,
+.statusbar .reading-prov {
   position: absolute;
   z-index: 5;
   width: max-content;
@@ -363,6 +369,9 @@ pre {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 6px;
+}
+
+.tooltip {
   font-size: var(--t-label);
   line-height: var(--lh-label);
   pointer-events: none;
@@ -525,31 +534,14 @@ pre {
   z-index: 11;
 }
 
-/* Below 64 rem the bar is two rows: the wordmark and the nav; the pill and the buttons. */
+/* Below 64 rem the bar stays one 56 px row (issue §4): the nav, six links to
+   sections a reader on a narrow screen reaches by scrolling, leaves the bar,
+   and the wordmark keeps its mark; the pill and the buttons keep their place.
+   The name stays for a screen reader: the link is never nameless. */
 @media (max-width: 63.99rem) {
-  :root {
-    --bar-height: 96px;
+  .site-nav {
+    display: none;
   }
-  .sb-inner {
-    flex-direction: column;
-    align-items: stretch;
-    justify-content: center;
-    gap: 0;
-    padding-block: 0;
-  }
-  .sb-left,
-  .sb-right {
-    justify-content: space-between;
-    min-height: 44px;
-  }
-  .sb-pill {
-    flex: 1 1 auto;
-    overflow: hidden;
-  }
-}
-
-@media (max-width: 39.99rem) {
-  /* The name stays for a screen reader: the link is never nameless. */
   .sb-left .wordmark-text {
     position: absolute;
     width: 1px;
@@ -558,9 +550,37 @@ pre {
     clip: rect(0 0 0 0);
     white-space: nowrap;
   }
-  .sb-finality,
-  .sb-finality + .sb-sep,
-  .sb-block + .sb-sep,
+}
+
+/* Below 48 rem the pill sets its whole line, finality included, in two
+   short lines at the eyebrow's size inside the same 56 px: the state on the
+   first, the block and finality on the second. */
+@media (max-width: 47.99rem) {
+  .sb-inner,
+  .sb-right {
+    gap: var(--space-2);
+  }
+  .sb-pill {
+    flex-wrap: wrap;
+    column-gap: var(--space-1);
+    row-gap: 0;
+    margin: 0;
+    padding: 0;
+    background: none;
+    border: 0;
+    border-radius: 0;
+    font-size: var(--t-eyebrow);
+    line-height: var(--lh-eyebrow);
+  }
+  .sb-state + .sb-sep {
+    flex-basis: 100%;
+    height: 0;
+    overflow: hidden;
+  }
+}
+
+/* Present needs a keyboard, so a phone has no use for it. */
+@media (max-width: 39.99rem) {
   .sb-present {
     display: none;
   }
@@ -632,8 +652,9 @@ pre {
   text-wrap: pretty;
 }
 
-/* Three figures with hairlines between them: the height across the top,
-   agents and agreements side by side beneath it. Five columns cannot hold
+/* Three figures with a hairline between each pair (issue §3): the height
+   across the top, a hairline under it, then agents and agreements side by
+   side beneath it with a hairline between them. Five columns cannot hold
    three 64 px figures with their captions in one row (the height alone is
    seven characters and growing), and a row that wraps unevenly is worse. */
 .hero-figures {
@@ -744,7 +765,7 @@ pre {
 
 .constellation-host {
   position: relative;
-  height: clamp(320px, 52vh, 560px);
+  height: clamp(320px, 56vh, 600px);
 }
 
 .constellation-canvas {
@@ -793,10 +814,13 @@ pre {
 
 /* ── sections ─────────────────────────────────────────────────────────────
    104 px between sections, 40 px within: the eyebrow, the heading and the
-   sentence; the instrument; the row of figures. */
+   sentence; the instrument; the row of figures. The hairline between
+   sections is master's and stays: it is a rule, not a box. */
 
 .section {
-  padding-block: var(--space-7) 0;
+  margin-block-start: var(--space-7);
+  padding-block-start: var(--space-5);
+  border-top: 1px solid var(--border);
 }
 
 .section-grid {
@@ -815,7 +839,10 @@ pre {
   .section .notes {
     grid-column: 1 / -1;
   }
-  /* The ring beside its list of validators: five columns and seven. */
+  /* The figures run as a row under each instrument (issue §6), so master's
+     5/7 split of dial or ring against a column of figures is gone. Economy's
+     instrument is the dial alone; Validators keeps the ring beside its list
+     of validators, five columns and seven. */
   #validators .instrument {
     display: grid;
     grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -1027,24 +1054,8 @@ html[data-sources] .reading-prov {
 html:not([data-sources]) [data-reading]:hover > .reading-prov,
 html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
   display: block;
-  position: absolute;
   top: 100%;
   left: 0;
-  z-index: 5;
-  width: max-content;
-  max-width: min(28rem, 86vw);
-  margin: 0;
-  padding: var(--space-2) var(--space-3);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-
-.statusbar .reading-prov {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: var(--space-2) var(--space-3);
 }
 
 .reading-prov a {
@@ -1790,7 +1801,9 @@ html[data-present] .hero-grid {
 html[data-present] .section {
   display: grid;
   align-content: center;
+  margin: 0;
   padding-block: var(--space-5);
+  border-top: 0;
 }
 
 html[data-present] .section .reading-value {
@@ -1827,7 +1840,7 @@ html[data-present] .strip-plot {
 
 html[data-present] .dial,
 html[data-present] .ring-host {
-  max-width: min(56vh, 520px);
+  max-width: min(60vh, 560px);
 }
 
 .present-counter {

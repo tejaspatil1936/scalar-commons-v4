@@ -72,6 +72,9 @@ export function copyButton(value, label) {
  * under it. Nothing explains at length: a caveat the data raises (a list cut
  * short, a point no longer registered) is folded under "Notes", and every
  * figure's source is one hover away.
+ *
+ * The eyebrow carries the section's name ("01 · Chain", issue §6), so the
+ * heading says what the section shows instead of repeating that name.
  */
 function section({ id, name, number, title, heading, lede, instrument, readings = '', notes = '' }) {
   return `  <section id="${id}" class="section" data-instrument="${name}" data-present-screen data-reveal aria-labelledby="${id}-h">

@@ -354,12 +354,16 @@ export function init(root, ctx, { strip = null } = {}) {
   }
 
   function draw() {
-    paint(box());
-    if (stripBox) paint(stripBox());
+    paint(box(), { tint: true });
+    if (stripBox) paint(stripBox(), { tint: false });
   }
 
-  /** One plate, with its axis labels and its labelled FINAL marker: section 01's, or the strip under the hero. */
-  function paint({ context: g, width, height }) {
+  /**
+   * One plate, with its axis labels and its labelled FINAL marker: section
+   * 01's (`tint`: the final region faintly tinted, as before), or the strip
+   * under the hero (the marker's hairline and its label only).
+   */
+  function paint({ context: g, width, height }, { tint }) {
     const { pxPerMs, bar, rightPad, labelEvery, visible } = riverLayout(width);
     const baseline = Math.round(height - 22) + 0.5;
     const plateTop = 24;
@@ -389,15 +393,23 @@ export function init(root, ctx, { strip = null } = {}) {
       const target = final ? xOf(final) + bar / 2 + Math.max(3, bar * 0.6) : 0;
       boundary = marker.fromX !== null && marker.t < 1 ? marker.fromX + (target - marker.fromX) * marker.t : target;
       marker.target = target;
-      // No tint: the final bars are already the settled tone, and a tinted
-      // band read as a slab. The labelled marker is the boundary.
+      // On section 01's plate a faint tint marks the final region; on the
+      // strip under the first screen, only the marker, so the strip reads as
+      // bars and never as a slab.
+      if (tint) {
+        g.fillStyle = colour('settled');
+        g.globalAlpha = ctx.theme.isDark() ? 0.06 : 0.05;
+        g.fillRect(0, plateTop - 6, Math.max(0, boundary), baseline - plateTop + 6);
+        g.globalAlpha = 1;
+      }
       g.strokeStyle = colour('settled');
       g.lineWidth = 1;
       g.beginPath();
       g.moveTo(Math.round(boundary) + 0.5, 4);
       g.lineTo(Math.round(boundary) + 0.5, baseline);
       g.stroke();
-      // The marker is always labelled: a hairline is never left unexplained.
+      // The marker is always labelled. On the strip it used to be drawn bare,
+      // the stray vertical line at the first screen's foot (issue §3).
       g.fillStyle = colour('text-dim');
       g.font = `400 12px ${font}`;
       g.textBaseline = 'top';

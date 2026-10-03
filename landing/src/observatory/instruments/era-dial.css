@@ -45,3 +45,6 @@
 .dial[data-state="unavailable"] .dial-settles {
   fill: var(--slashed);
 }
+
+/* Time to settlement is set at figure-l like every section figure: the type
+   scale (issue §2) has nine sizes and no others, so its in-between size is gone. */
