@@ -743,7 +743,8 @@ function presenterHarness({ screens = 3 } = {}) {
     handlers.keydown({ key: k, target: { tagName: 'BODY' }, preventDefault: () => { prevented = true; }, ...extra });
     return prevented;
   };
-  return { html, deck, button, body, presenter, timers, announced, key };
+  const visible = (hidden) => { doc.hidden = hidden; handlers.visibilitychange(); };
+  return { html, deck, button, body, presenter, timers, announced, key, visible };
 }
 
 test('presenter wiring: the Present button and P enter, P and Escape leave in place, and the button says which', () => {
@@ -772,6 +773,14 @@ test('presenter wiring: the Present button and P enter, P and Escape leave in pl
   assert.equal(h.presenter.paused(), false, 'a fresh deck advances');
   h.key('Escape');
   assert.equal(h.html.hasAttribute('data-present'), false);
+  // Leaving is final: a tab hidden and shown again never re-arms the deck, so
+  // nothing later sets aria-hidden on the ordinary page or writes to a removed counter.
+  const armed = h.timers.length;
+  h.visible(true);
+  h.visible(false);
+  assert.equal(h.timers.length, armed, 'returning to the tab after leaving arms nothing');
+  assert.ok(h.deck.every((s) => !s.hasAttribute('aria-hidden')), 'the ordinary page keeps every screen in the accessibility tree');
+  assert.equal(h.body.children.length, 0, 'the counter is gone');
   // Typing, or a key with a modifier, is never taken for a command.
   assert.equal(h.key('p', { target: { tagName: 'INPUT' } }), false);
   assert.equal(h.key('p', { ctrlKey: true }), false);

@@ -1,8 +1,9 @@
 // The Sources switch. Every figure on the page carries its provenance line
-// (the endpoint, the UTC time, a link to the raw bytes), and in v3 every line
-// was printed. In v4 the lines are there but hidden until asked for: the
-// switch in the status bar shows every one in place, and hovering, focusing
-// or tapping any one reading shows its own line while the switch is off.
+// (the endpoint, the UTC time, a link to the raw bytes), hidden until asked
+// for: the switch in the status bar shows every one in place, and hovering
+// a figure, or focusing its link from the keyboard, shows that figure's line
+// as a tooltip while the switch is off. On a touch screen the switch is the
+// way in — a tap on a figure follows its link to the raw bytes.
 // Nothing about what is fetched changes: the lines are filled exactly as
 // before, by `readout.provenance`, and only their visibility is a preference.
 //
@@ -47,7 +48,7 @@ export function init(doc, ctx) {
     html.toggleAttribute(ATTRIBUTE, on);
     writeSourcesPreference(storage, on);
     reflect();
-    ctx?.announce?.(on ? 'Sources shown under every figure' : 'Sources hidden; hover or tap a figure for its source');
+    ctx?.announce?.(on ? 'Sources shown under every figure' : 'Sources hidden; hover a figure, or focus it, for its source');
   });
   return { on: () => html.hasAttribute(ATTRIBUTE) };
 }
