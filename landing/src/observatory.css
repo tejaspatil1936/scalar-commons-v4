@@ -1,92 +1,83 @@
-/* /observatory — the design system.
+/* /observatory — the design system, v5.
 
-   One page, one URL. The first screen is a five-and-seven split: the page's
-   name, one sentence, three live figures and the live line on the left; the
-   agent constellation in its own framed panel on the right; the river as a
-   120 px strip along the foot. Below it, six sections, each with one heading
-   in the serif, one plain sentence and its instrument.
-
-   Type: Instrument Serif for display and every figure, each digit set in its
-   own cell for tabular alignment (the face has no tabular figures); IBM Plex
-   Sans for reading, at 17 px / 1.6 and a measure of sixty characters; IBM
-   Plex Mono at 12 px for sources, hashes and addresses only.
+   Type: Source Serif 4 for display and figures, at optical size 60 (headings
+   weight 500, figures weight 400), with its own tabular lining figures, so a
+   figure that counts up moves nothing beside it. Inter for the interface and
+   reading (400 body, 500 labels, 600 small caps; cv11 and ss01; tabular
+   figures wherever the interface shows numbers). JetBrains Mono at 0.75 rem
+   only for sources, hashes, addresses and the river's axis. Nine sizes, and
+   no others (test/observatory.test.mjs holds the stylesheet to them; presenter
+   mode, which sets figures for a room, is the one stated exception).
 
    Space: one scale — 4, 8, 16, 24, 40, 64, 104 px — for every margin,
-   padding and gap (test/observatory.test.mjs holds the stylesheet to it).
-   Content is at most 1280 px wide.
+   padding and gap. Content is at most 1280 px wide.
 
-   Colour: a near-black plate, or paper in the light theme; text and one
-   secondary grey; one teal accent for live state only; amber for disputes
-   only. No gradients, no glow, no glass, no decorative icons.
+   Colour: the plate, a surface, a hairline, text and one secondary grey that
+   passes WCAG AA on both; one teal accent for live state only; amber for
+   disputes only. No gradients, no glow, no glass, no decorative icons.
 
-   Motion: a figure tweens when it changes, a section fades up 12 px once as
-   it is scrolled to, a new block slides into the river. Nothing loops, and
-   prefers-reduced-motion turns all of it off. */
+   Components: one button, one disclosure, one tooltip, one focus ring. */
 
 @font-face {
-  font-family: "Instrument Serif";
+  font-family: "Source Serif 4";
+  font-style: normal;
+  font-weight: 200 900;
+  font-display: swap;
+  src: url("fonts/source-serif-4-latin-opsz-normal.woff2") format("woff2-variations");
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("fonts/inter-latin-wght-normal.woff2") format("woff2-variations");
+}
+@font-face {
+  font-family: "JetBrains Mono";
   font-style: normal;
   font-weight: 400;
   font-display: swap;
-  src: url("fonts/instrument-serif-latin-400-normal.woff2") format("woff2");
-}
-@font-face {
-  font-family: "IBM Plex Sans";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2");
-}
-@font-face {
-  font-family: "IBM Plex Sans";
-  font-style: normal;
-  font-weight: 600;
-  font-display: swap;
-  src: url("fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2");
-}
-@font-face {
-  font-family: "IBM Plex Mono";
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-  src: url("fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+  src: url("fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2");
 }
 
 /* Fallback faces with the web fonts' metrics, so the swap from a system face
-   to the real one moves nothing. Widths measured against Arial / Courier New
-   / Times New Roman over a frequency-weighted sample; ascent and descent from
-   each font's hhea table. Liberation faces carry the Microsoft metrics. */
+   to the real one moves nothing (CLS under 0.02). Widths measured in Chromium
+   against Times New Roman / Arial / Courier New over a sample of the page's
+   own text (the serif at optical size 60); ascent and descent are each
+   font's own, divided by the size adjustment. Liberation faces carry the
+   Microsoft metrics on Linux. */
 @font-face {
-  font-family: "IBM Plex Sans Fallback";
-  src: local("Arial"), local("Liberation Sans"), local("Helvetica");
-  size-adjust: 101.04%;
-  ascent-override: 101.44%;
-  descent-override: 27.22%;
-  line-gap-override: 0%;
-}
-@font-face {
-  font-family: "IBM Plex Mono Fallback";
-  src: local("Courier New"), local("Liberation Mono"), local("Courier");
-  size-adjust: 100%;
-  ascent-override: 102.5%;
-  descent-override: 27.5%;
-  line-gap-override: 0%;
-}
-@font-face {
-  font-family: "Instrument Serif Fallback";
+  font-family: "Source Serif 4 Fallback";
   src: local("Times New Roman"), local("Liberation Serif"), local("Times");
-  size-adjust: 84.64%;
-  ascent-override: 116.96%;
-  descent-override: 36.62%;
+  size-adjust: 99.53%;
+  ascent-override: 104.49%;
+  descent-override: 34.16%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "Inter Fallback";
+  src: local("Arial"), local("Liberation Sans"), local("Helvetica");
+  size-adjust: 107.22%;
+  ascent-override: 90.47%;
+  descent-override: 22.38%;
+  line-gap-override: 0%;
+}
+@font-face {
+  font-family: "JetBrains Mono Fallback";
+  src: local("Courier New"), local("Liberation Mono"), local("Courier");
+  size-adjust: 99.98%;
+  ascent-override: 102.02%;
+  descent-override: 30%;
   line-gap-override: 0%;
 }
 
 :root {
   color-scheme: dark;
   --bg: #0b0e12;
+  --surface: #11151b;
+  --border: #1f252d;
   --text: #e8eaed;
-  --text-dim: #9aa3ad;
-  --border: #262c34;
+  --text-dim: #a3acb7;
   --grid: #161b21;
   --accent: #5fd0c2;
   --live: var(--accent);
@@ -100,10 +91,11 @@
   :root {
     color-scheme: light;
     --bg: #f7f6f2;
+    --surface: #ffffff;
+    --border: #e1ded5;
     --text: #16191d;
-    --text-dim: #5b636c;
-    --border: #d9d6cd;
-    --grid: #ecebe5;
+    --text-dim: #545c66;
+    --grid: #efede7;
     --accent: #0a7569;
     --live: var(--accent);
     --active: var(--accent);
@@ -114,12 +106,28 @@
 }
 
 :root {
-  --font-serif: "Instrument Serif", "Instrument Serif Fallback", Georgia, serif;
-  --font-sans: "IBM Plex Sans", "IBM Plex Sans Fallback", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --font-mono: "IBM Plex Mono", "IBM Plex Mono Fallback", ui-monospace, Menlo, Consolas, monospace;
-  --text-body: 1.0625rem;
-  --text-small: 0.8125rem;
-  --text-mono: 0.75rem;
+  --font-serif: "Source Serif 4", "Source Serif 4 Fallback", Georgia, serif;
+  --font-sans: "Inter", "Inter Fallback", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "JetBrains Mono Fallback", ui-monospace, Menlo, Consolas, monospace;
+  /* The type scale, in rem at a 16 px root: size, then line height. */
+  --t-display: 4.5rem;
+  --lh-display: 1;
+  --t-figure-xl: 4rem;
+  --lh-figure-xl: 1;
+  --t-h2: 2.25rem;
+  --lh-h2: 1.15;
+  --t-figure-l: 2.5rem;
+  --lh-figure-l: 1;
+  --t-h3: 1.25rem;
+  --lh-h3: 1.3;
+  --t-body: 1.0625rem;
+  --lh-body: 1.6;
+  --t-label: 0.875rem;
+  --lh-label: 1.4;
+  --t-eyebrow: 0.75rem;
+  --lh-eyebrow: 1.2;
+  --t-mono: 0.75rem;
+  --lh-mono: 1.5;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 16px;
@@ -128,10 +136,9 @@
   --space-6: 64px;
   --space-7: 104px;
   --content: 1280px;
-  --measure: 60ch;
+  --measure: 62ch;
   --gutter: var(--space-3);
-  /* The status bar's height: two rows on a phone, one from 64rem. The first screen fills the rest. */
-  --bar-height: 80px;
+  --bar-height: 56px;
 }
 
 @media (min-width: 40rem) {
@@ -143,7 +150,6 @@
 @media (min-width: 64rem) {
   :root {
     --gutter: var(--space-5);
-    --bar-height: 48px;
   }
 }
 
@@ -162,7 +168,8 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 400 1.0625rem / 1.6 var(--font-sans);
+  font: 400 var(--t-body) / 1.6 var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
   overflow-wrap: break-word;
 }
 
@@ -177,24 +184,35 @@ a:hover {
   text-decoration-color: var(--text-dim);
 }
 
+/* One focus ring for everything focusable. */
 :focus-visible {
-  outline: 2px solid var(--text);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 h1,
 h2 {
   font-family: var(--font-serif);
-  font-weight: 400;
-  letter-spacing: -0.01em;
+  font-variation-settings: "opsz" 60;
+  font-weight: 500;
   text-wrap: balance;
 }
 
-h3 {
-  font-weight: 600;
+h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--t-h2);
+  line-height: var(--lh-h2);
+  letter-spacing: -0.01em;
 }
 
-/* Reading text never runs past sixty characters. */
+h3 {
+  margin: 0;
+  font-size: var(--t-h3);
+  line-height: var(--lh-h3);
+  font-weight: 500;
+}
+
+/* Reading text never runs past 62 characters. */
 p,
 dd,
 li,
@@ -203,14 +221,25 @@ li,
   max-width: var(--measure);
 }
 
-/* Monospace is for sources, hashes and addresses only, at 12 px. */
+/* Mono is for sources, hashes and addresses only. */
 .mono,
 code,
 pre {
   font-family: var(--font-mono);
-  font-size: var(--text-mono);
+  font-size: var(--t-mono);
+  line-height: var(--lh-mono);
   font-weight: 400;
-  font-variant-numeric: tabular-nums lining-nums;
+  font-variant-numeric: tabular-nums;
+}
+
+.eyebrow {
+  margin: 0 0 var(--space-2);
+  font-size: var(--t-eyebrow);
+  line-height: var(--lh-eyebrow);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
 }
 
 .dim {
@@ -235,7 +264,7 @@ pre {
   top: -100px;
   z-index: 20;
   padding: var(--space-2) var(--space-3);
-  background: var(--bg);
+  background: var(--surface);
   border: 1px solid var(--text);
 }
 
@@ -251,10 +280,98 @@ pre {
   padding-inline: var(--gutter);
 }
 
-/* ── the status bar ───────────────────────────────────────────────────────
-   One line at the top, sticky: the wordmark and the site nav; the network's
-   state, the finality lag and the height; the Sources and Present switches.
-   Its height is fixed, so a change of state moves nothing beneath it. */
+/* ── components ───────────────────────────────────────────────────────────
+   One button, one disclosure, one tooltip. */
+
+/* The button: quiet text with a hairline only on hover, a 32 px hit area. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 var(--space-2);
+  font: 500 var(--t-label) / 1 var(--font-sans);
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.btn:hover {
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.btn[aria-checked="true"],
+.btn[aria-pressed="true"] {
+  color: var(--text);
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+/* The disclosure: a summary that reads as a button, with a chevron drawn in CSS. */
+.disclosure > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 32px;
+  padding: 0 var(--space-2);
+  margin: 0;
+  font: 500 var(--t-label) / 1 var(--font-sans);
+  color: var(--text-dim);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.disclosure > summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 150ms ease-out;
+}
+
+.disclosure[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.disclosure > summary:hover,
+.disclosure[open] > summary {
+  color: var(--text);
+}
+
+.disclosure > summary:hover {
+  border-color: var(--border);
+}
+
+/* The tooltip: a figure's source on hover, and an agent's details in the constellation. */
+.tooltip {
+  position: absolute;
+  z-index: 5;
+  width: max-content;
+  max-width: min(28rem, 86vw);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
+  pointer-events: none;
+}
+
+/* ── the top bar ──────────────────────────────────────────────────────────
+   56 px, sticky, a bottom hairline. Left: the wordmark and the nav. Right:
+   the status pill and the two buttons. Its height is fixed, so a change of
+   state moves nothing beneath it. */
 
 .statusbar {
   position: sticky;
@@ -262,19 +379,30 @@ pre {
   z-index: 10;
   background: var(--bg);
   border-bottom: 1px solid var(--border);
-  font-size: var(--text-small);
-  line-height: 1.4;
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
   color: var(--text-dim);
 }
 
 .sb-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  min-height: calc(var(--bar-height) - 1px); /* the hairline makes up the rest */
+}
+
+.sb-left,
+.sb-right {
   position: relative;
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 0 var(--space-4);
-  min-height: calc(var(--bar-height) - 1px); /* the bar's hairline makes up the rest */
-  padding-block: var(--space-2);
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.sb-right {
+  gap: var(--space-2);
 }
 
 .wordmark {
@@ -286,17 +414,16 @@ pre {
   white-space: nowrap;
 }
 
-.wordmark .mark,
-.eyebrow .mark {
+.wordmark .mark {
   flex: none;
   width: 14px;
   height: 14px;
 }
 
 .wordmark-text {
-  font-size: var(--text-small);
+  font-size: var(--t-eyebrow);
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
@@ -309,6 +436,9 @@ pre {
 }
 
 .site-nav a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
   color: var(--text-dim);
   text-decoration: none;
 }
@@ -318,22 +448,25 @@ pre {
   color: var(--text);
 }
 
-.sb-line {
-  display: flex;
-  flex: 1 1 auto;
+/* The status pill: dot · state · block N · finality, on the surface. */
+.sb-pill {
+  display: inline-flex;
   align-items: center;
+  gap: var(--space-2);
   min-width: 0;
   max-width: none;
-  margin: 0;
+  min-height: 32px;
+  margin: 0 var(--space-2) 0 0;
+  padding: 0 var(--space-3);
   white-space: nowrap;
-}
-
-.sb-line .pulse-dot {
-  margin-right: var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-variant-numeric: tabular-nums;
 }
 
 .sb-state {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text);
 }
 
@@ -341,10 +474,14 @@ pre {
   color: var(--live);
 }
 
-/* The bar's name, and who is sealing, are for a screen reader; on screen the Validators section shows the set. */
+.sb-sep {
+  white-space: pre;
+  color: var(--text-dim);
+}
+
+/* The pill's name, and who is sealing, are for a screen reader; the Validators section shows the set. */
 .statusbar .reading-label,
-.sb-validators,
-.sb-validators + .sb-sep {
+.sb-validators {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -352,24 +489,19 @@ pre {
   clip: rect(0 0 0 0);
 }
 
-.sb-sep {
-  white-space: pre;
-  color: var(--text-dim);
-}
-
 .sb-block {
-  overflow: hidden;
-  text-overflow: ellipsis;
   color: var(--text);
 }
 
-/* The height on the bar: the display serif in digit cells, inline, small. */
+/* The height in the pill is the interface's own figure: Inter, tabular. */
 .statusbar .reading-value {
   display: inline;
   margin: 0;
-  font-family: var(--font-serif);
-  font-size: 1rem;
-  line-height: 1;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  font-variant-numeric: tabular-nums;
   color: var(--text);
 }
 
@@ -382,102 +514,55 @@ pre {
 }
 
 .statusbar .reading-value.is-error .unavailable {
-  font-family: var(--font-sans);
-  font-size: var(--text-small);
-}
-
-/* Sources and Present: words with a hairline, quiet until pressed. */
-.sb-sources,
-.sb-present {
-  padding: var(--space-1) var(--space-2);
-  font: 600 0.6875rem / 1.4 var(--font-sans);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 0;
-  cursor: pointer;
-}
-
-.sb-sources:hover,
-.sb-present:hover {
-  color: var(--text);
-  border-color: var(--text-dim);
-}
-
-.sb-sources[aria-checked="true"],
-.sb-present[aria-pressed="true"] {
-  color: var(--bg);
-  background: var(--text);
-  border-color: var(--text);
+  font-size: inherit;
 }
 
 /* The bar's own source, when asked for, hangs below its right end rather than growing it. */
 .statusbar .reading-prov {
   position: absolute;
-  top: 100%;
-  right: var(--gutter);
+  top: calc(100% + var(--space-2));
+  right: 0;
   z-index: 11;
-  padding: var(--space-1) var(--space-2);
-  background: var(--bg);
-  border: 1px solid var(--border);
 }
 
-/* Below 64rem the bar is two rows: the wordmark and the nav; the state and
-   the switches. On a phone the wordmark is the mark alone (the hero names the
-   page just beneath), the height is left to the hero, and Present — a room's
-   mode, driven from a keyboard — is not offered. */
+/* Below 64 rem the bar is two rows: the wordmark and the nav; the pill and the buttons. */
 @media (max-width: 63.99rem) {
+  :root {
+    --bar-height: 96px;
+  }
   .sb-inner {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    grid-template-areas:
-      "mark nav nav"
-      "line sources present";
-    align-items: center;
-    gap: var(--space-1) var(--space-2);
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 0;
+    padding-block: 0;
   }
-  .sb-inner > .wordmark {
-    grid-area: mark;
+  .sb-left,
+  .sb-right {
+    justify-content: space-between;
+    min-height: 44px;
   }
-  .site-nav {
-    grid-area: nav;
-    justify-self: end;
-  }
-  .sb-line {
-    grid-area: line;
+  .sb-pill {
+    flex: 1 1 auto;
     overflow: hidden;
-  }
-  .sb-sources {
-    grid-area: sources;
-  }
-  .sb-present {
-    grid-area: present;
   }
 }
 
 @media (max-width: 39.99rem) {
-  .sb-inner > .wordmark .wordmark-text {
+  /* The name stays for a screen reader: the link is never nameless. */
+  .sb-left .wordmark-text {
     position: absolute;
     width: 1px;
     height: 1px;
     overflow: hidden;
     clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
-  .sb-block,
   .sb-finality,
-  .sb-sep,
+  .sb-finality + .sb-sep,
+  .sb-block + .sb-sep,
   .sb-present {
     display: none;
-  }
-  .sb-sources {
-    justify-self: end;
-  }
-  .sb-inner {
-    grid-template-areas:
-      "mark nav nav"
-      "line sources sources";
   }
 }
 
@@ -498,35 +583,27 @@ pre {
 }
 
 /* ── the first screen ─────────────────────────────────────────────────────
-   100 vh less the bar. Five columns of text and figures, seven of framed
-   constellation, the river along the foot. */
-
-.hero {
-  display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
-  min-height: calc(100svh - var(--bar-height));
-}
+   As tall as its content plus 64 px. Five columns of text and figures,
+   centred against seven of framed constellation. */
 
 .hero-grid {
   display: flex;
   flex-direction: column;
-  justify-content: center;
   gap: var(--space-5);
-  padding-block: var(--space-5);
+  padding-block: var(--space-6) 0;
 }
 
 @media (min-width: 64rem) {
   .hero-grid {
     display: grid;
     grid-template-columns: repeat(12, minmax(0, 1fr));
-    align-items: center;
     column-gap: var(--space-5);
-    padding-block: var(--space-6);
   }
 }
 
 .hero-text {
   grid-column: 1 / span 5;
+  align-self: center;
   min-width: 0;
 }
 
@@ -535,23 +612,18 @@ pre {
   min-width: 0;
 }
 
-.eyebrow {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0 0 var(--space-3);
-  font-size: var(--text-small);
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-}
-
 .hero h1 {
   margin: 0 0 var(--space-4);
-  font-size: clamp(3.5rem, 0.5rem + 6.2vw, 6rem);
-  line-height: 0.95;
+  font-size: var(--t-display);
+  line-height: var(--lh-display);
+  letter-spacing: -0.02em;
+}
+
+/* On a phone the title steps down one size on the scale, so it never leaves the screen. */
+@media (max-width: 39.99rem) {
+  .hero h1 {
+    font-size: var(--t-figure-xl);
+  }
 }
 
 .dek {
@@ -560,31 +632,40 @@ pre {
   text-wrap: pretty;
 }
 
+/* Three figures with hairlines between them: the height across the top,
+   agents and agreements side by side beneath it. Five columns cannot hold
+   three 64 px figures with their captions in one row (the height alone is
+   seven characters and growing), and a row that wraps unevenly is worse. */
 .hero-figures {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-4) var(--space-5);
-  margin: 0 0 var(--space-5);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0 0 var(--space-4);
 }
 
 .hero-figure {
   position: relative;
   min-width: 0;
+  padding-block: var(--space-4);
 }
 
-/* The three figures: 56–64 px on a desktop, never under 44 px anywhere. */
+.hero-figure:first-child {
+  grid-column: 1 / -1;
+  padding-top: 0;
+}
+
+.hero-figure + .hero-figure {
+  border-top: 1px solid var(--border);
+}
+
+.hero-figure:last-child {
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--border);
+}
+
 .hero-figure .reading-value {
   margin: 0;
-  font-size: clamp(2.75rem, 1.5rem + 2.6vw, 4rem);
-  line-height: 1;
-}
-
-/* One word under each figure. */
-.hero-figure .reading-label {
-  margin: var(--space-2) 0 0;
-  font-size: var(--text-small);
-  font-weight: 400;
-  color: var(--text-dim);
+  font-size: var(--t-figure-xl);
+  line-height: var(--lh-figure-xl);
 }
 
 .live-line {
@@ -592,12 +673,14 @@ pre {
   align-items: center;
   gap: var(--space-2);
   margin: 0;
-  font-size: var(--text-small);
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
   color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
 }
 
 .live-line .ll-state {
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text);
 }
 
@@ -605,12 +688,15 @@ pre {
   color: var(--live);
 }
 
-/* The constellation's frame: a hairline, and the canvas clipped to it — nothing is drawn outside, nothing sits behind the text. */
+/* The constellation's frame: a hairline and 24 px of room; the canvas is clipped to it, so nothing is drawn outside and nothing sits behind the text. */
 .panel {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: var(--space-3);
   margin: 0;
+  padding: var(--space-4);
   border: 1px solid var(--border);
+  border-radius: 8px;
   overflow: hidden;
 }
 
@@ -620,13 +706,6 @@ pre {
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-2) var(--space-4);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border);
-  font-size: var(--text-small);
-}
-
-.panel-title {
-  font-weight: 600;
 }
 
 .legend {
@@ -637,6 +716,8 @@ pre {
   margin: 0;
   padding: 0;
   list-style: none;
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
   color: var(--text-dim);
 }
 
@@ -663,7 +744,7 @@ pre {
 
 .constellation-host {
   position: relative;
-  height: clamp(320px, 56vh, 600px);
+  height: clamp(320px, 52vh, 560px);
 }
 
 .constellation-canvas {
@@ -673,27 +754,8 @@ pre {
   touch-action: manipulation;
 }
 
-.constellation-tip {
-  position: absolute;
-  z-index: 2;
-  padding: var(--space-2) var(--space-3);
-  background: var(--bg);
-  border: 1px solid var(--text-dim);
-  font-family: var(--font-mono);
-  font-size: var(--text-mono);
-  line-height: 1.5;
-  pointer-events: none;
-}
-
-.constellation-list {
-  padding: var(--space-2) var(--space-4);
-  border-top: 1px solid var(--border);
-  font-size: var(--text-small);
-}
-
-.constellation-list summary {
-  cursor: pointer;
-  color: var(--text-dim);
+.constellation-list .instrument-note {
+  margin: var(--space-2) 0 0;
 }
 
 .agent-list {
@@ -704,7 +766,8 @@ pre {
   columns: 2;
   column-gap: var(--space-5);
   font-family: var(--font-mono);
-  font-size: var(--text-mono);
+  font-size: var(--t-mono);
+  line-height: var(--lh-mono);
 }
 
 .agent-list li {
@@ -713,24 +776,27 @@ pre {
   border-top: 1px solid var(--border);
 }
 
-/* The river along the foot: the same stream as section 01, no labels, the width of the screen. */
+/* The river under the hero: a titled strip, 140 px, the content width. */
+.river-strip {
+  margin-block: var(--space-5) 0;
+}
+
+.river-strip figcaption {
+  margin: 0 0 var(--space-3);
+}
+
 .hero-river {
   display: block;
   width: 100%;
-  height: 120px;
+  height: 140px;
 }
 
-/* ── sections ─────────────────────────────────────────────────────────── */
+/* ── sections ─────────────────────────────────────────────────────────────
+   104 px between sections, 40 px within: the eyebrow, the heading and the
+   sentence; the instrument; the row of figures. */
 
 .section {
-  padding-block: var(--space-6);
-  border-top: 1px solid var(--border);
-}
-
-@media (min-width: 64rem) {
-  .section {
-    padding-block: var(--space-7);
-  }
+  padding-block: var(--space-7) 0;
 }
 
 .section-grid {
@@ -742,42 +808,28 @@ pre {
 @media (min-width: 64rem) {
   .section-grid {
     grid-template-columns: repeat(12, minmax(0, 1fr));
-    gap: var(--space-5);
   }
   .section-head,
   .section .instrument,
   .section .readings,
-  .notes {
+  .section .notes {
     grid-column: 1 / -1;
   }
-  /* A dial or a ring beside its figures: five columns and seven. */
-  #economy .instrument,
+  /* The ring beside its list of validators: five columns and seven. */
   #validators .instrument {
-    grid-column: 1 / span 5;
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-rows: repeat(3, auto) 1fr;
+    column-gap: var(--space-5);
+    align-items: start;
   }
-  #economy .readings,
-  #validators .readings {
+  #validators .ring-host {
+    grid-column: 1 / span 5;
+    grid-row: 1 / span 4;
+  }
+  #validators .instrument > :not(.ring-host) {
     grid-column: 6 / span 7;
-    grid-template-columns: minmax(0, 1fr);
-    align-content: start;
   }
-  #validators .notes {
-    grid-column: 1 / span 5;
-  }
-}
-
-.section-number {
-  margin: 0 0 var(--space-2);
-  font-size: var(--text-small);
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  color: var(--text-dim);
-}
-
-h2 {
-  margin: 0 0 var(--space-3);
-  font-size: clamp(2.5rem, 1.75rem + 1.6vw, 3.5rem);
-  line-height: 1;
 }
 
 .lede {
@@ -793,60 +845,67 @@ h2 {
 
 .instrument-note {
   margin: var(--space-2) 0 0;
-  font-size: var(--text-small);
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
   color: var(--text-dim);
 }
 
 .instrument-failed {
   margin: 0;
   padding: var(--space-3) 0;
-  font-family: var(--font-mono);
-  font-size: var(--text-mono);
+  font-size: var(--t-label);
   color: var(--text-dim);
 }
 
-.notes {
+/* A chart's or a panel's title: the h3 style, whatever its level in the
+   outline (the panel and the strip under the hero are h2s, so the outline
+   runs h1 → h2 → h3 without a gap). */
+.chart-title,
+.panel-title {
   margin: 0;
-  font-size: var(--text-small);
-  color: var(--text-dim);
-}
-
-.notes summary,
-.upgrade-detail summary,
-.verify summary,
-.howto summary {
-  display: inline-block;
-  padding-bottom: var(--space-1);
-  font-weight: 600;
-  color: var(--text-dim);
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-  list-style: none;
-}
-
-.notes summary::-webkit-details-marker,
-.upgrade-detail summary::-webkit-details-marker,
-.verify summary::-webkit-details-marker,
-.howto summary::-webkit-details-marker {
-  display: none;
-}
-
-.notes summary:hover,
-.upgrade-detail summary:hover,
-.verify summary:hover,
-.howto summary:hover,
-details[open] > summary {
+  font-family: var(--font-sans);
+  font-variation-settings: normal;
+  font-size: var(--t-h3);
+  line-height: var(--lh-h3);
+  font-weight: 500;
+  letter-spacing: 0;
   color: var(--text);
-  border-color: var(--text-dim);
 }
 
-/* ── readings ─────────────────────────────────────────────────────────── */
+/* ── figures ──────────────────────────────────────────────────────────────
+   A figure in the display serif, its caption directly under it in the label
+   style, its unit small and grey beside it. A row of figures is equal-width
+   columns with hairlines between them — no boxes. */
 
-.readings {
+.figure-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
-  gap: var(--space-4) var(--space-5);
-  align-content: start;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+.figure-row > .reading {
+  padding: 0 var(--space-4);
+}
+
+.figure-row > .reading:first-child {
+  padding-left: 0;
+}
+
+.figure-row > .reading + .reading {
+  border-left: 1px solid var(--border);
+}
+
+@media (max-width: 47.99rem) {
+  .figure-row {
+    grid-auto-flow: row;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: var(--space-4);
+  }
+  .figure-row > .reading:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
 }
 
 .reading {
@@ -854,41 +913,24 @@ details[open] > summary {
   min-width: 0;
 }
 
-.readings .reading {
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--border);
-}
-
-/* Labels are short and quiet; the figure is what is read. */
 .reading-label {
-  margin: 0;
+  margin: var(--space-2) 0 0;
   font-family: var(--font-sans);
-  font-size: var(--text-small);
-  font-weight: 600;
-  line-height: 1.4;
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
+  font-weight: 500;
   color: var(--text-dim);
 }
 
-/* Figures are the display serif. The face has no tabular figures, so each
-   digit sits in a cell one `ch` wide (its widest digit, the zero) and a
-   figure that counts up moves nothing beside it. */
 .reading-value {
-  margin: var(--space-2) 0 0;
+  margin: 0;
   font-family: var(--font-serif);
+  font-variation-settings: "opsz" 60;
   font-weight: 400;
-  font-size: clamp(2.5rem, 1.75rem + 1.5vw, 3.5rem);
-  line-height: 1.05;
+  font-size: var(--t-figure-l);
+  line-height: var(--lh-figure-l);
+  font-variant-numeric: tabular-nums lining-nums;
   color: var(--text);
-}
-
-.dc {
-  display: inline-block;
-  width: 1ch;
-  text-align: center;
-}
-
-.reading-value .dcells {
-  white-space: nowrap;
 }
 
 /* The figure links to the raw bytes it was read from; the link shows itself only with its source. */
@@ -910,7 +952,7 @@ html[data-sources] .reading-value .num,
 .reading-value .unit {
   margin-left: var(--space-1);
   font-family: var(--font-sans);
-  font-size: var(--text-small);
+  font-size: var(--t-label);
   font-weight: 400;
   color: var(--text-dim);
 }
@@ -919,15 +961,15 @@ html[data-sources] .reading-value .num,
   display: block;
   margin-top: var(--space-2);
   font-family: var(--font-sans);
-  font-size: var(--text-small);
-  line-height: 1.5;
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
   color: var(--text-dim);
 }
 
 .reading-value.is-error .unavailable,
 .reading-value.is-absent .digits {
   font-family: var(--font-sans);
-  font-size: 1.25rem;
+  font-size: var(--t-h3);
   color: var(--text-dim);
 }
 
@@ -935,8 +977,8 @@ html[data-sources] .reading-value .num,
   display: block;
   margin-top: var(--space-1);
   font-family: var(--font-sans);
-  font-size: var(--text-small);
-  line-height: 1.4;
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
   color: var(--text-dim);
   overflow-wrap: anywhere;
 }
@@ -951,28 +993,28 @@ html[data-sources] .reading-value .num,
   display: inline-block;
   width: 4ch;
   height: 0.7em;
+  border-radius: 2px;
   background: var(--border);
 }
 
 .skeleton-inline {
   width: 8ch;
-  height: 0.7em;
 }
 
 /* ── provenance ───────────────────────────────────────────────────────────
    Every figure carries its source line — the endpoint, the UTC time, a link
-   to the raw bytes — hidden until asked for. With the Sources switch on,
-   every line shows in place, under its figure; with it off, hovering or
-   focusing a figure shows its line as a tooltip beneath it. */
+   to the raw bytes — hidden until asked for. With Sources on, every line
+   shows in place under its figure; with it off, hovering or focusing a
+   figure shows its line in the one tooltip style. */
 
 .reading-prov {
   display: none;
   max-width: none;
   margin: var(--space-2) 0 0;
   font-family: var(--font-mono);
-  font-size: var(--text-mono);
+  font-size: var(--t-mono);
+  line-height: var(--lh-mono);
   font-weight: 400;
-  line-height: 1.5;
   color: var(--text-dim);
   overflow-wrap: anywhere;
 }
@@ -993,8 +1035,16 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
   max-width: min(28rem, 86vw);
   margin: 0;
   padding: var(--space-2) var(--space-3);
-  background: var(--bg);
+  background: var(--surface);
   border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.statusbar .reading-prov {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: var(--space-2) var(--space-3);
 }
 
 .reading-prov a {
@@ -1054,15 +1104,18 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
 
 .dial .dial-era {
   font-family: var(--font-serif);
-  font-size: 4.5rem;
+  font-size: var(--t-display);
+  font-variation-settings: "opsz" 60;
+  font-variant-numeric: tabular-nums lining-nums;
   fill: var(--text);
   text-anchor: middle;
 }
 
 .dial .dial-caption {
-  font-family: var(--font-mono);
-  font-size: var(--text-mono);
-  letter-spacing: 0.08em;
+  font-family: var(--font-sans);
+  font-size: var(--t-eyebrow);
+  font-weight: 600;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   fill: var(--text-dim);
   text-anchor: middle;
@@ -1125,7 +1178,9 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
 
 .ring .ring-centre {
   font-family: var(--font-serif);
-  font-size: 3.5rem;
+  font-size: var(--t-figure-xl);
+  font-variation-settings: "opsz" 60;
+  font-variant-numeric: tabular-nums lining-nums;
   fill: var(--text);
   text-anchor: middle;
 }
@@ -1136,7 +1191,7 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
   padding: 0;
   list-style: none;
   font-family: var(--font-mono);
-  font-size: var(--text-mono);
+  font-size: var(--t-mono);
   line-height: 1.5;
 }
 
@@ -1191,13 +1246,17 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
   margin: 0;
 }
 
-.strip .reading-label {
+.strip .chart-title {
+  margin: 0;
+  font-size: var(--t-h3);
+  line-height: var(--lh-h3);
+  font-weight: 500;
   color: var(--text);
 }
 
 .strip-caption {
   margin: var(--space-1) 0 0;
-  font-size: var(--text-small);
+  font-size: var(--t-label);
   line-height: 1.4;
   color: var(--text-dim);
 }
@@ -1244,13 +1303,9 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
 
 .strip-plot .plot-label {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--t-mono);
   font-variant-numeric: tabular-nums lining-nums;
   fill: var(--text-dim);
-}
-
-.strip .reading-value {
-  font-size: 2rem;
 }
 
 /* ── 05 upgrades ──────────────────────────────────────────────────────── */
@@ -1321,8 +1376,10 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
   left: 0;
   transform: translateX(-50%);
   font-family: var(--font-serif);
-  font-size: 2rem;
-  line-height: 1;
+  font-size: var(--t-figure-l);
+  font-variation-settings: "opsz" 60;
+  font-variant-numeric: tabular-nums lining-nums;
+  line-height: var(--lh-figure-l);
   white-space: nowrap;
 }
 
@@ -1355,20 +1412,19 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
 
 .upgrade-title {
   margin: 0 0 var(--space-1);
-  font-size: 1rem;
 }
 
 .upgrade-spec {
   font-family: var(--font-serif);
-  font-size: 1.5rem;
-  font-weight: 400;
+  font-variation-settings: "opsz" 60;
+  font-variant-numeric: tabular-nums lining-nums;
 }
 
 .status {
   margin-left: var(--space-2);
-  font-size: var(--text-small);
+  font-size: var(--t-eyebrow);
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
@@ -1402,15 +1458,16 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
 }
 
 .chip-label {
-  font-size: var(--text-mono);
-  letter-spacing: 0.06em;
+  font-size: var(--t-eyebrow);
+  font-weight: 600;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
 
 .hash {
   font-family: var(--font-mono);
-  font-size: var(--text-mono);
+  font-size: var(--t-mono);
   word-break: break-all;
 }
 
@@ -1439,14 +1496,14 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
 }
 
 .fact dt {
-  font-size: var(--text-small);
+  font-size: var(--t-label);
   font-weight: 600;
 }
 
 .fact dd {
   max-width: none;
   margin: 0;
-  font-size: var(--text-small);
+  font-size: var(--t-label);
   overflow-wrap: anywhere;
 }
 
@@ -1454,7 +1511,7 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
 .fact .reading-value {
   display: inline;
   font-family: var(--font-mono);
-  font-size: var(--text-mono);
+  font-size: var(--t-mono);
   word-break: break-all;
 }
 
@@ -1469,7 +1526,7 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
 
 .command figcaption {
   margin: 0 0 var(--space-2);
-  font-size: var(--text-small);
+  font-size: var(--t-label);
   font-weight: 600;
 }
 
@@ -1492,27 +1549,12 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
 
 .command-reads {
   margin: var(--space-2) 0 0;
-  font-size: var(--text-small);
+  font-size: var(--t-label);
   color: var(--text-dim);
 }
 
 .copy {
   flex: none;
-  padding: var(--space-1) var(--space-2);
-  font: 600 0.6875rem / 1.4 var(--font-sans);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 0;
-  cursor: pointer;
-  vertical-align: middle;
-}
-
-.copy:hover {
-  color: var(--text);
-  border-color: var(--text-dim);
 }
 
 .copy[hidden] {
@@ -1528,12 +1570,11 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
 
 .posture-record h3 {
   margin: 0 0 var(--space-1);
-  font-size: 1rem;
 }
 
 .posture-lede {
   margin: 0 0 var(--space-3);
-  font-size: var(--text-small);
+  font-size: var(--t-label);
   color: var(--text-dim);
 }
 
@@ -1556,7 +1597,7 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
 }
 
 .posture-row dt {
-  font-size: var(--text-small);
+  font-size: var(--t-label);
   font-weight: 600;
 }
 
@@ -1573,31 +1614,37 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
 
 .posture-value {
   font-family: var(--font-serif);
-  font-size: 2rem;
-  line-height: 1.1;
+  font-size: var(--t-figure-l);
+  font-variation-settings: "opsz" 60;
+  line-height: var(--lh-figure-l);
 }
 
 .posture-source {
   display: block;
   margin-top: var(--space-1);
-  font-size: var(--text-small);
+  font-size: var(--t-label);
   line-height: 1.4;
   color: var(--text-dim);
 }
 
 .not-recorded {
   font-family: var(--font-sans);
-  font-size: 1rem;
+  font-size: var(--t-body);
   font-style: italic;
   color: var(--text-dim);
 }
 
 /* ── footer ───────────────────────────────────────────────────────────── */
 
+main {
+  padding-bottom: var(--space-7);
+}
+
 .footer {
   padding-block: var(--space-6) var(--space-7);
   border-top: 1px solid var(--border);
-  font-size: var(--text-small);
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
   color: var(--text-dim);
 }
 
@@ -1615,20 +1662,12 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
   max-width: none;
 }
 
-.merge-label {
-  color: var(--text-dim);
-}
-
 .merge .reading-value {
   display: inline;
-  margin: 0;
   font-family: var(--font-sans);
-  font-size: var(--text-small);
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
   color: var(--text);
-}
-
-.howto {
-  max-width: var(--measure);
 }
 
 .howto dl {
@@ -1641,7 +1680,7 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
 
 .howto dt {
   display: inline;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text);
 }
 
@@ -1666,6 +1705,17 @@ html:not([data-sources]) [data-reading]:focus-within > .reading-prov {
   padding-top: var(--space-5);
 }
 
+/* ── touch ────────────────────────────────────────────────────────────────
+   On a coarse pointer every control is at least 40 px tall. */
+
+@media (pointer: coarse) {
+  .btn,
+  .disclosure > summary,
+  .site-nav a {
+    min-height: 40px;
+  }
+}
+
 /* ── motion ───────────────────────────────────────────────────────────────
    Sections fade up 12 px once as they enter the viewport. Only reveal.js
    sets `reveal-ready`, so without the script every section is visible. */
@@ -1681,8 +1731,9 @@ html.reveal-ready [data-reveal]:not(.is-in) {
 
 /* ── presenter mode ───────────────────────────────────────────────────────
    The P key or the Present button: one screen at a time — the first screen,
-   then the six sections — each filling the viewport under the status bar,
-   with figures set for a room. */
+   then the six sections — each filling the viewport under the top bar. The
+   one exception to the type scale: figures are set for a room, 160 px where
+   the screen has the width. */
 
 html[data-present] body {
   overflow: hidden;
@@ -1692,6 +1743,7 @@ html[data-present] .site-nav,
 html[data-present] .reading-prov,
 html[data-present] footer,
 html[data-present] .noscript,
+html[data-present] .river-strip,
 html[data-present] .sb-sources,
 html[data-present] .notes,
 html[data-present] .constellation-list,
@@ -1725,33 +1777,35 @@ html[data-present] [data-present-screen][data-present-active] {
   transition: opacity 300ms ease-out;
 }
 
-/* A section the reveal has not reached is not held 12 px low on a screen of its own. */
 html[data-present].reveal-ready [data-reveal]:not(.is-in) {
   transform: none;
+}
+
+html[data-present] .hero-grid {
+  align-content: center;
+  min-height: 100%;
+  padding-block: var(--space-5);
 }
 
 html[data-present] .section {
   display: grid;
   align-content: center;
   padding-block: var(--space-5);
-  border-top: 0;
 }
 
 html[data-present] .section .reading-value {
   font-size: clamp(3rem, 8.5vw, 160px);
 }
 
+html[data-present] #chain .readings {
+  grid-auto-flow: row;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  row-gap: var(--space-4);
+}
+
+html[data-present] #chain .readings .reading-value,
 html[data-present] #economy .readings .reading-value,
 html[data-present] #validators .readings .reading-value {
-  font-size: clamp(2.5rem, 6vw, 120px);
-}
-
-/* Four figures under the river: two-up, sized so a seven-digit height never meets its neighbour. */
-html[data-present] #chain .readings {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-html[data-present] #chain .readings .reading-value {
   font-size: clamp(2.5rem, 6vw, 120px);
 }
 
@@ -1773,7 +1827,7 @@ html[data-present] .strip-plot {
 
 html[data-present] .dial,
 html[data-present] .ring-host {
-  max-width: min(60vh, 560px);
+  max-width: min(56vh, 520px);
 }
 
 .present-counter {
@@ -1782,6 +1836,8 @@ html[data-present] .ring-host {
   bottom: var(--space-3);
   z-index: 12;
   margin: 0;
+  font-size: var(--t-label);
+  font-variant-numeric: tabular-nums;
   color: var(--text-dim);
 }
 
@@ -1792,6 +1848,7 @@ html[data-present] .ring-host {
     transform: none;
     transition: none;
   }
+  .disclosure > summary::before,
   html[data-present] [data-present-screen] {
     transition: none;
   }

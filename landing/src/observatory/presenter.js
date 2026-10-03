@@ -105,7 +105,7 @@ export function init(doc, ctx, { setTimer = setTimeout, clearTimer = clearTimeou
     paused = false;
     html.setAttribute('data-present', '');
     counter = doc.createElement('p');
-    counter.className = 'present-counter mono';
+    counter.className = 'present-counter';
     counter.setAttribute('aria-live', 'off');
     doc.body.append(counter);
     reflect();

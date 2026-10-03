@@ -52,7 +52,7 @@ export const LABEL_PAD = 24;
 /** Rendered text sizes, in CSS px, held constant whatever the ring's scale (see the CSS). */
 export const INDEX_PX = 12;
 export const ADDR_PX = 11;
-const CHAR_EM = 0.6; // Plex Mono advance width, in em
+const CHAR_EM = 0.6; // a mono advance width, in em (JetBrains Mono: 600 of 1000 units)
 const ASCENT = 0.75;
 const DESCENT = 0.25;
 /** The ring label of a validator queued for the next session; the list carries the full phrase. */
@@ -399,13 +399,13 @@ export function init(root, ctx) {
   // The key to the marks on the ring: with the section's notes when the page
   // folds them (the ring itself says "sealing now" beside the lit point),
   // otherwise in mono under the ring.
-  const key = html('p', 'ring-key mono');
+  const key = html('p', 'ring-key');
   key.textContent = `lit point, “${SEALING_LABEL}”: sealed the latest block · ticks around a point: the last ${VOTE_TICKS} finality rounds sampled, lit where that validator’s vote was seen · dashed point: joining next session · point at a validator for its address`;
   if (note?.closest('details')) note.before(key);
   else host.after(key);
 
   // Said once above the list rather than on every row.
-  const listHead = html('p', 'ring-list-head mono', 'Since you opened this page');
+  const listHead = html('p', 'ring-list-head eyebrow', 'Since you opened this page');
   list?.before(listHead);
 
   // A status line for the parts of the picture that have no reading slot of

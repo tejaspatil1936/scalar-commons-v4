@@ -54,8 +54,8 @@ const skeleton = (inline = false) =>
 export function reading({ key, label, live = true, className = '' }) {
   const liveAttrs = live ? ' aria-live="polite" aria-atomic="true"' : '';
   return `        <div class="reading${className ? ` ${className}` : ''}" data-reading="${escapeHtml(key)}">
-          <h3 class="reading-label">${escapeHtml(label)}</h3>
           <p class="reading-value is-loading"${liveAttrs}>${skeleton()}</p>
+          <p class="reading-label">${escapeHtml(label)}</p>
           <p class="reading-prov"></p>
         </div>`;
 }
@@ -63,28 +63,28 @@ export function reading({ key, label, live = true, className = '' }) {
 export function copyButton(value, label) {
   // Hidden until the script runs: without JavaScript there is nothing to copy
   // with, and the value is selectable text either way.
-  return `<button type="button" class="copy" data-copy="${escapeHtml(value)}" aria-label="${escapeHtml(label)}" hidden>Copy</button>`;
+  return `<button type="button" class="btn copy" data-copy="${escapeHtml(value)}" aria-label="${escapeHtml(label)}" hidden>Copy</button>`;
 }
 
 /**
- * One section below the first screen: its number, ONE heading in the serif,
- * ONE plain sentence, then the instrument and its figures. Nothing explains
- * at length: a caveat the data raises (a list cut short, a point no longer
- * registered) is folded under "Notes", and every figure's source is one
- * hover away.
+ * One section below the first screen: an eyebrow with its number and name,
+ * ONE heading, ONE plain sentence, then the instrument and a row of figures
+ * under it. Nothing explains at length: a caveat the data raises (a list cut
+ * short, a point no longer registered) is folded under "Notes", and every
+ * figure's source is one hover away.
  */
-function section({ id, name, number, heading, lede, instrument, readings = '', notes = '' }) {
+function section({ id, name, number, title, heading, lede, instrument, readings = '', notes = '' }) {
   return `  <section id="${id}" class="section" data-instrument="${name}" data-present-screen data-reveal aria-labelledby="${id}-h">
     <div class="frame section-grid">
       <header class="section-head">
-        <p class="section-number">${number}</p>
+        <p class="eyebrow">${number} · ${escapeHtml(title)}</p>
         <h2 id="${id}-h">${escapeHtml(heading)}</h2>
         <p class="lede">${lede}</p>
       </header>
       <div class="instrument">
 ${instrument}
       </div>
-${readings ? `      <div class="readings">\n${readings}\n      </div>\n` : ''}${notes ? `      <details class="notes"><summary>Notes</summary>\n${notes}\n      </details>\n` : ''}    </div>
+${readings ? `      <div class="readings figure-row">\n${readings}\n      </div>\n` : ''}${notes ? `      <details class="disclosure notes"><summary>Notes</summary>\n${notes}\n      </details>\n` : ''}    </div>
   </section>`;
 }
 
@@ -104,9 +104,10 @@ function codeBlock({ id, caption, command, reads }) {
 function chainSection() {
   return section({
     id: 'chain',
+    title: 'Chain',
     name: 'pulse',
     number: '01',
-    heading: 'Chain',
+    heading: 'The chain, block by block',
     lede: 'A block about every six seconds; each bar is one block, as tall as the transactions it carries.',
     instrument: `        <canvas class="pulse-canvas" role="img" aria-label="River of recent blocks, newest at the right, each bar as tall as its transaction count, the finalized region tinted"></canvas>
         <p class="pulse-status visually-hidden" role="status"></p>`,
@@ -122,9 +123,10 @@ function chainSection() {
 function economySection() {
   return section({
     id: 'economy',
+    title: 'Economy',
     name: 'era',
     number: '02',
-    heading: 'Economy',
+    heading: 'Paid for verified work',
     lede: 'Agents are paid for verified work when each era settles, about every six hours.',
     instrument: `        <div class="dial" data-role="dial" role="img" aria-label="Era progress: waiting for the first reading"></div>`,
     readings: [
@@ -138,9 +140,10 @@ function economySection() {
 function validatorsSection() {
   return section({
     id: 'validators',
+    title: 'Validators',
     name: 'validators',
     number: '03',
-    heading: 'Validators',
+    heading: 'Who seals the blocks',
     lede: 'Independent validators take turns sealing blocks; a block is final once two thirds of them agree.',
     instrument: `        <div class="ring-host">
           <svg class="ring" role="img" aria-label="The active validators as points on a ring"></svg>
@@ -157,7 +160,7 @@ function validatorsSection() {
 function strip({ key, label, caption }) {
   return `          <figure class="strip reading" data-reading="${escapeHtml(key)}">
             <figcaption>
-              <h3 class="reading-label">${escapeHtml(label)}</h3>
+              <h3 class="chart-title reading-label">${escapeHtml(label)}</h3>
               <p class="strip-caption">${escapeHtml(caption)}</p>
             </figcaption>
             <div class="strip-plot" data-plot></div>
@@ -169,9 +172,10 @@ function strip({ key, label, caption }) {
 function historySection() {
   return section({
     id: 'history',
+    title: 'History',
     name: 'history',
     number: '04',
-    heading: 'History',
+    heading: 'How it has been running',
     lede: 'Four records from the chain’s own history, each drawn from zero and saying where it begins.',
     instrument: `        <div class="strips">
 ${[
@@ -244,9 +248,10 @@ function upgradeRows(history) {
 function upgradesSection(history) {
   return section({
     id: 'upgrades',
+    title: 'Upgrades',
     name: 'upgrades',
     number: '05',
-    heading: 'Upgrades',
+    heading: 'How the rules have changed',
     lede: 'Each runtime upgrade in order — a checked-in record, re-confirmed against the chain as the page loads.',
     instrument: `        <div class="rail" role="img" aria-label="Runtime upgrades in order along the rail, equally spaced, each with the block it took effect at" style="--future:${railFutureStart(history).toFixed(2)}%">
           <span class="rail-line" aria-hidden="true"></span>
@@ -254,7 +259,7 @@ function upgradesSection(history) {
 ${railMarkers(history)}
           </ol>
         </div>
-        <details class="upgrade-detail">
+        <details class="disclosure upgrade-detail">
           <summary>Each upgrade, with its code hash</summary>
           <ol class="upgrades">
 ${upgradeRows(history)}
@@ -315,11 +320,12 @@ function verifySection(history, posture) {
     `  | sha256sum`;
   return section({
     id: 'verify',
+    title: 'Verify',
     name: 'verify',
     number: '06',
-    heading: 'Verify',
+    heading: 'Check it yourself',
     lede: 'Nothing here needs to be taken on trust: point any node or HTTP client at the sources this page reads.',
-    instrument: `      <details class="verify">
+    instrument: `      <details class="disclosure verify">
         <summary>Sources and the commands that reproduce the readings</summary>
         <dl class="facts">
           <div class="fact" data-reading="genesis">
@@ -422,8 +428,8 @@ export function renderHead({ title, description, css = null, scripts = true }) {
 <meta name="description" content="${escapeHtml(description)}">
 <meta name="color-scheme" content="dark light">
 ${scripts ? SOURCES_BOOT : ''}
-<link rel="preload" href="fonts/instrument-serif-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/source-serif-4-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preconnect" href="https://${API_HOST}" crossorigin>
 ${styles}
 ${scripts ? '<script type="module" src="observatory.js"></script>' : ''}`;
@@ -438,66 +444,65 @@ const HOW_TO_READ = [
 ];
 
 /**
- * The status bar: one line at the very top of the page, sticky. The wordmark
- * and the site nav; the state of the network in a word, the validators, the
- * finality lag and the block height (every figure the hero's, carried with
- * its record on the page bus); then two small switches — Sources, which shows
- * every provenance line in place, and Present, which turns presenter mode on
- * (as does the P key).
+ * The top bar, sticky, in two zones. Left: the wordmark and the site nav.
+ * Right: the status pill — the live dot, the network's state in a word, the
+ * block height and the finality lag, every figure the hero's, carried with
+ * its record on the page bus — then two quiet text buttons: Sources, which
+ * shows every provenance line in place, and Present, which turns presenter
+ * mode on (as does the P key). Who is sealing is said to a screen reader in
+ * the pill; the Validators section shows the set.
  */
 function statusBar() {
-  return `<div class="statusbar reading" data-reading="networkStatus" data-state="connecting">
+  return `<header class="statusbar reading" data-reading="networkStatus" data-state="connecting">
   <div class="frame sb-inner">
-    ${wordmark()}
+    <div class="sb-left">
+      ${wordmark()}
 ${renderNav('observatory')}
-    <p class="sb-line" role="status" aria-live="off"><span class="reading-label">Network status</span><span class="pulse-dot" aria-hidden="true"></span> <span class="sb-state">Connecting</span><span class="sb-sep" aria-hidden="true"> · </span><span class="sb-validators">validators not yet read</span><span class="sb-sep" aria-hidden="true"> · </span><span class="sb-finality">finality —</span><span class="sb-sep" aria-hidden="true"> · </span><span class="sb-block">block <span class="reading-value is-loading">${skeleton(true)}</span></span></p>
-    <button type="button" class="sb-sources" role="switch" aria-checked="false">Sources</button>
-    <button type="button" class="sb-present" aria-pressed="false" aria-keyshortcuts="P">Present</button>
-    <p class="reading-prov"></p>
+    </div>
+    <div class="sb-right">
+      <p class="sb-pill" role="status" aria-live="off"><span class="reading-label">Network status</span><span class="pulse-dot" aria-hidden="true"></span><span class="sb-state">Connecting</span><span class="sb-sep" aria-hidden="true"> · </span><span class="sb-block">block <span class="reading-value is-loading">${skeleton(true)}</span></span><span class="sb-sep" aria-hidden="true"> · </span><span class="sb-finality">finality —</span><span class="sb-validators">validators not yet read</span></p>
+      <button type="button" class="btn sb-sources" role="switch" aria-checked="false">Sources</button>
+      <button type="button" class="btn sb-present" aria-pressed="false" aria-keyshortcuts="P">Present</button>
+      <p class="reading-prov"></p>
+    </div>
   </div>
-</div>
+</header>
 `;
 }
 
-/**
- * One of the hero's three figures: the figure first, then its caption — one
- * word on screen, the full name for a screen reader.
- */
-function heroFigure({ key, word, before = '', after = '' }) {
-  const hidden = (text) => (text ? `<span class="visually-hidden">${escapeHtml(text)}</span>` : '');
+/** One of the hero's three figures: the figure, then its caption directly under it. */
+function heroFigure({ key, caption }) {
   return `          <div class="reading hero-figure" data-reading="${escapeHtml(key)}">
             <p class="reading-value is-loading" aria-live="off">${skeleton()}</p>
-            <p class="reading-label">${hidden(before)}${escapeHtml(word)}${hidden(after)}</p>
+            <p class="reading-label">${escapeHtml(caption)}</p>
             <p class="reading-prov"></p>
           </div>`;
 }
 
 /**
- * The first screen, 100 vh. Left, five columns of twelve: the wordmark in
- * small caps over the page's name in the display serif, one sentence, three
- * live figures and the live line. Right, seven columns: the agent
- * constellation as the hero image, in its own framed panel — the canvas is
- * clipped by the frame, so nothing is drawn outside it and nothing behind
- * the text. Along the foot, the river as a 120 px strip, the width of the
- * screen, drawn by the chain pulse.
+ * The first screen, as tall as its content plus 64 px. Left, five columns of
+ * twelve, centred against the panel: the page's name in the display serif,
+ * one sentence, three live figures with their captions and hairlines
+ * between them, and the live line. Right, seven columns: the agent
+ * constellation in its own framed panel — the canvas is clipped by the
+ * frame, so nothing is drawn outside it and nothing behind the text. The
+ * wordmark is the top bar's alone.
  */
 function hero() {
   return `<header class="hero" data-instrument="hero" data-present-screen aria-labelledby="hero-h">
   <div class="frame hero-grid">
     <div class="hero-text">
-      <p class="eyebrow">${mark()}<span>Scalar Commons</span></p>
       <h1 id="hero-h">Observatory</h1>
       <p class="dek">A public test network where AI agents contract, escrow and settle work — read live from the chain.</p>
       <div class="hero-figures">
-${heroFigure({ key: 'heroHeight', word: 'Height', before: 'Block ' })}
-${heroFigure({ key: 'agents', word: 'Agents', after: ' registered' })}
-${heroFigure({ key: 'activeAgreements', word: 'Agreements', after: ' open' })}
+${heroFigure({ key: 'heroHeight', caption: 'Height' })}
+${heroFigure({ key: 'agents', caption: 'Agents registered' })}
+${heroFigure({ key: 'activeAgreements', caption: 'Agreements open' })}
       </div>
       <p class="live-line" data-state="connecting"><span class="pulse-dot" aria-hidden="true"></span> <span class="ll-state">Connecting</span> <span class="ll-finality">finality —</span></p>
     </div>
     <figure class="panel hero-panel instrument" aria-labelledby="panel-h">
-      <figcaption class="panel-head">
-        <span class="panel-title" id="panel-h">Agents and their agreements</span>
+      <figcaption class="panel-head"><h2 class="panel-title" id="panel-h">Agents and their agreements</h2>
         <ul class="legend" aria-label="Line colours">
           <li><span class="swatch swatch-active" aria-hidden="true"></span>Open</li>
           <li><span class="swatch swatch-disputed" aria-hidden="true"></span>Disputed</li>
@@ -506,17 +511,19 @@ ${heroFigure({ key: 'activeAgreements', word: 'Agreements', after: ' open' })}
       </figcaption>
       <div class="constellation-host">
         <canvas class="constellation-canvas" role="img" aria-label="Network graph of registered agents and the agreements between them"></canvas>
-        <div class="constellation-tip" role="tooltip" hidden></div>
+        <div class="tooltip constellation-tip" role="tooltip" hidden></div>
       </div>
-      <details class="constellation-list">
-        <summary>The same agents as a list</summary>
+      <details class="disclosure constellation-list"><summary>The same agents as a list</summary>
         <p class="instrument-note constellation-note"></p>
         <ol class="agent-list" aria-live="off"></ol>
       </details>
     </figure>
   </div>
-  <canvas class="hero-river" aria-hidden="true"></canvas>
-</header>`;
+</header>
+<figure class="frame river-strip" aria-labelledby="river-h">
+  <figcaption><h2 class="chart-title" id="river-h">Blocks arriving now</h2></figcaption>
+  <canvas class="hero-river" role="img" aria-label="River of recent blocks, newest at the right, each bar as tall as its transaction count, the newest final block marked"></canvas>
+</figure>`;
 }
 
 /**
@@ -552,7 +559,7 @@ ${Object.keys(SECTIONS)
     <p class="footer-mark">${wordmark()}</p>
     <p class="footer-note">Scalar Commons is a testnet. Its token has no value and the chain may be reset. Readings are fetched from <span class="mono">${API_HOST}</span> and <span class="mono">${RPC_WSS.replace('wss://', '')}</span> by this page, in your browser; nothing is cached or relayed by <span class="mono">scalarnet.io</span>.</p>
     <p class="merge" data-reading="lastMerge"><span class="merge-label">Last merge to master:</span> <span class="reading-value merge-value is-loading">${skeleton(true)}</span> <span class="reading-prov"></span></p>
-    <details class="howto">
+    <details class="disclosure howto">
       <summary>How to read this page</summary>
       <dl>
 ${howTo}

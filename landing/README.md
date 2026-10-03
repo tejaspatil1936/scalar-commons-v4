@@ -67,17 +67,22 @@ never the previous value.
 switched by the address. It ships one script, `observatory.js`; there is no
 WebGL and no animation library.
 
-**The first screen**, 100 vh: on the left (five columns of twelve) the
-wordmark in small caps over "Observatory" in the display serif at 96 px, one
-sentence, three live figures — block height, agents registered, agreements
-open, 56–64 px with a one-word caption under each — and the live line (the
-status bar's state in a word, and the finality lag). On the right (seven
-columns) the agent constellation in its own hairline frame: the canvas is
-clipped to the frame, so nothing is drawn outside it or behind the text; new
-agreements draw in, a new dispute pulses amber once. Along the foot, the river
-as a 120 px strip, the same stream section 01 draws in full.
+**The top bar**, 56 px and sticky: the wordmark and the nav on the left; on
+the right the status pill (the live dot, the network's state, the block
+height, the finality lag) and two quiet text buttons, Sources and Present.
 
-**Sections.** 01 Chain (the river, height, finalized, finality lag, blocks per
+**The first screen**, as tall as its content plus 64 px: on the left (five
+columns of twelve, centred against the panel) "Observatory" in Source Serif 4
+at 4.5 rem, one sentence, three live figures at 4 rem — the block height
+across the top, agents registered and agreements open beneath it, hairlines
+between them and a caption under each — and the live line. On the right
+(seven columns) the agent constellation in its own framed panel: the canvas is
+clipped to the frame, cluster counts sit in badges that keep off its edges;
+new agreements draw in, a new dispute pulses amber once. Directly under it,
+the river as a titled 140 px strip ("Blocks arriving now") the content's
+width, with its axis and its FINAL marker labelled.
+
+**Sections.** Each is an eyebrow ("01 · Chain"), a heading, one sentence, the instrument and a row of figures with hairlines between them, 104 px apart. 01 Chain (the river, height, finalized, finality lag, blocks per
 minute), 02 Economy (the era dial, time to settlement, CMN issued to agents to
 date, open disputes), 03 Validators (the ring, the active set, node health),
 04 History (four strips as small multiples, each from zero with its zero
