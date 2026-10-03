@@ -19,7 +19,7 @@ import { build, transform } from 'esbuild';
 import { content } from '../src/content.mjs';
 import { sourceClaims } from '../src/source-claims.mjs';
 import { renderPage } from '../src/render.mjs';
-import { renderObservatory, faviconSvg } from '../src/observatory.mjs';
+import { renderObservatory } from '../src/observatory.mjs';
 import { FONTS, observatoryCss } from '../src/observatory-assets.mjs';
 
 const here = (relative) => fileURLToPath(new URL(relative, import.meta.url));
@@ -48,7 +48,6 @@ writeFileSync(join(outDir, 'observatory.html'), renderObservatory({ history, pos
 writeFileSync(join(outDir, 'observatory.css'), css);
 copyFileSync(here('../runtime-history.json'), join(outDir, 'runtime-history.json'));
 copyFileSync(here('../public/posture.json'), join(outDir, 'posture.json'));
-writeFileSync(join(outDir, 'favicon.svg'), faviconSvg());
 
 mkdirSync(join(outDir, 'fonts'), { recursive: true });
 for (const [source, name] of FONTS) {

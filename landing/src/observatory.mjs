@@ -22,7 +22,7 @@ export const EXPLORER_URL = 'https://explorer.scalarnet.io/activity';
 
 /**
  * The reticle: the mark beside the wordmark, in the status bar, the hero and
- * the footer, and the favicon. A hairline ring, four ticks and a centre dot,
+ * the footer. A hairline ring, four ticks and a centre dot,
  * in the current colour. One em square; nothing beyond the geometry itself.
  */
 export const MARK_PATHS =
@@ -32,11 +32,6 @@ export const MARK_PATHS =
 
 export function mark() {
   return `<svg class="mark" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true" focusable="false">${MARK_PATHS}</svg>`;
-}
-
-/** The favicon: the mark in the accent on a transparent ground, one file for both schemes. */
-export function faviconSvg() {
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g color="#6fd3c7">${MARK_PATHS}</g></svg>\n`;
 }
 
 /** The wordmark: the mark and the name in the display serif, as a link to the page. */
@@ -426,7 +421,6 @@ export function renderHead({ title, description, css = null, scripts = true }) {
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(description)}">
 <meta name="color-scheme" content="dark light">
-<link rel="icon" type="image/svg+xml" href="favicon.svg">
 ${scripts ? SOURCES_BOOT : ''}
 <link rel="preload" href="fonts/instrument-serif-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/ibm-plex-sans-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>

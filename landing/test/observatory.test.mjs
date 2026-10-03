@@ -514,7 +514,7 @@ test('presenter mode: a small Present button and the P key, the hero first, then
   assert.ok(!/<script/i.test(index), 'index.html stays script-free');
 });
 
-test('identity: the wordmark with the reticle mark in the status bar and the footer; the favicon is the mark', () => {
+test('identity: the wordmark with the reticle mark in the status bar and the footer; no favicon, and the landing page untouched', () => {
   const statusbar = page.match(/<div class="statusbar reading"[\s\S]*?<\/div>\n/)[0];
   assert.match(statusbar, /<a class="wordmark" href="observatory"><svg class="mark"/);
   const footer = page.slice(page.indexOf('<footer'));
@@ -522,9 +522,10 @@ test('identity: the wordmark with the reticle mark in the status bar and the foo
   const mark = page.match(/<svg class="mark"[^>]*>([\s\S]*?)<\/svg>/)[1];
   assert.equal((mark.match(/<circle/g) ?? []).length, 2);
   assert.equal((mark.match(/<path/g) ?? []).length, 1);
-  assert.match(page, /<link rel="icon" type="image\/svg\+xml" href="favicon\.svg">/);
-  const favicon = readFileSync(join(out, 'favicon.svg'), 'utf8');
-  assert.match(favicon, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 24 24">/);
+  // The brief is /observatory only: no site-root favicon, and no change to the landing page.
+  assert.ok(!/rel="icon"/.test(page), 'the observatory links no favicon');
+  assert.ok(!/rel="icon"/.test(index), 'the landing page is not changed by this redesign');
+  assert.ok(!readdirSync(out).includes('favicon.svg'), 'the build writes no favicon at the site root');
   const footerText = page.slice(page.indexOf('<footer'));
   assert.match(footerText, /class="merge" data-reading="lastMerge"/, 'the merge line lives in the footer');
   assert.match(footerText, /<details class="howto">/);
