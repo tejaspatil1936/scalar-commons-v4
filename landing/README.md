@@ -98,8 +98,12 @@ list beside the plate. "The same agents as a list" is paginated, 50 to a page.
 Directly under the hero, the river as a titled 140 px strip ("Blocks arriving
 now") the content's width, with its axis and its FINAL marker labelled.
 
-**At scale.** The field is a grid of dots on one canvas, redrawn only when
-something changes, so 2,000 agents cost a few hundred arcs. The agents-over-time
+**At scale.** The public network carries about 200 operator-run agents (the
+`swarm-` prefix), and every figure here is that network's, read from chain;
+"Operator-run: N of M" counts the live agent list, nothing else. The field is
+built for well past that — tested against a mocked 2,000-agent network — as a
+grid of dots on one canvas, redrawn only when something changes, so 2,000
+agents cost a few hundred arcs. The agents-over-time
 strip is drawn from at most 240 points; the per-era bars are one bar per era.
 The indexer's live agent scan stops at 512 agents today (`MAX_LIVE_SCAN`); past
 that the page says so, draws the agents it was given, and shows its totals as

@@ -40,7 +40,7 @@ const agent = (i, extra = {}) => ({
   ...extra,
 });
 
-/** A 2,000-agent network shaped like the one the operators will run: 1,980 swarm- agents, 20 external. */
+/** A 2,000-agent stress case (ten times the public network's ~200 operator-run agents): 1,980 swarm- agents, 20 external. */
 function network(n = 2_000, external = 20) {
   return Array.from({ length: n }, (_, i) =>
     agent(i, { name: i < n - external ? `swarm-${String(i).padStart(4, '0')}` : `ext-${i}`, activeEscrowCount: i % 7 === 0 ? 1 : 0 }),
