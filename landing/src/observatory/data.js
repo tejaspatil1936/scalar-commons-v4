@@ -79,14 +79,23 @@ export const SOURCES = {
   genesis: rpc('chain_getBlockHash', [0], 'chain_getBlockHash(0)', ['genesis']),
 
   // Agents and their contracts.
-  // The constellation draws one point per row; the hero's figure is the index's own count.
-  agents: api(`/v1/agents?limit=${INDEXER_MAX_LIMIT}`, ['agents']),
-  // The open agreements, drawn as the constellation's lines.
+  // The agent field draws one cell per row (or per bucket of rows); the hero's
+  // figure is the index's own count, and the operator-run figure counts the
+  // rows whose on-chain name carries the `swarm-` prefix.
+  agents: api(`/v1/agents?limit=${INDEXER_MAX_LIMIT}`, ['agents', 'operatorRun']),
+  // The open agreements: which agents are working or in dispute, and the network graph's lines.
   escrows: api(`/v1/escrows?limit=${INDEXER_MAX_LIMIT}`, []),
   escrowStats: api('/v1/escrows/stats', ['activeAgreements', 'openDisputes']),
   agreementsCreated: events('escrow', 'AgreementCreated', ['agreementsCumulative']),
-  // The recently settled agreements, drawn as the constellation's dashed lines.
-  deliveriesConfirmed: events('escrow', 'DeliveryConfirmed', []),
+  // The recently settled agreements: the network graph's dashed lines, and the
+  // last hour's settlements.
+  deliveriesConfirmed: events('escrow', 'DeliveryConfirmed', ['hourSettled']),
+  // The rest of the last hour's activity, each read back to the block of one hour ago.
+  oracleAnswers: events('oracle', 'OracleResponseSubmitted', ['hourOracle']),
+  oracleBatches: events('oracle', 'BatchResponseSubmitted', ['hourOracle']),
+  disputesOpened: events('escrow', 'DisputeOpened', ['hourDisputes']),
+  // Also the agent field's "recently slashed" cells.
+  slashes: events('agents', 'SlashExecuted', ['hourSlashes']),
   registrations: events('agents', 'AgentRegistered', ['agentsOverTime']),
   unstakes: events('agents', 'UnstakeCompleted', ['agentsOverTime']),
 
@@ -203,23 +212,35 @@ export async function fetchHttp(source, path = source.path) {
  * Every page of a list endpoint up to `maxPages`, concatenated newest-first.
  * The result says whether it holds the whole list (`complete`), so a caller
  * can label a count as a floor when the cap cut it short.
+ *
+ * A newest-first event list read only back to a block: `source.stopBelow()`
+ * returns that block, and paging stops at the first page that reaches below
+ * it. `since` is the block, and `reachedStart` says the items hold everything
+ * from it to now (the list went past it, or ended); when the page cap stops
+ * the read first, `reachedStart` is false and a count from it is a floor.
  */
 export async function fetchAllPages(source, { maxPages = 5, fetcher = fetchHttp } = {}) {
   const items = [];
   let first = null;
   let total = 0;
+  const since = typeof source.stopBelow === 'function' ? source.stopBelow() : null;
+  const bounded = Number.isFinite(since);
+  const extra = (reachedStart) => (bounded ? { since, reachedStart } : {});
   for (let page = 0; page < maxPages; page += 1) {
     const record = await fetcher(source, page === 0 ? source.path : pageOf(source, items.length));
     first ??= record;
-    if (!record.ok) return { ...record, items, complete: false };
+    if (!record.ok) return { ...record, items, complete: false, ...extra(false) };
     const pageItems = field(record.data, 'items');
     total = field(record.data, 'total');
     items.push(...pageItems);
     if (items.length >= total || pageItems.length === 0) {
-      return { ...first, items, total, complete: true, pages: page + 1 };
+      return { ...first, items, total, complete: true, pages: page + 1, ...extra(true) };
+    }
+    if (bounded && field(pageItems[pageItems.length - 1], 'blockNumber') < since) {
+      return { ...first, items, total, complete: false, pages: page + 1, ...extra(true) };
     }
   }
-  return { ...first, items, total, complete: false, pages: maxPages };
+  return { ...first, items, total, complete: false, pages: maxPages, ...extra(false) };
 }
 
 // ── the shared WebSocket ─────────────────────────────────────────────────────

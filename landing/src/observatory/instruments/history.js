@@ -55,6 +55,8 @@ export const BLOCK_TIME_CEILING_S = 12;
 export const ERAS_SHOWN = 12;
 /** Pages of /v1/eras read for the running total: 200 eras a page, about 50 days each. */
 export const ERAS_ALL_PAGES = 3;
+/** 12 × 200 registrations: room for the ~2,000 operator-run agents the network will carry. */
+export const REGISTRATION_PAGES = 12;
 /** The drawing box before the strip has been measured. */
 export const DEFAULT_WIDTH = 300;
 export const DEFAULT_HEIGHT = 88;
@@ -305,6 +307,36 @@ export function agentSteps({ registrations, unstakes, totalNow, before, indexFro
   const end = Number.isFinite(nowBlock) ? Math.max(nowBlock, points[points.length - 1].block) : null;
   if (end !== null && end > points[points.length - 1].block) points.push({ block: end, count: running });
   return { baseline, points, registrations: registrations.length, unstakes: unstakes.length, total: running, start, end };
+}
+
+/** Above this many steps the agents-over-time line is drawn from a thinned series. */
+export const MAX_STEP_POINTS = 240;
+
+/**
+ * Thins a step series to at most `max` points for drawing: the blocks are cut
+ * into `max` equal spans and each span keeps its last point, so the line
+ * still passes through every span's closing count, and the first and last
+ * points are always kept. A strip a few hundred pixels wide cannot show more,
+ * and 2,000 registrations no longer mean a 2,000-vertex path. The figure and
+ * the summary still come from the whole series. Pure; tested.
+ */
+export function thinSteps(points, max = MAX_STEP_POINTS) {
+  if (points.length <= max) return points;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const span = Math.max(1, last.block - first.block) / (max - 2);
+  const kept = [first];
+  let bucket = 0;
+  let pending = null;
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const b = Math.floor((points[i].block - first.block) / span);
+    if (pending && b !== bucket) kept.push(pending);
+    bucket = b;
+    pending = points[i];
+  }
+  if (pending) kept.push(pending);
+  kept.push(last);
+  return kept;
 }
 
 /** The drawing frame inside a strip: room at the bottom for the end labels. */
@@ -810,7 +842,7 @@ export function init(root, ctx) {
           `and ${plural(series.unstakes, 'departure')}.`;
         const note = `${formatInteger(series.baseline)} joined before this record`;
         strip.draw((frame, svg, g) => {
-          const points = series.points;
+          const points = thinSteps(series.points);
           const lastBlock = points[points.length - 1].block;
           const x = scaleLinear().domain([series.start, Math.max(lastBlock, series.start + 1)]).range([frame.left, frame.right]);
           const y = scaleLinear().domain([0, yCeiling(points.map((p) => p.count))]).range([frame.bottom, frame.top]);
@@ -889,7 +921,7 @@ export function init(root, ctx) {
       showAgents();
     },
     INTERVAL_MS,
-    { maxPages: 3 },
+    { maxPages: REGISTRATION_PAGES },
   );
   ctx.watchAll(
     'unstakes',

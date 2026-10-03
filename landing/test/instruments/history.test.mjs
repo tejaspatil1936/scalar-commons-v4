@@ -9,6 +9,8 @@ import assert from 'node:assert/strict';
 import { scaleLinear } from 'd3-scale';
 
 import {
+  thinSteps,
+  MAX_STEP_POINTS,
   NOMINAL_BLOCK_S,
   ERAS_SHOWN,
   blockIntervals,
@@ -404,4 +406,16 @@ test('supply figures are read as planck counts and the indexer’s own percentag
   assert.throws(() => supplyFigures({ ...live, totalIssuancePlancks: '6e21' }, field), /counts of plancks/);
   assert.throws(() => supplyFigures({ ...live, percentIssued: '6' }, field), /non-numeric percentIssued/);
   assert.throws(() => supplyFigures({ capPlancks: '1' }, field), /response has no totalIssuancePlancks/);
+});
+
+test('the agents-over-time line is thinned to at most 240 points at 2,000 registrations, keeping each span’s closing count', () => {
+  const points = [{ block: 0, count: 0 }];
+  for (let i = 1; i <= 2_000; i += 1) points.push({ block: i * 7, count: i });
+  const thin = thinSteps(points);
+  assert.ok(thin.length <= MAX_STEP_POINTS, `${thin.length} points`);
+  assert.deepEqual(thin[0], points[0]);
+  assert.deepEqual(thin.at(-1), points.at(-1), 'the last count is always drawn');
+  for (let i = 1; i < thin.length; i += 1) assert.ok(thin[i].block > thin[i - 1].block && thin[i].count >= thin[i - 1].count);
+  const few = points.slice(0, 50);
+  assert.equal(thinSteps(few), few, 'a short series is drawn as it is');
 });

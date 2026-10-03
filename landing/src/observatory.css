@@ -85,6 +85,10 @@
   --settled: #6b747e;
   --disputed: #e6a23c;
   --slashed: var(--text-dim);
+  /* An idle agent's cell: the settled grey, which stands 3:1 off the plate. */
+  --idle: #6b747e;
+  /* Red for one thing only: an agent slashed in the last hour. */
+  --slash: #f0675c;
 }
 
 @media (prefers-color-scheme: light) {
@@ -102,6 +106,9 @@
     --settled: #8a9098;
     --disputed: #9a5800;
     --slashed: var(--text-dim);
+    /* A step darker than the settled grey, so an idle cell still stands 3:1 off the paper. */
+    --idle: #808790;
+    --slash: #b42318;
   }
 }
 
@@ -352,7 +359,7 @@ pre {
   border-color: var(--border);
 }
 
-/* The tooltip: a figure's source on hover, and an agent's details in the constellation. */
+/* The tooltip: a figure's source on hover, and an agent's details in the agent panel. */
 .tooltip {
   position: absolute;
   z-index: 5;
@@ -584,7 +591,7 @@ pre {
 
 /* ── the first screen ─────────────────────────────────────────────────────
    As tall as its content plus 64 px. Five columns of text and figures,
-   centred against seven of framed constellation. */
+   centred against seven of the framed agent activity panel. */
 
 .hero-grid {
   display: flex;
@@ -632,17 +639,19 @@ pre {
   text-wrap: pretty;
 }
 
-/* Three figures with hairlines between them: the height across the top,
-   agents and agreements side by side beneath it. Five columns cannot hold
-   three 64 px figures with their captions in one row (the height alone is
-   seven characters and growing), and a row that wraps unevenly is worse. */
+/* Four figures and a note with hairlines between them: the height across
+   the top; agents registered and how many are operator-run beside it;
+   agreements open, and beside it, directly under the operator-run figure,
+   the plain note on who runs those agents. Five columns cannot hold the
+   figures in one row (the height alone is seven characters and growing). */
 .hero-figures {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  margin: 0 0 var(--space-4);
+  margin: 0 0 var(--space-5);
 }
 
-.hero-figure {
+.hero-figure,
+.hero-note {
   position: relative;
   min-width: 0;
   padding-block: var(--space-4);
@@ -653,13 +662,60 @@ pre {
   padding-top: 0;
 }
 
-.hero-figure + .hero-figure {
+.hero-figure + .hero-figure,
+.hero-note {
   border-top: 1px solid var(--border);
 }
 
-.hero-figure:last-child {
+/* The right-hand column: the operator-run figure and the note under it. */
+.hero-figure:nth-child(3),
+.hero-note {
   padding-left: var(--space-4);
   border-left: 1px solid var(--border);
+}
+
+.hero-note {
+  margin: 0;
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
+  color: var(--text-dim);
+  text-wrap: pretty;
+}
+
+/* The operator-run figure's "of M" is part of the figure, set at the label's size. */
+.hero-figure .reading-value .unit {
+  font-family: var(--font-sans);
+  font-size: var(--t-label);
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* On a phone, two figures to a row: the three beneath the height step down one size on the scale. */
+@media (max-width: 39.99rem) {
+  .hero-figure + .hero-figure .reading-value {
+    font-size: var(--t-figure-l);
+    line-height: var(--lh-figure-l);
+  }
+}
+
+/* Activity in the last hour: four figures in a row under the hero's, at figure-l. */
+.hour {
+  margin: 0 0 var(--space-5);
+}
+
+.hour-title {
+  margin: 0 0 var(--space-3);
+  font-family: var(--font-sans);
+  color: var(--text-dim);
+}
+
+/* Four to a row in five columns: a step less room either side of each hairline than a section's row. */
+.hour .hour-figures > .reading {
+  padding-inline: var(--space-3);
+}
+
+.hour .hour-figures > .reading:first-child {
+  padding-left: 0;
 }
 
 .hero-figure .reading-value {
@@ -688,10 +744,10 @@ pre {
   color: var(--live);
 }
 
-/* The constellation's frame: a hairline and 24 px of room; the canvas is clipped to it, so nothing is drawn outside and nothing sits behind the text. */
+/* The agent activity panel's frame: a hairline and 24 px of room; each canvas is clipped to it, so nothing is drawn outside and nothing sits behind the text. */
 .panel {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-3);
   margin: 0;
   padding: var(--space-4);
@@ -703,7 +759,7 @@ pre {
 .panel-head {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-2) var(--space-4);
 }
@@ -742,11 +798,48 @@ pre {
   border-top: 1px dashed var(--settled);
 }
 
+/* The legend's samples are the plate's own marks: a dot in each state's ink, and the operator-run ring. */
+.dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--idle);
+}
+
+.dot-working {
+  background: var(--active);
+}
+
+.dot-disputed {
+  background: var(--disputed);
+}
+
+.dot-slashed {
+  background: var(--slash);
+}
+
+.dot-ring {
+  width: 14px;
+  height: 14px;
+  background: none;
+  border: 1px solid var(--text-dim);
+}
+
+.field-host,
 .constellation-host {
   position: relative;
   height: clamp(320px, 52vh, 560px);
 }
 
+/* Beside a taller column of figures the field takes the panel's spare height, so the frame holds no dead band. */
+.field-host {
+  flex: 1 1 auto;
+  min-height: clamp(320px, 52vh, 560px);
+  height: auto;
+}
+
+.field-canvas,
 .constellation-canvas {
   display: block;
   width: 100%;
@@ -754,8 +847,106 @@ pre {
   touch-action: manipulation;
 }
 
-.constellation-list .instrument-note {
-  margin: var(--space-2) 0 0;
+.field-live {
+  margin: 0;
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The panel's one footnote: a line in the label size. */
+.panel-foot {
+  margin: 0;
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
+  color: var(--text-dim);
+}
+
+/* Room for the footnote's longest case (two lines) from the first paint, so its arrival moves nothing. */
+.field-foot {
+  min-height: calc(2 * var(--lh-label) * var(--t-label));
+}
+
+/* The field is the default view; the network graph replaces it while its switch is on. */
+.graph-legend,
+.graph-host,
+.graph-note,
+.hero-panel[data-graph] .field-legend,
+.hero-panel[data-graph] .field-host,
+.hero-panel[data-graph] .field-live,
+.hero-panel[data-graph] .field-foot {
+  display: none;
+}
+
+.hero-panel[data-graph] .graph-legend {
+  display: flex;
+}
+
+.hero-panel[data-graph] .graph-note {
+  display: block;
+}
+
+.hero-panel[data-graph] .graph-host {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+/* As the field does, the graph's plate takes the panel's spare height. */
+.hero-panel[data-graph] .constellation-host {
+  height: auto;
+  min-height: clamp(320px, 52vh, 560px);
+}
+
+@media (min-width: 64rem) {
+  .hero-panel[data-graph] .graph-host:has(.graph-bundles:not([hidden])) {
+    grid-template-columns: minmax(0, 1fr) 13rem;
+  }
+}
+
+/* The counts that used to float over the lines: beside the plate, one pair to a row. */
+.graph-bundles {
+  max-width: none;
+  max-height: clamp(320px, 52vh, 560px);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
+}
+
+.graph-bundles li {
+  display: grid;
+  padding-block: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+.graph-pair {
+  font-family: var(--font-mono);
+  font-size: var(--t-mono);
+  line-height: var(--lh-mono);
+  color: var(--text-dim);
+}
+
+.graph-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.list-pager {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-3) 0 0;
+  font-size: var(--t-label);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.list-pager[hidden] {
+  display: none;
 }
 
 .agent-list {
@@ -1746,7 +1937,8 @@ html[data-present] .noscript,
 html[data-present] .river-strip,
 html[data-present] .sb-sources,
 html[data-present] .notes,
-html[data-present] .constellation-list,
+html[data-present] .agents-list,
+html[data-present] .graph-toggle,
 html[data-present] .validator-list,
 html[data-present] .upgrade-detail,
 html[data-present] .skip {
