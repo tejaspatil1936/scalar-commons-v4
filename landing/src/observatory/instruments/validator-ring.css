@@ -8,7 +8,7 @@
    svg, and every font size is divided by it. */
 .ring .ring-label {
   font-family: var(--font-sans);
-  font-size: calc(0.75rem / var(--ring-scale, 1));
+  font-size: calc(var(--t-eyebrow) / var(--ring-scale, 1));
   font-variant-numeric: tabular-nums lining-nums;
 }
 
@@ -20,7 +20,7 @@
 /* Only a queued validator carries a second word under its label; the
    address is a tooltip on the point (a <title>) and a link in the list. */
 .ring .ring-label-addr {
-  font-size: calc(0.6875rem / var(--ring-scale, 1));
+  font-size: calc(var(--t-eyebrow) / var(--ring-scale, 1));
   fill: var(--text-dim);
   font-style: italic;
 }
@@ -33,7 +33,7 @@
 /* The words that travel with the sealing mark, inside the ring beside the lit point. */
 .ring .ring-sealing {
   font-family: var(--font-sans);
-  font-size: calc(0.6875rem / var(--ring-scale, 1));
+  font-size: calc(var(--t-eyebrow) / var(--ring-scale, 1));
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -42,9 +42,10 @@
 }
 
 .ring .ring-caption {
-  font-family: var(--font-mono);
-  font-size: calc(0.6875rem / var(--ring-scale, 1));
-  letter-spacing: 0.14em;
+  font-family: var(--font-sans);
+  font-size: calc(var(--t-eyebrow) / var(--ring-scale, 1));
+  font-weight: 600;
+  letter-spacing: 0.12em;
   fill: var(--text-dim);
   text-anchor: middle;
 }
@@ -88,7 +89,7 @@
 
 .ring-key {
   margin: 8px 0 0;
-  font-size: 0.75rem;
+  font-size: var(--t-label);
   line-height: 1.5;
   color: var(--text-dim);
   text-wrap: pretty;
@@ -96,10 +97,6 @@
 
 .ring-list-head {
   margin: 16px 0 0;
-  font-size: 0.75rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-dim);
 }
 
 .ring-list-head + .validator-list {
@@ -140,7 +137,7 @@
 
 .ring-status {
   font-family: var(--font-mono);
-  font-size: var(--text-mono);
+  font-size: var(--t-mono);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }

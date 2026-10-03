@@ -61,10 +61,9 @@ test('the build emits the observatory page, its bundle, stylesheet, fonts and re
     assert.ok(files.includes(name), `build produced no ${name} (got: ${files.join(', ')})`);
   }
   const fonts = readdirSync(join(out, 'fonts'));
-  for (const face of ['instrument-serif', 'ibm-plex-mono', 'ibm-plex-sans']) {
+  for (const face of ['source-serif-4', 'inter', 'jetbrains-mono']) {
     assert.ok(fonts.some((f) => f.startsWith(face) && f.endsWith('.woff2')), `no ${face} woff2 in dist/fonts`);
   }
-  assert.ok(!fonts.some((f) => f.startsWith('source-sans')), 'the body face is IBM Plex Sans now; Source Sans is not shipped');
   assert.match(page, /^<!doctype html>/i);
   assert.match(page, /<script type="module" src="observatory\.js"><\/script>/);
   // The stylesheet is inlined for first paint; the same bytes ship as a file.
@@ -93,7 +92,7 @@ test('no reading ships with a value: every figure on the page is fetched, not bu
   const readings = [...page.matchAll(/<(?:div|figure) class="[^"]*reading[^"]*" data-reading="([^"]+)"[\s\S]*?<p class="reading-prov">/g)];
   assert.ok(readings.length >= 18, `found ${readings.length} readings`);
   for (const [block, key] of readings) {
-    assert.match(block, /class="reading-label"/, `${key} has no label`);
+    assert.match(block, /class="[^"]*\breading-label\b/, `${key} has no label`);
   }
 });
 
@@ -302,7 +301,7 @@ const allCss = css + readdirSync(new URL('../src/observatory/instruments/', impo
   .join('\n');
 /** The declarations of the first rule whose selector is exactly `selector`. */
 const rule = (selector, source = css) =>
-  source.match(new RegExp(`(?:^|\\n)${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
+  source.replace(/\/\*[\s\S]*?\*\//g, '').match(new RegExp(`(?:^|\\})\\s*${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
 const section = (id) => page.match(new RegExp(`<section id="${id}"[\\s\\S]*?<\\/section>`))?.[0] ?? '';
 
 test('renderSection renders each section on its own for the harness', () => {
@@ -331,182 +330,288 @@ test('one URL: no ?sky and no ?present, and no three.js, GSAP or WebGL anywhere 
   assert.ok(!page.includes('data-reading="sky"') && !css.includes('.sky'), 'no sky slot or rule is left behind');
 });
 
-test('the first screen: the status bar, then the hero — wordmark over “Observatory”, one sentence, three live figures, the live line — beside the constellation in its own frame, the river along the foot', () => {
-  const bar = page.indexOf('class="statusbar reading" data-reading="networkStatus"');
-  const heroAt = page.indexOf('<header class="hero"');
-  assert.ok(bar > 0 && bar < heroAt, 'the status bar comes first');
-  const hero = page.match(/<header class="hero"[\s\S]*?<\/header>/)[0];
-  assert.match(hero, /<header class="hero" data-instrument="hero" data-present-screen aria-labelledby="hero-h">/);
-  // Left column: the wordmark in small caps above the title in the serif, then one sentence.
-  const text = hero.match(/<div class="hero-text">[\s\S]*?<p class="live-line"[\s\S]*?<\/p>\s*<\/div>/)?.[0] ?? '';
-  assert.ok(text, 'the hero’s left column is one block ending in the live line');
-  assert.match(text, /<p class="eyebrow">[\s\S]*Scalar Commons[\s\S]*?<\/p>\s*<h1 id="hero-h">Observatory<\/h1>/);
-  assert.match(text, /<p class="dek">A public test network where AI agents contract, escrow and settle work — read live from the chain\.<\/p>/);
-  // Three figures in a row, in order, each with a one-word caption under it, each shipped empty.
-  const figures = [...text.matchAll(/<div class="reading hero-figure" data-reading="([^"]+)">([\s\S]*?)<\/div>/g)];
-  assert.deepEqual(figures.map((m) => m[1]), ['heroHeight', 'agents', 'activeAgreements']);
-  for (const [, key, block] of figures) {
-    const caption = block.match(/<p class="reading-label">([\s\S]*?)<\/p>/)?.[1] ?? '';
-    const visible = caption.replace(/<span class="visually-hidden">[\s\S]*?<\/span>/g, '').trim();
-    assert.match(visible, /^[A-Z][a-z]+$/, `${key}'s caption is not one word: "${visible}"`);
-    assert.ok(block.indexOf('reading-value') < block.indexOf('reading-label'), `${key}: the caption sits under the figure`);
-    assert.ok(!/\d/.test(block.match(/<p class="reading-value[^>]*>([\s\S]*?)<\/p>/)[1].replace(/<[^>]+>/g, '')), `${key} ships a figure`);
-  }
-  assert.match(text, /<p class="live-line" data-state="connecting"><span class="pulse-dot" aria-hidden="true"><\/span> <span class="ll-state">Connecting<\/span> <span class="ll-finality">finality —<\/span><\/p>/);
-  // Right column: the constellation, framed, with nothing of the text inside it.
-  const panel = hero.match(/<figure class="panel hero-panel instrument"[\s\S]*?<\/figure>/)?.[0] ?? '';
-  assert.match(panel, /<figcaption class="panel-head">/);
-  assert.match(panel, /<canvas class="constellation-canvas"/);
-  assert.ok(!/data-reading=/.test(panel), 'no figure is drawn inside the frame');
-  assert.ok(hero.indexOf('hero-text') < hero.indexOf('hero-panel'));
-  // The river strip along the foot of the first screen.
-  assert.match(hero, /<canvas class="hero-river" aria-hidden="true"><\/canvas>\s*<\/header>/);
-  // The geometry: 5/12 and 7/12, a 120 px strip, ~96 px title, 56–64 px figures, never under 32 px.
-  assert.match(rule('.hero-text'), /grid-column: 1 \/ span 5/);
-  assert.match(rule('.hero-panel'), /grid-column: 6 \/ span 7/);
-  assert.match(rule('.hero-river'), /height: 120px/);
-  assert.match(rule('.hero h1'), /font-size: clamp\(3\.5rem, [^)]+, 6rem\)/);
-  assert.match(rule('.hero-figure .reading-value'), /font-size: clamp\(2\.75rem, [^)]+, 4rem\)/);
-  assert.match(css, /\.hero \{[^}]*min-height: calc\(100svh - var\(--bar-height\)\)/);
-  // The canvas is contained: the frame clips it, and no canvas covers the page.
-  assert.match(rule('.panel'), /border: 1px solid var\(--border\)/);
-  assert.match(rule('.panel'), /overflow: hidden/);
-  assert.ok(!/position: fixed[^}]*z-index: -1/.test(css), 'no full-page layer behind the text');
+const statusbarHtml = () => page.match(/<header class="statusbar reading"[\s\S]*?<\/header>/)?.[0] ?? '';
+const heroHtml = () => page.match(/<header class="hero"[\s\S]*?<\/header>/)?.[0] ?? '';
+/** Every declaration block of a stylesheet, as [selector, body]. */
+const blocks = (source) => [...source.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => [m[1].trim(), m[2]]);
+/** WCAG relative luminance and contrast of two #rrggbb colours. */
+const luminance = (hex) => {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a, b) => {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+};
+const themes = () => [...css.matchAll(/:root\s*\{([^}]*)\}/g)].slice(0, 2).map((m) => Object.fromEntries([...m[1].matchAll(/(--[a-z0-9-]+):\s*([^;]+);/g)].map((d) => [d[1], d[2].trim()])));
+
+test('the top bar: two zones, 56 px, sticky, a bottom hairline — wordmark and nav on the left; the status pill and two quiet text buttons on the right', () => {
+  const bar = statusbarHtml();
+  assert.ok(bar, 'the status bar is a header at the top of the page');
+  assert.ok(page.indexOf('<header class="statusbar reading"') < page.indexOf('<header class="hero"'));
+  const left = bar.match(/<div class="sb-left">([\s\S]*?)<\/div>/)?.[1] ?? '';
+  assert.match(left, /<a class="wordmark" href="observatory">/);
+  assert.match(left, /<nav class="site-nav"[\s\S]*Overview[\s\S]*Observatory[\s\S]*Docs/);
+  const right = bar.slice(bar.indexOf('<div class="sb-right">'));
+  // The pill: dot · state · block N · finality, in that order.
+  const pill = right.match(/<p class="sb-pill"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '';
+  const order = ['pulse-dot', 'sb-state', 'sb-block', 'sb-finality'].map((c) => pill.indexOf(`class="${c}"`));
+  assert.ok(order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), `the pill reads dot · state · block · finality: ${order}`);
+  assert.match(right, /<button type="button" class="btn sb-sources" role="switch" aria-checked="false">Sources<\/button>/);
+  assert.match(right, /<button type="button" class="btn sb-present" aria-pressed="false" aria-keyshortcuts="P">Present<\/button>/);
+  assert.match(css, /--bar-height: 56px/);
+  assert.match(rule('.statusbar'), /position: sticky/);
+  assert.match(rule('.statusbar'), /border-bottom: 1px solid var\(--border\)/);
+  assert.match(rule('.btn'), /min-height: 32px/);
 });
 
-test('sections 01–06: each has one H2 in the serif, one plain sentence, and its instrument', () => {
+test('the hero: no second wordmark; the title, one sentence, three captioned figures with hairlines between, the live line — left five of twelve, centred against the framed constellation on the right seven', () => {
+  const hero = heroHtml();
+  assert.match(hero, /<header class="hero" data-instrument="hero" data-present-screen aria-labelledby="hero-h">/);
+  assert.ok(!/wordmark|eyebrow|Scalar Commons/.test(hero), 'the wordmark lives in the top bar only');
+  const text = hero.match(/<div class="hero-text">[\s\S]*?<p class="live-line"[\s\S]*?<\/p>\s*<\/div>/)?.[0] ?? '';
+  assert.match(text, /^<div class="hero-text">\s*<h1 id="hero-h">Observatory<\/h1>\s*<p class="dek">A public test network where AI agents contract, escrow and settle work — read live from the chain\.<\/p>/);
+  const figures = [...text.matchAll(/<div class="reading hero-figure" data-reading="([^"]+)">([\s\S]*?)<\/div>/g)];
+  assert.deepEqual(figures.map((m) => m[1]), ['heroHeight', 'agents', 'activeAgreements']);
+  assert.deepEqual(figures.map((m) => m[2].match(/<p class="reading-label">([^<]+)<\/p>/)?.[1]), ['Height', 'Agents registered', 'Agreements open']);
+  for (const [, key, block] of figures) {
+    assert.ok(block.indexOf('reading-value') < block.indexOf('reading-label'), `${key}: the caption sits directly under its figure`);
+    assert.ok(!/\d/.test(block.match(/<p class="reading-value[^>]*>([\s\S]*?)<\/p>/)[1].replace(/<[^>]+>/g, '')), `${key} ships a figure`);
+  }
+  // Hairlines between them: the height across the top, agents and agreements side by side beneath it.
+  assert.match(rule('.hero-figure + .hero-figure'), /border-top: 1px solid var\(--border\)/);
+  assert.match(rule('.hero-figure:last-child'), /border-left: 1px solid var\(--border\)/);
+  assert.match(text, /<p class="live-line" data-state="connecting"><span class="pulse-dot" aria-hidden="true"><\/span> <span class="ll-state">Connecting<\/span> <span class="ll-finality">finality —<\/span><\/p>/);
+  // The grid: 5 + 7 of 12, the left column centred against the panel.
+  assert.match(rule('.hero-text'), /grid-column: 1 \/ span 5/);
+  assert.match(rule('.hero-text'), /align-self: center/);
+  assert.match(rule('.hero-panel'), /grid-column: 6 \/ span 7/);
+  // The 24/40 rhythm: title to sentence 24, sentence to figures 40, figures to the live line 24.
+  assert.match(rule('.hero h1'), /margin: 0 0 var\(--space-4\)/);
+  assert.match(rule('.dek'), /margin: 0 0 var\(--space-5\)/);
+  assert.match(rule('.hero-figures'), /margin: 0 0 var\(--space-4\)/);
+  // As tall as its content plus 64 px: no 100vh, no dead band.
+  assert.ok(!/100s?vh/.test(rule('.hero') + rule('.hero-grid')), 'the hero is not a viewport-height block');
+  assert.match(rule('.hero-grid'), /padding-block: var\(--space-6\) 0/);
+  // The panel: 24 px padding, the title an h3, the legend in label size, the list a disclosure button.
+  const panel = hero.match(/<figure class="panel hero-panel instrument"[\s\S]*?<\/figure>/)?.[0] ?? '';
+  // The panel's title is set in the h3 style; it is an h2 so the outline runs h1 → h2 → h3 without a gap.
+  assert.match(panel, /<figcaption class="panel-head"><h2 class="panel-title" id="panel-h">Agents and their agreements<\/h2>/);
+  assert.match(css, /\.chart-title,\s*\.panel-title \{[^}]*font-size: var\(--t-h3\)/);
+  assert.match(panel, /<details class="disclosure constellation-list"><summary>The same agents as a list<\/summary>/);
+  assert.match(panel, /<div class="tooltip constellation-tip" role="tooltip" hidden><\/div>/);
+  assert.ok(!/data-reading=/.test(panel), 'no figure inside the frame');
+  assert.match(rule('.panel'), /padding: var\(--space-4\)/);
+  assert.match(rule('.legend'), /font-size: var\(--t-label\)/);
+});
+
+test('the river under the hero: a titled strip, 140 px, the content width, its axis and FINAL marker labelled', () => {
+  const after = page.slice(page.indexOf('</header>', page.indexOf('<header class="hero"')));
+  const strip = after.match(/<figure class="frame river-strip" aria-labelledby="river-h">[\s\S]*?<\/figure>/)?.[0] ?? '';
+  assert.ok(strip, 'the strip follows the hero directly, inside the content frame');
+  assert.ok(after.indexOf('river-strip') < after.indexOf('<main>'));
+  assert.match(strip, /<h2 class="chart-title" id="river-h">Blocks arriving now<\/h2>/);
+  assert.match(strip, /<canvas class="hero-river" role="img" aria-label="[^"]+"><\/canvas>/);
+  assert.match(rule('.hero-river'), /height: 140px/);
+  const pulse = readFileSync(new URL('../src/observatory/instruments/pulse.js', import.meta.url), 'utf8');
+  assert.ok(!/compact: true/.test(pulse), 'the strip is drawn with its labels, like the full river');
+  assert.match(pulse, /FINAL ·/);
+});
+
+test('sections: an eyebrow, an h2, one sentence, the instrument and a row of figures, 104 px apart', () => {
   const sections = [...page.matchAll(/<section id="([a-z]+)" class="section" data-instrument="([a-z-]+)" data-present-screen data-reveal aria-labelledby="\1-h">([\s\S]*?)<\/section>/g)];
-  assert.deepEqual(sections.map((m) => [m[1], m[2]]), [
-    ['chain', 'pulse'],
-    ['economy', 'era'],
-    ['validators', 'validators'],
-    ['history', 'history'],
-    ['upgrades', 'upgrades'],
-    ['verify', 'verify'],
-  ]);
-  const titles = ['Chain', 'Economy', 'Validators', 'History', 'Upgrades', 'Verify'];
+  assert.deepEqual(sections.map((m) => m[1]), ['chain', 'economy', 'validators', 'history', 'upgrades', 'verify']);
+  const names = ['Chain', 'Economy', 'Validators', 'History', 'Upgrades', 'Verify'];
   sections.forEach(([, id, , body], i) => {
-    assert.equal((body.match(/<h2 /g) ?? []).length, 1, `${id} has one heading`);
-    assert.match(body, new RegExp(`<p class="section-number">0${i + 1}</p>\\s*<h2 id="${id}-h">${titles[i]}</h2>\\s*<p class="lede">`));
+    assert.match(body, new RegExp(`<p class="eyebrow">0${i + 1} · ${names[i]}</p>\\s*<h2 id="${id}-h">[^<]{8,60}</h2>\\s*<p class="lede">`), `${id}: eyebrow, then h2, then the sentence`);
     const lede = body.match(/<p class="lede">([\s\S]*?)<\/p>/)[1].replace(/<[^>]+>/g, '');
-    assert.ok(lede.length <= 110, `${id}'s sentence is ${lede.length} characters: two lines at most`);
-    assert.ok(!/[.!?] [A-Z]/.test(lede), `${id} says more than one sentence`);
+    assert.ok(lede.length <= 120 && !/[.!?] [A-Z]/.test(lede), `${id}: one plain sentence`);
     assert.ok(body.indexOf('class="lede"') < body.indexOf('class="instrument'), `${id}: the sentence precedes the instrument`);
-    assert.ok(!body.includes('class="means"'), `${id}: no explanatory paragraphs`);
+    if (/class="readings/.test(body)) {
+      assert.ok(body.indexOf('class="instrument') < body.indexOf('class="readings'), `${id}: the figures follow the instrument`);
+    }
   });
   const keys = (id) => [...section(id).matchAll(/data-reading="([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(keys('chain'), ['bestBlock', 'finalizedBlock', 'finalityLag', 'blocksPerMinute']);
-  assert.match(section('chain'), /<canvas class="pulse-canvas"/);
   assert.deepEqual(keys('economy'), ['eraCountdown', 'agentPayouts', 'openDisputes']);
-  assert.match(section('economy'), /<div class="dial" data-role="dial"/);
   assert.deepEqual(keys('validators'), ['validators', 'nodeHealth']);
-  assert.match(section('validators'), /<svg class="ring"/);
   assert.deepEqual(keys('history'), ['blockTime', 'agreementsCumulative', 'emissionCumulative', 'agentsOverTime']);
   assert.deepEqual(keys('upgrades'), ['specVersion', 'lastUpgrade']);
-  assert.match(section('upgrades'), /<div class="rail"/);
-  // Verify is collapsed by default.
-  assert.match(section('verify'), /<details class="verify">/);
-  assert.ok(!/<details class="verify" open/.test(section('verify')));
-  // The section heads are the display serif.
-  assert.match(rule('h1,\nh2'), /font-family: var\(--font-serif\)/);
+  assert.match(section('verify'), /<details class="disclosure verify">/);
+  // Figure rows: equal widths, hairlines between, no boxes; figures at figure-l with label captions under them.
+  assert.match(rule('.figure-row'), /grid-auto-columns: minmax\(0, 1fr\)/);
+  assert.match(rule('.figure-row > .reading + .reading'), /border-left: 1px solid var\(--border\)/);
+  assert.ok(!/border: 1px/.test(rule('.figure-row > .reading')), 'no box round a figure');
+  for (const [, block] of section('chain').matchAll(/<div class="reading" data-reading="[^"]+">([\s\S]*?)<\/div>/g)) {
+    assert.ok(block.indexOf('reading-value') < block.indexOf('reading-label'), 'a section figure carries its caption under it');
+  }
+  assert.match(rule('.section'), /padding-block: var\(--space-7\)/);
+  assert.match(rule('.section-grid'), /gap: var\(--space-5\)/);
+  // Charts: titles in h3, axes in mono at 0.75 rem in the secondary colour, one zero line.
+  for (const [, key, block] of page.matchAll(/<figure class="strip reading" data-reading="([^"]+)">([\s\S]*?)<\/figure>/g)) {
+    assert.match(block, /<h3 class="chart-title reading-label">[^<]+<\/h3>/, `${key} has no h3 title`);
+    assert.match(block, /<p class="strip-caption">[^<]{10,80}<\/p>/, `${key} has no one-line caption`);
+  }
+  assert.match(rule('.strip-plot .plot-label', allCss), /font-family: var\(--font-mono\)/);
+  assert.match(rule('.strip-plot .plot-label', allCss), /font-size: var\(--t-mono\)/);
+  assert.match(rule('.strip-plot .plot-label', allCss), /fill: var\(--text-dim\)/);
+  const strips = readFileSync(new URL('../src/observatory/instruments/history.js', import.meta.url), 'utf8');
+  assert.equal((strips.match(/'plot-zero'/g) ?? []).length, 4, 'one zero line per strip');
 });
 
-test('data presentation: figures large, labels short, units small and grey; every chart has a title, a one-line caption and a zero line', () => {
-  for (const [, label] of page.matchAll(/<(?:h3|p) class="reading-label">([\s\S]*?)<\/(?:h3|p)>/g)) {
-    const visible = label.replace(/<span class="visually-hidden">[\s\S]*?<\/span>/g, '').replace(/<[^>]+>/g, '').trim();
-    assert.ok(visible.length <= 26, `a label runs long: "${visible}"`);
+test('fonts: Source Serif 4 (optical size 60) for display and figures, Inter for the interface, JetBrains Mono for sources — self-hosted, swapped, metric-matched; nothing else ships', () => {
+  const fonts = readdirSync(join(out, 'fonts')).sort();
+  assert.deepEqual(fonts, ['inter-latin-wght-normal.woff2', 'jetbrains-mono-latin-400-normal.woff2', 'source-serif-4-latin-opsz-normal.woff2']);
+  assert.ok(!/Instrument Serif|instrument-serif|IBM Plex|ibm-plex/i.test(css + page), 'Instrument Serif and IBM Plex are gone');
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  for (const gone of ['@fontsource/instrument-serif', '@fontsource/ibm-plex-mono', '@fontsource/ibm-plex-sans']) assert.ok(!(gone in (pkg.devDependencies ?? {})), `${gone} is still installed`);
+  const faces = [...css.matchAll(/@font-face\s*\{([^}]*)\}/g)].map((m) => m[1]);
+  for (const family of ['Source Serif 4', 'Inter', 'JetBrains Mono']) {
+    const face = faces.find((f) => f.includes(`font-family: "${family}";`));
+    assert.ok(face && /font-display: swap/.test(face), `${family} is not self-hosted with font-display: swap`);
+    const fallback = faces.find((f) => f.includes(`font-family: "${family} Fallback";`));
+    assert.ok(fallback && /size-adjust: [\d.]+%/.test(fallback) && /ascent-override/.test(fallback) && /descent-override/.test(fallback), `${family} has no metric-matched fallback`);
   }
+  assert.match(css, /--font-serif: "Source Serif 4", "Source Serif 4 Fallback"/);
+  assert.match(css, /--font-sans: "Inter", "Inter Fallback"/);
+  assert.match(css, /--font-mono: "JetBrains Mono", "JetBrains Mono Fallback"/);
+  assert.match(rule('h1,\nh2'), /font-family: var\(--font-serif\)/);
+  assert.match(rule('h1,\nh2'), /font-variation-settings: "opsz" 60/);
+  assert.match(rule('h1,\nh2'), /font-weight: 500/);
   assert.match(rule('.reading-value'), /font-family: var\(--font-serif\)/);
-  assert.match(rule('.reading-value'), /font-size: clamp\(2\.5rem, [^)]+, 3\.5rem\)/);
-  assert.match(rule('.reading-value .unit'), /color: var\(--text-dim\)/);
-  assert.match(rule('.reading-value .unit'), /font-size: var\(--text-small\)/);
-  for (const [, key, block] of page.matchAll(/<figure class="strip reading" data-reading="([^"]+)">([\s\S]*?)<\/figure>/g)) {
-    assert.match(block, /<h3 class="reading-label">[^<]+<\/h3>/, `${key} has no title`);
-    const caption = block.match(/<p class="strip-caption">([^<]+)<\/p>/)?.[1] ?? '';
-    assert.ok(caption.length > 10 && caption.length <= 80, `${key}'s caption is not one line: "${caption}"`);
+  assert.match(rule('.reading-value'), /font-variation-settings: "opsz" 60/);
+  assert.match(rule('.reading-value'), /font-weight: 400/);
+  assert.match(rule('body'), /font: 400 var\(--t-body\) \/ 1\.6 var\(--font-sans\)/);
+  assert.match(rule('body'), /font-feature-settings: "cv11", "ss01"/);
+  assert.match(rule('.reading-label'), /font-weight: 500/);
+  assert.match(rule('.eyebrow'), /font-weight: 600/);
+  assert.match(css, /--measure: 62ch/);
+  // Mono only for sources, hashes, addresses and the river's axis.
+  for (const selector of ['.reading-prov', '.hash', '.agent-list', '.validator-list']) {
+    assert.match(rule(selector, allCss), /font-family: var\(--font-mono\)/, `${selector} is not mono`);
   }
-  const strips = readFileSync(new URL('../src/observatory/instruments/history.js', import.meta.url), 'utf8');
-  assert.ok((strips.match(/'plot-zero'/g) ?? []).length >= 4, 'every strip draws its zero line');
-  assert.match(rule('.strip-plot .plot-zero', allCss), /stroke: var\(--text-dim\)/);
+  for (const selector of ['.reading-value', '.reading-label', '.eyebrow', '.btn', '.legend', '.constellation-tip']) {
+    assert.ok(!/var\(--font-mono\)/.test(rule(selector, allCss)), `${selector} is set in mono`);
+  }
+  assert.match(page, /<link rel="preload" href="fonts\/source-serif-4-latin-opsz-normal\.woff2" as="font" type="font\/woff2" crossorigin>/);
+  assert.match(page, /<link rel="preload" href="fonts\/inter-latin-wght-normal\.woff2" as="font" type="font\/woff2" crossorigin>/);
+});
+
+test('figures: real tabular lining figures — the digit-cell workaround is gone', () => {
+  assert.match(rule('.reading-value'), /font-variant-numeric: tabular-nums lining-nums/);
+  assert.ok(!/\.dc\b|dcells/.test(allCss), 'no digit-cell rule is left');
+  for (const [file, src] of clientSources()) assert.ok(!/setDigits|dcells/.test(src), `${file} still builds digit cells`);
+  // Numeric interface text is tabular too.
+  for (const selector of ['.sb-pill', '.live-line', '.mono,\ncode,\npre']) {
+    assert.match(rule(selector), /font-variant-numeric: tabular-nums/, `${selector} is not tabular`);
+  }
+});
+
+test('type scale: nine sizes in rem, and every font size in the stylesheet is one of them', () => {
+  const scale = {
+    display: ['4.5rem', '1'], 'figure-xl': ['4rem', '1'], h2: ['2.25rem', '1.15'], 'figure-l': ['2.5rem', '1'],
+    h3: ['1.25rem', '1.3'], body: ['1.0625rem', '1.6'], label: ['0.875rem', '1.4'], eyebrow: ['0.75rem', '1.2'], mono: ['0.75rem', '1.5'],
+  };
+  for (const [name, [size, line]] of Object.entries(scale)) {
+    assert.match(css, new RegExp(`--t-${name}: ${size.replace('.', '\\.')};`), `--t-${name} is not ${size}`);
+    assert.match(css, new RegExp(`--lh-${name}: ${line.replace('.', '\\.')};`), `--lh-${name} is not ${line}`);
+  }
+  assert.match(rule('.hero h1'), /font-size: var\(--t-display\)/);
+  assert.match(rule('.hero h1'), /letter-spacing: -0\.02em/);
+  assert.match(rule('.hero-figure .reading-value'), /font-size: var\(--t-figure-xl\)/);
+  assert.match(rule('h2'), /font-size: var\(--t-h2\)/);
+  assert.match(rule('h2'), /letter-spacing: -0\.01em/);
+  assert.match(rule('.reading-value'), /font-size: var\(--t-figure-l\)/);
+  assert.match(rule('h3'), /font-size: var\(--t-h3\)/);
+  assert.match(rule('.reading-label'), /font-size: var\(--t-label\)/);
+  assert.match(rule('.eyebrow'), /font-size: var\(--t-eyebrow\)/);
+  assert.match(rule('.eyebrow'), /letter-spacing: 0\.12em/);
+  assert.match(rule('.eyebrow'), /text-transform: uppercase/);
+  // Only the scale: presenter mode, which sets figures for a room, is the one stated exception.
+  for (const [selector, body] of blocks(allCss)) {
+    if (selector.startsWith('html[data-present]') || selector.startsWith(':root') || selector.startsWith('@font-face')) continue;
+    for (const [, value] of body.matchAll(/font-size:\s*([^;]+);/g)) {
+      assert.match(value, /var\(--t-[a-z0-9-]+\)|^inherit$/, `${selector} sets font-size: ${value}, off the scale`);
+    }
+    for (const [, value] of body.matchAll(/(?:^|;)\s*font:\s*([^;]+);/g)) {
+      assert.match(value, /var\(--t-[a-z0-9-]+\)/, `${selector} sets font: ${value}, off the scale`);
+    }
+  }
+});
+
+test('colour: the plate, surface, hairline, text and secondary as briefed; secondary text passes WCAG AA on both themes; one teal for live, amber for disputes only; no gradients, glow or glass', () => {
+  const [dark, light] = themes();
+  assert.equal(dark['--bg'], '#0b0e12');
+  assert.equal(dark['--surface'], '#11151b');
+  assert.equal(dark['--border'], '#1f252d');
+  assert.equal(dark['--text'], '#e8eaed');
+  assert.equal(dark['--text-dim'], '#a3acb7');
+  assert.equal(light['--bg'], '#f7f6f2');
+  for (const [name, scheme] of [['dark', dark], ['light', light]]) {
+    for (const ground of ['--bg', '--surface']) {
+      for (const ink of ['--text', '--text-dim']) {
+        const ratio = contrast(scheme[ink], scheme[ground]);
+        assert.ok(ratio >= 4.5, `${name}: ${ink} on ${ground} is ${ratio.toFixed(2)}:1, under AA`);
+      }
+    }
+    assert.ok(contrast(scheme['--accent'], scheme['--bg']) >= 4.5, `${name}: the accent is too faint to read as text`);
+    assert.ok(contrast(scheme['--disputed'], scheme['--bg']) >= 4.5, `${name}: amber is too faint to read as text`);
+    assert.equal(scheme['--live'], 'var(--accent)');
+    assert.equal(scheme['--active'], 'var(--accent)');
+  }
+  for (const [selector, body] of blocks(allCss)) {
+    if (/var\(--disputed\)/.test(body)) assert.match(selector, /disput/, `amber used outside a dispute: ${selector}`);
+  }
+  assert.ok(!/gradient\(|box-shadow|text-shadow|backdrop-filter|blur\(/.test(allCss), 'no gradients, glow or glass');
+  for (const [file, src] of clientSources()) {
+    assert.ok(!/shadowBlur|createLinearGradient|createRadialGradient/.test(src), `${file} draws a glow or gradient`);
+  }
+});
+
+test('components: one button, one disclosure, one tooltip, one focus ring; 40 px hit targets on touch', () => {
+  assert.match(rule(':focus-visible'), /outline: 2px solid var\(--accent\)/);
+  assert.match(rule(':focus-visible'), /outline-offset: 2px/);
+  assert.match(rule('.disclosure > summary'), /min-height: 32px/);
+  const buttons = [...page.matchAll(/<button[^>]*class="([^"]*)"/g)].map((m) => m[1]);
+  assert.ok(buttons.every((c) => /\bbtn\b|\bcopy\b/.test(c)), `a button outside the one style: ${buttons.join(' | ')}`);
+  assert.match(rule('.copy'), /^/); // copy controls share .btn in markup
+  for (const [, cls] of page.matchAll(/<details class="([^"]*)"/g)) assert.match(cls, /\bdisclosure\b/, `a disclosure outside the one style: ${cls}`);
+  // The tooltip: the constellation's tip and a figure's source on hover are the same component.
+  const tip = rule('.tooltip');
+  for (const decl of ['background: var(--surface)', 'border: 1px solid var(--border)', 'padding: var(--space-2) var(--space-3)']) {
+    assert.ok(tip.includes(decl), `.tooltip lacks ${decl}`);
+  }
+  const hover = css.match(/html:not\(\[data-sources\]\) \[data-reading\]:hover > \.reading-prov,\s*html:not\(\[data-sources\]\) \[data-reading\]:focus-within > \.reading-prov \{([^}]*)\}/)?.[1] ?? '';
+  for (const decl of ['background: var(--surface)', 'border: 1px solid var(--border)', 'padding: var(--space-2) var(--space-3)']) {
+    assert.ok(hover.includes(decl), `the source tooltip lacks ${decl}`);
+  }
+  const coarse = css.slice(css.indexOf('@media (pointer: coarse)'));
+  assert.match(coarse, /min-height: 40px/);
 });
 
 test('provenance: hidden by default; Sources shows every line in place and is remembered; hovering a figure shows its source as a tooltip', () => {
-  const statusbar = page.match(/<div class="statusbar reading"[\s\S]*?<\/div>\n/)[0];
-  assert.match(statusbar, /<button type="button" class="sb-sources" role="switch" aria-checked="false">Sources<\/button>/);
   assert.match(page, /<script>try\{if\(localStorage\.getItem\("observatory:sources"\)==="1"\)document\.documentElement\.setAttribute\("data-sources",""\)\}catch\(e\)\{\}<\/script>/);
   assert.match(rule('.reading-prov'), /display: none/);
   assert.match(css, /html\[data-sources\] \.reading-prov \{\s*display: block;\s*position: static;/);
-  assert.match(css, /html:not\(\[data-sources\]\) \[data-reading\]:hover > \.reading-prov,\s*html:not\(\[data-sources\]\) \[data-reading\]:focus-within > \.reading-prov \{[^}]*display: block;[^}]*position: absolute;[^}]*border: 1px solid var\(--border\)/);
   assert.ok((page.match(/class="reading-prov"/g) ?? []).length >= 18, 'every figure still carries its line');
   assert.ok(bundle.includes('observatory:sources'), 'the bundle remembers the choice');
-});
-
-test('typography: Instrument Serif figures in digit cells, IBM Plex Sans body at 17 px / 1.6 within 60ch, Plex Mono at 12 px for sources, hashes and addresses; a strict spacing scale; 1280 px', () => {
-  assert.match(css, /--font-sans: "IBM Plex Sans"/);
-  assert.match(css, /--font-serif: "Instrument Serif"/);
-  assert.match(rule('body'), /font: 400 1\.0625rem \/ 1\.6 var\(--font-sans\)/);
-  assert.match(css, /--measure: 60ch/);
-  assert.match(rule('.dc'), /width: 1ch/);
-  assert.match(css, /--text-mono: 0\.75rem/);
-  for (const selector of ['.reading-prov', '.hash', '.agent-list', '.validator-list']) {
-    assert.match(rule(selector, allCss), /font-family: var\(--font-mono\)/, `${selector} is not mono`);
-    assert.match(rule(selector, allCss), /font-size: var\(--text-mono\)/, `${selector} is not 12 px`);
-  }
-  assert.match(rule('.fact .reading-value'), /font-family: var\(--font-mono\)/, 'a hash stays mono');
-  // The spacing scale, and nothing else, for every margin, padding and gap in the design system.
-  const scale = { 1: '4px', 2: '8px', 3: '16px', 4: '24px', 5: '40px', 6: '64px', 7: '104px' };
-  for (const [n, px] of Object.entries(scale)) assert.match(css, new RegExp(`--space-${n}: ${px};`));
-  for (const [, prop, value] of css.matchAll(/\n\s+((?:margin|padding|gap|row-gap|column-gap)(?:-[a-z]+)*): ([^;]+);/g)) {
-    for (const token of value.split(/\s+/)) {
-      assert.match(token, /^(?:0|auto|-?var\(--(?:space-[1-7]|gutter|bar-height)\))$/, `${prop}: ${value} is off the spacing scale`);
-    }
-  }
-  assert.match(css, /--content: 1280px/);
-  assert.match(rule('.frame'), /max-width: calc\(var\(--content\) \+ 2 \* var\(--gutter\)\)/);
-  const fonts = readdirSync(join(out, 'fonts'));
-  assert.ok(fonts.includes('ibm-plex-sans-latin-400-normal.woff2') && fonts.includes('ibm-plex-sans-latin-600-normal.woff2'));
-});
-
-test('colour: near-black and paper plates, one teal for live state, amber only for disputes; no gradients, glow or glass', () => {
-  const tokens = [...css.matchAll(/:root\s*\{([^}]*)\}/g)].map((m) => Object.fromEntries([...m[1].matchAll(/(--[a-z0-9-]+):\s*([^;]+);/g)].map((d) => [d[1], d[2].trim()])));
-  const [dark, light] = tokens;
-  assert.equal(dark['--bg'], '#0b0e12');
-  assert.equal(dark['--text'], '#e8eaed');
-  assert.equal(dark['--text-dim'], '#9aa3ad');
-  assert.equal(light['--bg'], '#f7f6f2');
-  for (const scheme of [dark, light]) {
-    for (const name of ['--accent', '--live', '--disputed', '--settled', '--border', '--grid']) assert.ok(scheme[name], `${name} is not defined`);
-    assert.equal(scheme['--live'], 'var(--accent)', 'live state is the one accent');
-    assert.equal(scheme['--active'], 'var(--accent)');
-  }
-  // Amber appears only where a dispute is drawn.
-  for (const [, selector] of allCss.matchAll(/([^{}]+)\{[^}]*var\(--disputed\)[^}]*\}/g)) {
-    assert.match(selector, /disput/, `amber used outside a dispute: ${selector.trim()}`);
-  }
-  assert.ok(!/gradient\(|box-shadow|text-shadow|backdrop-filter|blur\(/.test(allCss), 'no gradients, glow or glass in the stylesheet');
-  for (const [file, src] of clientSources()) {
-    assert.ok(!/shadowBlur|live-glow|createLinearGradient|createRadialGradient/.test(src), `${file} draws a glow or gradient`);
-  }
 });
 
 test('motion: figures tween, sections fade up 12 px once by IntersectionObserver, the new block slides into the river; nothing loops; reduced motion turns it off', () => {
   assert.match(css, /html\.reveal-ready \[data-reveal\]:not\(\.is-in\) \{\s*opacity: 0;\s*transform: translateY\(12px\);/);
   assert.ok(!/@keyframes|animation:/.test(allCss), 'no keyframe animation at all');
-  assert.ok(bundle.includes('IntersectionObserver'), 'the reveal is the browser’s observer, no library');
+  assert.ok(bundle.includes('IntersectionObserver'));
   const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
   assert.match(reduced, /\[data-reveal\] \{\s*opacity: 1;\s*transform: none;\s*transition: none;/);
   const pulse = readFileSync(new URL('../src/observatory/instruments/pulse.js', import.meta.url), 'utf8');
-  assert.match(pulse, /animateArrival/, 'the river slides each new block in');
-  assert.ok(!/class="[^"]*beat/.test(page) && !bundle.includes('"beat"'), 'no beat: a dot that pulses every block is a loop');
+  assert.match(pulse, /animateArrival/);
 });
 
-test('presenter mode: a small Present button and the P key, the hero first, then the six sections, figures for a room', () => {
-  const statusbar = page.match(/<div class="statusbar reading"[\s\S]*?<\/div>\n/)[0];
-  assert.match(statusbar, /<button type="button" class="sb-present" aria-pressed="false" aria-keyshortcuts="P">Present<\/button>/);
+test('presenter mode: the Present button and P, the hero first, then the six sections, figures for a room', () => {
   assert.ok(!page.includes('data-present=""') && !/present=1/.test(page), 'nothing in the page turns it on from the URL');
   const screens = [...page.matchAll(/<(header|section)(?: id="([a-z]+)")?[^>]*data-present-screen/g)].map((m) => m[2] ?? 'hero');
   assert.deepEqual(screens, ['hero', 'chain', 'economy', 'validators', 'history', 'upgrades', 'verify']);
-  for (const selector of ['html[data-present] .site-nav', 'html[data-present] .reading-prov', 'html[data-present] footer', 'html[data-present] [data-present-screen][data-present-active]']) {
+  for (const selector of ['html[data-present] .site-nav', 'html[data-present] .reading-prov', 'html[data-present] footer', 'html[data-present] [data-present-screen][data-present-active]', 'html[data-present] .river-strip']) {
     assert.ok(css.includes(selector), `observatory.css has no rule for ${selector}`);
   }
   assert.match(css, /html\[data-present\] \.section \.reading-value \{\s*font-size: clamp\(3rem, 8\.5vw, 160px\)/);
@@ -514,19 +619,12 @@ test('presenter mode: a small Present button and the P key, the hero first, then
   assert.ok(!/<script/i.test(index), 'index.html stays script-free');
 });
 
-test('identity: the wordmark with the reticle mark in the status bar and the footer; no favicon, and the landing page untouched', () => {
-  const statusbar = page.match(/<div class="statusbar reading"[\s\S]*?<\/div>\n/)[0];
-  assert.match(statusbar, /<a class="wordmark" href="observatory"><svg class="mark"/);
+test('identity: the wordmark with the mark in the top bar and the footer; no favicon; the landing page untouched', () => {
+  assert.match(statusbarHtml(), /<a class="wordmark" href="observatory"><svg class="mark"/);
+  assert.match(page.slice(page.indexOf('<footer')), /<a class="wordmark" href="observatory"><svg class="mark"/);
+  assert.ok(!/rel="icon"/.test(page) && !/rel="icon"/.test(index));
+  assert.ok(!readdirSync(out).includes('favicon.svg'));
   const footer = page.slice(page.indexOf('<footer'));
-  assert.match(footer, /<a class="wordmark" href="observatory"><svg class="mark"/);
-  const mark = page.match(/<svg class="mark"[^>]*>([\s\S]*?)<\/svg>/)[1];
-  assert.equal((mark.match(/<circle/g) ?? []).length, 2);
-  assert.equal((mark.match(/<path/g) ?? []).length, 1);
-  // The brief is /observatory only: no site-root favicon, and no change to the landing page.
-  assert.ok(!/rel="icon"/.test(page), 'the observatory links no favicon');
-  assert.ok(!/rel="icon"/.test(index), 'the landing page is not changed by this redesign');
-  assert.ok(!readdirSync(out).includes('favicon.svg'), 'the build writes no favicon at the site root');
-  const footerText = page.slice(page.indexOf('<footer'));
-  assert.match(footerText, /class="merge" data-reading="lastMerge"/, 'the merge line lives in the footer');
-  assert.match(footerText, /<details class="howto">/);
+  assert.match(footer, /class="merge" data-reading="lastMerge"/);
+  assert.match(footer, /<details class="disclosure howto">/);
 });

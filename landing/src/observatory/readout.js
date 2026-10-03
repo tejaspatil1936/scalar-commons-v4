@@ -72,44 +72,23 @@ export function wrappableLabel(label) {
 }
 
 /**
- * Sets a figure's digits, each in its own cell. The display serif has no
- * tabular figures (neither Instrument Serif nor Fraunces carries a `tnum`
- * feature or tabular glyphs — checked in the font tables), so a figure that
- * counts up would shift its neighbours on every tick. Each digit is set in a
- * cell one `ch` wide (the width of the face's widest digit, its zero), which
- * gives the alignment tabular figures would; the separators keep their own
- * width. The whole figure is also present once, unbroken, for screen readers,
- * so the cells are not read as separate words.
+ * Sets a figure's text. The display face (Source Serif 4) has real tabular
+ * lining figures, switched on by the stylesheet (`font-variant-numeric:
+ * tabular-nums lining-nums`), so a figure that counts up moves nothing beside
+ * it without any per-digit markup, and a screen reader reads it once, whole.
  */
-export function setDigits(node, text) {
-  node.replaceChildren();
-  const spoken = document.createElement('span');
-  spoken.className = 'visually-hidden';
-  spoken.textContent = text;
-  const cells = document.createElement('span');
-  cells.className = 'dcells';
-  cells.setAttribute('aria-hidden', 'true');
-  for (const ch of String(text)) {
-    if (/\d/.test(ch)) {
-      const cell = document.createElement('span');
-      cell.className = 'dc';
-      cell.textContent = ch;
-      cells.append(cell);
-    } else {
-      cells.append(ch);
-    }
-  }
-  node.append(spoken, cells);
+export function setFigure(node, text) {
+  node.replaceChildren(document.createTextNode(String(text)));
 }
 
 /** Counts from the previous integer to the new one over 200 ms, if motion is allowed. */
 function tick(digits, from, to, motion) {
   if (!motion || motion.reduced() || document.hidden || !(to > from) || to - from > 100_000) {
-    setDigits(digits, formatInteger(to));
+    setFigure(digits, formatInteger(to));
     return;
   }
   motion.tween(200, (t) => {
-    setDigits(digits, formatInteger(Math.round(from + (to - from) * t)));
+    setFigure(digits, formatInteger(Math.round(from + (to - from) * t)));
   });
 }
 
@@ -162,7 +141,7 @@ export function showValue(target, record, { value, prefix = '', unit = '', sub =
   if (typeof value === 'number') {
     const previous = before === undefined ? NaN : Number(before);
     if (Number.isFinite(previous)) tick(digits, previous, value, motion);
-    else setDigits(digits, formatInteger(value));
+    else setFigure(digits, formatInteger(value));
     slot.dataset.number = String(value);
   } else {
     digits.textContent = value;

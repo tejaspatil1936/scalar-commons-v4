@@ -22,6 +22,7 @@ import { createMotion } from './motion.js';
 
 const THEME_NAMES = [
   'bg',
+  'surface',
   'grid',
   'text',
   'text-dim',

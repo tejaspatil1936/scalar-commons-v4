@@ -286,3 +286,15 @@ test('forceScale shrinks the layout for a phone plate and never below 0.4', () =
   assert.ok(forceScale(358, 268) < 0.5 && forceScale(358, 268) >= 0.4);
   assert.equal(forceScale(10, 10), 0.4);
 });
+
+test('a cluster count sits in a badge with its own ground, wholly inside the plate and off its edges', async () => {
+  const { badgeBox, insidePlate, BADGE_MARGIN } = await import('../../src/observatory/instruments/constellation.js');
+  const box = badgeBox(100, 50, 60);
+  assert.deepEqual(box, { x: 64, y: 39, w: 72, h: 22 }, 'text width plus 6 px each side, 22 px tall, centred on the point');
+  assert.equal(BADGE_MARGIN, 8);
+  assert.equal(insidePlate(box, 400, 300), true);
+  assert.equal(insidePlate(badgeBox(30, 50, 60), 400, 300), false, 'too near the left edge');
+  assert.equal(insidePlate(badgeBox(370, 50, 60), 400, 300), false, 'too near the right edge');
+  assert.equal(insidePlate(badgeBox(200, 12, 60), 400, 300), false, 'too near the top');
+  assert.equal(insidePlate(badgeBox(200, 292, 60), 400, 300), false, 'too near the foot');
+});

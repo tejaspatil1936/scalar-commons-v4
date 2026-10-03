@@ -47,7 +47,7 @@ export const ISOLATED_ALPHA = 0.35;
 export const LABEL_MAX_CHARS = 18;
 
 const HIT_RADIUS = 14; // px around a point that counts as pointing at it
-const KEY_ROW = 18; // px per row of the key strip along the plate's foot
+const KEY_ROW = 24; // px per row of the key strip along the plate's foot (a 14 px label line)
 const KEY_PAD = 8;
 /** Beyond this many lines of one state between the same two agents, the rest is a count. */
 export const BUNDLE_CAP = 6;
@@ -67,6 +67,23 @@ const CROWDED_LINE_ALPHA = 0.55; // settled lines step back only when the plate 
 
 /** An agreement's identity on chain: buyer, provider and their running number. */
 export const edgeKey = (buyer, provider, seq) => `${buyer}/${provider}/${seq}`;
+
+/** A cluster count's badge keeps this far from every edge of the plate. */
+export const BADGE_MARGIN = 8;
+
+/**
+ * The badge a cluster count ("×10 settled") is drawn in: its text's width
+ * plus 6 px each side, 22 px tall, centred on (cx, cy). The badge has its own
+ * ground, so it reads cleanly over the lines it sits on. Pure; tested.
+ */
+export function badgeBox(cx, cy, textWidth) {
+  return { x: cx - textWidth / 2 - 6, y: cy - 11, w: textWidth + 12, h: 22 };
+}
+
+/** Whether a box sits wholly inside the plate, BADGE_MARGIN clear of every edge. Pure; tested. */
+export function insidePlate(rect, width, height, margin = BADGE_MARGIN) {
+  return rect.x >= margin && rect.x + rect.w <= width - margin && rect.y >= margin && rect.y + rect.h <= height - margin;
+}
 
 /** Both directions between two accounts share one bundle of lines. */
 export const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
@@ -695,8 +712,9 @@ export function init(root, ctx) {
   }
 
   function drawKey(g, width, height) {
-    const font = ctx.theme.font('mono');
-    g.font = `400 10px ${font}`;
+    // The footnote: one line in the label size, in the interface face.
+    const font = ctx.theme.font('sans');
+    g.font = `400 14px ${font}`;
     g.textBaseline = 'middle';
     g.textAlign = 'left';
     g.fillStyle = colour('text-dim');
@@ -731,6 +749,19 @@ export function init(root, ctx) {
     }
   }
 
+  /** A cluster count in its badge: the surface colour, a hairline, the text in the secondary ink. */
+  function drawBadge(g, { t, x, y, rect }) {
+    g.fillStyle = colour('surface');
+    g.strokeStyle = colour('border');
+    g.lineWidth = 1;
+    g.beginPath();
+    g.roundRect(Math.round(rect.x) + 0.5, Math.round(rect.y) + 0.5, Math.round(rect.w), Math.round(rect.h), 4);
+    g.fill();
+    g.stroke();
+    g.fillStyle = colour('text-dim');
+    g.fillText(t, x, y + 0.5);
+  }
+
   /** Text knocked out of the lines beneath it: a plate-coloured stroke, then the fill. */
   function knockout(g, text, x, y) {
     g.strokeStyle = colour('bg');
@@ -741,8 +772,8 @@ export function init(root, ctx) {
   }
 
   function drawEmpty(g, width, height, lines) {
-    const font = ctx.theme.font('mono');
-    g.font = `400 11px ${font}`;
+    const font = ctx.theme.font('sans');
+    g.font = `400 14px ${font}`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillStyle = colour('text-dim');
@@ -776,7 +807,7 @@ export function init(root, ctx) {
 
     const { labels, isolatedAlpha } = policy();
     const crowded = nodes.size > LABEL_MAX_NODES;
-    const font = ctx.theme.font('mono');
+    const font = ctx.theme.font('sans');
 
     // Lines, back to front: gone, settled, open, disputed.
     for (const edge of fading) drawEdge(g, edge, isolatedAlpha, crowded);
@@ -809,10 +840,9 @@ export function init(root, ctx) {
     // (they carry lines the plate does not draw), then the point labels,
     // each yielding to whatever is already placed and to every point.
     const placed = [];
-    g.font = `400 11px ${font}`;
+    g.font = `500 12px ${font}`;
     g.textBaseline = 'middle';
     g.textAlign = 'center';
-    g.fillStyle = colour('text-dim');
     for (const { a, b, offset, text, short } of bundleLabels) {
       if (!a || !b) continue;
       const dx = b.x - a.x;
@@ -821,32 +851,39 @@ export function init(root, ctx) {
       const mx = (a.x + b.x) / 2;
       const my = (a.y + b.y) / 2;
       // Full text first (either side of the bundle, close then further out),
-      // the bare count only when no placement of the full text is clean.
+      // the bare count only when no placement of the full text is clean. Each
+      // candidate is a badge, and a badge never touches the plate's edges.
       const candidates = [];
       for (const t of [text, short]) {
         const w = g.measureText(t).width;
-        for (const gap of [9, 22]) {
+        for (const gap of [14, 28]) {
           for (const side of [1, -1]) {
             const away = (offset + Math.sign(offset || 1) * gap) * side;
             const x = mx - (dy / len) * away;
             const y = my + (dx / len) * away;
-            candidates.push({ t, x, y, rect: { x: x - w / 2, y: y - 6.5, w, h: 13 } });
+            candidates.push({ t, x, y, rect: badgeBox(x, y, w) });
           }
         }
       }
-      const fits = (c) =>
-        c.rect.x >= 0 && c.rect.x + c.rect.w <= area.width && !placed.some((p) => overlaps(c.rect, p)) && !rectOnAnyNode(c.rect, null);
-      // The count is load-bearing: when no placement is clean it is still written.
-      const chosen = candidates.find(fits) ?? candidates[0];
+      const fits = (c) => insidePlate(c.rect, area.width, area.height) && !placed.some((p) => overlaps(c.rect, p)) && !rectOnAnyNode(c.rect, null);
+      // The count is load-bearing: when no placement is clean it is still
+      // written, pulled inside the plate.
+      let chosen = candidates.find(fits);
+      if (!chosen) {
+        const c = candidates[candidates.length - 1];
+        const x = Math.min(Math.max(c.x, c.rect.w / 2 + BADGE_MARGIN), area.width - c.rect.w / 2 - BADGE_MARGIN);
+        const y = Math.min(Math.max(c.y, 11 + BADGE_MARGIN), area.height - 11 - BADGE_MARGIN);
+        chosen = { t: c.t, x, y, rect: badgeBox(x, y, c.rect.w - 12) };
+      }
       placed.push(chosen.rect);
-      knockout(g, chosen.t, chosen.x, chosen.y);
+      drawBadge(g, chosen);
     }
 
     // Point labels: the busiest and largest first; one that would sit on
     // another label or another point is left off (the point is still
     // reachable by pointer and in the list).
     if (labels) {
-      g.font = `400 10px ${font}`;
+      g.font = `400 12px ${font}`;
       const ordered = [...nodes.values()].filter((n) => !n.ghost).sort((a, b) => b.degree - a.degree || b.r - a.r);
       for (const node of ordered) {
         const text = labelText(node.name, node.id);

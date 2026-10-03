@@ -12,7 +12,7 @@
 
 /* The face has room for its captions to be read on a projector. */
 #economy .dial .dial-caption {
-  font-size: 0.75rem;
+  font-size: var(--t-eyebrow);
 }
 
 /* The percentage is a live figure, so it takes the accent while the era runs. */
@@ -44,10 +44,4 @@
 
 .dial[data-state="unavailable"] .dial-settles {
   fill: var(--slashed);
-}
-
-/* Time to settlement is a phrase ("about 5 h 17 min"), not a count: it is
-   set a step smaller than the counts so its longest case stays on one line. */
-#economy [data-reading="eraCountdown"] .reading-value {
-  font-size: clamp(2rem, 1.5rem + 1vw, 2.75rem);
 }

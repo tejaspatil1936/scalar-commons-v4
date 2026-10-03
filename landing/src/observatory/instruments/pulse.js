@@ -257,10 +257,10 @@ export function polledNote(blocks) {
 }
 
 /**
- * `strip`, when given, is a second canvas the river is also drawn into in a
- * compact form — no labels, the bars and the finalized band only — along the
- * foot of the first screen. It is the same stream and the same clock; it is
- * never a second source.
+ * `strip`, when given, is a second canvas the river is also drawn into — the
+ * titled strip under the first screen, with its axis labels and its FINAL
+ * marker, as section 01 draws it. It is the same stream and the same clock;
+ * it is never a second source.
  */
 export function init(root, ctx, { strip = null } = {}) {
   const canvas = root.querySelector('.pulse-canvas');
@@ -354,15 +354,15 @@ export function init(root, ctx, { strip = null } = {}) {
   }
 
   function draw() {
-    paint(box(), { compact: false });
-    if (stripBox) paint(stripBox(), { compact: true });
+    paint(box());
+    if (stripBox) paint(stripBox());
   }
 
-  /** One plate: the full river with its labels, or the compact strip without them. */
-  function paint({ context: g, width, height }, { compact }) {
+  /** One plate, with its axis labels and its labelled FINAL marker: section 01's, or the strip under the hero. */
+  function paint({ context: g, width, height }) {
     const { pxPerMs, bar, rightPad, labelEvery, visible } = riverLayout(width);
-    const baseline = compact ? height - 0.5 : Math.round(height - 20) + 0.5;
-    const plateTop = compact ? 2 : 22;
+    const baseline = Math.round(height - 22) + 0.5;
+    const plateTop = 24;
     const plateHeight = baseline - plateTop;
     const chain = stream.chain();
     const font = ctx.theme.font('mono');
@@ -389,34 +389,26 @@ export function init(root, ctx, { strip = null } = {}) {
       const target = final ? xOf(final) + bar / 2 + Math.max(3, bar * 0.6) : 0;
       boundary = marker.fromX !== null && marker.t < 1 ? marker.fromX + (target - marker.fromX) * marker.t : target;
       marker.target = target;
-      // On the full plate a faint tint marks the final region; on the strip
-      // along the first screen, only the marker's hairline, so the strip
-      // reads as bars and never as a slab.
-      if (!compact) {
-        g.fillStyle = colour('settled');
-        g.globalAlpha = ctx.theme.isDark() ? 0.06 : 0.05;
-        g.fillRect(0, plateTop - 6, Math.max(0, boundary), baseline - plateTop + 6);
-        g.globalAlpha = 1;
-      }
+      // No tint: the final bars are already the settled tone, and a tinted
+      // band read as a slab. The labelled marker is the boundary.
       g.strokeStyle = colour('settled');
       g.lineWidth = 1;
       g.beginPath();
       g.moveTo(Math.round(boundary) + 0.5, 4);
       g.lineTo(Math.round(boundary) + 0.5, baseline);
       g.stroke();
-      if (!compact) {
-        g.fillStyle = colour('text-dim');
-        g.font = `400 10px ${font}`;
-        g.textBaseline = 'top';
-        const label = `FINAL · ${ctx.format.formatInteger(stream.finalized)}`;
-        const labelWidth = g.measureText(label).width;
-        if (boundary - 6 - labelWidth >= 2) {
-          g.textAlign = 'right';
-          g.fillText(label, boundary - 6, 4);
-        } else {
-          g.textAlign = 'left';
-          g.fillText(label, boundary + 6, 4);
-        }
+      // The marker is always labelled: a hairline is never left unexplained.
+      g.fillStyle = colour('text-dim');
+      g.font = `400 12px ${font}`;
+      g.textBaseline = 'top';
+      const label = `FINAL · ${ctx.format.formatInteger(stream.finalized)}`;
+      const labelWidth = g.measureText(label).width;
+      if (boundary - 6 - labelWidth >= 2) {
+        g.textAlign = 'right';
+        g.fillText(label, boundary - 6, 4);
+      } else {
+        g.textAlign = 'left';
+        g.fillText(label, boundary + 6, 4);
       }
     }
 
@@ -469,9 +461,9 @@ export function init(root, ctx, { strip = null } = {}) {
       }
       g.globalAlpha = 1;
       // A label needs room on both sides; one that would be cut by the plate's edge is left off.
-      if (!compact && (k === 0 || block.number % labelEvery === 0) && x > 26 && x < width - 26) {
+      if ((k === 0 || block.number % labelEvery === 0) && x > 30 && x < width - 30) {
         g.fillStyle = k === 0 ? colour('text') : colour('text-dim');
-        g.font = `${k === 0 ? 500 : 400} 11px ${font}`;
+        g.font = `400 12px ${font}`;
         g.fillText(ctx.format.formatInteger(block.number), Math.round(x), baseline + 6);
       }
       k += 1;

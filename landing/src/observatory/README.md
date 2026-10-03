@@ -94,16 +94,21 @@ calling the instrument done.
 
 ## The plate, in one paragraph
 
-A near-black plate (`--bg`, #0b0e12), text #e8eaed and one secondary grey
-#9aa3ad; paper (#f7f6f2) and ink in light mode. Instrument Serif for every figure —
-the hero readouts, the dial, the ring's count — with each digit set in its own
-`1ch` cell by `readout.setDigits`, since the face has no tabular figures (nor
-has Fraunces: neither carries a `tnum` feature or tabular glyphs); IBM Plex
-Mono at 12 px only for provenance, hashes and addresses (`--font-mono`); IBM
-Plex Sans at 17 px / 1.6 for sentences, at a sixty-character measure. One
+A near-black plate (`--bg`, #0b0e12), a surface (#11151b), a hairline
+(#1f252d), text #e8eaed and one secondary grey #a3acb7 that passes WCAG AA on
+the plate and the surface; the same with equal care on paper (#f7f6f2) in
+light mode. Source Serif 4 at optical size 60 for display and every figure —
+the hero readouts, the dial, the ring's count — with its own tabular lining
+figures (`font-variant-numeric: tabular-nums lining-nums`), so a figure that
+counts up moves nothing beside it and is read once, whole; Inter for the
+interface and reading (400 body at 1.0625 rem / 1.6 within 62 characters,
+500 labels, 600 small caps; cv11 and ss01); JetBrains Mono at 0.75 rem only
+for provenance, hashes, addresses and the river's axis. Nine type sizes and no
+others (display, figure-xl, h2, figure-l, h3, body, label, eyebrow, mono). One
 teal accent (`--live`, `--active`) for live state only; amber (`--disputed`)
 for disputes only; grey for everything settled. Every margin, padding and gap
 is one of 4, 8, 16, 24, 40, 64 or 104 px; content is at most 1280 px wide.
-Hairlines (1 px), dots and type. No gradients, no glow, no rounded pills, no
-icons, no decoration. A reader who does not know what a block is must be able to read
+One button, one disclosure, one tooltip, one focus ring (2 px accent, 2 px
+offset). Hairlines (1 px), dots and type. No gradients, no glow, no icons, no
+decoration. A reader who does not know what a block is must be able to read
 the instrument from its sentence and its labels alone.
