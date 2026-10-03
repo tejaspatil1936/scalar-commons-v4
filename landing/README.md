@@ -57,33 +57,50 @@ never the previous value.
 
 | File | What it holds |
 |---|---|
-| `src/observatory.mjs` | Build-time frame: the status bar, one section per instrument with a plain sentence before it, empty reading slots, the upgrade rail, the posture strip, the verification commands. Also `renderSection` for the harness. |
-| `src/observatory.css` | The design system: the plate, the reticle grid, the three self-hosted faces, the tokens, presenter mode. Each instrument's own rules live beside it in `src/observatory/instruments/<name>.css` and are appended at build time. |
-| `src/observatory/` | The client. `context.js` gives every instrument one WebSocket (calls and subscriptions, paused when the tab is hidden), deduplicated polling, provenance records, motion and theme; `instruments/*.js` draw; `statusbar.js` fills the top line from the hero's records; `presenter.js` drives `?present=1`. See `src/observatory/README.md` for the contract. |
+| `src/observatory.mjs` | Build-time frame: the status bar (wordmark, nav, state, Sources and Present), the first screen (the page's name, one sentence, three figures, the live line, the framed constellation, the river strip), six sections — Chain, Economy, Validators, History, Upgrades, Verify — each one heading, one sentence and its instrument, empty reading slots, the upgrade rail, the verification commands with the posture record. Also `renderSection` for the harness. |
+| `src/observatory.css` | The design system: the tokens (colour, type, the 4–104 px spacing scale, the 1280 px frame), the four self-hosted faces, the scroll reveal, presenter mode. Each instrument's own rules live beside it in `src/observatory/instruments/<name>.css` and are appended at build time. |
+| `src/observatory/` | The client. `context.js` gives every instrument one WebSocket (calls and subscriptions, paused when the tab is hidden), deduplicated polling, provenance records, motion and theme; `instruments/*.js` draw; `statusbar.js` fills the top line and the hero's live line from the hero's records; `hero.js` fills the first screen's height; `sources.js` is the Sources switch; `reveal.js` the scroll reveal; `presenter.js` presenter mode (P, or the Present button). See `src/observatory/README.md` for the contract. |
 | `runtime-history.json` | The upgrade record. Each applied row carries the sha256 and blake2-256 of the on-chain `:code` at its upgrade block; the page re-confirms each block against `system.CodeUpdated` events live. A `summaryNote` says how a summary was checked against the chain. |
 | `public/posture.json` | The security-posture record, written by the operators. Each recorded value names the document in this repository it was taken from (`source`) and the date it was true (`asOf`); a `null` value renders as "not yet recorded"; nothing here is ever read from the chain. |
 
-**Presenter mode.** `/observatory?present=1` hides the nav, the masthead,
-the provenance lines, the instrument notes, the list alternatives under the
-constellation and the ring, and the footer; pins the status bar; and shows
-one instrument per screen, filling the viewport, advancing every 20 seconds
-or on the arrow keys (Home and End jump to the first and last). Every
-instrument stays live; the type is set for a projector. It is a projection
-of the ordinary page, not a substitute for it: the notes and lists are on
-the page without the flag.
+**One URL.** `/observatory` is the only entry point: nothing on the page is
+switched by the address. It ships one script, `observatory.js`; there is no
+WebGL and no animation library.
 
-**The sky.** `/observatory?sky=1` lays a WebGL star field (three.js, GSAP;
-fetched only when the flag is on) behind the plates: one star per registered
-agent (the constellation's own `/v1/agents` read) at a place fixed by a hash
-of its address, sized by stake and brighter the more recent its activity; the
-active validators as bright fixed stars with a faint reticle; a thin line per
-open agreement, amber flickering once for a dispute, a settlement's low glow
-fading over ten minutes; a faint light front per block and a steady glow
-behind the finality marker; a camera that drifts one degree a minute. Off by
-default; the footer says what is drawn, from which reads, when. It stands
-down for the canvas hero, and says so, without WebGL, under reduced motion,
-or when it runs under 30 frames a second for three seconds. With `?present=1`
-as well it shows the live block height alone on the first screen.
+**The first screen**, 100 vh: on the left (five columns of twelve) the
+wordmark in small caps over "Observatory" in the display serif at 96 px, one
+sentence, three live figures — block height, agents registered, agreements
+open, 56–64 px with a one-word caption under each — and the live line (the
+status bar's state in a word, and the finality lag). On the right (seven
+columns) the agent constellation in its own hairline frame: the canvas is
+clipped to the frame, so nothing is drawn outside it or behind the text; new
+agreements draw in, a new dispute pulses amber once. Along the foot, the river
+as a 120 px strip, the same stream section 01 draws in full.
+
+**Sections.** 01 Chain (the river, height, finalized, finality lag, blocks per
+minute), 02 Economy (the era dial, time to settlement, CMN issued to agents to
+date, open disputes), 03 Validators (the ring, the active set, node health),
+04 History (four strips as small multiples, each from zero with its zero
+line), 05 Upgrades (the rail), 06 Verify (collapsed: the sources, the commands
+that reproduce every reading, and the posture record).
+
+**Sources.** Every figure carries its provenance line (endpoint, UTC time,
+a link to the raw bytes), hidden until asked for: the Sources switch in the
+status bar shows every line in place, remembered per browser in
+localStorage and read before the first paint; hovering or focusing one
+figure shows its line as a tooltip while the switch is off. Nothing about
+what is fetched changes.
+
+**Motion.** A figure tweens when it changes; a section fades up 12 px once as
+it is scrolled to (CSS and an IntersectionObserver); a new block slides into
+the river. Nothing loops; `prefers-reduced-motion` turns all of it off.
+
+**Presenter mode.** The P key or the Present button in the status bar hides
+the nav, the provenance lines, the notes and the footer, and shows one screen
+at a time: the first screen, then the six sections with their figures set for
+a room (160 px where the screen has the width), advancing every 20 seconds or
+on the arrow keys (Home and End jump to the first and last); space pauses the
+advance; P or Escape leaves in place. Every instrument stays live.
 
 Develop one instrument on its own, against the live services:
 

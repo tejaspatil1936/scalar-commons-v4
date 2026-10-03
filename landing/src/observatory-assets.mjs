@@ -9,8 +9,9 @@ export const FONTS = [
   ['@fontsource/instrument-serif/files/instrument-serif-latin-400-normal.woff2', 'instrument-serif-latin-400-normal.woff2'],
   // Mono is provenance, hashes and addresses only, at one light weight.
   ['@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2', 'ibm-plex-mono-latin-400-normal.woff2'],
-  ['@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2', 'source-sans-3-latin-wght-normal.woff2'],
-  ['@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2', 'source-sans-3-latin-wght-italic.woff2'],
+  // Body text, at two weights: 400 for reading, 600 for labels and the wordmark.
+  ['@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2', 'ibm-plex-sans-latin-400-normal.woff2'],
+  ['@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2', 'ibm-plex-sans-latin-600-normal.woff2'],
 ];
 
 /**

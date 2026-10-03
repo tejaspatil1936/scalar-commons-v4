@@ -54,7 +54,7 @@ export const SOURCES = {
     method: 'chain_subscribeNewHeads',
     unsubscribe: 'chain_unsubscribeNewHeads',
     label: 'chain_subscribeNewHeads',
-    readings: ['bestBlock', 'cadence', 'networkStatus'],
+    readings: ['bestBlock', 'networkStatus', 'heroHeight'],
   },
   finalizedHeads: {
     kind: 'subscription',
@@ -65,28 +65,28 @@ export const SOURCES = {
   },
 
   // Chain position and identity.
-  status: api('/v1/status', ['bestBlock', 'finalizedBlock', 'finalityLag', 'specVersion', 'networkStatus']),
-  blocks: api(`/v1/blocks?limit=${INDEXER_MAX_LIMIT}`, ['cadence', 'blockTime']),
-  era: api('/v1/eras/current', ['era', 'eraSettlement', 'eraCountdown']),
+  status: api('/v1/status', ['bestBlock', 'finalizedBlock', 'finalityLag', 'specVersion', 'networkStatus', 'heroHeight']),
+  blocks: api(`/v1/blocks?limit=${INDEXER_MAX_LIMIT}`, ['blocksPerMinute', 'blockTime']),
+  // The era dial draws the era and its settlement block from this read; the countdown is its reading.
+  era: api('/v1/eras/current', ['eraCountdown']),
   // The era in progress plus 13 settled ones: 12 whole eras need 13 boundaries.
-  eras: api('/v1/eras?limit=14', ['lastSettled', 'agreementsCumulative']),
+  eras: api('/v1/eras?limit=14', ['agreementsCumulative']),
   // Every settled era the index holds (read whole, in pages), for the running total of CMN issued to agents.
-  erasAll: api(`/v1/eras?limit=${INDEXER_MAX_LIMIT}`, ['emissionCumulative']),
+  erasAll: api(`/v1/eras?limit=${INDEXER_MAX_LIMIT}`, ['agentPayouts', 'emissionCumulative']),
   // Total issuance from every source against the hard cap: context for the agent figure, never the figure itself.
   supply: api('/v1/emissions/supply', ['emissionCumulative']),
   upgrades: events('system', 'CodeUpdated', ['lastUpgrade']),
   genesis: rpc('chain_getBlockHash', [0], 'chain_getBlockHash(0)', ['genesis']),
 
   // Agents and their contracts.
-  // The sky (?sky=1) draws one star per row of the same read.
-  agents: api(`/v1/agents?limit=${INDEXER_MAX_LIMIT}`, ['agents', 'sky']),
-  escrows: api(`/v1/escrows?limit=${INDEXER_MAX_LIMIT}`, ['sky']),
+  // The constellation draws one point per row; the hero's figure is the index's own count.
+  agents: api(`/v1/agents?limit=${INDEXER_MAX_LIMIT}`, ['agents']),
+  // The open agreements, drawn as the constellation's lines.
+  escrows: api(`/v1/escrows?limit=${INDEXER_MAX_LIMIT}`, []),
   escrowStats: api('/v1/escrows/stats', ['activeAgreements', 'openDisputes']),
-  slashes: events('agents', 'SlashExecuted', ['slashes']),
-  messages: api('/v1/events?section=messages&method=MessageSent&limit=1', ['messages']),
   agreementsCreated: events('escrow', 'AgreementCreated', ['agreementsCumulative']),
-  deliveriesConfirmed: events('escrow', 'DeliveryConfirmed', ['sky']),
-  disputesOpened: events('escrow', 'DisputeOpened', []),
+  // The recently settled agreements, drawn as the constellation's dashed lines.
+  deliveriesConfirmed: events('escrow', 'DeliveryConfirmed', []),
   registrations: events('agents', 'AgentRegistered', ['agentsOverTime']),
   unstakes: events('agents', 'UnstakeCompleted', ['agentsOverTime']),
 

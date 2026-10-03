@@ -1,15 +1,19 @@
 // Boot for /observatory: one shared context, then the instruments in order of
-// what the reader sees first. The hero starts immediately; the rest yield to
-// the browser between them so the page never blocks on an instrument. The
-// status bar listens to the hero, so it starts right after it; the sky
-// (`?sky=1`) and presenter mode (`?present=1`), when the URL asks for them,
-// are wired last, once every section exists.
+// what the reader sees first. The chain pulse starts immediately and draws
+// the river strip along the first screen's foot as well as its own plate;
+// the hero's height and the status bar (with the hero's live line, a second
+// view of the same state) listen to it, so they start right after it; the
+// constellation, framed in the hero, comes next; the rest yield to the
+// browser between them so the page never blocks on an instrument. The
+// Sources switch, presenter mode (the P key or the Present button — never a
+// URL flag) and the scroll reveal are wired last, once every section exists.
 
 import { createContext } from './context.js';
 import { relativeTime } from './format.js';
 import * as pulse from './instruments/pulse.js';
-import * as era from './instruments/era-dial.js';
 import * as constellation from './instruments/constellation.js';
+import * as era from './instruments/era-dial.js';
+import * as economy from './instruments/economy.js';
 import * as validators from './instruments/validator-ring.js';
 import * as history from './instruments/history.js';
 import * as upgrades from './instruments/upgrade-rail.js';
@@ -17,17 +21,21 @@ import * as posture from './instruments/posture.js';
 import * as verify from './instruments/verify.js';
 import * as statusbar from './statusbar.js';
 import * as presenter from './presenter.js';
-import * as sky from './sky.js';
+import * as hero from './hero.js';
+import * as sources from './sources.js';
+import { start as startReveal } from './reveal.js';
 
+/** Each instrument and the element it draws into, in boot order. */
 const INSTRUMENTS = [
-  ['pulse', pulse],
-  ['era', era],
-  ['constellation', constellation],
-  ['validators', validators],
-  ['history', history],
-  ['upgrades', upgrades],
-  ['posture', posture],
-  ['verify', verify],
+  ['pulse', pulse, '#chain'],
+  ['constellation', constellation, '.hero'],
+  ['era', era, '#economy'],
+  ['economy', economy, '#economy'],
+  ['validators', validators, '#validators'],
+  ['history', history, '#history'],
+  ['upgrades', upgrades, '#upgrades'],
+  ['posture', posture, '#verify'],
+  ['verify', verify, '#verify'],
 ];
 
 function yieldToBrowser() {
@@ -51,17 +59,25 @@ async function boot() {
   const ctx = createContext();
   ctx.start();
 
-  for (const [name, instrument] of INSTRUMENTS) {
-    const root = document.querySelector(`[data-instrument="${name}"]`);
+  for (const [name, instrument, selector] of INSTRUMENTS) {
+    const root = document.querySelector(selector);
     if (!root) continue;
     try {
-      instrument.init(root, ctx);
+      if (name === 'pulse') instrument.init(root, ctx, { strip: document.querySelector('.hero-river') });
+      else instrument.init(root, ctx);
     } catch (error) {
       markFailed(root, error);
     }
     if (name === 'pulse') {
       try {
-        const bar = statusbar.init(document.querySelector('[data-reading="networkStatus"]'), ctx);
+        hero.init(document.querySelector('.hero'), ctx);
+      } catch (error) {
+        console.error(error);
+      }
+      try {
+        const bar = statusbar.init(document.querySelector('[data-reading="networkStatus"]'), ctx, {
+          mirrors: [...document.querySelectorAll('.live-line')],
+        });
         // A stalled chain emits no events, so the bar cannot notice a stall
         // from events alone. main.js is the only module allowed to hold an
         // interval (see observatory.test.mjs), so the prompt lives here and
@@ -75,19 +91,34 @@ async function boot() {
       } catch (error) {
         console.error(error);
       }
-      continue; // the hero is first; everything else yields
+      continue; // the first screen is first; everything else yields
     }
     await yieldToBrowser();
   }
 
   lastMerge(ctx);
-  try {
-    // `?sky=1` only; off by default. A sky that cannot start must not take the page with it.
-    sky.init(document, ctx);
-  } catch (error) {
-    console.error(error);
-  }
+  sources.init(document, ctx);
   presenter.init(document, ctx);
+  reveal(ctx);
+}
+
+/**
+ * Sections fade up 12 px once as they are scrolled to — CSS and an
+ * IntersectionObserver, no library. Nothing is hidden under reduced motion,
+ * and turning it on mid-visit shows everything at once.
+ */
+function reveal(ctx) {
+  const running = startReveal({
+    targets: [...document.querySelectorAll('[data-reveal]')],
+    html: document.documentElement,
+    IntersectionObserver: window.IntersectionObserver,
+    reduced: () => ctx.motion.reduced(),
+  });
+  if (running) {
+    ctx.motion.onChange((reduced) => {
+      if (reduced) running.stop();
+    });
+  }
 }
 
 /** "Last merge to master: N hours ago" — from the public GitHub API, retried each minute on failure. */

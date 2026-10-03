@@ -15,12 +15,19 @@
 // the index is polled instead; "Paused" while the tab is hidden; "Finality
 // lagging" when more than FINALITY_LAG_ALERT blocks wait for finality;
 // "Blocks late" when the last block came more than LATE_MS after the one
-// before; otherwise "Network normal". The validators phrase states the size
+// before; otherwise "Network normal". There is no ceremony before it: the
+// first state is "Connecting", and the real word replaces it the moment the
+// reads allow. The validators phrase states the size
 // of the active set from the chain read ("5 validators in the active set"),
 // and only once the page has been open for SEALING_GRACE_MS adds how many
 // distinct validators have been seen sealing since it opened. On load it
 // says nothing about who has sealed: "2 of 5 seen so far" read as three
 // validators down, when it only meant the page had seen two blocks.
+//
+// The hero's live line ("● Live · finality 2 blocks") is a second view of
+// this same state, passed in as a mirror: the dot, the state in a word
+// (`liveWord` — "Live" only when the network reads normal, every other state
+// said as it is) and the finality lag. It is never a second read.
 
 import { decodeValidators } from './scale.js';
 
@@ -66,9 +73,18 @@ export function sealingPhrase({ seen = null, total, sinceMs = 0, error = null })
   return `${set} · ${Math.min(seen, total)} seen sealing since you opened this page`;
 }
 
-export function init(root, ctx) {
+/** The hero's one word for the state: "Live" only when the network reads normal. Pure; tested. */
+export function liveWord(word) {
+  return word === 'Network normal' ? 'Live' : word;
+}
+
+/** "finality 2 blocks", or "finality —" before both heights are known. */
+export function finalityPhrase(lag, formatInteger = String) {
+  return lag === null ? 'finality —' : `finality ${formatInteger(lag)} block${lag === 1 ? '' : 's'}`;
+}
+
+export function init(root, ctx, { mirrors = [] } = {}) {
   if (!root) return;
-  const dot = root.querySelector('.pulse-dot');
   const stateEl = root.querySelector('.sb-state');
   const sealingEl = root.querySelector('.sb-validators');
   const finalityEl = root.querySelector('.sb-finality');
@@ -142,7 +158,9 @@ export function init(root, ctx) {
 
   function render() {
     const word = stateWord({ socket, lastOk, seen, lag, intervalMs: effectiveIntervalMs(), hidden });
-    root.dataset.state = word.toLowerCase().replace(/\s+/g, '-');
+    const state = word.toLowerCase().replace(/\s+/g, '-');
+    const finality = finalityPhrase(lag, formatInteger);
+    root.dataset.state = state;
     if (stateEl) stateEl.textContent = word;
     if (sealingEl) {
       sealingEl.textContent = sealingPhrase({
@@ -152,16 +170,14 @@ export function init(root, ctx) {
         error: validatorsError,
       });
     }
-    if (finalityEl) {
-      finalityEl.textContent = lag === null ? 'finality —' : `finality ${formatInteger(lag)} block${lag === 1 ? '' : 's'}`;
+    if (finalityEl) finalityEl.textContent = finality;
+    for (const mirror of mirrors) {
+      mirror.dataset.state = state;
+      const mirrorState = mirror.querySelector('.ll-state');
+      const mirrorFinality = mirror.querySelector('.ll-finality');
+      if (mirrorState) mirrorState.textContent = liveWord(word);
+      if (mirrorFinality) mirrorFinality.textContent = finality;
     }
-  }
-
-  function beat() {
-    if (!dot || ctx.motion.reduced()) return;
-    dot.classList.remove('beat');
-    void dot.offsetWidth;
-    dot.classList.add('beat');
   }
 
   /** A height from the hero, live (`head`) or polled (`poll`): the figure, the interval, the lag. */
@@ -173,11 +189,7 @@ export function init(root, ctx) {
       return;
     }
     seen = true;
-    const advanced = Number.isFinite(number) && (bestNumber === null || number > bestNumber);
-    if (Number.isFinite(number)) {
-      ctx.readout.showValue(root, record, { value: number, motion: ctx.motion });
-      if (advanced) beat(); // a poll that repeats the height is not a block, so no beat
-    }
+    if (Number.isFinite(number)) ctx.readout.showValue(root, record, { value: number, motion: ctx.motion });
     noteArrival(number, arrivedAt);
     // Recomputed on EVERY head, not only when a `finalized` event arrives. If
     // GRANDPA stops finalising while blocks keep coming, no `finalized` event

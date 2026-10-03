@@ -1,4 +1,5 @@
-// 03 · Agent constellation. Every registered agent is a point on the plate,
+// The agent constellation, the first screen's image, framed in its own panel
+// beside the hero's figures. Every registered agent is a point on the plate,
 // sized by its activity — the agreements it has completed as provider plus
 // the lines drawn to it now — so the busy agents are visibly larger; every
 // agreement between two of them is a line — open ones in the active colour,
@@ -11,9 +12,9 @@
 // Data: /v1/agents (live chain state, read whole), /v1/escrows (the open
 // agreements, live chain state, read whole) and the most recent
 // escrow.DeliveryConfirmed events from the finalized-block index for the
-// settled lines. The readings beside the plate come from /v1/escrows/stats,
-// from the agents.SlashExecuted events since the era's first block, and —
-// once runtime 309 is in force — from the messages.MessageSent events.
+// settled lines. The two hero figures beside the panel — agents registered and
+// agreements open — come from /v1/agents and /v1/escrows/stats. Open disputes
+// is the Economy section's figure (economy.js), from the same stats read.
 //
 // Motion: the force layout settles once when the graph first appears — after
 // the agent list AND the two line sources have reported, or 1.5 s after the
@@ -23,8 +24,8 @@
 // line draws itself in from buyer to provider over 400 ms, a line whose
 // status became disputed pulses once, a line that has gone fades out over
 // 400 ms. Nothing else moves; under prefers-reduced-motion every layout is
-// computed synchronously to rest and drawn once. A line drawing in glows
-// briefly and the glow fades over the same 400 ms.
+// computed synchronously to rest and drawn once. Nothing glows, and nothing
+// is drawn outside the canvas: the panel's frame is its edge.
 
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY } from 'd3-force';
 
@@ -32,10 +33,6 @@ const AGENTS_INTERVAL_MS = 60_000;
 const ESCROWS_INTERVAL_MS = 30_000;
 const SETTLED_INTERVAL_MS = 60_000;
 const STATS_INTERVAL_MS = 30_000;
-const ERA_INTERVAL_MS = 30_000;
-const SLASHES_INTERVAL_MS = 30_000;
-const STATUS_INTERVAL_MS = 6_000;
-const MESSAGES_INTERVAL_MS = 30_000;
 
 const AGENT_PAGES = 3; // 3 × the indexer's page size: its live scan stops at 512 anyway
 const ESCROW_PAGES = 3;
@@ -61,7 +58,6 @@ const LINK_DISTANCE = 70;
 const CHARGE = -90;
 const BOUNDS_PULL = 0.04;
 const DRAW_IN_MS = 400;
-const GLOW_MS = 400; // the glow on a line just drawn in fades over this
 const PULSE_MS = 600;
 const FADE_MS = 400;
 const FIRST_LAYOUT_GRACE_MS = 1_500; // how long the first layout waits for the line sources
@@ -310,9 +306,6 @@ export function init(root, ctx) {
   const targets = {
     agents: ctx.reading('agents', root),
     active: ctx.reading('activeAgreements', root),
-    disputes: ctx.reading('openDisputes', root),
-    slashes: ctx.reading('slashes', root),
-    messages: ctx.reading('messages', root),
   };
   const { formatCmn, formatInteger, shortAddress } = ctx.format;
   const colour = (name) => ctx.theme.color(name);
@@ -497,7 +490,6 @@ export function init(root, ctx) {
           source: nodes.get(data.buyer),
           target: nodes.get(data.provider),
           progress: fresh ? 0 : 1,
-          glow: 0,
           alpha: 1,
           pulse: 0,
         });
@@ -540,19 +532,8 @@ export function init(root, ctx) {
     const arriving = [...edges.values()].filter((e) => e.progress === 0);
     if (arriving.length) {
       ctx.motion.tween(DRAW_IN_MS, (t) => {
-        for (const e of arriving) {
-          e.progress = t;
-          e.glow = 1;
-        }
+        for (const e of arriving) e.progress = t;
         draw();
-      }, {
-        done: () => {
-          // The glow fades once the line is whole.
-          ctx.motion.tween(GLOW_MS, (t) => {
-            for (const e of arriving) e.glow = 1 - t;
-            draw();
-          });
-        },
       });
     }
     const pulsing = diff.disputed.map((d) => edges.get(d.key)).filter(Boolean);
@@ -702,51 +683,14 @@ export function init(root, ctx) {
     if (isolatedAlpha < 1 && (edge.source.degree <= 1 || edge.target.degree <= 1)) alpha *= 0.7;
     g.globalAlpha = Math.max(0, alpha);
     g.lineWidth = width;
-    if (edge.glow > 0) {
-      g.shadowColor = colour('live-glow');
-      g.shadowBlur = 16 * edge.glow;
-    }
     edgePath(g, edge, edge.progress);
     g.stroke();
-    g.shadowBlur = 0;
-    if (edge.glow > 0) {
-      // A brief halo along the new line, fading with the glow.
-      g.globalAlpha = Math.max(0, alpha) * 0.35 * edge.glow;
-      g.lineWidth = width + 4 * edge.glow;
-      g.stroke();
-    }
     if (state === 'disputed' && edge.pulse > 0) {
       g.globalAlpha = 0.35 * edge.pulse;
       g.lineWidth = width + 6 * edge.pulse;
       g.stroke();
     }
     g.setLineDash([]);
-    g.globalAlpha = 1;
-  }
-
-  function drawReticle(g, width, height) {
-    const cx = Math.round(width / 2) + 0.5;
-    const cy = Math.round(height / 2) + 0.5;
-    const radius = Math.min(width, height) * 0.46;
-    g.strokeStyle = colour('border');
-    g.lineWidth = 1;
-    g.globalAlpha = 0.9;
-    g.beginPath();
-    g.arc(cx, cy, radius, 0, Math.PI * 2);
-    g.stroke();
-    // Cardinal ticks on the ring and a small cross at its centre.
-    for (const [ux, uy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-      g.beginPath();
-      g.moveTo(cx + ux * (radius - 5), cy + uy * (radius - 5));
-      g.lineTo(cx + ux * (radius + 5), cy + uy * (radius + 5));
-      g.stroke();
-    }
-    g.beginPath();
-    g.moveTo(cx - 5, cy);
-    g.lineTo(cx + 5, cy);
-    g.moveTo(cx, cy - 5);
-    g.lineTo(cx, cy + 5);
-    g.stroke();
     g.globalAlpha = 1;
   }
 
@@ -768,17 +712,20 @@ export function init(root, ctx) {
     }
     if (maxActivity > 0) {
       const r = nodeRadius(maxActivity, maxActivity, policy().radiusFactor);
+      // The sample point sits wholly inside the plate, whatever its size: the frame is the edge.
+      const cx = Math.max(10.5, r + 8);
+      const cy = Math.min(y, height - r - 4);
       g.fillStyle = colour('text');
       g.globalAlpha = 0.9;
       g.beginPath();
-      g.arc(10.5, y, r, 0, Math.PI * 2);
+      g.arc(cx, cy, r, 0, Math.PI * 2);
       g.fill();
       g.globalAlpha = 1;
       g.fillStyle = colour('text-dim');
-      const x = Math.max(20, 12 + r + 6);
+      const x = Math.max(20, cx + r + 8);
       const scale = `this size = ${formatInteger(maxActivity)} agreements`;
       const full = `${scale} · area grows with activity · point at an agent for its name`;
-      g.fillText(x + g.measureText(full).width <= width - 4 ? full : scale, x, y);
+      g.fillText(x + g.measureText(full).width <= width - 4 ? full : scale, x, cy);
     } else if (nodes.size > 0) {
       g.fillText('no agreements yet · point at an agent for its name', 20, y);
     }
@@ -814,7 +761,6 @@ export function init(root, ctx) {
     const { context: g, width, height } = box();
     const area = plate();
     g.clearRect(0, 0, width, height);
-    drawReticle(g, area.width, area.height);
 
     if (failures.agents) {
       drawEmpty(g, width, height, ['agents unavailable', failures.agents]);
@@ -1251,7 +1197,7 @@ export function init(root, ctx) {
   ctx.watch(
     'escrowStats',
     (record) => {
-      ctx.readout.apply([targets.active, targets.disputes], record, (data) => {
+      ctx.readout.apply(targets.active, record, (data) => {
         const truncated = ctx.field(data, 'scanTruncated');
         const prefix = truncated ? '≥ ' : '';
         const extra = truncated ? 'live scan cut short at the indexer’s cap' : 'live chain state';
@@ -1261,101 +1207,9 @@ export function init(root, ctx) {
           extra,
           motion: ctx.motion,
         });
-        ctx.readout.showValue(targets.disputes, record, {
-          value: ctx.field(data, 'byStatus.Disputed'),
-          prefix,
-          extra,
-          motion: ctx.motion,
-        });
       });
     },
     STATS_INTERVAL_MS,
-  );
-
-  // Slashes this era: the era's first block from /v1/eras/current, then the
-  // SlashExecuted events at or after it, newest first.
-  let eraRecord = null;
-  let slashesRecord = null;
-  function showSlashes() {
-    if (!eraRecord || !slashesRecord) return;
-    if (!eraRecord.ok) {
-      ctx.readout.showError(targets.slashes, eraRecord, 'needs the era’s first block, which could not be read');
-      return;
-    }
-    let startBlock;
-    try {
-      startBlock = ctx.field(eraRecord.data, 'startBlock');
-    } catch (error) {
-      ctx.readout.showError(targets.slashes, eraRecord, error.message);
-      return;
-    }
-    ctx.readout.apply(targets.slashes, slashesRecord, (data, record) => {
-      // Every event must carry its block, or the count is not a count.
-      for (const item of record.items) ctx.field(item, 'blockNumber');
-      const { count, reachedStart } = ctx.countSince(record.items, startBlock);
-      ctx.readout.showValue(targets.slashes, record, {
-        value: count,
-        prefix: !record.complete && !reachedStart ? '≥ ' : '',
-        extra: `since block #${formatInteger(startBlock)}`,
-        motion: ctx.motion,
-      });
-    });
-  }
-  ctx.watch(
-    'era',
-    (record) => {
-      eraRecord = record;
-      showSlashes();
-    },
-    ERA_INTERVAL_MS,
-  );
-  ctx.watchAll(
-    'slashes',
-    (record) => {
-      slashesRecord = record;
-      showSlashes();
-    },
-    SLASHES_INTERVAL_MS,
-  );
-
-  // Messages: a figure that cannot exist until the messaging runtime is in force.
-  let watchingMessages = false;
-  const messagesSpec = Number(targets.messages?.dataset.messagesSpec);
-  ctx.watch(
-    'status',
-    (record) => {
-      if (watchingMessages) return;
-      if (!record.ok) {
-        ctx.readout.showError(targets.messages, record, 'needs the runtime version, which could not be read');
-        return;
-      }
-      let spec;
-      try {
-        spec = ctx.field(record.data, 'chain.specVersion');
-      } catch (error) {
-        ctx.readout.showError(targets.messages, record, error.message);
-        return;
-      }
-      if (Number.isFinite(messagesSpec) && spec < messagesSpec) {
-        ctx.readout.showAbsent(
-          targets.messages,
-          record,
-          `not on chain yet — messaging arrives with runtime ${messagesSpec}; the chain runs ${spec}`,
-        );
-        return;
-      }
-      watchingMessages = true;
-      ctx.watch(
-        'messages',
-        (messages) => {
-          ctx.readout.apply(targets.messages, messages, (data) => {
-            ctx.readout.showValue(targets.messages, messages, { value: ctx.field(data, 'total'), motion: ctx.motion });
-          });
-        },
-        MESSAGES_INTERVAL_MS,
-      );
-    },
-    STATUS_INTERVAL_MS,
   );
 
   describe();

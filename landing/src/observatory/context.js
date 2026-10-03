@@ -27,7 +27,6 @@ const THEME_NAMES = [
   'text-dim',
   'border',
   'live',
-  'live-glow',
   'settled',
   'active',
   'disputed',

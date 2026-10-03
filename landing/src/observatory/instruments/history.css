@@ -1,10 +1,16 @@
-/* 05 · history strips — what the design system's .plot-* rules do not cover,
+/* 04 · history strips — what the design system's .plot-* rules do not cover,
    and where this instrument departs from them. Tokens only.
 
    Everything in these strips is history, polled once a minute: none of it is
    live data, so none of it takes the live accent. Emphasis is by ink weight. */
 
-/* Baselines and the 6 s target must be readable as marks (3:1 against the plate). */
+/* Every strip is drawn from zero, and its zero line is a clear mark in the
+   dim ink (3:1 against the plate); the other hairlines stay quieter. */
+.strip-plot .plot-zero {
+  stroke: var(--text-dim);
+  stroke-width: 1;
+}
+
 .strip-plot .plot-tick {
   stroke: var(--text-dim);
 }

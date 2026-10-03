@@ -24,6 +24,7 @@ const readJson = (relative) => JSON.parse(readFileSync(here(relative), 'utf8'));
 const INSTRUMENT_FILES = {
   pulse: 'pulse.js',
   era: 'era-dial.js',
+  economy: 'economy.js',
   constellation: 'constellation.js',
   validators: 'validator-ring.js',
   history: 'history.js',

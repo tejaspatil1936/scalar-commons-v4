@@ -1,4 +1,4 @@
-/* 04 · validator ring — the hairline ticks, the mono caption under the count,
+/* 03 · validator ring — the hairline ticks, the mono caption under the count,
    the per-validator vote ticks, the mark on the point that sealed the latest
    block, and the states the design system's .ring rules do not cover. Tokens
    only. */
@@ -87,23 +87,23 @@
 }
 
 .ring-key {
-  margin: 0.5rem 0 0;
-  font-size: 0.6875rem;
+  margin: 8px 0 0;
+  font-size: 0.75rem;
   line-height: 1.5;
   color: var(--text-dim);
   text-wrap: pretty;
 }
 
 .ring-list-head {
-  margin: 1rem 0 0;
-  font-size: 0.6875rem;
+  margin: 16px 0 0;
+  font-size: 0.75rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--text-dim);
 }
 
 .ring-list-head + .validator-list {
-  margin-top: 0.35rem;
+  margin-top: 8px;
 }
 
 .validator-list .v-addr {
@@ -135,12 +135,12 @@
 }
 
 .validator-list li.v-unavailable .v-meta {
-  color: var(--slashed);
+  color: var(--text-dim);
 }
 
 .ring-status {
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: var(--text-mono);
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
