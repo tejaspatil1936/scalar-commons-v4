@@ -45,8 +45,9 @@ instruments are drawn with `d3-force`, `d3-scale` and `d3-shape`.
 ## /observatory — the live instruments
 
 `npm run build` also emits `observatory.html` (with its stylesheet inlined),
-`observatory.js` (one esbuild bundle), `observatory.css`, `fonts/`, and the two
-records the page is built with. nginx serves it at `/observatory` through
+`observatory.js` (one esbuild bundle), `observatory-graph.js` (the network
+graph, a second self-contained bundle fetched only when its switch is turned
+on), `observatory.css`, `fonts/`, and the two records the page is built with. nginx serves it at `/observatory` through
 `try_files $uri.html`. The landing page states figures that were read at build
 time. The observatory is its live counterpart: the build ships **no** figure in
 any reading slot, and the reader's browser fetches every value from
@@ -57,30 +58,52 @@ never the previous value.
 
 | File | What it holds |
 |---|---|
-| `src/observatory.mjs` | Build-time frame: the status bar (wordmark, nav, state, Sources and Present), the first screen (the page's name, one sentence, three figures, the live line, the framed constellation, the river strip), six sections — Chain, Economy, Validators, History, Upgrades, Verify — each one heading, one sentence and its instrument, empty reading slots, the upgrade rail, the verification commands with the posture record. Also `renderSection` for the harness. |
+| `src/observatory.mjs` | Build-time frame: the status bar (wordmark, nav, state, Sources and Present), the first screen (the page's name, one sentence, the figures — height, agents registered, operator-run with its note, agreements open — the last hour's activity, the live line, the agent activity panel, the river strip), six sections — Chain, Economy, Validators, History, Upgrades, Verify — each one heading, one sentence and its instrument, empty reading slots, the upgrade rail, the verification commands with the posture record. Also `renderSection` for the harness. |
 | `src/observatory.css` | The design system: the tokens (colour, type, the 4–104 px spacing scale, the 1280 px frame), the four self-hosted faces, the scroll reveal, presenter mode. Each instrument's own rules live beside it in `src/observatory/instruments/<name>.css` and are appended at build time. |
 | `src/observatory/` | The client. `context.js` gives every instrument one WebSocket (calls and subscriptions, paused when the tab is hidden), deduplicated polling, provenance records, motion and theme; `instruments/*.js` draw; `statusbar.js` fills the top line and the hero's live line from the hero's records; `hero.js` fills the first screen's height; `sources.js` is the Sources switch; `reveal.js` the scroll reveal; `presenter.js` presenter mode (P, or the Present button). See `src/observatory/README.md` for the contract. |
 | `runtime-history.json` | The upgrade record. Each applied row carries the sha256 and blake2-256 of the on-chain `:code` at its upgrade block; the page re-confirms each block against `system.CodeUpdated` events live. A `summaryNote` says how a summary was checked against the chain. |
 | `public/posture.json` | The security-posture record, written by the operators. Each recorded value names the document in this repository it was taken from (`source`) and the date it was true (`asOf`); a `null` value renders as "not yet recorded"; nothing here is ever read from the chain. |
 
 **One URL.** `/observatory` is the only entry point: nothing on the page is
-switched by the address. It ships one script, `observatory.js`; there is no
-WebGL and no animation library.
+switched by the address. It loads one script, `observatory.js`; the network
+graph's bundle (with d3-force) is fetched only when its switch is turned on.
+There is no WebGL and no animation library.
 
 **The top bar**, 56 px and sticky: the wordmark and the nav on the left; on
 the right the status pill (the live dot, the network's state, the block
 height, the finality lag) and two quiet text buttons, Sources and Present.
 
-**The first screen**, as tall as its content plus 64 px: on the left (five
-columns of twelve, centred against the panel) "Observatory" in Source Serif 4
-at 4.5 rem, one sentence, three live figures at 4 rem — the block height
-across the top, agents registered and agreements open beneath it, hairlines
-between them and a caption under each — and the live line. On the right
-(seven columns) the agent constellation in its own framed panel: the canvas is
-clipped to the frame, cluster counts sit in badges that keep off its edges;
-new agreements draw in, a new dispute pulses amber once. Directly under it,
-the river as a titled 140 px strip ("Blocks arriving now") the content's
-width, with its axis and its FINAL marker labelled.
+**The first screen**, as tall as its content plus 64 px. On the left (five
+columns of twelve, centred against the panel): "Observatory" in Source Serif 4
+at 4.5 rem, one sentence, and the live figures at 4 rem with hairlines between
+them — the block height across the top; agents registered and, beside it,
+**Operator-run: N of M**, the agents whose on-chain name carries the `swarm-`
+prefix; agreements open, beside the plain note on who runs those agents
+("Agents run by the Scalar Commons team to exercise the network. Identified
+on-chain by the swarm- prefix."). Under them, **activity in the last hour**:
+oracle answers, agreements settled, disputes opened and slashes, each counted
+from the event index back to the block of one hour ago (600 blocks), every 30
+seconds. Then the live line.
+
+On the right (seven columns), the **agent activity** panel: one small cell per
+registered agent on a tidy grid (above 800 agents, one cell per bucket of
+agents), coloured by what it is doing now — idle grey, working teal, in
+dispute amber, slashed in the last hour red — with a thin ring on every
+operator-run cell. One legend, one live line ("N agents · M active now · K in
+dispute"), one footnote. Pointing at a cell shows its agent (or its bucket's
+range and counts); clicking opens the agent in the explorer. The **Network
+graph** switch shows the detail view instead: the 120 most active agents and
+the agreements between them, clustered, with the counts of crowded pairs in a
+list beside the plate. "The same agents as a list" is paginated, 50 to a page.
+Directly under the hero, the river as a titled 140 px strip ("Blocks arriving
+now") the content's width, with its axis and its FINAL marker labelled.
+
+**At scale.** The field is a grid of dots on one canvas, redrawn only when
+something changes, so 2,000 agents cost a few hundred arcs. The agents-over-time
+strip is drawn from at most 240 points; the per-era bars are one bar per era.
+The indexer's live agent scan stops at 512 agents today (`MAX_LIVE_SCAN`); past
+that the page says so, draws the agents it was given, and shows its totals as
+floors.
 
 **Sections.** Each is an eyebrow ("01 · Chain"), a heading, one sentence, the instrument and a row of figures with hairlines between them, 104 px apart. 01 Chain (the river, height, finalized, finality lag, blocks per
 minute), 02 Economy (the era dial, time to settlement, CMN issued to agents to

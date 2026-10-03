@@ -470,23 +470,29 @@ ${renderNav('observatory')}
 `;
 }
 
-/** One of the hero's three figures: the figure, then its caption directly under it. */
-function heroFigure({ key, caption }) {
-  return `          <div class="reading hero-figure" data-reading="${escapeHtml(key)}">
+/** One of the hero's figures: the figure, then its caption directly under it. */
+function heroFigure({ key, caption, describedBy = '' }) {
+  return `          <div class="reading hero-figure" data-reading="${escapeHtml(key)}"${describedBy ? ` aria-describedby="${escapeHtml(describedBy)}"` : ''}>
             <p class="reading-value is-loading" aria-live="off">${skeleton()}</p>
             <p class="reading-label">${escapeHtml(caption)}</p>
             <p class="reading-prov"></p>
           </div>`;
 }
 
+/** Who runs the operator-run agents, said in plain words beside the figure, never behind a disclosure. */
+export const OPERATOR_NOTE =
+  'Agents run by the Scalar Commons team to exercise the network. Identified on-chain by the swarm- prefix.';
+
 /**
  * The first screen, as tall as its content plus 64 px. Left, five columns of
  * twelve, centred against the panel: the page's name in the display serif,
- * one sentence, three live figures with their captions and hairlines
- * between them, and the live line. Right, seven columns: the agent
- * constellation in its own framed panel — the canvas is clipped by the
- * frame, so nothing is drawn outside it and nothing behind the text. The
- * wordmark is the top bar's alone.
+ * one sentence, the live figures with their captions and hairlines between
+ * them — the height across the top; agents registered and how many of them
+ * are operator-run; agreements open beside the plain note on who runs the
+ * operator-run agents — then the last hour's activity in a row, and the live
+ * line. Right, seven columns: the agent activity panel, a field of one cell
+ * per agent, with the network graph of the most active agents behind its
+ * switch. The wordmark is the top bar's alone.
  */
 function hero() {
   return `<header class="hero" data-instrument="hero" data-present-screen aria-labelledby="hero-h">
@@ -497,25 +503,59 @@ function hero() {
       <div class="hero-figures">
 ${heroFigure({ key: 'heroHeight', caption: 'Height' })}
 ${heroFigure({ key: 'agents', caption: 'Agents registered' })}
+${heroFigure({ key: 'operatorRun', caption: 'Operator-run', describedBy: 'operator-note' })}
 ${heroFigure({ key: 'activeAgreements', caption: 'Agreements open' })}
+          <p class="hero-note" id="operator-note">${escapeHtml(OPERATOR_NOTE)}</p>
       </div>
+      <section class="hour" aria-labelledby="hour-h">
+        <h2 class="eyebrow hour-title" id="hour-h">Activity in the last hour</h2>
+        <div class="readings figure-row hour-figures">
+${reading({ key: 'hourOracle', label: 'Oracle answers', live: false })}
+${reading({ key: 'hourSettled', label: 'Agreements settled', live: false })}
+${reading({ key: 'hourDisputes', label: 'Disputes opened', live: false })}
+${reading({ key: 'hourSlashes', label: 'Slashes', live: false })}
+        </div>
+      </section>
       <p class="live-line" data-state="connecting"><span class="pulse-dot" aria-hidden="true"></span> <span class="ll-state">Connecting</span> <span class="ll-finality">finality —</span></p>
     </div>
     <figure class="panel hero-panel instrument" aria-labelledby="panel-h">
-      <figcaption class="panel-head"><h2 class="panel-title" id="panel-h">Agents and their agreements</h2>
-        <ul class="legend" aria-label="Line colours">
-          <li><span class="swatch swatch-active" aria-hidden="true"></span>Open</li>
-          <li><span class="swatch swatch-disputed" aria-hidden="true"></span>Disputed</li>
-          <li><span class="swatch swatch-settled" aria-hidden="true"></span>Settled</li>
-        </ul>
+      <figcaption class="panel-head">
+        <h2 class="panel-title" id="panel-h">Agent activity</h2>
+        <button type="button" class="btn graph-toggle" role="switch" aria-checked="false">Network graph</button>
       </figcaption>
-      <div class="constellation-host">
-        <canvas class="constellation-canvas" role="img" aria-label="Network graph of registered agents and the agreements between them"></canvas>
-        <div class="tooltip constellation-tip" role="tooltip" hidden></div>
+      <ul class="legend field-legend" aria-label="Cell colours">
+        <li><span class="dot dot-idle" aria-hidden="true"></span>Idle</li>
+        <li><span class="dot dot-working" aria-hidden="true"></span>Working</li>
+        <li><span class="dot dot-disputed" aria-hidden="true"></span>In dispute</li>
+        <li><span class="dot dot-slashed" aria-hidden="true"></span>Slashed, last hour</li>
+        <li><span class="dot dot-ring" aria-hidden="true"></span>Operator-run</li>
+      </ul>
+      <ul class="legend graph-legend" aria-label="Line colours">
+        <li><span class="swatch swatch-active" aria-hidden="true"></span>Open</li>
+        <li><span class="swatch swatch-disputed" aria-hidden="true"></span>Disputed</li>
+        <li><span class="swatch swatch-settled" aria-hidden="true"></span>Settled</li>
+      </ul>
+      <div class="field-host">
+        <canvas class="field-canvas" role="img" aria-label="Agent activity: one cell per registered agent, coloured by what it is doing now"></canvas>
+        <div class="tooltip field-tip" role="tooltip" hidden></div>
       </div>
-      <details class="disclosure constellation-list"><summary>The same agents as a list</summary>
-        <p class="instrument-note constellation-note"></p>
+      <div class="graph-host">
+        <div class="constellation-host">
+          <canvas class="constellation-canvas" role="img" aria-label="Network graph of the most active agents and the agreements between them"></canvas>
+          <div class="tooltip constellation-tip" role="tooltip" hidden></div>
+        </div>
+        <ol class="graph-bundles" aria-label="Pairs with more lines than the graph draws" hidden></ol>
+      </div>
+      <p class="field-live" role="status" aria-live="off">reading the agent list…</p>
+      <p class="panel-foot field-foot">One cell per agent. External agents come first, then operator-run, each in order of registration.</p>
+      <p class="panel-foot graph-note"></p>
+      <details class="disclosure agents-list"><summary>The same agents as a list</summary>
         <ol class="agent-list" aria-live="off"></ol>
+        <div class="list-pager" hidden>
+          <button type="button" class="btn" data-step="prev">Previous</button>
+          <span class="pager-status"></span>
+          <button type="button" class="btn" data-step="next">Next</button>
+        </div>
       </details>
     </figure>
   </div>
@@ -575,12 +615,12 @@ ${howTo}
 `;
 }
 
-/** The section each instrument draws into, for the dev harness (the constellation draws into the first screen). */
+/** The section each instrument draws into, for the dev harness (the agent field draws into the first screen). */
 const HARNESS_SECTION = { pulse: 'chain', era: 'economy', economy: 'economy', posture: 'verify' };
 
 /** A page holding one instrument's section, for the dev harness. */
 export function renderHarness(name, { history, posture, css = null }) {
-  const body = name === 'constellation' ? hero() : renderSection(HARNESS_SECTION[name] ?? name, { history, posture });
+  const body = name === 'agent-field' || name === 'constellation' ? hero() : renderSection(HARNESS_SECTION[name] ?? name, { history, posture });
   return `<!doctype html>
 <html lang="en">
 <head>

@@ -1,54 +1,55 @@
-// The agent constellation, the first screen's image, framed in its own panel
-// beside the hero's figures. Every registered agent is a point on the plate,
-// sized by its activity — the agreements it has completed as provider plus
-// the lines drawn to it now — so the busy agents are visibly larger; every
-// agreement between two of them is a line — open ones in the active colour,
-// disputed ones heavier in the dispute colour, recently settled ones dashed
-// in the settled colour. Points carry no label on the plate: an agent's name
-// and address show on hover or tap, and the list beneath has them all. A
-// party to a line that is no longer in the agent list is drawn as a small
-// hollow point and said to be so.
+// The network graph, the agent panel's detail view behind its "Network
+// graph" switch: the relationships between the most active agents. It is
+// fetched only when the switch is first turned on (with d3-force), so the
+// first screen never pays for it.
 //
-// Data: /v1/agents (live chain state, read whole), /v1/escrows (the open
-// agreements, live chain state, read whole) and the most recent
-// escrow.DeliveryConfirmed events from the finalized-block index for the
-// settled lines. The two hero figures beside the panel — agents registered and
-// agreements open — come from /v1/agents and /v1/escrows/stats. Open disputes
-// is the Economy section's figure (economy.js), from the same stats read.
+// The GRAPH_MAX_NODES most active agents are points — activity is the
+// agreements an agent has completed as provider plus the lines drawn to it
+// now — sized by that activity; every agreement between two of them is a
+// line: open ones in the active colour, disputed ones heavier in the dispute
+// colour, recently settled ones dashed in the settled colour. Agents that
+// trade with each other are pulled into their own cluster. Nothing is written
+// on the plate: an agent's name and address show on hover or tap, and where
+// more than BUNDLE_CAP lines of one kind join two agents, the count is in the
+// list beside the plate, never floating over the lines.
 //
-// Motion: the force layout settles once when the graph first appears — after
-// the agent list AND the two line sources have reported, or 1.5 s after the
-// agent list if they are slow — as a bounded run (d3-force stops itself as
-// alpha decays). It settles fully again when a line source first arrives
-// late, and is reheated gently when points or lines join or leave. A new
-// line draws itself in from buyer to provider over 400 ms, a line whose
-// status became disputed pulses once, a line that has gone fades out over
-// 400 ms. Nothing else moves; under prefers-reduced-motion every layout is
-// computed synchronously to rest and drawn once. Nothing glows, and nothing
-// is drawn outside the canvas: the panel's frame is its edge.
+// Data: the same /v1/agents and /v1/escrows reads as the agent field (shared,
+// not repeated), and the most recent escrow.DeliveryConfirmed events from the
+// finalized-block index for the settled lines.
+//
+// Motion: the force layout settles once when the graph first appears, as a
+// bounded run (d3-force stops itself as alpha decays), and is reheated gently
+// when points or lines join or leave. A new line draws itself in over 400 ms,
+// a line whose status became disputed pulses once, a line that has gone fades
+// out over 400 ms. Nothing loops; under prefers-reduced-motion every layout is
+// computed synchronously to rest and drawn once.
 
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY } from 'd3-force';
 
+// The same intervals and page caps as the agent field (agent-field.js), so
+// the reads are shared, not repeated. They are restated here rather than
+// imported: an import would pull the agent field into a chunk of its own and
+// cost the first screen a second script. A test holds the two equal.
+export const AGENT_PAGES = 10;
+export const ESCROW_PAGES = 5;
 const AGENTS_INTERVAL_MS = 60_000;
 const ESCROWS_INTERVAL_MS = 30_000;
 const SETTLED_INTERVAL_MS = 60_000;
-const STATS_INTERVAL_MS = 30_000;
-
-const AGENT_PAGES = 3; // 3 × the indexer's page size: its live scan stops at 512 anyway
-const ESCROW_PAGES = 3;
 const SETTLED_PAGES = 2; // the most recent two pages of settled agreements
 
-/** Above this many points the points shrink; labels are never drawn on the plate (they show on hover or tap). */
-export const LABEL_MAX_NODES = 120;
+/** The graph shows this many of the most active agents, never more. */
+export const GRAPH_MAX_NODES = 120;
+const CLUSTER_PULL = 0.08; // how strongly a point is drawn to its cluster's place
+
+/** Above this many points (of the graph's 120 at most) the points shrink; labels are never drawn on the plate (they show on hover or tap). */
+export const LABEL_MAX_NODES = 60;
 /** Above this many points, the ones with no line are faded back. */
-export const FADE_ISOLATED_ABOVE = 300;
+export const FADE_ISOLATED_ABOVE = 60;
 export const ISOLATED_ALPHA = 0.35;
 /** A plate label never runs longer than this; the full name lives in the tooltip and the list. */
 export const LABEL_MAX_CHARS = 18;
 
 const HIT_RADIUS = 14; // px around a point that counts as pointing at it
-const KEY_ROW = 24; // px per row of the key strip along the plate's foot (a 14 px label line)
-const KEY_PAD = 8;
 /** Beyond this many lines of one state between the same two agents, the rest is a count. */
 export const BUNDLE_CAP = 6;
 const STATE_ORDER = { disputed: 0, open: 1, settled: 2 };
@@ -56,7 +57,6 @@ const MAX_SYNC_TICKS = 600; // a synchronous layout (reduced motion) never runs 
 const REHEAT_ALPHA = 0.3;
 const LINK_DISTANCE = 70;
 const CHARGE = -90;
-const BOUNDS_PULL = 0.04;
 const DRAW_IN_MS = 400;
 const PULSE_MS = 600;
 const FADE_MS = 400;
@@ -67,23 +67,6 @@ const CROWDED_LINE_ALPHA = 0.55; // settled lines step back only when the plate 
 
 /** An agreement's identity on chain: buyer, provider and their running number. */
 export const edgeKey = (buyer, provider, seq) => `${buyer}/${provider}/${seq}`;
-
-/** A cluster count's badge keeps this far from every edge of the plate. */
-export const BADGE_MARGIN = 8;
-
-/**
- * The badge a cluster count ("×10 settled") is drawn in: its text's width
- * plus 6 px each side, 22 px tall, centred on (cx, cy). The badge has its own
- * ground, so it reads cleanly over the lines it sits on. Pure; tested.
- */
-export function badgeBox(cx, cy, textWidth) {
-  return { x: cx - textWidth / 2 - 6, y: cy - 11, w: textWidth + 12, h: 22 };
-}
-
-/** Whether a box sits wholly inside the plate, BADGE_MARGIN clear of every edge. Pure; tested. */
-export function insidePlate(rect, width, height, margin = BADGE_MARGIN) {
-  return rect.x >= margin && rect.x + rect.w <= width - margin && rect.y >= margin && rect.y + rect.h <= height - margin;
-}
 
 /** Both directions between two accounts share one bundle of lines. */
 export const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
@@ -217,7 +200,7 @@ export const GHOST_RADIUS = 2.5;
  */
 export function labelPolicy(nodeCount) {
   const labels = false;
-  const radiusFactor = nodeCount <= LABEL_MAX_NODES ? 1 : nodeCount <= FADE_ISOLATED_ABOVE ? 0.7 : 0.5;
+  const radiusFactor = nodeCount <= LABEL_MAX_NODES ? 1 : 0.6;
   const isolatedAlpha = nodeCount > FADE_ISOLATED_ABOVE ? ISOLATED_ALPHA : 1;
   return { labels, radiusFactor, isolatedAlpha };
 }
@@ -289,21 +272,98 @@ export function forceScale(width, height) {
 }
 
 /**
+ * The agents the graph shows: the `max` most active by activityOf (completed
+ * agreements as provider plus the lines to them now), ties broken by address
+ * so the choice is stable; and only the lines between two of them. Pure; tested.
+ */
+export function topAgents(agents, edges, max = GRAPH_MAX_NODES) {
+  const degree = new Map();
+  for (const edge of edges.values()) {
+    degree.set(edge.buyer, (degree.get(edge.buyer) ?? 0) + 1);
+    degree.set(edge.provider, (degree.get(edge.provider) ?? 0) + 1);
+  }
+  const ranked = [...agents].sort(
+    (a, b) => activityOf(b, degree.get(b.address) ?? 0) - activityOf(a, degree.get(a.address) ?? 0) || (a.address < b.address ? -1 : 1),
+  );
+  const top = ranked.slice(0, max);
+  const keep = new Set(top.map((a) => a.address));
+  const lines = new Map([...edges].filter(([, e]) => keep.has(e.buyer) && keep.has(e.provider)));
+  return { agents: top, edges: lines, of: agents.length };
+}
+
+/**
+ * Clusters: the connected groups of points, largest first, as a map from
+ * point to group index. Points with no line share the last group. Pure; tested.
+ */
+export function clusters(ids, edges) {
+  const parent = new Map(ids.map((id) => [id, id]));
+  const find = (id) => {
+    let root = id;
+    while (parent.get(root) !== root) root = parent.get(root);
+    parent.set(id, root);
+    return root;
+  };
+  for (const edge of edges.values()) {
+    if (!parent.has(edge.buyer) || !parent.has(edge.provider)) continue;
+    const a = find(edge.buyer);
+    const b = find(edge.provider);
+    if (a !== b) parent.set(a, b);
+  }
+  const groups = new Map();
+  for (const id of ids) {
+    const root = find(id);
+    if (!groups.has(root)) groups.set(root, []);
+    groups.get(root).push(id);
+  }
+  const linked = [...groups.values()].filter((g) => g.length > 1).sort((a, b) => b.length - a.length || (a[0] < b[0] ? -1 : 1));
+  const alone = [...groups.values()].filter((g) => g.length === 1).flat();
+  const index = new Map();
+  linked.forEach((group, i) => group.forEach((id) => index.set(id, i)));
+  for (const id of alone) index.set(id, linked.length);
+  return { index, count: linked.length + (alone.length ? 1 : 0), alone: alone.length > 0 };
+}
+
+/**
+ * Where each cluster sits on the plate: the largest in the middle, the rest
+ * around it on a ring, and the points with no line on an outer ring. Pure; tested.
+ */
+export function clusterAnchors(count, width, height, { alone = false } = {}) {
+  const cx = width / 2;
+  const cy = height / 2;
+  const anchors = [];
+  const linked = alone ? count - 1 : count;
+  const r = Math.min(width, height) * 0.3;
+  for (let i = 0; i < linked; i += 1) {
+    if (i === 0) anchors.push({ x: cx, y: cy });
+    else {
+      const a = ((i - 1) / Math.max(1, linked - 1)) * Math.PI * 2 - Math.PI / 2;
+      anchors.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r * 0.8 });
+    }
+  }
+  if (alone) anchors.push({ x: cx, y: cy, ring: Math.min(width, height) * 0.36 });
+  return anchors;
+}
+
+/**
  * The one-sentence summary the canvas carries for screen readers. A count
  * that cannot be given is said so: `null` is a source that could not be read,
  * `undefined` one not read yet. The agent count is a floor when the list was
  * cut short.
  */
-export function summaryText({ agents, agentsFloor = false, open, disputed, settled }) {
-  const n = (v, one, many) => `${v} ${v === 1 ? one : many}`;
-  const parts = [`${agentsFloor ? 'at least ' : ''}${n(agents, 'agent', 'agents')}`];
+export function summaryText({ agents, of = agents, agentsFloor = false, open, disputed, settled }, fmt = String) {
+  const n = (v, one, many) => `${fmt(v)} ${v === 1 ? one : many}`;
+  const parts = [
+    of > agents
+      ? `the ${fmt(agents)} most active of ${agentsFloor ? 'at least ' : ''}${n(of, 'agent', 'agents')}`
+      : `${agentsFloor ? 'at least ' : ''}${n(agents, 'agent', 'agents')}`,
+  ];
   if (open === null) parts.push('open agreements unavailable');
   else if (open === undefined) parts.push('open agreements not yet read');
-  else parts.push(n(open, 'open agreement', 'open agreements'), `${disputed} disputed`);
+  else parts.push(n(open, 'open agreement', 'open agreements'), `${fmt(disputed)} disputed`);
   if (settled === null) parts.push('recently settled agreements unavailable');
   else if (settled === undefined) parts.push('recently settled agreements not yet read');
-  else parts.push(`${settled} recently settled`);
-  return `Agent constellation: ${parts.join(', ')}.`;
+  else parts.push(`${fmt(settled)} recently settled`);
+  return `Network graph: ${parts.join(', ')}.`;
 }
 
 /** A deterministic angle from an address, so a new point lands in a stable place. */
@@ -318,23 +378,18 @@ export function seedAngle(address) {
 export function init(root, ctx) {
   const canvas = root.querySelector('.constellation-canvas');
   const tip = root.querySelector('.constellation-tip');
-  const list = root.querySelector('.agent-list');
-  const note = root.querySelector('.constellation-note');
-  const targets = {
-    agents: ctx.reading('agents', root),
-    active: ctx.reading('activeAgreements', root),
-  };
+  const bundles = root.querySelector('.graph-bundles');
+  const note = root.querySelector('.graph-note');
   const { formatCmn, formatInteger, shortAddress } = ctx.format;
   const colour = (name) => ctx.theme.color(name);
 
   // ── source state ──
   let agentsList = null; // plain agent rows, or null while unread / unreadable
-  let agentsTotal = 0; // the indexer's own count, shown in the reading
+  let agentsShownOf = 0; // how many agents the most active were chosen from
   let agentsComplete = true;
   let agentsTruncated = false;
   let openList = null;
   let settledList = null;
-  let settledComplete = true;
   const failures = { agents: null, open: null, settled: null };
   const seen = { open: false, settled: false }; // a line source has reported at least once
 
@@ -344,14 +399,14 @@ export function init(root, ctx) {
   let fading = []; // lines on their way out
   let settledShown = 0;
   let maxActivity = 0;
-  let ghostCount = 0;
   let laidOut = false; // the first layout has run
   let graceTimer = null; // the first layout's wait for the line sources
   let graceElapsed = false;
   let hovered = null;
   let lastPointerType = 'mouse';
   let tapped = null;
-  let bundleLabels = []; // { a, b, offset, text, short } for capped bundles
+  let bundleLabels = []; // { a, b, text } for capped bundles: listed beside the plate
+  let anchors = []; // where each cluster sits
 
   const box = ctx.fitCanvas(canvas, onResize);
 
@@ -360,8 +415,8 @@ export function init(root, ctx) {
     .force('charge', forceManyBody().strength(CHARGE))
     .force('center', forceCenter(0, 0))
     .force('collide', forceCollide((d) => d.r + 4))
-    .force('x', forceX(0).strength(BOUNDS_PULL))
-    .force('y', forceY(0).strength(BOUNDS_PULL))
+    .force('x', forceX(0).strength(CLUSTER_PULL))
+    .force('y', forceY(0).strength(CLUSTER_PULL))
     .stop();
   simulation.on('tick', () => {
     clampToPlate();
@@ -369,19 +424,26 @@ export function init(root, ctx) {
   });
   aimForces();
 
-  /** The plate less the key strip along its foot. */
+  /** The whole canvas: nothing is drawn along its foot. */
   function plate() {
     const { width, height } = box();
-    const rows = 1 + (ghostCount > 0 ? 1 : 0);
-    return { width, height: Math.max(1, height - rows * KEY_ROW - KEY_PAD) };
+    return { width, height: Math.max(1, height) };
+  }
+
+  /** A point's cluster place; a point with no line sits on the outer ring, at its own angle. */
+  function anchorOf(node) {
+    const a = anchors[node.cluster ?? 0] ?? { x: plate().width / 2, y: plate().height / 2 };
+    if (!a.ring) return a;
+    const angle = seedAngle(node.id);
+    return { x: a.x + Math.cos(angle) * a.ring, y: a.y + Math.sin(angle) * a.ring * 0.8 };
   }
 
   function aimForces() {
     const { width, height } = plate();
     const s = forceScale(width, height);
-    simulation.force('center').x(width / 2).y(height / 2);
-    simulation.force('x').x(width / 2).strength(BOUNDS_PULL / s);
-    simulation.force('y').y(height / 2).strength(BOUNDS_PULL / s);
+    simulation.force('center').x(width / 2).y(height / 2).strength(0.05);
+    simulation.force('x').x((d) => anchorOf(d).x).strength(CLUSTER_PULL / s);
+    simulation.force('y').y((d) => anchorOf(d).y).strength(CLUSTER_PULL / s);
     simulation.force('link').distance(LINK_DISTANCE * s);
     simulation.force('charge').strength(CHARGE * s);
     simulation.force('collide').radius((d) => d.r + 4 * s);
@@ -406,6 +468,8 @@ export function init(root, ctx) {
         node.y = (node.y / prev.height) * next.height;
       }
     }
+    const groupsNow = clusters([...nodes.keys()], edges);
+    anchors = clusterAnchors(groupsNow.count, plate().width, plate().height, { alone: groupsNow.alone });
     aimForces();
     if (laidOut) computeRadii();
     draw();
@@ -453,12 +517,18 @@ export function init(root, ctx) {
       draw();
       return;
     }
-    const agents = failures.agents ? [] : agentsList;
     const open = failures.open ? [] : openList ?? [];
     const settled = failures.settled ? [] : settledList ?? [];
-    const built = failures.agents ? { edges: new Map(), settledShown: 0 } : buildEdges(open, settled);
-    settledShown = built.settledShown;
-    const nextNodes = synthesizeNodes(agents, built.edges, { listComplete: listComplete() });
+    const all = failures.agents ? { edges: new Map(), settledShown: 0 } : buildEdges(open, settled);
+    // Only the most active agents, and only the lines between two of them.
+    const chosen = topAgents(failures.agents ? [] : agentsList, all.edges, GRAPH_MAX_NODES);
+    const built = { edges: chosen.edges };
+    agentsShownOf = chosen.of;
+    settledShown = [...built.edges.values()].filter((e) => e.state === 'settled').length;
+    const nextNodes = synthesizeNodes(chosen.agents, built.edges, { listComplete: listComplete() });
+    const groups = clusters([...nextNodes.keys()], built.edges);
+    for (const [id, node] of nextNodes) node.cluster = groups.index.get(id) ?? 0;
+    anchors = clusterAnchors(groups.count, plate().width, plate().height, { alone: groups.alone });
 
     // Points: keep the objects d3 already positions; add and drop the rest.
     let nodesAdded = 0;
@@ -478,14 +548,10 @@ export function init(root, ctx) {
       }
     }
     maxActivity = 0;
-    ghostCount = 0;
     // `degree` was counted by synthesizeNodes from the line map just built,
     // so the sizes and the lines drawn come from the same poll.
     for (const node of nodes.values()) {
-      if (node.ghost) {
-        ghostCount += 1;
-        continue;
-      }
+      if (node.ghost) continue;
       node.activity = activityOf(node, node.degree);
       if (node.activity > maxActivity) maxActivity = node.activity;
     }
@@ -606,13 +672,11 @@ export function init(root, ctx) {
       }
       if (labels.length) {
         const first = drawn[0];
-        const outer = parallelOffset(drawn.length - 1, drawn.length) * sign(first);
         bundleLabels.push({
           a: nodes.get(first.buyer < first.provider ? first.buyer : first.provider),
           b: nodes.get(first.buyer < first.provider ? first.provider : first.buyer),
-          offset: outer,
+          total: group.length,
           text: labels.map((l) => l.text).join(' · '),
-          short: labels.map((l) => `×${l.count}`).join(' '),
         });
       }
     }
@@ -711,57 +775,6 @@ export function init(root, ctx) {
     g.globalAlpha = 1;
   }
 
-  function drawKey(g, width, height) {
-    // The footnote: one line in the label size, in the interface face.
-    const font = ctx.theme.font('sans');
-    g.font = `400 14px ${font}`;
-    g.textBaseline = 'middle';
-    g.textAlign = 'left';
-    g.fillStyle = colour('text-dim');
-    let y = height - KEY_ROW / 2;
-    if (ghostCount > 0) {
-      g.strokeStyle = colour('text-dim');
-      g.lineWidth = 1;
-      g.beginPath();
-      g.arc(10.5, y, GHOST_RADIUS, 0, Math.PI * 2);
-      g.stroke();
-      g.fillText(listComplete() ? 'no longer registered' : 'not among the agents listed', 20, y);
-      y -= KEY_ROW;
-    }
-    if (maxActivity > 0) {
-      const r = nodeRadius(maxActivity, maxActivity, policy().radiusFactor);
-      // The sample point sits wholly inside the plate, whatever its size: the frame is the edge.
-      const cx = Math.max(10.5, r + 8);
-      const cy = Math.min(y, height - r - 4);
-      g.fillStyle = colour('text');
-      g.globalAlpha = 0.9;
-      g.beginPath();
-      g.arc(cx, cy, r, 0, Math.PI * 2);
-      g.fill();
-      g.globalAlpha = 1;
-      g.fillStyle = colour('text-dim');
-      const x = Math.max(20, cx + r + 8);
-      const scale = `this size = ${formatInteger(maxActivity)} agreements`;
-      const full = `${scale} · area grows with activity · point at an agent for its name`;
-      g.fillText(x + g.measureText(full).width <= width - 4 ? full : scale, x, cy);
-    } else if (nodes.size > 0) {
-      g.fillText('no agreements yet · point at an agent for its name', 20, y);
-    }
-  }
-
-  /** A cluster count in its badge: the surface colour, a hairline, the text in the secondary ink. */
-  function drawBadge(g, { t, x, y, rect }) {
-    g.fillStyle = colour('surface');
-    g.strokeStyle = colour('border');
-    g.lineWidth = 1;
-    g.beginPath();
-    g.roundRect(Math.round(rect.x) + 0.5, Math.round(rect.y) + 0.5, Math.round(rect.w), Math.round(rect.h), 4);
-    g.fill();
-    g.stroke();
-    g.fillStyle = colour('text-dim');
-    g.fillText(t, x, y + 0.5);
-  }
-
   /** Text knocked out of the lines beneath it: a plate-coloured stroke, then the fill. */
   function knockout(g, text, x, y) {
     g.strokeStyle = colour('bg');
@@ -801,7 +814,6 @@ export function init(root, ctx) {
       drawEmpty(g, width, height, [
         agentsList === null ? 'reading the agent list…' : nodes.size === 0 ? 'no agents registered' : 'reading the agreements…',
       ]);
-      if (agentsList !== null) drawKey(g, width, height);
       return;
     }
 
@@ -836,48 +848,9 @@ export function init(root, ctx) {
       g.globalAlpha = 1;
     }
 
-    // Text is placed in one pass so nothing overprints: bundle counts first
-    // (they carry lines the plate does not draw), then the point labels,
-    // each yielding to whatever is already placed and to every point.
+    // Nothing is written over the lines: bundle counts are in the list
+    // beside the plate, and point labels yield to every point and label.
     const placed = [];
-    g.font = `500 12px ${font}`;
-    g.textBaseline = 'middle';
-    g.textAlign = 'center';
-    for (const { a, b, offset, text, short } of bundleLabels) {
-      if (!a || !b) continue;
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const mx = (a.x + b.x) / 2;
-      const my = (a.y + b.y) / 2;
-      // Full text first (either side of the bundle, close then further out),
-      // the bare count only when no placement of the full text is clean. Each
-      // candidate is a badge, and a badge never touches the plate's edges.
-      const candidates = [];
-      for (const t of [text, short]) {
-        const w = g.measureText(t).width;
-        for (const gap of [14, 28]) {
-          for (const side of [1, -1]) {
-            const away = (offset + Math.sign(offset || 1) * gap) * side;
-            const x = mx - (dy / len) * away;
-            const y = my + (dx / len) * away;
-            candidates.push({ t, x, y, rect: badgeBox(x, y, w) });
-          }
-        }
-      }
-      const fits = (c) => insidePlate(c.rect, area.width, area.height) && !placed.some((p) => overlaps(c.rect, p)) && !rectOnAnyNode(c.rect, null);
-      // The count is load-bearing: when no placement is clean it is still
-      // written, pulled inside the plate.
-      let chosen = candidates.find(fits);
-      if (!chosen) {
-        const c = candidates[candidates.length - 1];
-        const x = Math.min(Math.max(c.x, c.rect.w / 2 + BADGE_MARGIN), area.width - c.rect.w / 2 - BADGE_MARGIN);
-        const y = Math.min(Math.max(c.y, 11 + BADGE_MARGIN), area.height - 11 - BADGE_MARGIN);
-        chosen = { t: c.t, x, y, rect: badgeBox(x, y, c.rect.w - 12) };
-      }
-      placed.push(chosen.rect);
-      drawBadge(g, chosen);
-    }
 
     // Point labels: the busiest and largest first; one that would sit on
     // another label or another point is left off (the point is still
@@ -914,8 +887,6 @@ export function init(root, ctx) {
       g.stroke();
       positionTip();
     }
-
-    drawKey(g, width, height);
   }
 
   // ── accessibility, list, note ──
@@ -928,7 +899,8 @@ export function init(root, ctx) {
       if (edge.state === 'disputed') disputed += 1;
     }
     return {
-      agents: agentsTotal,
+      agents: [...nodes.values()].filter((n) => !n.ghost).length,
+      of: agentsShownOf,
       agentsFloor: !listComplete(),
       open: failures.open ? null : openList === null ? undefined : open,
       disputed,
@@ -938,19 +910,12 @@ export function init(root, ctx) {
 
   function describe() {
     let label;
-    if (failures.agents) label = `Agent constellation: agents unavailable — ${failures.agents}.`;
-    else if (agentsList === null) label = 'Agent constellation: reading the agent list.';
-    else label = summaryText(counts());
+    if (failures.agents) label = `Network graph: agents unavailable — ${failures.agents}.`;
+    else if (agentsList === null) label = 'Network graph: reading the agent list.';
+    else label = summaryText(counts(), formatInteger);
     canvas.setAttribute('aria-label', label);
   }
 
-  function explorerLink(address) {
-    const a = document.createElement('a');
-    a.href = `${ctx.EXPLORER_ORIGIN}/activity?agent=${encodeURIComponent(address)}`;
-    a.target = '_blank';
-    a.rel = 'noopener';
-    return a;
-  }
 
   /** "9 open here" from the open-agreement list, or why it cannot be said. */
   function openHereText(id) {
@@ -964,56 +929,51 @@ export function init(root, ctx) {
   const providerText = (agent) =>
     `as provider: ${formatInteger(agent.activeEscrowCount)} open · ${formatInteger(agent.completedAgreements)} completed`;
 
+  /** The counts that used to float over the lines: one row per pair with more than BUNDLE_CAP lines of a kind. */
   function renderList() {
-    if (!list) return;
-    list.replaceChildren();
-    if (failures.agents || agentsList === null) {
+    if (!bundles) return;
+    bundles.replaceChildren();
+    const rows = bundleLabels
+      .filter(({ a, b }) => a && b)
+      .sort((x, y) => y.total - x.total);
+    bundles.hidden = rows.length === 0;
+    for (const { a, b, text } of rows) {
       const li = document.createElement('li');
-      li.className = 'dim';
-      li.textContent = failures.agents ? `unavailable — ${failures.agents}` : 'reading the agent list…';
-      list.append(li);
-      return;
-    }
-    for (const agent of agentsList) {
-      const li = document.createElement('li');
-      const a = explorerLink(agent.address);
-      a.textContent = agent.name ? `${agent.name} · ${shortAddress(agent.address)}` : shortAddress(agent.address);
-      li.append(
-        a,
-        ` · ${formatCmn(agent.stakePlancks)} CMN · ${openHereText(agent.address)} · ${providerText(agent)}${agent.leaving ? ' · leaving' : ''}`,
-      );
-      list.append(li);
-    }
-    if (ghostCount > 0) {
-      const li = document.createElement('li');
-      li.className = 'dim';
-      li.textContent = `${ghostCount} ${ghostCount === 1 ? 'party' : 'parties'} to a drawn line ${listComplete() ? 'no longer registered' : 'not among the agents listed'}`;
-      list.append(li);
+      const who = (n) => (n.name ? labelText(n.name, n.id) : shortAddress(n.id));
+      const pair = document.createElement('span');
+      pair.className = 'graph-pair';
+      pair.textContent = `${who(a)} ↔ ${who(b)}`;
+      const count = document.createElement('span');
+      count.className = 'graph-count';
+      count.textContent = text;
+      li.append(pair, count);
+      bundles.append(li);
     }
   }
 
+  /** The graph's one footnote line: what is drawn, and anything that could not be read. */
   function renderNote() {
     if (!note) return;
     const parts = [];
-    if (failures.settled) parts.push(`Settled lines could not be read: ${failures.settled}.`);
-    else if (settledList !== null) {
-      parts.push(
-        `Settled lines are the most recent DeliveryConfirmed events in the finalized-block index (${formatInteger(settledShown)} shown) — that is, the latest agreements the chain has confirmed as delivered and paid; older history is not drawn.`,
-      );
-    } else parts.push('Reading settled agreements from the finalized-block index…');
-    if (failures.open) parts.push(`Open agreements could not be read: ${failures.open}.`);
-    else if (openList === null) parts.push('Reading open agreements…');
-    if (bundleLabels.length) {
-      parts.push(`Where more than ${BUNDLE_CAP} lines of one kind join the same two agents, ${BUNDLE_CAP} are drawn and the count is written beside them.`);
-    }
     if (agentsList !== null && !failures.agents) {
-      parts.push('Points are sized by activity: completed agreements as provider (the chain’s own counter) plus the lines drawn to the agent now. Names and addresses are not printed on the plate; point at an agent, or open the list. On hover and in the list, “open here” counts an agent’s open lines from the open-agreement list; the “as provider” figures are the chain’s own counters, which count an agent only as provider.');
+      const shown = [...nodes.values()].filter((n) => !n.ghost).length;
+      parts.push(
+        agentsShownOf > shown
+          ? `The ${formatInteger(shown)} most active of ${formatInteger(agentsShownOf)} agents, sized by activity`
+          : `All ${formatInteger(shown)} agents, sized by activity`,
+      );
+      parts.push(
+        settledShown === 1
+          ? 'the dashed line is the most recently settled agreement'
+          : `dashed lines are the ${formatInteger(settledShown)} most recently settled agreements`,
+      );
+      if (bundleLabels.length) parts.push(`more than ${BUNDLE_CAP} lines of a kind between two agents are counted in the list`);
     }
-    if (!listComplete()) parts.push('The agent list was cut short at the indexer’s scan cap; agents beyond it are not drawn.');
-    if (!settledComplete && !failures.settled && settledList !== null) {
-      parts.push(`Only the newest ${formatInteger(settledList.length)} settled agreements were read.`);
-    }
-    note.textContent = parts.join(' ');
+    if (failures.agents) parts.push(`agents could not be read: ${failures.agents}`);
+    if (failures.open) parts.push(`open agreements could not be read: ${failures.open}`);
+    if (failures.settled) parts.push(`settled agreements could not be read: ${failures.settled}`);
+    if (!listComplete()) parts.push('the agent list was cut short at the indexer’s scan cap');
+    note.textContent = parts.length ? `${parts.join(' · ')}.` : 'Reading the agent list…';
   }
 
   // ── pointer ──
@@ -1127,43 +1087,34 @@ export function init(root, ctx) {
     }
   });
 
-  // ── data ──
+  // ── data ── (the same reads as the agent field: one fetch serves both)
   ctx.watchAll(
     'agents',
     (record) => {
-      let failed = null; // the exact reason, when a field is missing
-      const ok = ctx.readout.apply(targets.agents, record, (data) => {
-        try {
-          agentsTruncated = ctx.field(data, 'truncated');
-          const total = ctx.field(data, 'total');
-          const rows = record.items.map((item) => ({
-            address: ctx.field(item, 'address'),
-            stakePlancks: ctx.field(item, 'stakePlancks'),
-            completedAgreements: ctx.field(item, 'completedAgreements'),
-            activeEscrowCount: ctx.field(item, 'activeEscrowCount'),
-            // Both are documented as nullable: null is "none", not a missing field.
-            name: item.metadata === null ? null : ctx.field(item, 'metadata.name'),
-            leaving: item.unstakeAtBlock === null ? false : Number.isFinite(ctx.field(item, 'unstakeAtBlock')),
-          }));
-          agentsComplete = record.complete;
-          agentsList = rows;
-          agentsTotal = total;
-          failures.agents = null;
-          const floor = agentsTruncated || !record.complete;
-          ctx.readout.showValue(targets.agents, record, {
-            value: total,
-            prefix: floor ? '≥ ' : '',
-            extra: agentsTruncated ? 'live scan cut short at the indexer’s cap' : `${formatInteger(rows.length)} listed`,
-            motion: ctx.motion,
-          });
-        } catch (error) {
-          failed = error.message;
-          throw error;
-        }
-      });
-      if (!ok) {
+      if (!record.ok) {
         agentsList = null;
-        failures.agents = record.ok ? failed ?? 'a field was missing from the response' : record.error;
+        failures.agents = record.error;
+        laidOut = false;
+        clearGrace();
+        rebuild();
+        return;
+      }
+      try {
+        agentsTruncated = ctx.field(record.data, 'truncated');
+        agentsList = record.items.map((item) => ({
+          address: ctx.field(item, 'address'),
+          stakePlancks: ctx.field(item, 'stakePlancks'),
+          completedAgreements: ctx.field(item, 'completedAgreements'),
+          activeEscrowCount: ctx.field(item, 'activeEscrowCount'),
+          // Both are documented as nullable: null is "none", not a missing field.
+          name: item.metadata === null ? null : ctx.field(item, 'metadata.name'),
+          leaving: item.unstakeAtBlock === null ? false : Number.isFinite(ctx.field(item, 'unstakeAtBlock')),
+        }));
+        agentsComplete = record.complete;
+        failures.agents = null;
+      } catch (error) {
+        agentsList = null;
+        failures.agents = error.message;
         laidOut = false;
         clearGrace();
       }
@@ -1219,7 +1170,6 @@ export function init(root, ctx) {
           seq: ctx.field(item, 'data.seq'),
           amountPlancks: ctx.field(item, 'data.amount'),
         }));
-        settledComplete = record.complete;
         failures.settled = null;
       } catch (error) {
         settledList = null;
@@ -1231,26 +1181,9 @@ export function init(root, ctx) {
     { maxPages: SETTLED_PAGES },
   );
 
-  ctx.watch(
-    'escrowStats',
-    (record) => {
-      ctx.readout.apply(targets.active, record, (data) => {
-        const truncated = ctx.field(data, 'scanTruncated');
-        const prefix = truncated ? '≥ ' : '';
-        const extra = truncated ? 'live scan cut short at the indexer’s cap' : 'live chain state';
-        ctx.readout.showValue(targets.active, record, {
-          value: ctx.field(data, 'activeAgreementCount'),
-          prefix,
-          extra,
-          motion: ctx.motion,
-        });
-      });
-    },
-    STATS_INTERVAL_MS,
-  );
-
   describe();
   renderList();
   renderNote();
   draw();
+  return { nodes: () => nodes };
 }

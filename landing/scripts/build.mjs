@@ -63,15 +63,26 @@ const common = {
   metafile: true,
   logLevel: 'silent',
 };
+// One script for the page, observatory.js. The network graph (with
+// d3-force) is a second, self-contained bundle, observatory-graph.js, which
+// the page imports by URL only when its switch is first turned on; nothing is
+// shared between the two, so the first screen fetches one script.
 const bundle = await build({
   ...common,
   entryPoints: [here('../src/observatory/main.js')],
   outfile: join(outDir, 'observatory.js'),
 });
+const graph = await build({
+  ...common,
+  entryPoints: [here('../src/observatory/instruments/constellation.js')],
+  outfile: join(outDir, 'observatory-graph.js'),
+});
 const bundleBytes = Object.values(bundle.metafile.outputs)[0]?.bytes ?? 0;
+const chunkBytes = Object.values(graph.metafile.outputs)[0]?.bytes ?? 0;
 
 console.log(
   `built ${outDir}/index.html (${(html.length / 1024).toFixed(1)} kB) from ${facts.provenance.specName} spec ` +
     `${facts.provenance.specVersion}, metadata v${facts.provenance.metadataVersion}, block ` +
-    `#${facts.provenance.readAtBlock}; observatory.js ${(bundleBytes / 1024).toFixed(1)} kB`,
+    `#${facts.provenance.readAtBlock}; observatory.js ${(bundleBytes / 1024).toFixed(1)} kB` +
+    `, observatory-graph.js (on demand) ${(chunkBytes / 1024).toFixed(1)} kB`,
 );

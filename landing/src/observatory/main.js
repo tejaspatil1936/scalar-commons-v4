@@ -3,7 +3,8 @@
 // the river strip along the first screen's foot as well as its own plate;
 // the hero's height and the status bar (with the hero's live line, a second
 // view of the same state) listen to it, so they start right after it; the
-// constellation, framed in the hero, comes next; the rest yield to the
+// agent field, framed in the hero, and the last hour's row come next (the
+// network graph is fetched only when its switch is turned on); the rest yield to the
 // browser between them so the page never blocks on an instrument. The
 // Sources switch, presenter mode (the P key or the Present button — never a
 // URL flag) and the scroll reveal are wired last, once every section exists.
@@ -11,7 +12,8 @@
 import { createContext } from './context.js';
 import { relativeTime } from './format.js';
 import * as pulse from './instruments/pulse.js';
-import * as constellation from './instruments/constellation.js';
+import * as agentField from './instruments/agent-field.js';
+import * as lastHour from './instruments/last-hour.js';
 import * as era from './instruments/era-dial.js';
 import * as economy from './instruments/economy.js';
 import * as validators from './instruments/validator-ring.js';
@@ -28,7 +30,8 @@ import { start as startReveal } from './reveal.js';
 /** Each instrument and the element it draws into, in boot order. */
 const INSTRUMENTS = [
   ['pulse', pulse, '#chain'],
-  ['constellation', constellation, '.hero'],
+  ['agent-field', agentField, '.hero'],
+  ['last-hour', lastHour, '.hero'],
   ['era', era, '#economy'],
   ['economy', economy, '#economy'],
   ['validators', validators, '#validators'],

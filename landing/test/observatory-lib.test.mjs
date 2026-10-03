@@ -172,6 +172,38 @@ test('fetchAllPages walks a list and says whether it got everything', async () =
   assert.equal(failing.complete, false);
 });
 
+test('fetchAllPages reads a newest-first event list only back to a block, and says when the cap stopped it first', async () => {
+  const ev = (blockNumber) => ({ blockNumber });
+  const pages = [
+    { ok: true, data: { total: 9, items: [ev(120), ev(110), ev(105)] } },
+    { ok: true, data: { total: 9, items: [ev(101), ev(99), ev(90)] } },
+    { ok: true, data: { total: 9, items: [ev(80), ev(70), ev(60)] } },
+  ];
+  let calls = 0;
+  const fetcher = async () => pages[calls++];
+  const source = (since) => ({ kind: 'api', path: '/x?limit=3', stopBelow: () => since });
+  // The second page reaches below block 100: no third page is read.
+  const hour = await fetchAllPages(source(100), { fetcher, maxPages: 10 });
+  assert.equal(calls, 2);
+  assert.equal(hour.since, 100);
+  assert.equal(hour.reachedStart, true);
+  assert.deepEqual(countSince(hour.items, hour.since), { count: 4, reachedStart: true });
+  // The cap stops the read before the start: the count is a floor.
+  calls = 0;
+  const capped = await fetchAllPages(source(50), { fetcher, maxPages: 2 });
+  assert.equal(capped.reachedStart, false);
+  // The list ends before the start: everything since it is in hand.
+  calls = 0;
+  const whole = await fetchAllPages(source(10), { fetcher, maxPages: 10 });
+  assert.equal(whole.complete, true);
+  assert.equal(whole.reachedStart, true);
+  // A failure carries no start reached, and no source without `stopBelow` gets the fields.
+  const failing = await fetchAllPages(source(100), { fetcher: async () => ({ ok: false, error: 'HTTP 502' }) });
+  assert.equal(failing.reachedStart, false);
+  calls = 0;
+  assert.equal('reachedStart' in (await fetchAllPages({ kind: 'api', path: '/x?limit=3' }, { fetcher, maxPages: 1 })), false);
+});
+
 test('Scheduler fetches a shared source once per interval and pauses', async () => {
   let fetches = 0;
   const scheduler = new Scheduler(async () => ({ ok: true, n: ++fetches }));

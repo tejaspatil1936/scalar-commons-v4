@@ -41,6 +41,7 @@ and `ctx` is created by `context.js`:
 | `ctx.fetch(source)` | one HTTP or RPC read → record |
 | `ctx.watch(name, handler, ms)` | poll `SOURCES[name]` every `ms`, shared with every other watcher; the handler gets the latest record immediately if one exists; returns a stop function |
 | `ctx.watchAll(name, handler, ms, { maxPages })` | the same for a list endpoint read whole: the record has `items`, `total`, `complete` |
+| `ctx.watchSince(name, since, handler, ms, { maxPages })` | a newest-first event list read only back to the block `since()` returns at each fetch; the record adds `since` and `reachedStart` (false when the page cap stopped it first, so a count is a floor) |
 | `ctx.fetchAll(source, { maxPages })` | one whole-list read |
 | `ctx.subscribe(name, handler)` | a pushed source (`newHeads`, `finalizedHeads`); the hero owns these |
 | `ctx.bus.on(event, fn)` | page events: `head` `{ record, number, header, author: { kind, authorityIndex, slot } \| null, forked, arrivedAt }` (a live header from the socket, always with a header), `finalized` `{ record, number }`, `poll` `{ record, number, finalized, arrivedAt }` (a height from the polling fallback or the first indexed position: no header, no author; `number` and `finalized` are null when the read failed), `cadence` `{ perMinute, intervalMs, blocks, record }`, `socket` `{ state, detail, attempts }` (`state` is `open` \| `closed` \| `failed`; `attempts` is the reconnect count, and the status bar reads it to tell a first drop from a give-up), `visibility` `{ hidden }`, `theme` `{ dark }` |
@@ -48,7 +49,7 @@ and `ctx` is created by `context.js`:
 | `ctx.readout` | `showValue`, `showError`, `showAbsent`, `apply`, `provenance`, `rawLink` — see `readout.js` |
 | `ctx.format` | `formatInteger`, `formatDuration`, `formatCmn`, `cmnNumber`, `shortAddress`, `shortHash`, `utcTime`, `relativeTime` |
 | `ctx.motion` | `reduced()`, `tween(ms, frame, { ease, done })` → cancel |
-| `ctx.theme` | `color('live' \| 'settled' \| 'active' \| 'disputed' \| 'slashed' \| 'text' \| 'text-dim' \| 'border' \| 'grid' \| 'bg')`, `font('mono' \| 'serif' \| 'sans')`, `isDark()` — read at draw time; re-read on the `theme` event |
+| `ctx.theme` | `color('live' \| 'settled' \| 'active' \| 'disputed' \| 'slashed' \| 'idle' \| 'slash' \| 'text' \| 'text-dim' \| 'border' \| 'grid' \| 'bg' \| 'surface')`, `font('mono' \| 'serif' \| 'sans')`, `isDark()` — read at draw time; re-read on the `theme` event |
 | `ctx.fitCanvas(canvas, onResize)` | sizes a canvas to its CSS box at device resolution; returns `() => { context, width, height, dpr }` |
 | `ctx.history`, `ctx.posture` | the two checked-in records embedded in the page |
 | `ctx.announce(text)` | polite screen-reader status |
@@ -65,9 +66,12 @@ Five modules beside the instruments are not instruments. `statusbar.js`
 fills the one line at the top of the page, and the hero's live line as a
 second view of the same state, from the hero's bus events and the ring's
 validator read (it fetches nothing of its own). `hero.js` fills the first
-screen's block height from the hero's `head` and `poll` events; the other
-two figures there are the constellation's, which draws into the first
-screen's framed panel. `economy.js` is an instrument of section 02 beside the
+screen's block height from the hero's `head` and `poll` events; agents
+registered, operator-run and agreements open are the agent field's
+(`instruments/agent-field.js`), which draws the first screen's panel and
+fetches the network graph (`instruments/constellation.js`, built as its own
+bundle, `observatory-graph.js`) the first time its switch is turned on;
+`instruments/last-hour.js` fills the row of the last hour's activity. `economy.js` is an instrument of section 02 beside the
 era dial: CMN issued to agents (the exact running total of settled-era
 payouts) and open disputes. `sources.js` is the Sources switch: every
 provenance line is in the page and hidden by the stylesheet until
@@ -106,7 +110,8 @@ interface and reading (400 body at 1.0625 rem / 1.6 within 62 characters,
 for provenance, hashes, addresses and the river's axis. Nine type sizes and no
 others (display, figure-xl, h2, figure-l, h3, body, label, eyebrow, mono). One
 teal accent (`--live`, `--active`) for live state only; amber (`--disputed`)
-for disputes only; grey for everything settled. Every margin, padding and gap
+for disputes only; red (`--slash`) for an agent slashed in the last hour only;
+grey for everything settled and every idle agent (`--idle`). Every margin, padding and gap
 is one of 4, 8, 16, 24, 40, 64 or 104 px; content is at most 1280 px wide.
 One button, one disclosure, one tooltip, one focus ring (2 px accent, 2 px
 offset). Hairlines (1 px), dots and type. No gradients, no glow, no icons, no
