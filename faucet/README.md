@@ -39,11 +39,19 @@ is refunded if the drip does not actually land.
 | `GET` | `/` | index: one line of JSON naming `/health` and the two working routes |
 | `POST` | `/drip` | `{"address":"5..."}` → `200` with `blockHash`/`txHash`, or `400` / `429` / `503` / `502` |
 | `GET` | `/balance/:address` | live free balance in plancks |
-| `GET` | `/health` | chain name, spec version, funding-account balance |
+| `GET` | `/health` | chain name, spec version, funding-account balance, socket state — `503` while the node is unreachable |
 
 Planck amounts cross the wire as **strings**: JSON numbers are doubles and would
 round a real balance. `429` responses carry both `retryAfterMs` and a standard
 `Retry-After` header, plus the `scope` (`address` or `ip`) that refused.
+
+While the websocket to the node is down, every chain-backed route answers
+**`503`** with `code: "CHAIN_DISCONNECTED"`, a `Retry-After` header, and a
+`connection` object naming the endpoint, how long it has been down and how many
+reconnect attempts have been made. `503` and not `500`: the faucet is not broken,
+it is waiting for its node, and a monitor has to be able to tell those apart. The
+client reconnects on its own with capped backoff, so the faucet recovers from a
+node restart without being restarted (issue #155).
 
 ## Running
 
@@ -79,7 +87,11 @@ npm test
 ```
 
 `tests/rateLimiter.test.ts` and `tests/amount.test.ts` are pure unit tests with
-an injected clock. `tests/faucet.live.test.ts` runs against the **live devnet RPC**
+an injected clock. `tests/reconnect.test.ts` needs no chain either: it drops a
+real websocket under a real `WsProvider` — including the case where the retry
+finds the node still down, which is what made issue #155 permanent — and asserts
+both that the client reconnects on its own and that `/health` answers `503`
+rather than `500` in the meantime. `tests/faucet.live.test.ts` runs against the **live devnet RPC**
 and is intentionally not mocked and not skippable — it asserts real balance
 changes, real rate-limit rejections that move no funds, and type shapes read from
 real runtime metadata. **If the node is not reachable the suite fails rather than

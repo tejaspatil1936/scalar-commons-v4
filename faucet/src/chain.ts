@@ -14,6 +14,10 @@ import { Keyring } from '@polkadot/keyring';
 import type { KeyringPair } from '@polkadot/keyring/types';
 import { cryptoWaitReady } from '@polkadot/util-crypto';
 
+import { ConnectionSupervisor, type ConnectionStatus, type ReconnectPolicy } from './reconnect.js';
+
+export type { ConnectionStatus } from './reconnect.js';
+
 /** Static facts about the connected chain, read from metadata at connect time. */
 export interface ChainInfo {
   readonly chain: string;
@@ -40,6 +44,15 @@ export interface ChainClient {
   freeBalance(address: string): Promise<bigint>;
   /** Signs and submits a transfer from the faucet account, resolving on inclusion. */
   transfer(dest: string, amountPlancks: bigint): Promise<TransferReceipt>;
+  /**
+   * State of the node socket.
+   *
+   * Read before answering `/health`, and read again when a request fails: a
+   * drip cannot be served without a node, and the difference between "the
+   * faucet is broken" and "the faucet is waiting for its node" is only visible
+   * from here.
+   */
+  connection(): ConnectionStatus;
   disconnect(): Promise<void>;
 }
 
@@ -48,6 +61,10 @@ export interface ConnectOptions {
   /** Seed/URI of the pre-funded devnet account (e.g. `//Ferdie`). */
   readonly faucetSeed: string;
   readonly ss58Format?: number;
+  /** Overrides the reconnect backoff; the defaults are what production runs. */
+  readonly reconnectPolicy?: Partial<ReconnectPolicy>;
+  /** Where connection loss and recovery are reported. Defaults to the console. */
+  readonly logger?: Pick<Console, 'log' | 'error'>;
 }
 
 /**
@@ -76,15 +93,23 @@ export class TransferFailedError extends Error {
 /**
  * Connects to the node and resolves the faucet signer.
  *
- * Rejects loudly if the endpoint is unreachable: a faucet that starts up without
- * a chain behind it would answer requests it cannot honour.
+ * Rejects loudly if the endpoint is unreachable *at startup*: a faucet that
+ * starts up without a chain behind it would answer requests it cannot honour.
+ * A socket lost **after** startup is a different thing and is not fatal — it is
+ * handed to a {@link ConnectionSupervisor}, which reconnects on a capped backoff
+ * while `/health` reports the faucet as temporarily unavailable. Before that
+ * supervisor existed, one node restart took the public faucet down until a human
+ * restarted the unit (2026-09-09, 74 minutes).
  */
 export async function connectChain(options: ConnectOptions): Promise<ChainClient> {
   await cryptoWaitReady();
 
-  const provider = new WsProvider(options.rpcEndpoint);
+  // `false` disables the provider's own retry loop: reconnection is the
+  // supervisor's job, and two loops on one socket race each other.
+  const provider = new WsProvider(options.rpcEndpoint, false);
   let api: ApiPromise;
   try {
+    await provider.connect();
     api = await ApiPromise.create({ provider, noInitWarn: true, throwOnConnect: true });
   } catch (error) {
     await provider.disconnect().catch(() => undefined);
@@ -113,22 +138,36 @@ export async function connectChain(options: ConnectOptions): Promise<ChainClient
   // "read real metadata, do not guess type shapes" enforceable rather than
   // aspirational: a runtime without these items is a runtime this faucet cannot
   // serve, and finding that out at boot beats finding out mid-request.
-  const transferKeepAlive = fromMetadata(
-    api.tx.balances?.transferKeepAlive,
-    `runtime at ${options.rpcEndpoint} exposes no balances.transferKeepAlive call`,
-  );
-  const queryAccount = fromMetadata(
-    api.query.system?.account,
-    `runtime at ${options.rpcEndpoint} exposes no system.account storage`,
-  );
-  const existentialDepositConst = fromMetadata(
-    api.consts.balances?.existentialDeposit,
-    `runtime at ${options.rpcEndpoint} exposes no balances.existentialDeposit constant`,
-  );
+  //
+  // Each of these is re-read from `api` per call rather than captured here, and
+  // that matters now that the client reconnects: polkadot-js reloads metadata on
+  // every reconnect and rebuilds `api.tx`/`api.query` when it does, so a handle
+  // captured at startup would outlive the metadata it was decorated against. A
+  // node that came back with an upgraded runtime would then be sent a call
+  // encoded from the old one — the exact "plausible-looking nonsense" this file
+  // exists to avoid. The startup calls below stay because they are the guard;
+  // only the results are no longer kept.
+  const transferKeepAliveOf = () =>
+    fromMetadata(
+      api.tx.balances?.transferKeepAlive,
+      `runtime at ${options.rpcEndpoint} exposes no balances.transferKeepAlive call`,
+    );
+  const queryAccountOf = () =>
+    fromMetadata(
+      api.query.system?.account,
+      `runtime at ${options.rpcEndpoint} exposes no system.account storage`,
+    );
+  const existentialDepositOf = () =>
+    (
+      fromMetadata(
+        api.consts.balances?.existentialDeposit,
+        `runtime at ${options.rpcEndpoint} exposes no balances.existentialDeposit constant`,
+      ) as unknown as { toBigInt(): bigint }
+    ).toBigInt();
 
-  const existentialDeposit = (existentialDepositConst as unknown as {
-    toBigInt(): bigint;
-  }).toBigInt();
+  transferKeepAliveOf();
+  queryAccountOf();
+  existentialDepositOf();
 
   // One signer means one nonce stream. Submissions are chained onto this promise
   // so only one transfer is in flight at a time: concurrent requests would
@@ -151,7 +190,7 @@ export async function connectChain(options: ConnectOptions): Promise<ChainClient
 
       // transferKeepAlive, not transferAllowDeath: a drip must never be able to
       // reap the faucet account itself.
-      transferKeepAlive(dest, amountPlancks)
+      transferKeepAliveOf()(dest, amountPlancks)
         .signAndSend(signer, { nonce }, ({ status, dispatchError, txHash }) => {
           if (dispatchError) {
             let reason = dispatchError.toString();
@@ -184,15 +223,26 @@ export async function connectChain(options: ConnectOptions): Promise<ChainClient
     });
   }
 
+  // Attached only once the API is ready and the runtime has been checked, so a
+  // failed startup stays a startup failure instead of becoming a retry loop
+  // behind a process that is already exiting.
+  const supervisor = new ConnectionSupervisor({
+    provider,
+    endpoint: options.rpcEndpoint,
+    ...(options.reconnectPolicy === undefined ? {} : { policy: options.reconnectPolicy }),
+    ...(options.logger === undefined ? {} : { logger: options.logger }),
+    label: '[faucet]',
+  });
+
   return {
     faucetAddress: signer.address,
 
     chainInfo: () => info,
 
-    existentialDeposit: () => existentialDeposit,
+    existentialDeposit: () => existentialDepositOf(),
 
     async freeBalance(address: string): Promise<bigint> {
-      const account = await queryAccount(address);
+      const account = await queryAccountOf()(address);
       return (account as unknown as { data: { free: { toBigInt(): bigint } } }).data.free.toBigInt();
     },
 
@@ -207,7 +257,12 @@ export async function connectChain(options: ConnectOptions): Promise<ChainClient
       return result;
     },
 
+    connection: () => supervisor.status(),
+
     async disconnect(): Promise<void> {
+      // Stop supervising first: a deliberate close must not be met with a
+      // reconnect, which is what would happen if the order were reversed.
+      supervisor.stop();
       await api.disconnect();
     },
   };
