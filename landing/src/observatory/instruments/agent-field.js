@@ -26,6 +26,11 @@
 
 import { countSince } from '../data.js';
 
+/**
+ * One cell per agent up to this many; above it, one cell per bucket of agents.
+ * The public network carries about 200 operator-run agents, so this is
+ * headroom: the public field draws one cell per agent.
+ */
 export const BUCKET_THRESHOLD = 800;
 export const OPERATOR_PREFIX = 'swarm-';
 /** The runtime's HOURS: SECS_PER_BLOCK = 6 (runtime/src/lib.rs), so 600 blocks. */
@@ -42,7 +47,11 @@ const AGENTS_INTERVAL_MS = 60_000;
 const ESCROWS_INTERVAL_MS = 30_000;
 const SLASHES_INTERVAL_MS = 30_000;
 const STATS_INTERVAL_MS = 30_000;
-/** 10 × the indexer's page size covers 2,000 agents; its live scan stops at 512 today. */
+/**
+ * 10 × the indexer's page size: up to 2,000 agents. The public network carries
+ * about 200 operator-run agents, so this is headroom; the indexer's live scan
+ * stops at 512 today.
+ */
 export const AGENT_PAGES = 10;
 export const ESCROW_PAGES = 5;
 const MAX_PITCH = 36; // px: a handful of agents is still a tidy block, not a few huge dots

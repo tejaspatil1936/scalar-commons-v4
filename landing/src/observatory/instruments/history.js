@@ -55,7 +55,11 @@ export const BLOCK_TIME_CEILING_S = 12;
 export const ERAS_SHOWN = 12;
 /** Pages of /v1/eras read for the running total: 200 eras a page, about 50 days each. */
 export const ERAS_ALL_PAGES = 3;
-/** 12 × 200 registrations: room for the ~2,000 operator-run agents the network will carry. */
+/**
+ * 12 × 200 registrations. The public network carries about 200 operator-run
+ * agents; this is headroom well past that (a 1,000-agent run lives on the
+ * dev-fast replica, not here).
+ */
 export const REGISTRATION_PAGES = 12;
 /** The drawing box before the strip has been measured. */
 export const DEFAULT_WIDTH = 300;
