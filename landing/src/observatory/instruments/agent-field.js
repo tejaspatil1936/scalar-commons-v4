@@ -5,7 +5,7 @@
 // colour, in dispute in the dispute colour, slashed in the last hour in red.
 // Operator-run agents, the ones whose on-chain name carries the `swarm-`
 // prefix, carry a thin ring so they are never mistaken for external agents.
-// It is a grid of dots on one canvas, not a physics layout: drawing 2,000 agents
+// It is a grid of dots on one canvas, not a simulation: drawing 2,000 agents
 // is a few hundred arcs, redrawn only when something changes.
 //
 // Data: /v1/agents (live chain state, read whole up to the indexer's scan
@@ -26,6 +26,11 @@
 
 import { countSince } from '../data.js';
 
+/**
+ * One cell per agent up to this many; above it, one cell per bucket of agents.
+ * The public network carries about 200 operator-run agents, so this is
+ * headroom: the public field draws one cell per agent.
+ */
 export const BUCKET_THRESHOLD = 800;
 export const OPERATOR_PREFIX = 'swarm-';
 /** The runtime's HOURS: SECS_PER_BLOCK = 6 (runtime/src/lib.rs), so 600 blocks. */
@@ -44,8 +49,8 @@ const SLASHES_INTERVAL_MS = 30_000;
 const STATS_INTERVAL_MS = 30_000;
 /**
  * 10 × the indexer's page size: up to 2,000 agents. The public network carries
- * about 200 operator-run agents, so this is headroom; only the pages that
- * exist are read, and the indexer's live scan stops at 512 today.
+ * about 200 operator-run agents, so this is headroom; the indexer's live scan
+ * stops at 512 today.
  */
 export const AGENT_PAGES = 10;
 export const ESCROW_PAGES = 5;

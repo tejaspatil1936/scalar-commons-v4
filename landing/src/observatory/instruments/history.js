@@ -58,7 +58,7 @@ export const ERAS_ALL_PAGES = 3;
 /**
  * 12 × 200 registrations. The public network carries about 200 operator-run
  * agents; this is headroom well past that (a 1,000-agent run lives on the
- * dev-fast replica, not here). Only the pages that exist are read.
+ * dev-fast replica, not here).
  */
 export const REGISTRATION_PAGES = 12;
 /** The drawing box before the strip has been measured. */
