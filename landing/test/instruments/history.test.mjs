@@ -10,6 +10,7 @@ import { scaleLinear } from 'd3-scale';
 
 import {
   agreementsReadFrom,
+  agreementsStart,
   AGREEMENT_PAGES,
   thinSteps,
   MAX_STEP_POINTS,
@@ -439,4 +440,16 @@ test('agreements opened read back to the start of the oldest era drawn, so all t
   const after = bucketByEra(whole, open, events, { complete: true });
   assert.equal(after.buckets.length, 12);
   assert.equal(after.buckets.reduce((n, b) => n + b.count, 0), events.filter((e) => e.blockNumber >= whole[0].start && e.blockNumber < whole[11].end).length);
+});
+
+test('the agreements read starts from the eras record, or says why it cannot: a failed or unreadable eras read is never a silent wait', () => {
+  const eras = (items) => ({ ok: true, label: '/v1/eras', data: { items } });
+  const start = agreementsStart(eras(ERAS), field);
+  assert.equal(start.error, null);
+  assert.equal(start.from, 776394, 'the start of era 68, the oldest of the twelve whole eras');
+  assert.deepEqual(agreementsStart({ ok: false, label: '/v1/eras', error: 'HTTP 503' }, field), { from: null, error: 'HTTP 503' });
+  const broken = agreementsStart({ ok: true, label: '/v1/eras', data: {} }, field);
+  assert.equal(broken.from, null);
+  assert.match(broken.error, /items/, 'an unreadable eras body names what is missing');
+  assert.deepEqual(agreementsStart(eras([]), field), { from: null, error: 'no era recorded yet' });
 });

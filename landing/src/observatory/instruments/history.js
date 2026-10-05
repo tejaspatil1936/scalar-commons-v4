@@ -72,6 +72,23 @@ export function agreementsReadFrom({ whole, open }) {
 }
 
 /**
+ * Where the agreements read starts, from the eras record: `{ from, error:
+ * null }`, or `{ from: null, error }` saying why it cannot start yet — the
+ * eras read failed, its body could not be read, or no era is recorded. The
+ * strip shows that reason rather than waiting in silence. Pure; tested.
+ */
+export function agreementsStart(eras, field) {
+  if (!eras?.ok) return { from: null, error: eras?.error ?? 'not read' };
+  let from;
+  try {
+    from = agreementsReadFrom(eraSpans(field(eras.data, 'items'), field));
+  } catch (error) {
+    return { from: null, error: error.message };
+  }
+  return from === null ? { from: null, error: 'no era recorded yet' } : { from, error: null };
+}
+
+/**
  * 12 × 200 registrations. The public network carries about 200 operator-run
  * agents; this is headroom well past that (a 1,000-agent run lives on the
  * dev-fast replica, not here).
@@ -931,14 +948,16 @@ export function init(root, ctx) {
   let agreementsFrom = null;
   let agreementsWatched = false;
   function watchAgreements(eras) {
-    if (!eras?.ok) return;
-    try {
-      const field = readerOf(eras);
-      agreementsFrom = agreementsReadFrom(eraSpans(field(eras.data, 'items'), field));
-    } catch {
-      return; // the strip says what was wrong with the eras read
+    const start = agreementsStart(eras, readerOf(eras));
+    if (start.from !== null) agreementsFrom = start.from;
+    if (agreementsWatched) return; // once reading, showAgreements reports a bad eras record itself
+    if (agreementsFrom === null) {
+      // Nothing to read back to yet: say why, never a silent wait.
+      const strip = strips.agreements;
+      ctx.readout.showError(strip.target, eras, start.error);
+      strip.clear(`unavailable: ${start.error}`);
+      return;
     }
-    if (agreementsWatched || agreementsFrom === null) return;
     agreementsWatched = true;
     ctx.watchSince(
       'agreementsCreated',
