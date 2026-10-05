@@ -253,11 +253,20 @@ test('every event the page counts is one the runtime declares, read from its own
   const metadata = JSON.parse(readFileSync(new URL('../chain-events.json', import.meta.url), 'utf8'));
   assert.equal(metadata.provenance.specName, 'scalar-commons');
   assert.ok(metadata.provenance.specVersion >= 307 && /^0x[0-9a-f]{64}$/.test(metadata.provenance.genesisHash), 'the record says which runtime it was read from');
+  // A reading fenced to a later runtime (`data-min-spec`, hidden below it) may count an event this runtime
+  // does not have yet: it is checked against its pallet's source instead, and must really be fenced.
+  const fence = new Map([...page.matchAll(/data-reading="([^"]+)" data-min-spec="(\d+)"/g)].map((m) => [m[1], Number(m[2])]));
   for (const [name, source] of Object.entries(SOURCES)) {
     if (source.kind !== 'api' || !source.path.startsWith('/v1/events?')) continue;
     const params = new URL(source.path, API_ORIGIN).searchParams;
     const section = params.get('section');
     const method = params.get('method');
+    const fences = (source.readings ?? []).map((key) => fence.get(key));
+    if (!metadata.pallets[section] && fences.length && fences.every((min) => min > metadata.provenance.specVersion)) {
+      const pallet = readRepoFile(`pallets/${section}/src/lib.rs`);
+      assert.ok(new RegExp(`\\b${method}\\s*\\{`).test(pallet), `source "${name}": pallets/${section} emits no ${method}`);
+      continue;
+    }
     assert.ok(metadata.pallets[section], `source "${name}": the runtime has no pallet "${section}"`);
     assert.ok(metadata.pallets[section].includes(method), `source "${name}": ${section} emits no ${method} (it emits ${metadata.pallets[section].join(', ')})`);
   }
