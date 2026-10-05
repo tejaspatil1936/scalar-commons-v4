@@ -8,8 +8,9 @@
 //                         blocks, oldest to newest, drawn inside the 5.5–6.5 s
 //                         target band. A pair with no timestamp is a break in
 //                         the line, not a segment.
-//   agreementsCumulative  /v1/eras?limit=14 for the era boundaries, and every
-//                         escrow.AgreementCreated event the index holds, counted
+//   agreementsCumulative  /v1/eras?limit=14 for the era boundaries, and the
+//                         escrow.AgreementCreated events read back to the start
+//                         of the oldest era drawn (agreementsReadFrom), counted
 //                         into the twelve most recent whole settled eras plus
 //                         the era still open; the running total over those eras
 //                         (derived) is the line, the counts are the bars behind
@@ -55,6 +56,21 @@ export const BLOCK_TIME_CEILING_S = 12;
 export const ERAS_SHOWN = 12;
 /** Pages of /v1/eras read for the running total: 200 eras a page, about 50 days each. */
 export const ERAS_ALL_PAGES = 3;
+/** Pages of AgreementCreated events read back to the oldest era drawn: 25 × 200 before a span is dropped as not reached. */
+export const AGREEMENT_PAGES = 25;
+
+/**
+ * The block the agreement events are read back to: the start of the oldest
+ * whole era the strip draws, or of the era still open when there is no whole
+ * one yet; null until the era boundaries are known. Reading to it, and no
+ * further, is what lets the strip reach back all twelve eras without paging
+ * through the index's whole history. Pure; tested.
+ */
+export function agreementsReadFrom({ whole, open }) {
+  if (whole.length) return whole[0].start;
+  return open ? open.start : null;
+}
+
 /**
  * 12 × 200 registrations. The public network carries about 200 operator-run
  * agents; this is headroom well past that (a 1,000-agent run lives on the
@@ -602,7 +618,8 @@ export function init(root, ctx) {
       }
       const list = items.map((item) => ({ blockNumber: ctx.field(item, 'blockNumber') }));
       const { buckets, open, dropped, historyFrom } = bucketByEra(spans.whole, spans.open, list, {
-        complete: record.complete,
+        // Read back past the oldest era's start: every event of every era drawn is in hand.
+        complete: record.complete || record.reachedStart === true,
         indexFrom,
       });
       if (buckets.length === 0) {
@@ -887,6 +904,7 @@ export function init(root, ctx) {
     'eras',
     (record) => {
       records.eras = record;
+      watchAgreements(record);
       showAgreements();
       showAgents();
     },
@@ -909,15 +927,30 @@ export function init(root, ctx) {
     },
     INTERVAL_MS,
   );
-  ctx.watchAll(
-    'agreementsCreated',
-    (record) => {
-      records.agreements = record;
-      showAgreements();
-    },
-    INTERVAL_MS,
-    { maxPages: 5 },
-  );
+  // The agreement events are read once the era boundaries say how far back to go.
+  let agreementsFrom = null;
+  let agreementsWatched = false;
+  function watchAgreements(eras) {
+    if (!eras?.ok) return;
+    try {
+      const field = readerOf(eras);
+      agreementsFrom = agreementsReadFrom(eraSpans(field(eras.data, 'items'), field));
+    } catch {
+      return; // the strip says what was wrong with the eras read
+    }
+    if (agreementsWatched || agreementsFrom === null) return;
+    agreementsWatched = true;
+    ctx.watchSince(
+      'agreementsCreated',
+      () => agreementsFrom,
+      (record) => {
+        records.agreements = record;
+        showAgreements();
+      },
+      INTERVAL_MS,
+      { maxPages: AGREEMENT_PAGES },
+    );
+  }
   ctx.watchAll(
     'registrations',
     (record) => {

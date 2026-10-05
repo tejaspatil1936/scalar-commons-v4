@@ -9,6 +9,8 @@ import assert from 'node:assert/strict';
 import { scaleLinear } from 'd3-scale';
 
 import {
+  agreementsReadFrom,
+  AGREEMENT_PAGES,
   thinSteps,
   MAX_STEP_POINTS,
   NOMINAL_BLOCK_S,
@@ -418,4 +420,23 @@ test('the agents-over-time line is thinned to at most 240 points at 2,000 regist
   for (let i = 1; i < thin.length; i += 1) assert.ok(thin[i].block > thin[i - 1].block && thin[i].count >= thin[i - 1].count);
   const few = points.slice(0, 50);
   assert.equal(thinSteps(few), few, 'a short series is drawn as it is');
+});
+
+test('agreements opened read back to the start of the oldest era drawn, so all twelve eras are counted, not one', () => {
+  const whole = Array.from({ length: 12 }, (_, k) => ({ era: 87 + k, start: 846_778 + k * 3_700, end: 846_778 + (k + 1) * 3_700 }));
+  const open = { era: 102, start: 902_353 };
+  assert.equal(agreementsReadFrom({ whole, open }), 846_778);
+  assert.equal(agreementsReadFrom({ whole: [], open }), 902_353, 'no whole era yet: the open one');
+  assert.equal(agreementsReadFrom({ whole: [], open: null }), null);
+  assert.ok(AGREEMENT_PAGES * 200 >= 5_000);
+  // 1,323 events, the newest 1,000 of them inside the last era: a 5-page read reaches one era at most.
+  const events = [];
+  for (let k = 0; k < 1_000; k += 1) events.push({ blockNumber: whole[11].end - 1 - Math.floor(k * 3.5) });
+  for (let k = 0; k < 323; k += 1) events.push({ blockNumber: whole[11].start - 1 - k * 120 });
+  const before = bucketByEra(whole, open, events.slice(0, 1_000), { complete: false });
+  assert.ok(before.buckets.length <= 1, `the old read keeps ${before.buckets.length} era(s)`);
+  // Read back past the oldest era's start (reachedStart): every era drawn is whole.
+  const after = bucketByEra(whole, open, events, { complete: true });
+  assert.equal(after.buckets.length, 12);
+  assert.equal(after.buckets.reduce((n, b) => n + b.count, 0), events.filter((e) => e.blockNumber >= whole[0].start && e.blockNumber < whole[11].end).length);
 });

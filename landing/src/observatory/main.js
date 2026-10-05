@@ -61,12 +61,13 @@ function markFailed(root, error) {
 async function boot() {
   const ctx = createContext();
   ctx.start();
+  let river = null; // the chain pulse's handle: its tick re-reads the rate, so a stall is said without a new block
 
   for (const [name, instrument, selector] of INSTRUMENTS) {
     const root = document.querySelector(selector);
     if (!root) continue;
     try {
-      if (name === 'pulse') instrument.init(root, ctx, { strip: document.querySelector('.hero-river') });
+      if (name === 'pulse') river = instrument.init(root, ctx, { strip: document.querySelector('.hero-river') });
       else instrument.init(root, ctx);
     } catch (error) {
       markFailed(root, error);
@@ -85,10 +86,11 @@ async function boot() {
         // from events alone. main.js is the only module allowed to hold an
         // interval (see observatory.test.mjs), so the prompt lives here and
         // stops while the tab is hidden.
-        if (bar?.tick) {
+        if (bar?.tick || river?.tick) {
           setInterval(() => {
             if (document.hidden) return;
-            bar.tick();
+            bar?.tick?.();
+            river?.tick?.();
           }, statusbar.STALL_CHECK_MS);
         }
       } catch (error) {
