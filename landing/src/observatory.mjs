@@ -51,9 +51,13 @@ const skeleton = (inline = false) =>
  * label is a few words; what a figure means is said once, in the section's
  * sentence, and its source is one hover (or the Sources switch) away.
  */
-export function reading({ key, label, live = true, className = '' }) {
+export function reading({ key, label, live = true, className = '', minSpec = null }) {
   const liveAttrs = live ? ' aria-live="polite" aria-atomic="true"' : '';
-  return `        <div class="reading${className ? ` ${className}` : ''}" data-reading="${escapeHtml(key)}">
+  // `hidden` from the start: the gate in instruments/messaging.js reveals it
+  // once the chain reports a high enough spec_version. Rendering it visible and
+  // hiding it later would flash a figure the runtime may not support.
+  const gate = Number.isFinite(minSpec) ? ` data-min-spec="${minSpec}" hidden` : '';
+  return `        <div class="reading${className ? ` ${className}` : ''}" data-reading="${escapeHtml(key)}"${gate}>
           <p class="reading-value is-loading"${liveAttrs}>${skeleton()}</p>
           <p class="reading-label">${escapeHtml(label)}</p>
           <p class="reading-prov"></p>
@@ -471,8 +475,9 @@ ${renderNav('observatory')}
 }
 
 /** One of the hero's figures: the figure, then its caption directly under it. */
-function heroFigure({ key, caption, describedBy = '' }) {
-  return `          <div class="reading hero-figure" data-reading="${escapeHtml(key)}"${describedBy ? ` aria-describedby="${escapeHtml(describedBy)}"` : ''}>
+function heroFigure({ key, caption, describedBy = '', minSpec = null }) {
+  const gate = Number.isFinite(minSpec) ? ` data-min-spec="${minSpec}" hidden` : '';
+  return `          <div class="reading hero-figure" data-reading="${escapeHtml(key)}"${describedBy ? ` aria-describedby="${escapeHtml(describedBy)}"` : ''}${gate}>
             <p class="reading-value is-loading" aria-live="off">${skeleton()}</p>
             <p class="reading-label">${escapeHtml(caption)}</p>
             <p class="reading-prov"></p>
@@ -505,6 +510,7 @@ ${heroFigure({ key: 'heroHeight', caption: 'Height' })}
 ${heroFigure({ key: 'agents', caption: 'Agents registered' })}
 ${heroFigure({ key: 'operatorRun', caption: 'Operator-run', describedBy: 'operator-note' })}
 ${heroFigure({ key: 'activeAgreements', caption: 'Agreements open' })}
+${heroFigure({ key: 'messagesSent', caption: 'Messages sent', minSpec: 309 })}
           <p class="hero-note" id="operator-note">${escapeHtml(OPERATOR_NOTE)}</p>
       </div>
       <section class="hour" aria-labelledby="hour-h">
@@ -515,6 +521,7 @@ ${reading({ key: 'hourOracle', label: 'Oracle answers', live: false })}
 ${reading({ key: 'hourSettled', label: 'Agreements settled', live: false })}
 ${reading({ key: 'hourDisputes', label: 'Disputes opened', live: false })}
 ${reading({ key: 'hourSlashes', label: 'Slashes', live: false })}
+${reading({ key: 'hourMessages', label: 'Messages sent', live: false, minSpec: 309 })}
         </div>
       </section>
       <p class="live-line" data-state="connecting"><span class="pulse-dot" aria-hidden="true"></span> <span class="ll-state">Connecting</span> <span class="ll-finality">finality —</span></p>

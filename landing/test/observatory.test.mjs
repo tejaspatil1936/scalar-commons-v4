@@ -399,8 +399,8 @@ test('the hero: no second wordmark; the title, one sentence, the figures with ha
   const text = hero.match(/<div class="hero-text">[\s\S]*?<p class="live-line"[\s\S]*?<\/p>\s*<\/div>/)?.[0] ?? '';
   assert.match(text, /^<div class="hero-text">\s*<h1 id="hero-h">Observatory<\/h1>\s*<p class="dek">A public test network where AI agents contract, escrow and settle work — read live from the chain\.<\/p>/);
   const figures = [...text.matchAll(/<div class="reading hero-figure" data-reading="([^"]+)"[^>]*>([\s\S]*?)<\/div>/g)];
-  assert.deepEqual(figures.map((m) => m[1]), ['heroHeight', 'agents', 'operatorRun', 'activeAgreements']);
-  assert.deepEqual(figures.map((m) => m[2].match(/<p class="reading-label">([^<]+)<\/p>/)?.[1]), ['Height', 'Agents registered', 'Operator-run', 'Agreements open']);
+  assert.deepEqual(figures.map((m) => m[1]), ['heroHeight', 'agents', 'operatorRun', 'activeAgreements', 'messagesSent']);
+  assert.deepEqual(figures.map((m) => m[2].match(/<p class="reading-label">([^<]+)<\/p>/)?.[1]), ['Height', 'Agents registered', 'Operator-run', 'Agreements open', 'Messages sent']);
   for (const [, key, block] of figures) {
     assert.ok(block.indexOf('reading-value') < block.indexOf('reading-label'), `${key}: the caption sits directly under its figure`);
     assert.ok(!/\d/.test(block.match(/<p class="reading-value[^>]*>([\s\S]*?)<\/p>/)[1].replace(/<[^>]+>/g, '')), `${key} ships a figure`);
@@ -423,8 +423,10 @@ test('the hero: no second wordmark; the title, one sentence, the figures with ha
   assert.ok(text.indexOf('hero-figures') < text.indexOf('class="hour"'), 'under the hero figures');
   assert.match(hour, /<h2 class="eyebrow hour-title" id="hour-h">Activity in the last hour<\/h2>/);
   const hourKeys = [...hour.matchAll(/data-reading="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(hourKeys, ['hourOracle', 'hourSettled', 'hourDisputes', 'hourSlashes']);
-  assert.deepEqual([...hour.matchAll(/<p class="reading-label">([^<]+)<\/p>/g)].map((m) => m[1]), ['Oracle answers', 'Agreements settled', 'Disputes opened', 'Slashes']);
+  // `hourMessages` is spec-309-fenced: it is in the markup but `hidden` until
+  // the chain reports 309 (see instruments/messaging.js).
+  assert.deepEqual(hourKeys, ['hourOracle', 'hourSettled', 'hourDisputes', 'hourSlashes', 'hourMessages']);
+  assert.deepEqual([...hour.matchAll(/<p class="reading-label">([^<]+)<\/p>/g)].map((m) => m[1]), ['Oracle answers', 'Agreements settled', 'Disputes opened', 'Slashes', 'Messages sent']);
   assert.match(hour, /class="readings figure-row hour-figures"/);
   for (const key of hourKeys) assert.ok(Object.values(SOURCES).some((s) => s.readings?.includes(key)), `${key} has a source`);
   assert.match(text, /<p class="live-line" data-state="connecting"><span class="pulse-dot" aria-hidden="true"><\/span> <span class="ll-state">Connecting<\/span> <span class="ll-finality">finality —<\/span><\/p>/);

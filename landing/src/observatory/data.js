@@ -87,6 +87,12 @@ export const SOURCES = {
   escrows: api(`/v1/escrows?limit=${INDEXER_MAX_LIMIT}`, []),
   escrowStats: api('/v1/escrows/stats', ['activeAgreements', 'openDisputes']),
   agreementsCreated: events('escrow', 'AgreementCreated', ['agreementsCumulative']),
+  // Messaging (spec 309 and later). One read feeds both figures: the running
+  // total comes from the response's `total`, the hour from the items at or
+  // after the block of one hour ago — the same shape every other hour figure
+  // uses. On a chain below 309 the `messages` pallet does not exist, the read
+  // returns nothing, and the gate below hides both rather than showing zero.
+  messagesSent: events('messages', 'MessageSent', ['messagesSent', 'hourMessages']),
   // The recently settled agreements: the network graph's dashed lines, and the
   // last hour's settlements.
   deliveriesConfirmed: events('escrow', 'DeliveryConfirmed', ['hourSettled']),

@@ -14,6 +14,7 @@ import { relativeTime } from './format.js';
 import * as pulse from './instruments/pulse.js';
 import * as agentField from './instruments/agent-field.js';
 import * as lastHour from './instruments/last-hour.js';
+import * as messaging from './instruments/messaging.js';
 import * as era from './instruments/era-dial.js';
 import * as economy from './instruments/economy.js';
 import * as validators from './instruments/validator-ring.js';
@@ -32,6 +33,7 @@ const INSTRUMENTS = [
   ['pulse', pulse, '#chain'],
   ['agent-field', agentField, '.hero'],
   ['last-hour', lastHour, '.hero'],
+  ['messaging', messaging, '.hero'],
   ['era', era, '#economy'],
   ['economy', economy, '#economy'],
   ['validators', validators, '#validators'],

@@ -185,7 +185,7 @@ test('a state change blends between the two inks, and an unreadable ink falls ba
 });
 
 test('the last hour counts each kind back to its start, as a floor when the read stopped short, and fails honestly', () => {
-  assert.deepEqual(FIGURES.map((f) => f.key), ['hourOracle', 'hourSettled', 'hourDisputes', 'hourSlashes']);
+  assert.deepEqual(FIGURES.map((f) => f.key), ['hourOracle', 'hourSettled', 'hourDisputes', 'hourSlashes', 'hourMessages']);
   const ok = (blocks, reachedStart = true) => ({ ok: true, since: 400, reachedStart, items: blocks.map((blockNumber) => ({ blockNumber })) });
   assert.deepEqual(hourCount([ok([900, 500, 300])]), { ok: true, count: 2, floor: false });
   // Single answers and batches add up.
