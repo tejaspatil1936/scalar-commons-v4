@@ -25,6 +25,7 @@
 // switch is first turned on.
 
 import { countSince } from '../data.js';
+import { hourTracker } from '../hour.js';
 
 /**
  * One cell per agent up to this many; above it, one cell per bucket of agents.
@@ -33,8 +34,8 @@ import { countSince } from '../data.js';
  */
 export const BUCKET_THRESHOLD = 800;
 export const OPERATOR_PREFIX = 'swarm-';
-/** The runtime's HOURS: SECS_PER_BLOCK = 6 (runtime/src/lib.rs), so 600 blocks. */
-export const BLOCKS_PER_HOUR = 600;
+/** The hour the slashed cells count over is the event index's newest (hour.js). */
+export { BLOCKS_PER_HOUR } from '../hour.js';
 export const LIST_PAGE = 50;
 /** The network graph's own bundle, served beside observatory.js and fetched on first use. */
 export const GRAPH_BUNDLE = 'observatory-graph.js';
@@ -753,18 +754,16 @@ export function init(root, ctx) {
     { maxPages: ESCROW_PAGES },
   );
 
-  // Slashed in the last hour: from the first height the page learns, read
-  // back to the block of one hour before the newest one.
-  let head = null;
+  // Slashed in the last hour: the event index's newest hour, the same blocks
+  // the hour row counts (hour.js), read once the index's position is known.
+  const hour = hourTracker(ctx);
   let slashWatch = false;
-  const onHeight = ({ number }) => {
-    if (!Number.isFinite(number)) return;
-    head = Math.max(head ?? 0, number);
-    if (slashWatch) return;
+  hour.onChange(({ hour: h }) => {
+    if (!h || slashWatch) return;
     slashWatch = true;
     ctx.watchSince(
       'slashes',
-      () => (head === null ? null : head - BLOCKS_PER_HOUR),
+      () => hour.get()?.since ?? null,
       (record) => {
         if (!record.ok) {
           slashedSet = new Set();
@@ -782,9 +781,7 @@ export function init(root, ctx) {
       },
       SLASHES_INTERVAL_MS,
     );
-  };
-  ctx.bus.on('head', onHeight);
-  ctx.bus.on('poll', onHeight);
+  });
 
   ctx.watch(
     'escrowStats',

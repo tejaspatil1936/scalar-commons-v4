@@ -62,6 +62,7 @@ never the previous value.
 | `src/observatory.css` | The design system: the tokens (colour, type, the 4–104 px spacing scale, the 1280 px frame), the four self-hosted faces, the scroll reveal, presenter mode. Each instrument's own rules live beside it in `src/observatory/instruments/<name>.css` and are appended at build time. |
 | `src/observatory/` | The client. `context.js` gives every instrument one WebSocket (calls and subscriptions, paused when the tab is hidden), deduplicated polling, provenance records, motion and theme; `instruments/*.js` draw; `statusbar.js` fills the top line and the hero's live line from the hero's records; `hero.js` fills the first screen's height; `sources.js` is the Sources switch; `reveal.js` the scroll reveal; `presenter.js` presenter mode (P, or the Present button). See `src/observatory/README.md` for the contract. |
 | `runtime-history.json` | The upgrade record. Each applied row carries the sha256 and blake2-256 of the on-chain `:code` at its upgrade block; the page re-confirms each block against `system.CodeUpdated` events live. A `summaryNote` says how a summary was checked against the chain. |
+| `chain-events.json` | The event names every pallet declares, read from a live node's runtime metadata (`npm run fetch:chain-events`), with the spec version, genesis hash and block. The tests check every event list the page counts against it. |
 | `public/posture.json` | The security-posture record, written by the operators. Each recorded value names the document in this repository it was taken from (`source`) and the date it was true (`asOf`); a `null` value renders as "not yet recorded"; nothing here is ever read from the chain. |
 
 **One URL.** `/observatory` is the only entry point: nothing on the page is
@@ -82,8 +83,9 @@ prefix; agreements open, beside the plain note on who runs those agents
 ("Agents run by the Scalar Commons team to exercise the network. Identified
 on-chain by the swarm- prefix."). Under them, **activity in the last hour**:
 oracle answers, agreements settled, disputes opened and slashes, each counted
-from the event index back to the block of one hour ago (600 blocks), every 30
-seconds. Then the live line.
+over the event index's newest hour — the 600 blocks up to the newest block the
+index has synced — every 30 seconds. When the index is an hour or more behind
+the chain, the row says so in a sentence above the counts. Then the live line.
 
 On the right (seven columns), the **agent activity** panel: one small cell per
 registered agent on a tidy grid (above 800 agents, one cell per bucket of
@@ -111,7 +113,8 @@ that the page says so, draws the agents it was given, and shows its totals as
 floors.
 
 **Sections.** Each is an eyebrow ("01 · Chain"), a heading, one sentence, the instrument and a row of figures with hairlines between them, 104 px apart. 01 Chain (the river, height, finalized, finality lag, blocks per
-minute), 02 Economy (the era dial, time to settlement, CMN issued to agents to
+minute — from the index's last 200 block times on load, from the blocks seen
+live once ten have arrived, "stalled" after a minute without one), 02 Economy (the era dial, time to settlement, CMN issued to agents to
 date, open disputes), 03 Validators (the ring, the active set, node health),
 04 History (four strips as small multiples, each from zero with its zero
 line), 05 Upgrades (the rail), 06 Verify (collapsed: the sources, the commands
