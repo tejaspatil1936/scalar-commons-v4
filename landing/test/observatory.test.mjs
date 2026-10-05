@@ -155,14 +155,15 @@ test('the 307 record says what is on chain: no consent or expiry calls, which ca
   assert.match(spec307.summaryNote, /not on chain at 307/);
 });
 
-test('the upgrade record: 305, 306, 307 applied, 309 scheduled, each agreeing with its file', () => {
+test('the upgrade record: 305, 306, 307, 309 all applied, each agreeing with its file', () => {
   assert.deepEqual(
     history.upgrades.map((u) => [u.specVersion, u.status]),
     [
       [305, 'applied'],
       [306, 'applied'],
       [307, 'applied'],
-      [309, 'scheduled'],
+      // 309 went to prod at block 907929 on 2026-10-05.
+      [309, 'applied'],
     ],
   );
   for (const upgrade of history.upgrades.filter((u) => u.status === 'applied')) {
@@ -196,17 +197,26 @@ test('the upgrade rail renders every row with its hash in full, copyable, and a 
       assert.ok(page.includes(`data-confirm-block="${upgrade.appliedAtBlock}"`), `${upgrade.specVersion} has no chain-confirmation slot`);
     }
   }
-  // Markers sit in order, left to right, equally spaced, with the scheduled one last;
-  // the block number is printed under each applied one.
+  // Markers sit in order, left to right, equally spaced; the block number is
+  // printed under each applied one. Every row is applied now that 309 has
+  // shipped, so there is no scheduled marker at the end.
   const xs = [...page.matchAll(/rail-marker rail-\w+" style="--x:([0-9.]+)%/g)].map((m) => Number(m[1]));
   assert.deepEqual([...xs].sort((a, b) => a - b), xs);
   assert.deepEqual(xs, railPositions(history.upgrades.length).map((x) => Number(x.toFixed(2))));
   for (const upgrade of history.upgrades.filter((u) => u.status === 'applied')) {
     assert.ok(page.includes(`<span class="rail-meta mono">#${upgrade.appliedAtBlock.toLocaleString('en-US')}</span>`), `${upgrade.specVersion} has no block under its marker`);
   }
-  // The dashed future begins past the last applied marker.
+  // The dashed future begins past the LAST marker, whatever the row count.
+  //
+  // This used to read `future > xs[2] && future < xs[3]`, which encoded the
+  // shape "three applied rows and one scheduled one at the end" — true only
+  // while 309 was unapplied. Now that every row is applied the future starts
+  // past the last marker (92% -> 98%), and the old form failed on a page that
+  // was correct. Written against the last element so the next upgrade does not
+  // need this line edited.
   const future = Number(page.match(/class="rail"[^>]*style="--future:([0-9.]+)%"/)[1]);
-  assert.ok(future > xs[2] && future < xs[3]);
+  assert.ok(future > xs[xs.length - 1], `the dashed future (${future}%) must begin past the last marker (${xs[xs.length - 1]}%)`);
+  assert.ok(future <= 100, `the dashed future (${future}%) must stay on the rail`);
 });
 
 test('the script reads only indexer endpoints that exist, with fields the indexer emits', () => {

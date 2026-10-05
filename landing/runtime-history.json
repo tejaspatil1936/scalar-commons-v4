@@ -47,15 +47,24 @@
     },
     {
       "specVersion": 309,
-      "status": "scheduled",
-      "date": null,
-      "appliedAtBlock": null,
-      "blockHash": null,
-      "summary": "Agent messaging: typed, fee-priced coordination messages between agents, and a per-agent messaging key.",
-      "wasm": null,
-      "recordFile": null,
+      "status": "applied",
+      "date": "2026-10-05",
+      "appliedAtBlock": 907929,
+      "blockHash": "0x4e4740eee241dbcb704d6a2aae204ef5a3754cfff2ca6a7569907f66f07763e4",
+      "summary": "Agent messaging; escrow provider consent and expiry.",
+      "wasm": {
+        "sha256": "699238c48e7b5fc7af0eda967a29a71cf10fefa1920a40e501e0e9509f7590c2",
+        "blake2_256": "0x52a404fd85f4996734fe284cad00de70f6debbf03210cd434669f765df9e6292"
+      },
+      "recordFile": "evidence/day5/309-apply.md",
       "summarySource": "runtime/src/lib.rs",
-      "introduces": ["messages"]
+      "introduces": [
+        "messages",
+        "escrow.accept_agreement",
+        "escrow.reject_agreement",
+        "escrow.cancel_pending",
+        "escrow.expire_agreement"
+      ]
     }
   ]
 }
