@@ -6,6 +6,9 @@
 // every 30 seconds; a count the page cap stopped short of the hour is shown
 // as a floor ("≥"), a failed read as "unavailable" — never the last number.
 //
+// Messages sent (spec 309 and later) are messages.MessageSent, one per signed
+// message the chain accepted.
+//
 // Oracle answers are the two ways an agent answers a request, singly
 // (oracle.OracleResponseSubmitted) and in a batch (BatchResponseSubmitted);
 // a batch is one event and is counted once. Agreements settled are
@@ -26,6 +29,11 @@ export const FIGURES = [
   { key: 'hourSettled', sources: ['deliveriesConfirmed'], what: 'agreements settled' },
   { key: 'hourDisputes', sources: ['disputesOpened'], what: 'disputes opened' },
   { key: 'hourSlashes', sources: ['slashes'], what: 'slashes' },
+  // 309: messages.MessageSent. Hidden below spec 309 by the `data-min-spec`
+  // gate rather than counted as zero — "no messages" and "this chain cannot
+  // carry messages" are different statements and the page must not conflate
+  // them.
+  { key: 'hourMessages', sources: ['messagesSent'], what: 'messages sent' },
 ];
 
 /**
