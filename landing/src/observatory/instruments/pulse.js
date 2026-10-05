@@ -94,6 +94,17 @@ export function rateOf(blocks) {
 }
 
 /**
+ * The moment a stall is measured from: the newest block's arrival, but never
+ * earlier than the tab was last shown — a tab hidden for minutes has seen no
+ * blocks because it was not listening, not because the chain stopped. Null
+ * until a block has arrived. Pure; tested.
+ */
+export function stallBase(lastArrival, shownAt) {
+  if (!Number.isFinite(lastArrival)) return null;
+  return Number.isFinite(shownAt) ? Math.max(lastArrival, shownAt) : lastArrival;
+}
+
+/**
  * The rate the page shows. `stalled` when no new block has arrived for
  * STALL_MS (`lastArrival` is the wall-clock time of the newest one). Else the
  * index's last INDEX_WINDOW block times until LIVE_MIN blocks have been seen
@@ -326,6 +337,7 @@ export function init(root, ctx, { strip = null } = {}) {
   let mode = 'waiting';
   let stopPolling = null;
   let announcedAt = 0;
+  let shownAt = null; // when the tab was last shown again: a stall is never counted across a hidden spell
 
   // ── view state ──
   const box = ctx.fitCanvas(canvas, () => draw());
@@ -349,7 +361,7 @@ export function init(root, ctx, { strip = null } = {}) {
   }
 
   function showReadouts() {
-    const cadence = cadenceOf(stream.blocks, { now: ctx.now(), lastArrival: lastArrival() });
+    const cadence = cadenceOf(stream.blocks, { now: ctx.now(), lastArrival: stallBase(lastArrival(), shownAt) });
     if (headRecord && stream.best !== null) {
       ctx.readout.showValue(targets.best, headRecord, { value: stream.best, motion: ctx.motion });
     }
@@ -712,6 +724,7 @@ export function init(root, ctx, { strip = null } = {}) {
 
   ctx.bus.on('visibility', ({ hidden }) => {
     if (hidden) return;
+    shownAt = ctx.now();
     // Fill the gap the hidden interval left, from the index.
     seed();
   });

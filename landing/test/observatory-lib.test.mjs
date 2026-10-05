@@ -30,6 +30,7 @@ import {
   Stream,
   cadenceOf,
   rateOf,
+  stallBase,
   INDEX_WINDOW,
   LIVE_MIN,
   STALL_MS,
@@ -310,6 +311,11 @@ test('a rate is elapsed time over elapsed heights; a stall says "stalled"; nothi
   assert.deepEqual(cadenceOf(index, { now: 200_000, lastArrival: 139_000 }), { stalled: true, sinceMs: 61_000 });
   assert.equal(cadenceOf(index, { now: 200_000, lastArrival: 141_000 }).perMinute, 10, '59 s is not a stall');
   assert.equal(cadenceOf(index, { now: 200_000, lastArrival: null }).stalled, false, 'nothing has arrived yet: no stall to call');
+  // A tab hidden for five minutes saw no blocks because it was not listening: the stall clock restarts when it is shown.
+  assert.equal(stallBase(139_000, null), 139_000);
+  assert.equal(stallBase(139_000, 190_000), 190_000);
+  assert.equal(cadenceOf(index, { now: 200_000, lastArrival: stallBase(139_000, 190_000) }).stalled, false, 'shown 10 s ago: not stalled');
+  assert.equal(stallBase(null, 190_000), null, 'nothing has arrived: no stall clock at all');
   // Two minutes a block is below the floor: not shown as a rate.
   const slow = index.map((b) => ({ ...b, at: b.number * 120_000 }));
   assert.equal(cadenceOf(slow), null);
