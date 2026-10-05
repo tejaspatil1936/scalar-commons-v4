@@ -515,6 +515,7 @@ ${heroFigure({ key: 'messagesSent', caption: 'Messages sent', minSpec: 309 })}
       </div>
       <section class="hour" aria-labelledby="hour-h">
         <h2 class="eyebrow hour-title" id="hour-h">Activity in the last hour</h2>
+        <p class="hour-note" hidden></p>
         <div class="readings figure-row hour-figures">
 ${reading({ key: 'hourOracle', label: 'Oracle answers', live: false })}
 ${reading({ key: 'hourSettled', label: 'Agreements settled', live: false })}

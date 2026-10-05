@@ -29,6 +29,12 @@ import { field, countSince, pageOf, fetchAllPages, Scheduler, SOURCES } from '..
 import {
   Stream,
   cadenceOf,
+  rateOf,
+  stallBase,
+  INDEX_WINDOW,
+  LIVE_MIN,
+  STALL_MS,
+  MIN_RATE,
   median,
   timestampOf,
   barHeight,
@@ -257,12 +263,70 @@ test('Stream: seeding, arrival, forks and finality', () => {
   );
   assert.equal(s.lag(), 1);
   assert.deepEqual(s.finalize(11, 22_000), { advanced: false, settled: [] });
-  const cadence = cadenceOf(s.blocks);
-  // Three surviving blocks (10, 11, 12:z) span 1 000 → 20 000 ms: two intervals.
+  const cadence = rateOf(s.blocks);
+  // Three surviving blocks (10, 11, 12:z) span 1 000 → 20 000 ms: two heights.
   assert.ok(Math.abs(cadence.perMinute - 60_000 / ((20_000 - 1_000) / 2)) < 1e-9);
+  // Fewer than LIVE_MIN live blocks: the rate is the indexed ones' alone (10 and 11), never mixed with the live head.
+  assert.deepEqual([cadenceOf(s.blocks).source, cadenceOf(s.blocks).from, cadenceOf(s.blocks).to], ['index', 10, 11]);
   assert.equal(median([3, 1, 2]), 2);
   assert.equal(median([4, 1, 2, 3]), 2.5);
   assert.equal(cadenceOf([]), null);
+});
+
+test('the rate on load is the index’s last 200 block times, even when a live block arrives hours past the index (the 0.1 a minute bug)', () => {
+  assert.equal(INDEX_WINDOW, 200);
+  assert.equal(LIVE_MIN, 10);
+  assert.equal(STALL_MS, 60_000);
+  assert.equal(MIN_RATE, 1);
+  // The index stopped 17.7 h behind the head; its last 200 blocks are six seconds apart.
+  const t0 = 1_791_145_296_001;
+  const s = new Stream();
+  for (let k = 0; k < 200; k += 1) s.seed({ number: 894_531 + k, id: `${894_531 + k}:i`, at: t0 + k * 6_000, count: 1 });
+  const arrived = t0 + 199 * 6_000 + 17.7 * 3_600_000;
+  s.head({ number: 905_363, id: '905363:a', arrivedAt: arrived });
+  // The old reading: the last 60 timed blocks, 59 indexed and one live, over 59 intervals.
+  const timed = s.blocks.filter((b) => Number.isFinite(b.at)).slice(-60);
+  const old = 60_000 / ((timed.at(-1).at - timed[0].at) / (timed.length - 1));
+  assert.ok(old < 0.1, `the bug: ${old.toFixed(3)} a minute`);
+  const onLoad = cadenceOf(s.blocks, { now: arrived + 1_000, lastArrival: arrived });
+  assert.equal(onLoad.source, 'index');
+  assert.ok(Math.abs(onLoad.perMinute - 10) < 1e-9, `${onLoad.perMinute} a minute`);
+  assert.deepEqual([onLoad.blocks, onLoad.from, onLoad.to], [200, 894_531, 894_730]);
+  // Nine more live blocks (ten in all): the rate becomes this page's own observation.
+  for (let k = 1; k < LIVE_MIN - 1; k += 1) s.head({ number: 905_363 + k, id: `${905_363 + k}:a`, arrivedAt: arrived + k * 6_000 });
+  assert.equal(cadenceOf(s.blocks).source, 'index', 'nine live blocks: still the index');
+  s.head({ number: 905_372, id: '905372:a', arrivedAt: arrived + 9 * 6_000 });
+  const live = cadenceOf(s.blocks, { now: arrived + 9 * 6_000 + 500, lastArrival: arrived + 9 * 6_000 });
+  assert.equal(live.source, 'live');
+  assert.ok(Math.abs(live.perMinute - 10) < 1e-9);
+  assert.deepEqual([live.from, live.to], [905_363, 905_372], 'live blocks only, never mixed with the index');
+});
+
+test('a rate is elapsed time over elapsed heights; a stall says "stalled"; nothing below one a minute is ever a rate', () => {
+  // A missed head in the run is a gap, not one slow block.
+  assert.equal(rateOf([{ number: 1, at: 0 }, { number: 101, at: 600_000 }]).perMinute, 10);
+  assert.equal(rateOf([{ number: 5, at: 1_000 }, { number: 5, at: 2_000 }]), null);
+  const index = Array.from({ length: 20 }, (_, k) => ({ number: k, at: k * 6_000, live: false, superseded: false }));
+  // No new block for more than 60 s: stalled, whatever the history says.
+  assert.deepEqual(cadenceOf(index, { now: 200_000, lastArrival: 139_000 }), { stalled: true, sinceMs: 61_000 });
+  assert.equal(cadenceOf(index, { now: 200_000, lastArrival: 141_000 }).perMinute, 10, '59 s is not a stall');
+  assert.equal(cadenceOf(index, { now: 200_000, lastArrival: null }).stalled, false, 'nothing has arrived yet: no stall to call');
+  // A tab hidden for five minutes saw no blocks because it was not listening: the stall clock restarts when it is shown.
+  assert.equal(stallBase(139_000, null), 139_000);
+  assert.equal(stallBase(139_000, 190_000), 190_000);
+  assert.equal(cadenceOf(index, { now: 200_000, lastArrival: stallBase(139_000, 190_000) }).stalled, false, 'shown 10 s ago: not stalled');
+  assert.equal(stallBase(null, 190_000), null, 'nothing has arrived and the page is not listening: no stall clock at all');
+  // Loaded while the chain is already stalled, with the index caught up: the head the socket
+  // gives on subscribe is already in the index, so nothing ever "arrives". The clock runs from
+  // when the page began listening, and 60 s later the page says "stalled".
+  assert.equal(stallBase(null, null, 100_000), 100_000);
+  assert.equal(cadenceOf(index, { now: 161_000, lastArrival: stallBase(null, null, 100_000) }).stalled, true, 'listening 61 s, nothing new: stalled');
+  assert.equal(cadenceOf(index, { now: 159_000, lastArrival: stallBase(null, null, 100_000) }).stalled, false, 'listening 59 s: not yet');
+  assert.equal(stallBase(130_000, null, 100_000), 130_000, 'once a block has arrived, the clock runs from it');
+  assert.equal(stallBase(null, 150_000, 100_000), 150_000, 'a hidden spell restarts this clock too');
+  // Two minutes a block is below the floor: not shown as a rate.
+  const slow = index.map((b) => ({ ...b, at: b.number * 120_000 }));
+  assert.equal(cadenceOf(slow), null);
 });
 
 test('Stream: a block body sets the count and the chain time, and the arrival offset is learned from it', () => {
