@@ -259,6 +259,33 @@ test('the script reads only indexer endpoints that exist, with fields the indexe
   }
 });
 
+test('every event the page counts is one the runtime declares, read from its own metadata (chain-events.json)', () => {
+  const metadata = JSON.parse(readFileSync(new URL('../chain-events.json', import.meta.url), 'utf8'));
+  assert.equal(metadata.provenance.specName, 'scalar-commons');
+  assert.ok(metadata.provenance.specVersion >= 307 && /^0x[0-9a-f]{64}$/.test(metadata.provenance.genesisHash), 'the record says which runtime it was read from');
+  // A reading fenced to a later runtime (`data-min-spec`, hidden below it) may count an event this runtime
+  // does not have yet: it is checked against its pallet's source instead, and must really be fenced.
+  const fence = new Map([...page.matchAll(/data-reading="([^"]+)" data-min-spec="(\d+)"/g)].map((m) => [m[1], Number(m[2])]));
+  for (const [name, source] of Object.entries(SOURCES)) {
+    if (source.kind !== 'api' || !source.path.startsWith('/v1/events?')) continue;
+    const params = new URL(source.path, API_ORIGIN).searchParams;
+    const section = params.get('section');
+    const method = params.get('method');
+    const fences = (source.readings ?? []).map((key) => fence.get(key));
+    if (!metadata.pallets[section] && fences.length && fences.every((min) => min > metadata.provenance.specVersion)) {
+      const pallet = readRepoFile(`pallets/${section}/src/lib.rs`);
+      assert.ok(new RegExp(`\\b${method}\\s*\\{`).test(pallet), `source "${name}": pallets/${section} emits no ${method}`);
+      continue;
+    }
+    assert.ok(metadata.pallets[section], `source "${name}": the runtime has no pallet "${section}"`);
+    assert.ok(metadata.pallets[section].includes(method), `source "${name}": ${section} emits no ${method} (it emits ${metadata.pallets[section].join(', ')})`);
+  }
+  // The last hour's settlements are DeliveryConfirmed: the runtime has no AgreementSettled.
+  assert.equal(SOURCES.deliveriesConfirmed.path, '/v1/events?section=escrow&method=DeliveryConfirmed&limit=200');
+  assert.ok(SOURCES.deliveriesConfirmed.readings.includes('hourSettled'));
+  assert.ok(!metadata.pallets.escrow.includes('AgreementSettled'));
+});
+
 test('the raw storage locations are computed from their names, never pasted', () => {
   // twox128 of the names, checked one name at a time against the values every
   // Substrate client derives (System and Account are the textbook vectors).
@@ -391,8 +418,8 @@ test('the hero: no second wordmark; the title, one sentence, the figures with ha
   const text = hero.match(/<div class="hero-text">[\s\S]*?<p class="live-line"[\s\S]*?<\/p>\s*<\/div>/)?.[0] ?? '';
   assert.match(text, /^<div class="hero-text">\s*<h1 id="hero-h">Observatory<\/h1>\s*<p class="dek">A public test network where AI agents contract, escrow and settle work — read live from the chain\.<\/p>/);
   const figures = [...text.matchAll(/<div class="reading hero-figure" data-reading="([^"]+)"[^>]*>([\s\S]*?)<\/div>/g)];
-  assert.deepEqual(figures.map((m) => m[1]), ['heroHeight', 'agents', 'operatorRun', 'activeAgreements']);
-  assert.deepEqual(figures.map((m) => m[2].match(/<p class="reading-label">([^<]+)<\/p>/)?.[1]), ['Height', 'Agents registered', 'Operator-run', 'Agreements open']);
+  assert.deepEqual(figures.map((m) => m[1]), ['heroHeight', 'agents', 'operatorRun', 'activeAgreements', 'messagesSent']);
+  assert.deepEqual(figures.map((m) => m[2].match(/<p class="reading-label">([^<]+)<\/p>/)?.[1]), ['Height', 'Agents registered', 'Operator-run', 'Agreements open', 'Messages sent']);
   for (const [, key, block] of figures) {
     assert.ok(block.indexOf('reading-value') < block.indexOf('reading-label'), `${key}: the caption sits directly under its figure`);
     assert.ok(!/\d/.test(block.match(/<p class="reading-value[^>]*>([\s\S]*?)<\/p>/)[1].replace(/<[^>]+>/g, '')), `${key} ships a figure`);
@@ -415,8 +442,10 @@ test('the hero: no second wordmark; the title, one sentence, the figures with ha
   assert.ok(text.indexOf('hero-figures') < text.indexOf('class="hour"'), 'under the hero figures');
   assert.match(hour, /<h2 class="eyebrow hour-title" id="hour-h">Activity in the last hour<\/h2>/);
   const hourKeys = [...hour.matchAll(/data-reading="([^"]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(hourKeys, ['hourOracle', 'hourSettled', 'hourDisputes', 'hourSlashes']);
-  assert.deepEqual([...hour.matchAll(/<p class="reading-label">([^<]+)<\/p>/g)].map((m) => m[1]), ['Oracle answers', 'Agreements settled', 'Disputes opened', 'Slashes']);
+  // `hourMessages` is spec-309-fenced: it is in the markup but `hidden` until
+  // the chain reports 309 (see instruments/messaging.js).
+  assert.deepEqual(hourKeys, ['hourOracle', 'hourSettled', 'hourDisputes', 'hourSlashes', 'hourMessages']);
+  assert.deepEqual([...hour.matchAll(/<p class="reading-label">([^<]+)<\/p>/g)].map((m) => m[1]), ['Oracle answers', 'Agreements settled', 'Disputes opened', 'Slashes', 'Messages sent']);
   assert.match(hour, /class="readings figure-row hour-figures"/);
   for (const key of hourKeys) assert.ok(Object.values(SOURCES).some((s) => s.readings?.includes(key)), `${key} has a source`);
   assert.match(text, /<p class="live-line" data-state="connecting"><span class="pulse-dot" aria-hidden="true"><\/span> <span class="ll-state">Connecting<\/span> <span class="ll-finality">finality —<\/span><\/p>/);

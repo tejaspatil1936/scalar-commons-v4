@@ -28,6 +28,7 @@ import {
   mixColour,
 } from '../../src/observatory/instruments/agent-field.js';
 import { hourCount, FIGURES } from '../../src/observatory/instruments/last-hour.js';
+import { indexHour, lagNote } from '../../src/observatory/hour.js';
 import { field } from '../../src/observatory/data.js';
 
 const agent = (i, extra = {}) => ({
@@ -184,7 +185,7 @@ test('a state change blends between the two inks, and an unreadable ink falls ba
 });
 
 test('the last hour counts each kind back to its start, as a floor when the read stopped short, and fails honestly', () => {
-  assert.deepEqual(FIGURES.map((f) => f.key), ['hourOracle', 'hourSettled', 'hourDisputes', 'hourSlashes']);
+  assert.deepEqual(FIGURES.map((f) => f.key), ['hourOracle', 'hourSettled', 'hourDisputes', 'hourSlashes', 'hourMessages']);
   const ok = (blocks, reachedStart = true) => ({ ok: true, since: 400, reachedStart, items: blocks.map((blockNumber) => ({ blockNumber })) });
   assert.deepEqual(hourCount([ok([900, 500, 300])]), { ok: true, count: 2, floor: false });
   // Single answers and batches add up.
@@ -193,4 +194,26 @@ test('the last hour counts each kind back to its start, as a floor when the read
   assert.deepEqual(hourCount([ok([900, 800], false)]), { ok: true, count: 2, floor: true });
   // One failed read fails the figure: never a partial number.
   assert.deepEqual(hourCount([ok([900]), { ok: false, error: 'HTTP 502' }]), { ok: false, error: 'HTTP 502' });
+});
+
+test('the last hour is the index’s newest 600 blocks, not 600 blocks back from the chain head (the 0-settled bug)', () => {
+  // Live on 2026-10-05: the chain at #905,401, the index synced to #894,730.
+  const status = { chain: { bestBlock: 905_401, finalizedBlock: 905_399 }, indexer: { syncedHeight: 894_730 } };
+  const hour = indexHour(status, field);
+  assert.deepEqual(hour, { since: 894_130, to: 894_730, best: 905_401, behind: 10_671 });
+  // DeliveryConfirmed events as the index holds them: one every ~4 blocks through its newest hour.
+  const items = Array.from({ length: 160 }, (_, k) => ({ blockNumber: 894_720 - k * 4 }));
+  const record = (since) => ({ ok: true, since, reachedStart: true, items });
+  assert.equal(hourCount([record(905_401 - 600)]).count, 0, 'counted back from the chain head, the window starts past the index: 0');
+  const fixed = hourCount([record(hour.since)]);
+  assert.equal(fixed.count, items.filter((e) => e.blockNumber >= 894_130).length);
+  assert.ok(fixed.count > 100, `${fixed.count} settled in the index’s newest hour`);
+  // The page says so when the index is an hour or more behind.
+  const fmt = (n) => n.toLocaleString('en-US');
+  assert.equal(
+    lagNote(hour, fmt),
+    'Counted over the index’s newest hour, to block #894,730: the index is 10,671 blocks (about 17.8 h) behind the chain.',
+  );
+  assert.equal(lagNote({ to: 905_399, behind: 2 }, fmt), '', 'an index two blocks behind is not news');
+  assert.throws(() => indexHour({ chain: { bestBlock: 1 } }, field), /indexer\.syncedHeight/);
 });

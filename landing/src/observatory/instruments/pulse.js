@@ -28,8 +28,15 @@
 // of a block not yet final.
 //
 // Readings: the height, the finalized height, the finality lag, and blocks
-// per minute over the last CADENCE_WINDOW block times (from the index and the
-// live stream together; the provenance line says how many of each).
+// per minute. On load the rate is the index's last 200 block timestamps
+// (/v1/blocks?limit=200); it switches to the blocks this page saw arrive once
+// LIVE_MIN of them have, and is never mixed across the two, so an index that
+// lags the chain cannot make one block look like hours. The rate is elapsed
+// time over elapsed heights, never over blocks counted. It is never shown
+// below MIN_RATE a minute: below that the chain is either stalled (no new
+// block for STALL_MS, and the reading says "stalled") or the figure is not
+// shown at all. Before any block arrives, the stall is timed from when the
+// page began listening.
 
 import { babePreDigestOf, hexToBytes, readCompact } from '../scale.js';
 import { blockHashSource, blockSource } from '../data.js';
@@ -43,7 +50,15 @@ export const SLOT_MS = 6_000;
 export const TIMESTAMP_PALLET_INDEX = 1;
 const STATUS_POLL_MS = 6_000; // the fallback when the socket is down
 const STATUS_ANNOUNCE_MS = 30_000; // screen-reader summary, at most this often
-const CADENCE_WINDOW = 60; // blocks the rhythm is computed over
+const CADENCE_WINDOW = 60; // live blocks the rhythm is computed over, once there are LIVE_MIN of them
+/** Index block times the rate on load is computed over (the indexer's page size). */
+export const INDEX_WINDOW = 200;
+/** Live blocks this page must see before the rate is its own observation instead of the index's. */
+export const LIVE_MIN = 10;
+/** No new block for this long: the chain is stalled, and the rate says so. */
+export const STALL_MS = 60_000;
+/** Below this many blocks a minute a rate is never shown; the chain targets ten. */
+export const MIN_RATE = 1;
 const FINALITY_SAMPLES = 20;
 const SETTLE_MS = 300; // a bar's change of tone when it becomes final
 const OFFSET_SAMPLES = 12; // arrivals the arrival-to-chain-time offset is learned from
@@ -61,14 +76,58 @@ function headerId(header) {
   return `${headerNumber(header)}:${header.stateRoot}`;
 }
 
-/** Blocks per minute and the mean interval, from the last `CADENCE_WINDOW` block times. */
-export function cadenceOf(blocks) {
-  const timed = blocks.filter((b) => !b.superseded && Number.isFinite(b.at)).slice(-CADENCE_WINDOW);
+/**
+ * Blocks per minute and the mean interval over a run of timed blocks:
+ * elapsed chain time over elapsed heights. Dividing by heights, not by the
+ * blocks on hand, keeps a gap in the run (an index behind the chain, a
+ * missed head) from reading as one very slow block. Pure; tested.
+ */
+export function rateOf(blocks) {
+  const timed = blocks.filter((b) => !b.superseded && Number.isFinite(b.at)).sort((a, b) => a.number - b.number);
   if (timed.length < 2) return null;
-  const span = timed[timed.length - 1].at - timed[0].at;
-  if (span <= 0) return null;
-  const intervalMs = span / (timed.length - 1);
-  return { perMinute: 60_000 / intervalMs, intervalMs, blocks: timed.length };
+  const first = timed[0];
+  const last = timed[timed.length - 1];
+  const heights = last.number - first.number;
+  const span = last.at - first.at;
+  if (heights <= 0 || span <= 0) return null;
+  const intervalMs = span / heights;
+  return { perMinute: 60_000 / intervalMs, intervalMs, blocks: timed.length, from: first.number, to: last.number };
+}
+
+/**
+ * The moment a stall is measured from: the newest block's arrival or, before
+ * any has arrived, when the page began listening for blocks — a page loaded
+ * on a chain that has already stopped must still say so. Never earlier than
+ * the tab was last shown: a tab hidden for minutes has seen no blocks because
+ * it was not listening, not because the chain stopped. Null while the page is
+ * not listening and nothing has arrived. Pure; tested.
+ */
+export function stallBase(lastArrival, shownAt, listeningSince = null) {
+  const base = Number.isFinite(lastArrival) ? lastArrival : listeningSince;
+  if (!Number.isFinite(base)) return null;
+  return Number.isFinite(shownAt) ? Math.max(base, shownAt) : base;
+}
+
+/**
+ * The rate the page shows. `stalled` when no new block has arrived for
+ * STALL_MS (`lastArrival` is the wall-clock time of the newest one). Else the
+ * index's last INDEX_WINDOW block times until LIVE_MIN blocks have been seen
+ * live, then the last CADENCE_WINDOW live ones — one source or the other,
+ * never a mix. Null when there is nothing to compute from, or when the result
+ * is below MIN_RATE (a rate that low is a stall or a broken read, never a
+ * figure). Pure; tested.
+ */
+export function cadenceOf(blocks, { now = null, lastArrival = null } = {}) {
+  if (Number.isFinite(now) && Number.isFinite(lastArrival) && now - lastArrival > STALL_MS) {
+    return { stalled: true, sinceMs: now - lastArrival };
+  }
+  const usable = blocks.filter((b) => !b.superseded && Number.isFinite(b.at));
+  const live = usable.filter((b) => b.live);
+  const source = live.length >= LIVE_MIN ? 'live' : 'index';
+  const pool = source === 'live' ? live.slice(-CADENCE_WINDOW) : usable.filter((b) => !b.live).slice(-INDEX_WINDOW);
+  const rate = rateOf(pool);
+  if (!rate || rate.perMinute < MIN_RATE) return null;
+  return { ...rate, source, stalled: false };
 }
 
 export function median(values) {
@@ -282,6 +341,8 @@ export function init(root, ctx, { strip = null } = {}) {
   let mode = 'waiting';
   let stopPolling = null;
   let announcedAt = 0;
+  let shownAt = null; // when the tab was last shown again: a stall is never counted across a hidden spell
+  let listeningSince = null; // when the socket first opened or polling began: the stall clock before any block arrives
 
   // ── view state ──
   const box = ctx.fitCanvas(canvas, () => draw());
@@ -297,8 +358,17 @@ export function init(root, ctx, { strip = null } = {}) {
   }
 
   // ── readouts ──
+  /** Wall-clock time of the newest block that arrived (live or polled); null until one has. */
+  function lastArrival() {
+    let at = null;
+    for (const b of stream.blocks) if (b.live && Number.isFinite(b.arrivedAt) && (at === null || b.arrivedAt > at)) at = b.arrivedAt;
+    return at;
+  }
+
   function showReadouts() {
-    const cadence = cadenceOf(stream.blocks);
+    // With the socket and the poll both down there is no listening to time a stall against.
+    const listening = mode === 'live' || mode === 'polling' ? listeningSince : null;
+    const cadence = cadenceOf(stream.blocks, { now: ctx.now(), lastArrival: stallBase(lastArrival(), shownAt, listening) });
     if (headRecord && stream.best !== null) {
       ctx.readout.showValue(targets.best, headRecord, { value: stream.best, motion: ctx.motion });
     }
@@ -313,14 +383,26 @@ export function init(root, ctx, { strip = null } = {}) {
         });
       }
     }
-    if (cadence) ctx.bus.emit('cadence', { ...cadence, record: blocksRecord });
-    if (blocksRecord && cadence) {
+    // A stalled chain has no rate to give the dial: it keeps the last one, and the reading says "stalled".
+    if (cadence && !cadence.stalled) ctx.bus.emit('cadence', { ...cadence, record: blocksRecord });
+    if (blocksRecord && cadence?.stalled) {
+      ctx.readout.showValue(targets.perMinute, blocksRecord, {
+        value: 'stalled',
+        extra: `no new block for ${Math.round(cadence.sinceMs / 1000)} s`,
+      });
+    } else if (blocksRecord && cadence) {
       const finality = stream.finalitySeconds(cadence);
       const polled = polledNote(stream.blocks);
+      const fmt = ctx.format.formatInteger;
+      const basis =
+        cadence.source === 'live'
+          ? `${cadence.blocks} blocks observed live, #${fmt(cadence.from)}–#${fmt(cadence.to)}`
+          : `the index's last ${cadence.blocks} block times, #${fmt(cadence.from)}–#${fmt(cadence.to)}` +
+            `${liveCount ? `; live from ${LIVE_MIN} observed blocks (${liveCount} so far)` : ''}`;
       ctx.readout.showValue(targets.perMinute, blocksRecord, {
         value: cadence.perMinute.toFixed(1),
         extra:
-          `${cadence.blocks} block times${liveCount ? `, ${liveCount} observed live` : ''}` +
+          basis +
           `${decodedCount ? `, ${decodedCount} bodies read over ${ctx.RPC_URL.replace('wss://', '')}` : ''}` +
           `${finality ? ` · finality within ${finality.measured ? '' : 'about '}${Math.round(finality.seconds)} s${finality.measured ? ', measured' : ''}` : ''}` +
           `${bodyNote ? ` · ${bodyNote}` : ''}` +
@@ -336,7 +418,8 @@ export function init(root, ctx, { strip = null } = {}) {
     announcedAt = ctx.now();
     const parts = [`Block ${ctx.format.formatInteger(stream.best)} produced.`];
     if (stream.finalized !== null) parts.push(`Block ${ctx.format.formatInteger(stream.finalized)} final.`);
-    if (cadence) parts.push(`${cadence.perMinute.toFixed(0)} blocks per minute.`);
+    if (cadence?.stalled) parts.push(`No new block for ${Math.round(cadence.sinceMs / 1000)} seconds: the chain is stalled.`);
+    else if (cadence) parts.push(`${cadence.perMinute.toFixed(0)} blocks per minute.`);
     status.textContent = parts.join(' ');
   }
 
@@ -626,6 +709,7 @@ export function init(root, ctx, { strip = null } = {}) {
   function startPolling() {
     if (stopPolling) return;
     setMode('polling');
+    listeningSince ??= ctx.now();
     stopPolling = ctx.watch('status', onStatus, STATUS_POLL_MS);
   }
 
@@ -639,6 +723,7 @@ export function init(root, ctx, { strip = null } = {}) {
     if (state === 'open') {
       stopPollingIfAny();
       if (mode !== 'live') setMode('live');
+      listeningSince ??= ctx.now();
     } else if (state === 'failed' || (state === 'closed' && attempts >= 1)) {
       startPolling();
     } else if (state === 'paused') {
@@ -648,6 +733,7 @@ export function init(root, ctx, { strip = null } = {}) {
 
   ctx.bus.on('visibility', ({ hidden }) => {
     if (hidden) return;
+    shownAt = ctx.now();
     // Fill the gap the hidden interval left, from the index.
     seed();
   });
@@ -712,4 +798,6 @@ export function init(root, ctx, { strip = null } = {}) {
   });
   ctx.bus.on('theme', () => draw());
   draw();
+  // Re-reads the rate with no new block, so a stall is said within a check of STALL_MS (main.js holds the timer).
+  return { tick: () => showReadouts() };
 }

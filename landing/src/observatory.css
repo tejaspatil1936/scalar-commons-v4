@@ -709,6 +709,15 @@ pre {
   color: var(--text-dim);
 }
 
+/* When the event index is an hour or more behind the chain, the row says so before its figures. */
+.hour-note {
+  margin: 0 0 var(--space-3);
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
+  color: var(--text-dim);
+  text-wrap: pretty;
+}
+
 /* Four to a row in five columns: a step less room either side of each hairline than a section's row. */
 .hour .hour-figures > .reading {
   padding-inline: var(--space-3);
