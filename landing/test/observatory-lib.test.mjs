@@ -315,7 +315,15 @@ test('a rate is elapsed time over elapsed heights; a stall says "stalled"; nothi
   assert.equal(stallBase(139_000, null), 139_000);
   assert.equal(stallBase(139_000, 190_000), 190_000);
   assert.equal(cadenceOf(index, { now: 200_000, lastArrival: stallBase(139_000, 190_000) }).stalled, false, 'shown 10 s ago: not stalled');
-  assert.equal(stallBase(null, 190_000), null, 'nothing has arrived: no stall clock at all');
+  assert.equal(stallBase(null, 190_000), null, 'nothing has arrived and the page is not listening: no stall clock at all');
+  // Loaded while the chain is already stalled, with the index caught up: the head the socket
+  // gives on subscribe is already in the index, so nothing ever "arrives". The clock runs from
+  // when the page began listening, and 60 s later the page says "stalled".
+  assert.equal(stallBase(null, null, 100_000), 100_000);
+  assert.equal(cadenceOf(index, { now: 161_000, lastArrival: stallBase(null, null, 100_000) }).stalled, true, 'listening 61 s, nothing new: stalled');
+  assert.equal(cadenceOf(index, { now: 159_000, lastArrival: stallBase(null, null, 100_000) }).stalled, false, 'listening 59 s: not yet');
+  assert.equal(stallBase(130_000, null, 100_000), 130_000, 'once a block has arrived, the clock runs from it');
+  assert.equal(stallBase(null, 150_000, 100_000), 150_000, 'a hidden spell restarts this clock too');
   // Two minutes a block is below the floor: not shown as a rate.
   const slow = index.map((b) => ({ ...b, at: b.number * 120_000 }));
   assert.equal(cadenceOf(slow), null);

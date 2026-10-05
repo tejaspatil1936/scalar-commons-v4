@@ -35,7 +35,8 @@
 // time over elapsed heights, never over blocks counted. It is never shown
 // below MIN_RATE a minute: below that the chain is either stalled (no new
 // block for STALL_MS, and the reading says "stalled") or the figure is not
-// shown at all.
+// shown at all. Before any block arrives, the stall is timed from when the
+// page began listening.
 
 import { babePreDigestOf, hexToBytes, readCompact } from '../scale.js';
 import { blockHashSource, blockSource } from '../data.js';
@@ -94,14 +95,17 @@ export function rateOf(blocks) {
 }
 
 /**
- * The moment a stall is measured from: the newest block's arrival, but never
- * earlier than the tab was last shown — a tab hidden for minutes has seen no
- * blocks because it was not listening, not because the chain stopped. Null
- * until a block has arrived. Pure; tested.
+ * The moment a stall is measured from: the newest block's arrival or, before
+ * any has arrived, when the page began listening for blocks — a page loaded
+ * on a chain that has already stopped must still say so. Never earlier than
+ * the tab was last shown: a tab hidden for minutes has seen no blocks because
+ * it was not listening, not because the chain stopped. Null while the page is
+ * not listening and nothing has arrived. Pure; tested.
  */
-export function stallBase(lastArrival, shownAt) {
-  if (!Number.isFinite(lastArrival)) return null;
-  return Number.isFinite(shownAt) ? Math.max(lastArrival, shownAt) : lastArrival;
+export function stallBase(lastArrival, shownAt, listeningSince = null) {
+  const base = Number.isFinite(lastArrival) ? lastArrival : listeningSince;
+  if (!Number.isFinite(base)) return null;
+  return Number.isFinite(shownAt) ? Math.max(base, shownAt) : base;
 }
 
 /**
@@ -338,6 +342,7 @@ export function init(root, ctx, { strip = null } = {}) {
   let stopPolling = null;
   let announcedAt = 0;
   let shownAt = null; // when the tab was last shown again: a stall is never counted across a hidden spell
+  let listeningSince = null; // when the socket first opened or polling began: the stall clock before any block arrives
 
   // ── view state ──
   const box = ctx.fitCanvas(canvas, () => draw());
@@ -361,7 +366,9 @@ export function init(root, ctx, { strip = null } = {}) {
   }
 
   function showReadouts() {
-    const cadence = cadenceOf(stream.blocks, { now: ctx.now(), lastArrival: stallBase(lastArrival(), shownAt) });
+    // With the socket and the poll both down there is no listening to time a stall against.
+    const listening = mode === 'live' || mode === 'polling' ? listeningSince : null;
+    const cadence = cadenceOf(stream.blocks, { now: ctx.now(), lastArrival: stallBase(lastArrival(), shownAt, listening) });
     if (headRecord && stream.best !== null) {
       ctx.readout.showValue(targets.best, headRecord, { value: stream.best, motion: ctx.motion });
     }
@@ -702,6 +709,7 @@ export function init(root, ctx, { strip = null } = {}) {
   function startPolling() {
     if (stopPolling) return;
     setMode('polling');
+    listeningSince ??= ctx.now();
     stopPolling = ctx.watch('status', onStatus, STATUS_POLL_MS);
   }
 
@@ -715,6 +723,7 @@ export function init(root, ctx, { strip = null } = {}) {
     if (state === 'open') {
       stopPollingIfAny();
       if (mode !== 'live') setMode('live');
+      listeningSince ??= ctx.now();
     } else if (state === 'failed' || (state === 'closed' && attempts >= 1)) {
       startPolling();
     } else if (state === 'paused') {
