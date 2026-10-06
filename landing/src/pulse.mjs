@@ -8,10 +8,9 @@
 // tooltip, bar), so the two pages read as one site.
 
 import { escapeHtml, renderNav } from './render.mjs';
-import { reading, renderHead, wordmark } from './observatory.mjs';
+import { PULSE_NAV, reading, renderHead, wordmark } from './observatory.mjs';
 
-/** The nav item the observatory and this page add to the site nav. */
-export const PULSE_NAV = { key: 'pulse', label: 'Pulse', href: 'pulse' };
+export { PULSE_NAV };
 export const CAPTION = 'Every light is a real transaction on the Scalar Commons test network.';
 /** The legend: one symbol per light, in the model's order (KINDS, without the resolved state, which has no light of its own). */
 export const LEGEND = [

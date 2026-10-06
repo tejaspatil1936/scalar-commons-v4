@@ -12,7 +12,7 @@ import { escapeHtml, renderNav } from './render.mjs';
 import { storageKey } from './observatory/scale.js';
 
 /** The second live page, /pulse, linked from this page's nav (its own module imports this one, so the item lives here). */
-const PULSE_NAV = { key: 'pulse', label: 'Pulse', href: 'pulse' };
+export const PULSE_NAV = { key: 'pulse', label: 'Pulse', href: 'pulse' };
 
 export const API_HOST = 'api.scalarnet.io';
 export const RPC_WSS = 'wss://rpc.scalarnet.io';
