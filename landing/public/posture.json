@@ -20,11 +20,11 @@
       "source": "docs/internal/RED-AGENT-PHASE1.md \u2014 three runs, 180 steps, 0 transactions submitted. The agent identified the privileged calls in step 1 of every run and refused them unprompted. This is a finding about one model's behaviour, NOT about the chain's defences: no guard was exercised, because the agent declined before reaching one.",
       "todo": "recorded"
     },
-    "lastIndependentRehearsal": {
-      "value": null,
-      "asOf": null,
-      "source": null,
-      "todo": "TODO(owner): the date of the last upgrade or recovery rehearsal run by someone outside the core team, and where its record lives. The team's own rehearsals are in UPGRADE-305.md and UPGRADE-306.md; those do not count as independent, and no document in this repository records an outside one."
+    "lastRehearsal": {
+      "value": "Runtime 309 rehearsed 2026-10-05, by the operators",
+      "asOf": "2026-10-05",
+      "source": "evidence/day5/309-apply.md, section: the blob on prod is byte-identical to the one that was rehearsed \u2014 runtime 309 was applied to a chopsticks fork of live 307 state and run on the released validator binary before the prod apply, with control runs on an unupgraded fork to establish which behaviour the upgrade caused. Run by the operators (this lab), NOT by an outside party: no independent rehearsal has taken place. The earlier team rehearsals are in UPGRADE-305.md and UPGRADE-306.md.",
+      "todo": "recorded. TODO(owner): an INDEPENDENT rehearsal, by someone outside the core team, is still outstanding \u2014 this entry deliberately does not claim one."
     }
   }
 }
