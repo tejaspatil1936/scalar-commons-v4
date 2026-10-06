@@ -11,7 +11,7 @@ import { createContext } from '../observatory/context.js';
 import { isOperatorRun } from '../observatory/instruments/agent-field.js';
 import { createFeed } from './feed.js';
 import { createGraph } from './graph.js';
-import { agreementKeyOf, displayName, nodeValue } from './model.js';
+import { LIVE_WINDOW_BLOCKS, TICKER_MAX, agreementKeyOf, displayName, nodeValue } from './model.js';
 import { bannerText, capDevicePixelRatio, roleOf } from './wiring.js';
 import * as strip from './strip.js';
 import * as ticker from './ticker.js';
@@ -126,6 +126,18 @@ function boot() {
     if (!record.ok) return;
     links = items;
     graph?.setLinks(items);
+  });
+  // The ticker starts with the index's record of the last three minutes — the
+  // live window, with true ages — so the first screen is not blank between
+  // bursts; those lines are history, read with provenance, and never animate.
+  let tickerSeeded = false;
+  feed.on('hour', ({ events }) => {
+    if (tickerSeeded) return;
+    const head = feed.head();
+    if (head === null) return;
+    tickerSeeded = true;
+    const recent = events.filter(({ event }) => head - event.blockNumber <= LIVE_WINDOW_BLOCKS).slice(-TICKER_MAX);
+    for (const item of recent) lines.push(item);
   });
   feed.on('event', (live) => {
     animate(live);
