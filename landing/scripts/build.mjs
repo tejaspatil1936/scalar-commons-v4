@@ -10,8 +10,9 @@
 // instruments are drawn with d3-force, d3-scale and d3-shape, and esbuild
 // bundles just those modules with the page's own script into one file —
 // one script, no chunks, no WebGL and no animation library (the scroll
-// reveal is the browser's IntersectionObserver). The landing page itself
-// still ships no script at all.
+// reveal is the browser's IntersectionObserver). /pulse is bundled the same
+// way into its own one script, with force-graph and gsap, which no other
+// page loads. The landing page itself still ships no script at all.
 import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,6 +21,7 @@ import { content } from '../src/content.mjs';
 import { sourceClaims } from '../src/source-claims.mjs';
 import { renderPage } from '../src/render.mjs';
 import { renderObservatory } from '../src/observatory.mjs';
+import { renderPulse } from '../src/pulse.mjs';
 import { FONTS, observatoryCss } from '../src/observatory-assets.mjs';
 
 const here = (relative) => fileURLToPath(new URL(relative, import.meta.url));
@@ -49,6 +51,14 @@ writeFileSync(join(outDir, 'observatory.css'), css);
 copyFileSync(here('../runtime-history.json'), join(outDir, 'runtime-history.json'));
 copyFileSync(here('../public/posture.json'), join(outDir, 'posture.json'));
 
+// /pulse: the same design system (the observatory's stylesheet, then the
+// page's own), inlined the same way, written out the same way.
+const pulseCss = (
+  await transform(`${observatoryCss()}\n${readFileSync(here('../src/pulse.css'), 'utf8')}`, { loader: 'css', minify: true })
+).code.trim();
+writeFileSync(join(outDir, 'pulse.html'), renderPulse({ css: pulseCss }));
+writeFileSync(join(outDir, 'pulse.css'), pulseCss);
+
 mkdirSync(join(outDir, 'fonts'), { recursive: true });
 for (const [source, name] of FONTS) {
   copyFileSync(here(`../node_modules/${source}`), join(outDir, 'fonts', name));
@@ -77,12 +87,20 @@ const graph = await build({
   entryPoints: [here('../src/observatory/instruments/constellation.js')],
   outfile: join(outDir, 'observatory-graph.js'),
 });
+// /pulse is one script too: its canvas library (force-graph) and its easing
+// (gsap) ride in pulse.js, and nowhere near the observatory's bundles.
+const pulseBundle = await build({
+  ...common,
+  entryPoints: [here('../src/pulse/main.js')],
+  outfile: join(outDir, 'pulse.js'),
+});
 const bundleBytes = Object.values(bundle.metafile.outputs)[0]?.bytes ?? 0;
 const chunkBytes = Object.values(graph.metafile.outputs)[0]?.bytes ?? 0;
+const pulseBytes = Object.values(pulseBundle.metafile.outputs)[0]?.bytes ?? 0;
 
 console.log(
   `built ${outDir}/index.html (${(html.length / 1024).toFixed(1)} kB) from ${facts.provenance.specName} spec ` +
     `${facts.provenance.specVersion}, metadata v${facts.provenance.metadataVersion}, block ` +
     `#${facts.provenance.readAtBlock}; observatory.js ${(bundleBytes / 1024).toFixed(1)} kB` +
-    `, observatory-graph.js (on demand) ${(chunkBytes / 1024).toFixed(1)} kB`,
+    `, observatory-graph.js (on demand) ${(chunkBytes / 1024).toFixed(1)} kB; pulse.js ${(pulseBytes / 1024).toFixed(1)} kB`,
 );

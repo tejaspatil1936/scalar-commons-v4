@@ -200,8 +200,8 @@ const NAV = [
 ];
 
 /** The site nav, with `current` marked for assistive tech and styling. */
-export function renderNav(current) {
-  const items = NAV.map(
+export function renderNav(current, extra = []) {
+  const items = [...NAV, ...extra].map(
     (item) =>
       `<li><a href="${escapeHtml(item.href)}"${item.key === current ? ' aria-current="page"' : ''}>${escapeHtml(item.label)}</a></li>`,
   ).join('');

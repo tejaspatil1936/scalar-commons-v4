@@ -70,6 +70,40 @@ switched by the address. It loads one script, `observatory.js`; the network
 graph's bundle (with d3-force) is fetched only when its switch is turned on.
 There is no WebGL and no animation library.
 
+## /pulse — the constellation
+
+`npm run build` also emits `pulse.html` (the observatory's stylesheet and
+`src/pulse.css` inlined), `pulse.js` (one esbuild bundle: the page's own
+modules with `force-graph` and `gsap`, which no other page loads) and
+`pulse.css`; nginx serves it at `/pulse` the same way. One screen, for a
+viewer who knows nothing about the chain: every registered agent as a node of
+a force-directed constellation (sized by its last hour's activity, ringed when
+operator-run), every open agreement as a thread from buyer to provider, and
+every event the chain records as a light with a lifetime — an agreement opened
+draws a thread in; a message is a particle along it; a delivery confirmed
+flashes the thread green, bursts, and dissolves it; a dispute pulses amber and
+keeps the thread amber until it is resolved; an oracle answer is a spark; a
+registration fades a node in. Nothing animates without a real event, and no
+event older than three minutes behind the head animates at all. Three figures
+across the top (agents active in the last ten minutes, events in the last
+minute, messages in the last hour) are counted from the index's last hour and
+the live events since, each with its provenance; a ticker on the right reads
+every live event out as one plain sentence linking to its extrinsic on the
+explorer. The feed is the observatory's data layer: finalized heads over the
+WebSocket, the events of each block read from `/v1/blocks/<n>/events` as it
+is finalized, the agents and open agreements from the index. If a feed fails,
+or the index falls behind the chain, a banner says so and nothing animates;
+with reduced motion the layout is still; without a canvas the page lists the
+agents instead. F toggles fullscreen.
+
+| File | What it holds |
+|---|---|
+| `src/pulse.mjs`, `src/pulse.css` | Build-time frame and the page's own rules (the tokens and components are the observatory's). |
+| `src/pulse/model.js` | The pure model: the table of events the page reacts to, their sentences, the counters, the live window and the effect cap — tested against `chain-events.json`. |
+| `src/pulse/feed.js` | The live feed: per-block event reads, the agents and agreements, the index's last hour, and the feed's state (live, paused, unavailable). |
+| `src/pulse/graph.js` | The canvas: force-graph with one light per event kind, hover, follow, zoom, drag, pause. |
+| `src/pulse/strip.js`, `src/pulse/ticker.js`, `src/pulse/main.js` | The figures, the ticker, and the boot that wires them. |
+
 **The top bar**, 56 px and sticky: the wordmark and the nav on the left; on
 the right the status pill (the live dot, the network's state, the block
 height, the finality lag) and two quiet text buttons, Sources and Present.

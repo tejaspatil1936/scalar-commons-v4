@@ -363,16 +363,19 @@ test('one URL: no ?sky and no ?present, and no three.js, GSAP or WebGL anywhere 
   }
   // One script on the page. The network graph is a second, self-contained
   // bundle, fetched only by the switch that shows it, never by the page.
+  // (/pulse has its own one script, pulse.js, which this page never names; test/pulse.test.mjs holds it to the same rule.)
   const scripts = readdirSync(out).filter((name) => name.endsWith('.js')).sort();
-  assert.deepEqual(scripts, ['observatory-graph.js', 'observatory.js']);
+  assert.deepEqual(scripts, ['observatory-graph.js', 'observatory.js', 'pulse.js']);
   assert.deepEqual([...page.matchAll(/<script[^>]* src="([^"]+)"/g)].map((m) => m[1]), ['observatory.js'], 'the page loads one script');
   assert.ok(!page.includes('observatory-graph'), 'the page never names the graph bundle');
   assert.ok(!/from"\.\/observatory-/.test(bundle), 'observatory.js imports no chunk statically');
   const graphBundle = readFileSync(join(out, 'observatory-graph.js'), 'utf8');
   assert.ok(graphBundle.includes('forceSimulation') || /forceManyBody|alphaDecay/.test(graphBundle), 'd3-force lives in the graph bundle');
   assert.ok(!/alphaDecay/.test(bundle), 'and not in the page’s script');
+  // gsap is a dependency again, for /pulse only: the assertions above hold this page's bundle free of it.
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-  for (const dep of ['three', 'gsap']) assert.ok(!(dep in (pkg.dependencies ?? {})), `${dep} is still a dependency`);
+  for (const dep of ['three']) assert.ok(!(dep in (pkg.dependencies ?? {})), `${dep} is still a dependency`);
+  assert.ok(!bundle.includes('force-graph') && !/kapsule|ForceGraph/.test(bundle), 'the observatory bundle carries no force-graph');
   assert.ok(!page.includes('data-reading="sky"') && !css.includes('.sky'), 'no sky slot or rule is left behind');
 });
 
