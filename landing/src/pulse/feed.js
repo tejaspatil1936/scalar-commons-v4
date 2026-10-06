@@ -100,8 +100,6 @@ export function backlogRange(lastRead, head, cap = BACKLOG_BLOCKS) {
   return { from, to: head, skipped: Math.max(0, from - next) };
 }
 
-/** Within `windowBlocks` of the head, and not from its future. The feed's own window, beside the model's isLive. */
-/** Within `windowBlocks` of the head, and not from its future. The feed's own window, beside the model's isLive. */
 /**
  * Where the next read starts after a block the index has not reached: the
  * block before it, so the next head reads it again. With no block read yet,
@@ -112,6 +110,7 @@ export function retryFrom(lastRead, block) {
   return lastRead === null || lastRead === undefined ? block - 1 : Math.min(lastRead, block - 1);
 }
 
+/** Within `windowBlocks` of the head, and not from its future. The feed's own window, beside the model's isLive. */
 export function withinWindow(blockNumber, head, windowBlocks) {
   const behind = head - blockNumber;
   return Number.isFinite(behind) && behind >= 0 && behind <= windowBlocks;
