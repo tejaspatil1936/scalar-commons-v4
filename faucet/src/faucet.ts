@@ -13,6 +13,7 @@
 import { InvalidAddressError, normalizeAddress } from './address.js';
 import { TransferFailedError, type ChainClient } from './chain.js';
 import type { RateLimitScope, SlidingWindowRateLimiter } from './rateLimiter.js';
+import type { ConnectionStatus } from './reconnect.js';
 
 export interface FaucetServiceOptions {
   readonly chain: ChainClient;
@@ -51,17 +52,28 @@ export type DripResult =
       readonly retryAfterMs?: number;
     };
 
-/** Operator-facing snapshot of faucet and chain state. */
-export interface FaucetStatus {
+/**
+ * What the faucet knows about itself without asking the node.
+ *
+ * Split out from {@link FaucetStatus} because `/health` has to answer while the
+ * node socket is down. Reporting the chain and the funding account it is waiting
+ * for is what lets a monitor tell "the faucet is broken" from "the faucet is
+ * waiting for its node" — and the second one is not this service's fault.
+ */
+export interface FaucetIdentity {
   readonly chain: string;
   readonly specName: string;
   readonly specVersion: number;
   readonly tokenSymbol: string;
   readonly tokenDecimals: number;
   readonly faucetAddress: string;
-  readonly faucetFreePlancks: bigint;
   readonly dripAmountPlancks: bigint;
   readonly reservePlancks: bigint;
+}
+
+/** Operator-facing snapshot of faucet and chain state. */
+export interface FaucetStatus extends FaucetIdentity {
+  readonly faucetFreePlancks: bigint;
 }
 
 export class FaucetService {
@@ -92,13 +104,25 @@ export class FaucetService {
     this.reservePlancks = reserve;
   }
 
+  /**
+   * State of the node socket.
+   *
+   * The HTTP layer reads this before every chain-backed answer: while the socket
+   * is down the faucet is temporarily unavailable, not broken, and only this
+   * tells the two apart.
+   */
+  connection(): ConnectionStatus {
+    return this.chain.connection();
+  }
+
   /** Free balance of any account, straight from the node. */
   async balanceOf(rawAddress: unknown): Promise<{ address: string; freePlancks: bigint }> {
     const address = normalizeAddress(rawAddress, this.chain.chainInfo().ss58Format);
     return { address, freePlancks: await this.chain.freeBalance(address) };
   }
 
-  async status(): Promise<FaucetStatus> {
+  /** Everything in {@link FaucetStatus} that needs no chain read. */
+  identity(): FaucetIdentity {
     const info = this.chain.chainInfo();
     return {
       chain: info.chain,
@@ -107,9 +131,15 @@ export class FaucetService {
       tokenSymbol: info.tokenSymbol,
       tokenDecimals: info.tokenDecimals,
       faucetAddress: this.chain.faucetAddress,
-      faucetFreePlancks: await this.chain.freeBalance(this.chain.faucetAddress),
       dripAmountPlancks: this.dripAmountPlancks,
       reservePlancks: this.reservePlancks,
+    };
+  }
+
+  async status(): Promise<FaucetStatus> {
+    return {
+      ...this.identity(),
+      faucetFreePlancks: await this.chain.freeBalance(this.chain.faucetAddress),
     };
   }
 
