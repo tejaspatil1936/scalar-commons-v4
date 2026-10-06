@@ -6,12 +6,13 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 export const FONTS = [
-  ['@fontsource/instrument-serif/files/instrument-serif-latin-400-normal.woff2', 'instrument-serif-latin-400-normal.woff2'],
-  ['@fontsource/instrument-serif/files/instrument-serif-latin-400-italic.woff2', 'instrument-serif-latin-400-italic.woff2'],
-  ['@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2', 'ibm-plex-mono-latin-400-normal.woff2'],
-  ['@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2', 'ibm-plex-mono-latin-500-normal.woff2'],
-  ['@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-normal.woff2', 'source-sans-3-latin-wght-normal.woff2'],
-  ['@fontsource-variable/source-sans-3/files/source-sans-3-latin-wght-italic.woff2', 'source-sans-3-latin-wght-italic.woff2'],
+  // Display and figures: Source Serif 4, variable with its optical-size axis
+  // (headings and figures are set at opsz 60), latin subset.
+  ['@fontsource-variable/source-serif-4/files/source-serif-4-latin-opsz-normal.woff2', 'source-serif-4-latin-opsz-normal.woff2'],
+  // Interface and body: Inter, variable weight, latin subset.
+  ['@fontsource-variable/inter/files/inter-latin-wght-normal.woff2', 'inter-latin-wght-normal.woff2'],
+  // Mono is sources, hashes, addresses and the river's axis only, at one weight.
+  ['@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2', 'jetbrains-mono-latin-400-normal.woff2'],
 ];
 
 /**

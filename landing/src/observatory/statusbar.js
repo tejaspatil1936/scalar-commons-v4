@@ -15,16 +15,26 @@
 // the index is polled instead; "Paused" while the tab is hidden; "Finality
 // lagging" when more than FINALITY_LAG_ALERT blocks wait for finality;
 // "Blocks late" when the last block came more than LATE_MS after the one
-// before; otherwise "Network normal". The validators phrase counts distinct
-// block authors in the last SEALING_WINDOW blocks seen: until that many have
-// been seen it says so ("seen sealing so far"), since a validator that has
-// not had a turn yet is not a validator that is missing.
+// before; otherwise "Network normal". There is no ceremony before it: the
+// first state is "Connecting", and the real word replaces it the moment the
+// reads allow. The validators phrase states the size
+// of the active set from the chain read ("5 validators in the active set"),
+// and only once the page has been open for SEALING_GRACE_MS adds how many
+// distinct validators have been seen sealing since it opened. On load it
+// says nothing about who has sealed: "2 of 5 seen so far" read as three
+// validators down, when it only meant the page had seen two blocks.
+//
+// The hero's live line ("● Live · finality 2 blocks") is a second view of
+// this same state, passed in as a mirror: the dot, the state in a word
+// (`liveWord` — "Live" only when the network reads normal, every other state
+// said as it is) and the finality lag. It is never a second read.
 
 import { decodeValidators } from './scale.js';
 
 export const FINALITY_LAG_ALERT = 6; // blocks
 export const LATE_MS = 18_000; // three slots without a block
-export const SEALING_WINDOW = 30; // blocks; with primary slots random, ten would miss a validator by chance
+/** The count of validators seen sealing is shown only after the page has been open this long. */
+export const SEALING_GRACE_MS = 60_000;
 /** A height this far below the best is a new chain (a test-network reset), not a reorg: the bar starts over. */
 export const RESET_DEPTH = 1_000; // blocks
 // How often to re-evaluate the state word with no event to prompt it. A third
@@ -44,27 +54,37 @@ export function stateWord({ socket, lastOk, seen, lag, intervalMs, hidden }) {
 }
 
 /**
- * "5 of 5 validators sealing", or the honest partial while the window fills.
+ * "5 validators in the active set", and after SEALING_GRACE_MS of the page
+ * being open, "· 3 seen sealing since you opened this page". `seen` is the
+ * number of distinct validators seen sealing since the page opened, or null
+ * when none has been seen with an author (polled heights carry none).
  * `error` names why the set could not be read or decoded, and the phrase says
  * so: a set that was read and could not be decoded is not a set "not yet
  * read". Pure; tested.
  */
-export function sealingPhrase({ authors, total, observed, error = null }) {
+export function sealingPhrase({ seen = null, total, sinceMs = 0, error = null }) {
   if (error) return `validators unavailable · ${error}`;
   if (!Number.isFinite(total) || total < 1) return 'validators not yet read';
-  if (authors === null) return `${total} validator${total === 1 ? '' : 's'} in the set`;
-  // Clamped to the set size. The window holds the last SEALING_WINDOW authority
-  // indices, so for a few minutes after the set shrinks it still contains
-  // indices that have since left — and the bar said "6 of 5 validators
-  // sealing", which reads as a bug in the page whatever the chain is doing.
-  const distinct = Math.min(authors, total);
-  if (observed < SEALING_WINDOW && distinct < total) return `${distinct} of ${total} validators seen sealing so far`;
-  return `${distinct} of ${total} validators sealing`;
+  const set = `${total} validator${total === 1 ? '' : 's'} in the active set`;
+  if (seen === null || !Number.isFinite(sinceMs) || sinceMs < SEALING_GRACE_MS) return set;
+  // Clamped to the set size: for a while after the set shrinks, validators
+  // that have since left were still seen sealing, and "6 of 5" reads as a
+  // bug in the page whatever the chain is doing.
+  return `${set} · ${Math.min(seen, total)} seen sealing since you opened this page`;
 }
 
-export function init(root, ctx) {
+/** The hero's one word for the state: "Live" only when the network reads normal. Pure; tested. */
+export function liveWord(word) {
+  return word === 'Network normal' ? 'Live' : word;
+}
+
+/** "finality 2 blocks", or "finality —" before both heights are known. */
+export function finalityPhrase(lag, formatInteger = String) {
+  return lag === null ? 'finality —' : `finality ${formatInteger(lag)} block${lag === 1 ? '' : 's'}`;
+}
+
+export function init(root, ctx, { mirrors = [] } = {}) {
   if (!root) return;
-  const dot = root.querySelector('.pulse-dot');
   const stateEl = root.querySelector('.sb-state');
   const sealingEl = root.querySelector('.sb-validators');
   const finalityEl = root.querySelector('.sb-finality');
@@ -78,8 +98,8 @@ export function init(root, ctx) {
   let intervalMs = null;
   let hidden = false;
   let total = null; // validators in the active set
-  const authors = []; // authority index per head, newest last, SEALING_WINDOW at most
-  let polled = 0; // heads with no author (polling), counted so the phrase stays honest
+  const sealed = new Set(); // authority indices seen sealing since the page opened
+  const openedAt = ctx.now();
   let validatorsError = null; // why the set could not be read or decoded, when it could not
   // Held here rather than read back out of the DOM. Finality lag needs both
   // numbers, and either can arrive first.
@@ -102,7 +122,7 @@ export function init(root, ctx) {
       finalizedNumber = null;
       lastArrival = null;
       intervalMs = null;
-      authors.length = 0;
+      sealed.clear();
     }
     const advanced = bestNumber === null || number > bestNumber;
     if (!advanced) return;
@@ -138,22 +158,26 @@ export function init(root, ctx) {
 
   function render() {
     const word = stateWord({ socket, lastOk, seen, lag, intervalMs: effectiveIntervalMs(), hidden });
-    root.dataset.state = word.toLowerCase().replace(/\s+/g, '-');
+    const state = word.toLowerCase().replace(/\s+/g, '-');
+    const finality = finalityPhrase(lag, formatInteger);
+    root.dataset.state = state;
     if (stateEl) stateEl.textContent = word;
     if (sealingEl) {
-      const distinct = polled > 0 || authors.length === 0 ? null : new Set(authors).size;
-      sealingEl.textContent = sealingPhrase({ authors: distinct, total, observed: authors.length, error: validatorsError });
+      sealingEl.textContent = sealingPhrase({
+        seen: sealed.size === 0 ? null : sealed.size,
+        total,
+        sinceMs: ctx.now() - openedAt,
+        error: validatorsError,
+      });
     }
-    if (finalityEl) {
-      finalityEl.textContent = lag === null ? 'finality —' : `finality ${formatInteger(lag)} block${lag === 1 ? '' : 's'}`;
+    if (finalityEl) finalityEl.textContent = finality;
+    for (const mirror of mirrors) {
+      mirror.dataset.state = state;
+      const mirrorState = mirror.querySelector('.ll-state');
+      const mirrorFinality = mirror.querySelector('.ll-finality');
+      if (mirrorState) mirrorState.textContent = liveWord(word);
+      if (mirrorFinality) mirrorFinality.textContent = finality;
     }
-  }
-
-  function beat() {
-    if (!dot || ctx.motion.reduced()) return;
-    dot.classList.remove('beat');
-    void dot.offsetWidth;
-    dot.classList.add('beat');
   }
 
   /** A height from the hero, live (`head`) or polled (`poll`): the figure, the interval, the lag. */
@@ -165,11 +189,7 @@ export function init(root, ctx) {
       return;
     }
     seen = true;
-    const advanced = Number.isFinite(number) && (bestNumber === null || number > bestNumber);
-    if (Number.isFinite(number)) {
-      ctx.readout.showValue(root, record, { value: number, motion: ctx.motion });
-      if (advanced) beat(); // a poll that repeats the height is not a block, so no beat
-    }
+    if (Number.isFinite(number)) ctx.readout.showValue(root, record, { value: number, motion: ctx.motion });
     noteArrival(number, arrivedAt);
     // Recomputed on EVERY head, not only when a `finalized` event arrives. If
     // GRANDPA stops finalising while blocks keep coming, no `finalized` event
@@ -178,15 +198,8 @@ export function init(root, ctx) {
     // green while the real lag grew without bound. "Finality lagging" was
     // reachable only while finality was still working.
     recomputeLag();
-    if (author && Number.isInteger(author.authorityIndex)) {
-      authors.push(author.authorityIndex);
-      if (authors.length > SEALING_WINDOW) authors.shift();
-      polled = 0;
-    } else if (author === null) {
-      // A polled height carries no author: the window is stale from here, so it is dropped.
-      authors.length = 0;
-      polled += 1;
-    }
+    // A polled height carries no author, so it adds nothing; what was seen before stays true.
+    if (author && Number.isInteger(author.authorityIndex)) sealed.add(author.authorityIndex);
     render();
   }
 
@@ -260,7 +273,7 @@ export function init(root, ctx) {
           console.error(error);
         }
       }
-      if (total !== null && next !== total) authors.length = 0; // a changed set makes the old window meaningless
+      if (total !== null && next !== total) sealed.clear(); // a changed set makes the old count meaningless
       total = next;
       render();
     },
@@ -273,6 +286,6 @@ export function init(root, ctx) {
     /** Re-evaluates the state word with no event to prompt it; main.js drives this, never while hidden. */
     tick: () => { if (!hidden && seen) render(); },
     /** The bar's derived state, for tests. */
-    state: () => ({ socket, lastOk, seen, best: bestNumber, lastFinalized: finalizedNumber, lag, intervalMs, hidden, total, validatorsError, authors: [...authors], polled }),
+    state: () => ({ socket, lastOk, seen, best: bestNumber, lastFinalized: finalizedNumber, lag, intervalMs, hidden, total, validatorsError, sealed: [...sealed], openedAt }),
   };
 }

@@ -35,26 +35,36 @@
       "date": "2026-09-29",
       "appliedAtBlock": 813625,
       "blockHash": "0x9f887c425ba3f0535bd3e5fa8ba8a40d3f0ab780477d33c2958a45efe4d57559",
-      "summary": "Escrow gained provider consent (accept, reject, cancel pending) and a permissionless expiry refund path.",
+      "summary": "Escrow enforces the required capability and the maximum span; slash appeals need a slash record; oracle batches respect the cap.",
       "wasm": {
         "bytes": 1172067,
         "sha256": "0b515ea41bb3b1134072dc696b95d2ce85cf671bf89fc460d8fb20b7cd196d6c",
         "blake2_256": "0x36fbc7889b2b6b3fc34bfbafd497b9efd37b7d0f422569567f372d2df25e3bf7"
       },
       "recordFile": null,
-      "summarySource": "docs/guide/testnet-tester-guide.md"
+      "summarySource": "pallets/escrow/src/lib.rs",
+      "summaryNote": "Checked against the runtime's own metadata at spec 307 on 2026-09-29: it carries MaxAgreementSpan, SpanTooLong and NoSuchSlash, and no accept_agreement or expire_agreement. The provider-consent and expiry calls the tester guide describes as 'from spec 307' were deferred (issue #180, pull request #204) and are not on chain at 307. They were added to the runtime's source on 2026-10-01 (pull request #233) for a later runtime; this record is about what the chain ran at 307 and does not claim them."
     },
     {
       "specVersion": 309,
-      "status": "scheduled",
-      "date": null,
-      "appliedAtBlock": null,
-      "blockHash": null,
-      "summary": "Agent messaging: typed, fee-priced coordination messages between agents, and a per-agent messaging key.",
-      "wasm": null,
-      "recordFile": null,
+      "status": "applied",
+      "date": "2026-10-05",
+      "appliedAtBlock": 907929,
+      "blockHash": "0x4e4740eee241dbcb704d6a2aae204ef5a3754cfff2ca6a7569907f66f07763e4",
+      "summary": "Agent messaging; escrow provider consent and expiry.",
+      "wasm": {
+        "sha256": "699238c48e7b5fc7af0eda967a29a71cf10fefa1920a40e501e0e9509f7590c2",
+        "blake2_256": "0x52a404fd85f4996734fe284cad00de70f6debbf03210cd434669f765df9e6292"
+      },
+      "recordFile": "evidence/day5/309-apply.md",
       "summarySource": "runtime/src/lib.rs",
-      "introduces": ["messages"]
+      "introduces": [
+        "messages",
+        "escrow.accept_agreement",
+        "escrow.reject_agreement",
+        "escrow.cancel_pending",
+        "escrow.expire_agreement"
+      ]
     }
   ]
 }

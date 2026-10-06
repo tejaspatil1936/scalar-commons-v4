@@ -1,6 +1,7 @@
-// Unit tests for the constellation's pure model: edge keying and diffing,
-// point synthesis for parties that have left, the radius scale, the label and
-// fade thresholds, and the bundle offsets for parallel agreements.
+// Unit tests for the network graph's pure model (the agent panel's detail
+// view): edge keying and diffing, point synthesis for parties that have left,
+// the radius scale, the label and fade thresholds, the bundle offsets for
+// parallel agreements, the choice of the most active agents and the clusters.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -11,11 +12,15 @@ import {
   BUNDLE_SPACING,
   FADE_ISOLATED_ABOVE,
   GHOST_RADIUS,
+  GRAPH_MAX_NODES,
   ISOLATED_ALPHA,
   LABEL_MAX_CHARS,
   LABEL_MAX_NODES,
+  activityOf,
   buildEdges,
   bundleLayout,
+  clusterAnchors,
+  clusters,
   diffEdges,
   edgeKey,
   forceScale,
@@ -31,6 +36,7 @@ import {
   stateOf,
   summaryText,
   synthesizeNodes,
+  topAgents,
 } from '../../src/observatory/instruments/constellation.js';
 
 const A = '5FHneW46xGXgs5mUiveU4sbTyGBzmstUspZC92UhjJM694ty';
@@ -143,25 +149,27 @@ test('an agent with no lines is a lone point of degree zero', () => {
   assert.equal(nodes.get(B).degree, 0);
 });
 
-test('nodeRadius grows with the square root of stake, between 3 and 11 px, and scales with crowding', () => {
-  assert.equal(nodeRadius(10_000, 10_000), 11);
-  assert.equal(nodeRadius(2_500, 10_000), 3 + 8 * 0.5, 'a quarter of the stake is half the radius step');
-  assert.equal(nodeRadius(0, 10_000), 3);
-  assert.equal(nodeRadius(10_000, 0), 11, 'with no scale to speak of every point is full size');
-  assert.equal(nodeRadius(20_000, 10_000), 11, 'never beyond the range');
-  assert.equal(nodeRadius(10_000, 10_000, 0.5), 5.5);
+test('nodeRadius grows with the square root of activity, between 3 and 12 px, and scales with crowding', () => {
+  assert.equal(nodeRadius(100, 100), 12);
+  assert.equal(nodeRadius(25, 100), 3 + 9 * 0.5, 'a quarter of the activity is half the radius step');
+  assert.equal(nodeRadius(0, 100), 3);
+  assert.equal(nodeRadius(100, 0), 12, 'with no scale to speak of every point is full size');
+  assert.equal(nodeRadius(200, 100), 12, 'never beyond the range');
+  assert.equal(nodeRadius(100, 100, 0.5), 6);
   assert.ok(GHOST_RADIUS < nodeRadius(0, 1), 'a party that has left is drawn smaller than any agent');
+  // Activity is the chain's completed-as-provider counter plus the lines drawn to the agent now.
+  assert.equal(activityOf({ completedAgreements: 182 }, 3), 185);
+  assert.equal(activityOf({ completedAgreements: 0 }, 0), 0);
+  assert.equal(activityOf({}, 2), 2, 'a missing counter counts as none, never NaN');
 });
 
-test('labels need a 64 rem viewport and at most 120 points; radii shrink and lone points fade beyond that', () => {
-  assert.deepEqual(labelPolicy(1440, 34), { labels: true, radiusFactor: 1, isolatedAlpha: 1 });
-  assert.deepEqual(labelPolicy(1023, 34), { labels: false, radiusFactor: 1, isolatedAlpha: 1 });
-  assert.deepEqual(labelPolicy(1024, LABEL_MAX_NODES), { labels: true, radiusFactor: 1, isolatedAlpha: 1 });
-  assert.deepEqual(labelPolicy(1440, LABEL_MAX_NODES + 1), { labels: false, radiusFactor: 0.7, isolatedAlpha: 1 });
-  assert.deepEqual(labelPolicy(1440, FADE_ISOLATED_ABOVE), { labels: false, radiusFactor: 0.7, isolatedAlpha: 1 });
-  assert.deepEqual(labelPolicy(1440, FADE_ISOLATED_ABOVE + 1), { labels: false, radiusFactor: 0.5, isolatedAlpha: ISOLATED_ALPHA });
-  assert.deepEqual(labelPolicy(1440, 500), { labels: false, radiusFactor: 0.5, isolatedAlpha: ISOLATED_ALPHA });
-  assert.equal(labelPolicy(1200, 34, 20).labels, false, 'the threshold follows the root font size');
+test('labels are never drawn on the plate; above 60 of the graph’s 120 points, radii shrink and lone points fade', () => {
+  // Address labels are never drawn on the plate: they show on hover or tap, and in the list.
+  assert.deepEqual(labelPolicy(34), { labels: false, radiusFactor: 1, isolatedAlpha: 1 });
+  assert.deepEqual(labelPolicy(LABEL_MAX_NODES), { labels: false, radiusFactor: 1, isolatedAlpha: 1 });
+  assert.deepEqual(labelPolicy(LABEL_MAX_NODES + 1), { labels: false, radiusFactor: 0.6, isolatedAlpha: ISOLATED_ALPHA });
+  assert.deepEqual(labelPolicy(120), { labels: false, radiusFactor: 0.6, isolatedAlpha: ISOLATED_ALPHA }, 'the graph’s most crowded plate');
+  assert.equal(FADE_ISOLATED_ABOVE, LABEL_MAX_NODES);
 });
 
 test('parallel agreements fan out symmetrically and never wider than a band', () => {
@@ -183,33 +191,33 @@ test('parallel agreements fan out symmetrically and never wider than a band', ()
 test('the screen-reader summary reads as a sentence and says what it is', () => {
   assert.equal(
     summaryText({ agents: 34, open: 36, disputed: 2, settled: 40 }),
-    'Agent constellation: 34 agents, 36 open agreements, 2 disputed, 40 recently settled.',
+    'Network graph: 34 agents, 36 open agreements, 2 disputed, 40 recently settled.',
   );
   assert.equal(
     summaryText({ agents: 1, open: 1, disputed: 0, settled: 0 }),
-    'Agent constellation: 1 agent, 1 open agreement, 0 disputed, 0 recently settled.',
+    'Network graph: 1 agent, 1 open agreement, 0 disputed, 0 recently settled.',
   );
 });
 
 test('the summary carries the floor when the agent list was cut short', () => {
   assert.equal(
     summaryText({ agents: 512, agentsFloor: true, open: 36, disputed: 2, settled: 40 }),
-    'Agent constellation: at least 512 agents, 36 open agreements, 2 disputed, 40 recently settled.',
+    'Network graph: at least 512 agents, 36 open agreements, 2 disputed, 40 recently settled.',
   );
 });
 
 test('the summary never turns an unread or unreadable source into a zero', () => {
   assert.equal(
     summaryText({ agents: 34, open: null, disputed: 0, settled: 40 }),
-    'Agent constellation: 34 agents, open agreements unavailable, 40 recently settled.',
+    'Network graph: 34 agents, open agreements unavailable, 40 recently settled.',
   );
   assert.equal(
     summaryText({ agents: 34, open: undefined, disputed: 0, settled: undefined }),
-    'Agent constellation: 34 agents, open agreements not yet read, recently settled agreements not yet read.',
+    'Network graph: 34 agents, open agreements not yet read, recently settled agreements not yet read.',
   );
   assert.equal(
     summaryText({ agents: 34, open: 36, disputed: 2, settled: null }),
-    'Agent constellation: 34 agents, 36 open agreements, 2 disputed, recently settled agreements unavailable.',
+    'Network graph: 34 agents, 36 open agreements, 2 disputed, recently settled agreements unavailable.',
   );
   assert.doesNotMatch(summaryText({ agents: 34, open: null, disputed: 0, settled: null }), /\b0 /);
 });
@@ -280,4 +288,55 @@ test('forceScale shrinks the layout for a phone plate and never below 0.4', () =
   assert.equal(forceScale(952, 595), 1);
   assert.ok(forceScale(358, 268) < 0.5 && forceScale(358, 268) >= 0.4);
   assert.equal(forceScale(10, 10), 0.4);
+});
+
+test('the graph shows only the 120 most active agents, and only the lines between two of them', () => {
+  assert.equal(GRAPH_MAX_NODES, 120);
+  const agents = Array.from({ length: 2_000 }, (_, i) => ({ address: `5A${String(i).padStart(5, '0')}`, completedAgreements: i % 300 }));
+  // Agent 0 has no completed agreements but many open lines: lines count as activity too.
+  const opens = Array.from({ length: 400 }, (_, i) => open(agents[0].address, agents[1 + (i % 3)].address, i));
+  const { edges } = buildEdges(opens, [settled(agents[5].address, agents[6].address, 1)]);
+  const top = topAgents(agents, edges);
+  assert.equal(top.agents.length, 120);
+  assert.equal(top.of, 2_000);
+  assert.ok(top.agents.some((a) => a.address === agents[0].address), 'four hundred open lines put an idle-by-counter agent in');
+  for (const edge of top.edges.values()) {
+    const kept = new Set(top.agents.map((a) => a.address));
+    assert.ok(kept.has(edge.buyer) && kept.has(edge.provider), 'no line to a point not drawn');
+  }
+  assert.equal(topAgents(agents.slice(0, 40), new Map()).agents.length, 40, 'a small network is shown whole');
+  // Stable: the same input chooses the same agents.
+  assert.deepEqual(topAgents(agents, edges).agents.map((a) => a.address), top.agents.map((a) => a.address));
+});
+
+test('clusters are the connected groups, largest first, with lone points together last; each has a place on the plate', () => {
+  const { edges } = buildEdges([open(A, B, 0), open(B, C, 0)], []);
+  const ids = [A, B, C, D, 'E'];
+  const groups = clusters(ids, edges);
+  assert.equal(groups.index.get(A), 0);
+  assert.equal(groups.index.get(C), 0);
+  assert.equal(groups.index.get(D), 1, 'a point with no line joins the lone group');
+  assert.equal(groups.index.get('E'), 1);
+  assert.equal(groups.count, 2);
+  assert.equal(groups.alone, true);
+  const anchors = clusterAnchors(groups.count, 600, 400, { alone: groups.alone });
+  assert.equal(anchors.length, 2);
+  assert.deepEqual(anchors[0], { x: 300, y: 200 }, 'the largest cluster in the middle');
+  assert.ok(anchors[1].ring > 0, 'lone points on an outer ring');
+  for (const a of clusterAnchors(6, 600, 400)) assert.ok(a.x > 0 && a.x < 600 && a.y > 0 && a.y < 400, 'every place is on the plate');
+});
+
+test('the graph polls with the agent field’s page caps, so one read serves both', async () => {
+  const field = await import('../../src/observatory/instruments/agent-field.js');
+  const graph = await import('../../src/observatory/instruments/constellation.js');
+  assert.equal(graph.AGENT_PAGES, field.AGENT_PAGES);
+  assert.equal(graph.ESCROW_PAGES, field.ESCROW_PAGES);
+});
+
+test('the summary groups thousands when given the page’s formatter', () => {
+  const fmt = (v) => v.toLocaleString('en-US');
+  assert.equal(
+    summaryText({ agents: 120, of: 2000, open: 1500, disputed: 12, settled: 40 }, fmt),
+    'Network graph: the 120 most active of 2,000 agents, 1,500 open agreements, 12 disputed, 40 recently settled.',
+  );
 });

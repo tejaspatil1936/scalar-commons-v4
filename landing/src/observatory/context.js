@@ -22,16 +22,18 @@ import { createMotion } from './motion.js';
 
 const THEME_NAMES = [
   'bg',
+  'surface',
   'grid',
   'text',
   'text-dim',
   'border',
   'live',
-  'live-glow',
   'settled',
   'active',
   'disputed',
   'slashed',
+  'slash',
+  'idle',
   'font-mono',
   'font-serif',
   'font-sans',
@@ -143,6 +145,14 @@ export function createContext({ win = window, doc = document } = {}) {
      */
     watchAll: (name, handler, intervalMs, { maxPages = 5 } = {}) =>
       pagedScheduler.watch(`${name}:${maxPages}`, { ...SOURCES[name], maxPages }, handler, intervalMs),
+    /**
+     * Polls a newest-first event list back to a moving block: `since()` is
+     * read at each fetch (the block of one hour ago, say), and paging stops
+     * once a page reaches below it. The record carries `since` and
+     * `reachedStart` (see fetchAllPages).
+     */
+    watchSince: (name, since, handler, intervalMs, { maxPages = 10 } = {}) =>
+      pagedScheduler.watch(`${name}:since:${maxPages}`, { ...SOURCES[name], maxPages, stopBelow: since }, handler, intervalMs),
     /** Re-fetches a watched source ahead of schedule. */
     refresh: (name) => scheduler.refresh(name),
     /** The latest record a watched source produced, if any. */

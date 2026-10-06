@@ -64,6 +64,23 @@ describe('escrow lifecycle', () => {
     const seq = list[0].seq.toNumber();
     const createdAt = list[0].createdAt.toNumber();
 
+    // E18 (runtime 309): the provider must consent before it can deliver.
+    //
+    // PROBED, not assumed, because this testkit runs against several runtimes —
+    // the rehearsal gate points it at a node built from the PR under review,
+    // while other runs target 307, where this call does not exist. Probing is
+    // the same pattern `agent/` uses.
+    //
+    // It sits BEFORE the MinDeliveryBlocks assertion on purpose. `record_delivery`
+    // checks consent before timing (DESIGN-E18-E2 §4.2, "consent before
+    // eligibility"), so without an accept first the next assertion gets
+    // `escrow.NotAccepted` instead of `escrow.MinDeliveryBlocksNotElapsed` —
+    // which is exactly how this test failed the rehearsal gate on PR #233.
+    if (api.tx.escrow.acceptAgreement) {
+      const accepted = await send(api, api.tx.escrow.acceptAgreement(buyer.address, seq), provider);
+      assert.ok(findEvent(accepted, 'escrow', 'AgreementAccepted'), 'AgreementAccepted emitted');
+    }
+
     // MinDeliveryBlocks: delivery in the creation block window is refused with the pallet error.
     if (created.blockNumber < createdAt + minDelivery) {
       await assert.rejects(

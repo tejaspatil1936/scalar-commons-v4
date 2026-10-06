@@ -9,6 +9,11 @@ import assert from 'node:assert/strict';
 import { scaleLinear } from 'd3-scale';
 
 import {
+  agreementsReadFrom,
+  agreementsStart,
+  AGREEMENT_PAGES,
+  thinSteps,
+  MAX_STEP_POINTS,
   NOMINAL_BLOCK_S,
   ERAS_SHOWN,
   blockIntervals,
@@ -25,6 +30,11 @@ import {
   yCeiling,
   notePosition,
   openBarHeight,
+  withinBand,
+  cumulativeTotals,
+  cumulativePlancks,
+  supplyFigures,
+  TARGET_BAND_S,
 } from '../../src/observatory/instruments/history.js';
 import { field } from '../../src/observatory/data.js';
 import { cmnNumber, formatCmn } from '../../src/observatory/format.js';
@@ -273,7 +283,7 @@ test('cmnNumber scales plancks to CMN for charts, keeping six decimals', () => {
   assert.equal(cmnNumber('0'), 0);
   assert.equal(cmnNumber('1000000000000'), 1);
   assert.equal(cmnNumber('1500000000000'), 1.5);
-  assert.equal(cmnNumber('123456789012345678901234'), 123456789012.345678);
+  assert.equal(cmnNumber('123456789012345678901234'), 123456789012.34567);
 });
 
 test('the agents registered before the index are counted from the agent list itself', () => {
@@ -364,4 +374,82 @@ test('the open era bar is never invisible', () => {
   assert.equal(openBarHeight(0), 2);
   assert.equal(openBarHeight(1.5), 2);
   assert.equal(openBarHeight(30), 30);
+});
+
+test('the target band counts measured intervals inside 5.5–6.5 s, edges included, breaks excluded', () => {
+  assert.deepEqual(TARGET_BAND_S, [5.5, 6.5]);
+  const page = blocksPage(100, 6, { at: { 100: 1_790_000_000_000 + 100 * 6_000 + 6_000, 98: 1_790_000_000_000 + 98 * 6_000 - 500 } });
+  const series = blockIntervals(page, field);
+  // 96→97: 6, 97→98: 5.5 (on the edge), 98→99: 6.5 (on the edge), 99→100: 12.
+  const band = withinBand(series.points);
+  assert.equal(band.measured, 5);
+  assert.equal(band.within, 4);
+  assert.deepEqual(withinBand(blockIntervals(blocksPage(100, 5, { missing: [98] }), field).points), { within: 2, measured: 2 });
+  assert.deepEqual(withinBand([]), { within: 0, measured: 0 });
+});
+
+test('running totals are exact, in order, and in plancks stay integers', () => {
+  assert.deepEqual(cumulativeTotals([3, 0, 2, 5]), [3, 3, 5, 10]);
+  assert.deepEqual(cumulativeTotals([]), []);
+  assert.deepEqual(cumulativePlancks(['0', '0', '0']), ['0', '0', '0']);
+  assert.deepEqual(cumulativePlancks(['1000000000000', '2500000000000']), ['1000000000000', '3500000000000']);
+  assert.deepEqual(cumulativePlancks(['123456789012345678901234', '1']), ['123456789012345678901234', '123456789012345678901235']);
+});
+
+test('the emission series can take every era in the run, not only the last twelve', () => {
+  assert.equal(emissionSeries(ERAS, field, cmnNumber).length, 12);
+  assert.equal(emissionSeries(ERAS, field, cmnNumber, Infinity).length, 13);
+  assert.equal(emissionSeries(ERAS, field, cmnNumber, Infinity)[0].era, 67);
+});
+
+test('supply figures are read as planck counts and the indexer’s own percentage, or refused', () => {
+  const live = { capPlancks: '100000000000000000000000', totalIssuancePlancks: '6054850322518573352172', remainingPlancks: '93945149677481426647828', percentIssued: 6.0548 };
+  assert.deepEqual(supplyFigures(live, field), { issuedPlancks: '6054850322518573352172', capPlancks: '100000000000000000000000', percent: 6.0548 });
+  assert.equal(formatCmn(supplyFigures(live, field).issuedPlancks), '6,054,850,322');
+  assert.throws(() => supplyFigures({ ...live, totalIssuancePlancks: '6e21' }, field), /counts of plancks/);
+  assert.throws(() => supplyFigures({ ...live, percentIssued: '6' }, field), /non-numeric percentIssued/);
+  assert.throws(() => supplyFigures({ capPlancks: '1' }, field), /response has no totalIssuancePlancks/);
+});
+
+test('the agents-over-time line is thinned to at most 240 points at 2,000 registrations, keeping each span’s closing count', () => {
+  const points = [{ block: 0, count: 0 }];
+  for (let i = 1; i <= 2_000; i += 1) points.push({ block: i * 7, count: i });
+  const thin = thinSteps(points);
+  assert.ok(thin.length <= MAX_STEP_POINTS, `${thin.length} points`);
+  assert.deepEqual(thin[0], points[0]);
+  assert.deepEqual(thin.at(-1), points.at(-1), 'the last count is always drawn');
+  for (let i = 1; i < thin.length; i += 1) assert.ok(thin[i].block > thin[i - 1].block && thin[i].count >= thin[i - 1].count);
+  const few = points.slice(0, 50);
+  assert.equal(thinSteps(few), few, 'a short series is drawn as it is');
+});
+
+test('agreements opened read back to the start of the oldest era drawn, so all twelve eras are counted, not one', () => {
+  const whole = Array.from({ length: 12 }, (_, k) => ({ era: 87 + k, start: 846_778 + k * 3_700, end: 846_778 + (k + 1) * 3_700 }));
+  const open = { era: 102, start: 902_353 };
+  assert.equal(agreementsReadFrom({ whole, open }), 846_778);
+  assert.equal(agreementsReadFrom({ whole: [], open }), 902_353, 'no whole era yet: the open one');
+  assert.equal(agreementsReadFrom({ whole: [], open: null }), null);
+  assert.ok(AGREEMENT_PAGES * 200 >= 5_000);
+  // 1,323 events, the newest 1,000 of them inside the last era: a 5-page read reaches one era at most.
+  const events = [];
+  for (let k = 0; k < 1_000; k += 1) events.push({ blockNumber: whole[11].end - 1 - Math.floor(k * 3.5) });
+  for (let k = 0; k < 323; k += 1) events.push({ blockNumber: whole[11].start - 1 - k * 120 });
+  const before = bucketByEra(whole, open, events.slice(0, 1_000), { complete: false });
+  assert.ok(before.buckets.length <= 1, `the old read keeps ${before.buckets.length} era(s)`);
+  // Read back past the oldest era's start (reachedStart): every era drawn is whole.
+  const after = bucketByEra(whole, open, events, { complete: true });
+  assert.equal(after.buckets.length, 12);
+  assert.equal(after.buckets.reduce((n, b) => n + b.count, 0), events.filter((e) => e.blockNumber >= whole[0].start && e.blockNumber < whole[11].end).length);
+});
+
+test('the agreements read starts from the eras record, or says why it cannot: a failed or unreadable eras read is never a silent wait', () => {
+  const eras = (items) => ({ ok: true, label: '/v1/eras', data: { items } });
+  const start = agreementsStart(eras(ERAS), field);
+  assert.equal(start.error, null);
+  assert.equal(start.from, 776394, 'the start of era 68, the oldest of the twelve whole eras');
+  assert.deepEqual(agreementsStart({ ok: false, label: '/v1/eras', error: 'HTTP 503' }, field), { from: null, error: 'HTTP 503' });
+  const broken = agreementsStart({ ok: true, label: '/v1/eras', data: {} }, field);
+  assert.equal(broken.from, null);
+  assert.match(broken.error, /items/, 'an unreadable eras body names what is missing');
+  assert.deepEqual(agreementsStart(eras([]), field), { from: null, error: 'no era recorded yet' });
 });

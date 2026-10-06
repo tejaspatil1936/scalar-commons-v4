@@ -71,14 +71,24 @@ export function wrappableLabel(label) {
   return parts;
 }
 
+/**
+ * Sets a figure's text. The display face (Source Serif 4) has real tabular
+ * lining figures, switched on by the stylesheet (`font-variant-numeric:
+ * tabular-nums lining-nums`), so a figure that counts up moves nothing beside
+ * it without any per-digit markup, and a screen reader reads it once, whole.
+ */
+export function setFigure(node, text) {
+  node.replaceChildren(document.createTextNode(String(text)));
+}
+
 /** Counts from the previous integer to the new one over 200 ms, if motion is allowed. */
 function tick(digits, from, to, motion) {
   if (!motion || motion.reduced() || document.hidden || !(to > from) || to - from > 100_000) {
-    digits.textContent = formatInteger(to);
+    setFigure(digits, formatInteger(to));
     return;
   }
   motion.tween(200, (t) => {
-    digits.textContent = formatInteger(Math.round(from + (to - from) * t));
+    setFigure(digits, formatInteger(Math.round(from + (to - from) * t)));
   });
 }
 
@@ -131,7 +141,7 @@ export function showValue(target, record, { value, prefix = '', unit = '', sub =
   if (typeof value === 'number') {
     const previous = before === undefined ? NaN : Number(before);
     if (Number.isFinite(previous)) tick(digits, previous, value, motion);
-    else digits.textContent = formatInteger(value);
+    else setFigure(digits, formatInteger(value));
     slot.dataset.number = String(value);
   } else {
     digits.textContent = value;

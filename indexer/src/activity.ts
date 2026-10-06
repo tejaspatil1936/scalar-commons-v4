@@ -75,6 +75,16 @@ export const ACTIVITY_SOURCES: readonly ActivitySource[] = [
   { kind: 'agreement', section: 'escrow', method: 'DeliveryConfirmed' },
   { kind: 'agreement', section: 'escrow', method: 'RefundClaimed' },
   { kind: 'agreement', section: 'escrow', method: 'DeadlineExtended' },
+  // E18/E2 (#180). These four are the agreement's other endings, and leaving
+  // them out is not a cosmetic gap: a consumer that opens an agreement on
+  // `AgreementCreated` and closes it on `DeliveryConfirmed`/`RefundClaimed`
+  // would report every rejected, cancelled and expired agreement as
+  // permanently open. The classifier is an allow-list, so the omission is
+  // silent — nothing errors, the rows simply never appear.
+  { kind: 'agreement', section: 'escrow', method: 'AgreementAccepted' },
+  { kind: 'agreement', section: 'escrow', method: 'AgreementRejected' },
+  { kind: 'agreement', section: 'escrow', method: 'PendingCancelled' },
+  { kind: 'agreement', section: 'escrow', method: 'AgreementExpired' },
   { kind: 'dispute', section: 'escrow', method: 'DisputeOpened' },
   { kind: 'dispute', section: 'escrow', method: 'DisputeResolved' },
   { kind: 'oracle_vote', section: 'oracle', method: 'OracleResponseSubmitted' },

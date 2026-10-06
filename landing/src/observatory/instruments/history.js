@@ -1,25 +1,38 @@
-// 05 · History strips. Four small multiples of the chain's own record, each
+// 04 · History strips. Four small multiples of the chain's own record, each
 // saying where its history begins. Nothing is extrapolated and nothing is
-// faked: a strip that cannot be filled says so instead of drawing a guess.
+// faked: a strip that cannot be filled says so instead of drawing a guess,
+// and a running total is marked as derived from the record it is summed from.
 //
 // Data (all polled once a minute through the shared scheduler):
-//   blockTime         /v1/blocks?limit=200 — the seconds between consecutive
-//                     blocks, oldest to newest, against the 6 s target. A pair
-//                     with no timestamp is a break in the line, not a segment.
-//   agreementsPerEra  /v1/eras?limit=14 for the era boundaries, and every
-//                     escrow.AgreementCreated event the index holds, counted
-//                     into the twelve most recent whole settled eras plus the
-//                     era still open. Eras whose span the fetched events do
-//                     not reach are dropped, never shown short.
-//   emissionPerEra    the same eras record — the CMN each settlement paid out,
-//                     as the pallet reported it. Zero is drawn as zero.
-//   agentsOverTime    every agents.AgentRegistered and UnstakeCompleted event
-//                     the index holds, walked forward from the agents that
-//                     /v1/agents says were registered before the index began.
-//                     The two must reconcile with today's total, or the strip
-//                     is unavailable rather than a wrong line.
+//   blockTime             /v1/blocks?limit=200 — the seconds between consecutive
+//                         blocks, oldest to newest, drawn inside the 5.5–6.5 s
+//                         target band. A pair with no timestamp is a break in
+//                         the line, not a segment.
+//   agreementsCumulative  /v1/eras?limit=14 for the era boundaries, and the
+//                         escrow.AgreementCreated events read back to the start
+//                         of the oldest era drawn (agreementsReadFrom), counted
+//                         into the twelve most recent whole settled eras plus
+//                         the era still open; the running total over those eras
+//                         (derived) is the line, the counts are the bars behind
+//                         it. Eras whose span the fetched events do not reach
+//                         are dropped, never shown short.
+//   emissionCumulative    every settled era the index holds (/v1/eras, read
+//                         whole) — the CMN each settlement paid out, as the
+//                         pallet reported it, summed into a running total
+//                         (derived); the per-era figure is the thin line. Total
+//                         issuance from every source, from /v1/emissions/supply,
+//                         is given beneath as context: it counts the genesis
+//                         endowment and validator rewards too, so it is never
+//                         shown as what agents were paid.
+//   agentsOverTime        every agents.AgentRegistered and UnstakeCompleted
+//                         event the index holds, walked forward from the agents
+//                         that /v1/agents says were registered before the index
+//                         began. The two must reconcile with today's total, or
+//                         the strip is unavailable rather than a wrong line.
 //
 // Drawing: one SVG per strip, sized to its box (a ResizeObserver re-fits it),
+// every one drawn from zero, with the zero line (`plot-zero`) in the text's
+// dim ink so the four read as small multiples on one axis style;
 // with d3-scale for the axes and d3-shape for the paths. Colours come from
 // the design system's classes, so light and dark are the stylesheet's. None
 // of it is live data — every figure here is history — so nothing in these
@@ -35,8 +48,52 @@ import { max, mean, min } from 'd3-array';
 const INTERVAL_MS = 60_000;
 /** The chain's target block time (`SLOT_DURATION` in runtime/src/lib.rs). */
 export const NOMINAL_BLOCK_S = 6;
+/** The band a block time is counted as on target inside: half a second either side of the slot. */
+export const TARGET_BAND_S = [5.5, 6.5];
+/** The block-time strip's fixed ceiling, so the band reads at the same height every visit. */
+export const BLOCK_TIME_CEILING_S = 12;
 /** Whole settled eras a strip shows at most. */
 export const ERAS_SHOWN = 12;
+/** Pages of /v1/eras read for the running total: 200 eras a page, about 50 days each. */
+export const ERAS_ALL_PAGES = 3;
+/** Pages of AgreementCreated events read back to the oldest era drawn: 25 × 200 before a span is dropped as not reached. */
+export const AGREEMENT_PAGES = 25;
+
+/**
+ * The block the agreement events are read back to: the start of the oldest
+ * whole era the strip draws, or of the era still open when there is no whole
+ * one yet; null until the era boundaries are known. Reading to it, and no
+ * further, is what lets the strip reach back all twelve eras without paging
+ * through the index's whole history. Pure; tested.
+ */
+export function agreementsReadFrom({ whole, open }) {
+  if (whole.length) return whole[0].start;
+  return open ? open.start : null;
+}
+
+/**
+ * Where the agreements read starts, from the eras record: `{ from, error:
+ * null }`, or `{ from: null, error }` saying why it cannot start yet — the
+ * eras read failed, its body could not be read, or no era is recorded. The
+ * strip shows that reason rather than waiting in silence. Pure; tested.
+ */
+export function agreementsStart(eras, field) {
+  if (!eras?.ok) return { from: null, error: eras?.error ?? 'not read' };
+  let from;
+  try {
+    from = agreementsReadFrom(eraSpans(field(eras.data, 'items'), field));
+  } catch (error) {
+    return { from: null, error: error.message };
+  }
+  return from === null ? { from: null, error: 'no era recorded yet' } : { from, error: null };
+}
+
+/**
+ * 12 × 200 registrations. The public network carries about 200 operator-run
+ * agents; this is headroom well past that (a 1,000-agent run lives on the
+ * dev-fast replica, not here).
+ */
+export const REGISTRATION_PAGES = 12;
 /** The drawing box before the strip has been measured. */
 export const DEFAULT_WIDTH = 300;
 export const DEFAULT_HEIGHT = 88;
@@ -96,6 +153,13 @@ export function intervalStats(points) {
     max: max(seconds),
     measured: seconds.length,
   };
+}
+
+/** How many measured intervals fall inside the target band, inclusive at both edges. */
+export function withinBand(points, [low, high] = TARGET_BAND_S) {
+  const measured = points.filter(isMeasured);
+  const within = measured.filter((p) => p.seconds >= low && p.seconds <= high).length;
+  return { within, measured: measured.length };
 }
 
 /** The interval line: breaks at every sentinel rather than bridging it. */
@@ -179,11 +243,33 @@ export function bucketByEra(spans, open, events, { complete = true, indexFrom = 
   };
 }
 
+/** Running totals of a series of numbers, in order: the derived line the strips draw. */
+export function cumulativeTotals(values) {
+  const out = [];
+  let running = 0;
+  for (const value of values) {
+    running += value;
+    out.push(running);
+  }
+  return out;
+}
+
+/** Running totals of a series of planck strings, exact (BigInt), in order. */
+export function cumulativePlancks(plancks) {
+  const out = [];
+  let running = 0n;
+  for (const value of plancks) {
+    running += BigInt(value);
+    out.push(running.toString());
+  }
+  return out;
+}
+
 /**
  * The settled eras' emission, oldest first, as numbers for a scale and as
  * plancks for the figure. Only the contiguous run ending at the newest
  * settled era is shown, so a hole in the page shortens the strip rather than
- * hiding inside it.
+ * hiding inside it. With no `limit`, every era in the run.
  */
 export function emissionSeries(items, field, cmnNumber, limit = ERAS_SHOWN) {
   const settled = items
@@ -194,9 +280,22 @@ export function emissionSeries(items, field, cmnNumber, limit = ERAS_SHOWN) {
       plancks: String(field(item, 'totalEmissionPlancks')),
     }))
     .sort((a, b) => a.era - b.era);
-  return contiguousRun(settled)
-    .slice(-limit)
-    .map((entry) => ({ ...entry, cmn: cmnNumber(entry.plancks) }));
+  const run = contiguousRun(settled);
+  return (Number.isFinite(limit) ? run.slice(-limit) : run).map((entry) => ({ ...entry, cmn: cmnNumber(entry.plancks) }));
+}
+
+/**
+ * Total issuance against the cap from a /v1/emissions/supply response: the
+ * two planck strings the figure is set from and the percentage as the indexer
+ * computed it. Throws on a missing field or a figure that is not a count.
+ */
+export function supplyFigures(data, field) {
+  const issued = String(field(data, 'totalIssuancePlancks'));
+  const cap = String(field(data, 'capPlancks'));
+  const percent = field(data, 'percentIssued');
+  if (!/^\d+$/.test(issued) || !/^\d+$/.test(cap)) throw new Error('supply figures are not counts of plancks');
+  if (!Number.isFinite(percent)) throw new Error('response has a non-numeric percentIssued');
+  return { issuedPlancks: issued, capPlancks: cap, percent };
 }
 
 /**
@@ -245,6 +344,36 @@ export function agentSteps({ registrations, unstakes, totalNow, before, indexFro
   const end = Number.isFinite(nowBlock) ? Math.max(nowBlock, points[points.length - 1].block) : null;
   if (end !== null && end > points[points.length - 1].block) points.push({ block: end, count: running });
   return { baseline, points, registrations: registrations.length, unstakes: unstakes.length, total: running, start, end };
+}
+
+/** Above this many steps the agents-over-time line is drawn from a thinned series. */
+export const MAX_STEP_POINTS = 240;
+
+/**
+ * Thins a step series to at most `max` points for drawing: the blocks are cut
+ * into `max` equal spans and each span keeps its last point, so the line
+ * still passes through every span's closing count, and the first and last
+ * points are always kept. A strip a few hundred pixels wide cannot show more,
+ * and 2,000 registrations no longer mean a 2,000-vertex path. The figure and
+ * the summary still come from the whole series. Pure; tested.
+ */
+export function thinSteps(points, max = MAX_STEP_POINTS) {
+  if (points.length <= max) return points;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const span = Math.max(1, last.block - first.block) / (max - 2);
+  const kept = [first];
+  let bucket = 0;
+  let pending = null;
+  for (let i = 1; i < points.length - 1; i += 1) {
+    const b = Math.floor((points[i].block - first.block) / span);
+    if (pending && b !== bucket) kept.push(pending);
+    bucket = b;
+    pending = points[i];
+  }
+  if (pending) kept.push(pending);
+  kept.push(last);
+  return kept;
 }
 
 /** The drawing frame inside a strip: room at the bottom for the end labels. */
@@ -383,14 +512,14 @@ class Strip {
 // ── the instrument ────────────────────────────────────────────────────────────
 
 export function init(root, ctx) {
-  const { formatInteger, formatCmn, cmnNumber } = ctx.format;
+  const { formatInteger, formatCmn, cmnNumber, utcTime } = ctx.format;
   const strips = {
     blockTime: new Strip(root, ctx, 'blockTime'),
-    agreements: new Strip(root, ctx, 'agreementsPerEra'),
-    emission: new Strip(root, ctx, 'emissionPerEra'),
+    agreements: new Strip(root, ctx, 'agreementsCumulative'),
+    emission: new Strip(root, ctx, 'emissionCumulative'),
     agents: new Strip(root, ctx, 'agentsOverTime'),
   };
-  const records = { eras: null, agreements: null, registrations: null, unstakes: null, agents: null };
+  const records = { eras: null, erasAll: null, supply: null, agreements: null, registrations: null, unstakes: null, agents: null };
 
   /**
    * Shows a strip from one or more records. `needed[0]` is the provenance
@@ -431,7 +560,7 @@ export function init(root, ctx) {
 
   const plural = (n, one, many = `${one}s`) => `${formatInteger(n)} ${n === 1 ? one : many}`;
 
-  // ── 1 · block time ──
+  // ── 1 · block time, as a regularity strip ──
   function showBlockTime(record) {
     const strip = strips.blockTime;
     show(strip, [record], (data) => {
@@ -443,19 +572,22 @@ export function init(root, ctx) {
         strip.clear('No block times to show yet.');
         return;
       }
+      const band = withinBand(series.points);
+      const [low, high] = TARGET_BAND_S;
       const s = (n) => n.toFixed(1);
       ctx.readout.showValue(strip.target, record, {
         live: false,
-        value: s(stats.last),
-        unit: ' s',
+        value: band.within,
+        unit: ` of ${formatInteger(band.measured)} block times within target`,
+        motion: ctx.motion,
         extra:
-          `mean ${s(stats.mean)} s, min ${s(stats.min)}, max ${s(stats.max)} over ${formatInteger(series.blocks)} blocks` +
+          `target ${low}–${high} s · latest ${s(stats.last)} s, mean ${s(stats.mean)}, min ${s(stats.min)}, max ${s(stats.max)} over ${formatInteger(series.blocks)} blocks` +
           (series.skipped ? ` · ${plural(series.skipped, 'pair')} without a timestamp, left as a break in the line` : ''),
       });
       const summary =
         `Seconds between consecutive blocks from block ${formatInteger(series.first)} to ${formatInteger(series.last)}: ` +
-        `the latest gap is ${s(stats.last)} seconds, the mean ${s(stats.mean)}, ranging from ${s(stats.min)} to ${s(stats.max)}, ` +
-        `against a target of ${NOMINAL_BLOCK_S}` +
+        `${formatInteger(band.within)} of ${formatInteger(band.measured)} inside the ${low} to ${high} second target band; ` +
+        `the latest gap is ${s(stats.last)} seconds, the mean ${s(stats.mean)}, ranging from ${s(stats.min)} to ${s(stats.max)}` +
         (series.skipped ? `; ${plural(series.skipped, 'pair')} without a timestamp left as a break.` : '.');
       strip.draw((frame, svg, g) => {
         const measured = series.points.filter(isMeasured);
@@ -463,16 +595,18 @@ export function init(root, ctx) {
           .domain([series.points[0].number, series.points[series.points.length - 1].number])
           .range([frame.left, frame.right]);
         const y = scaleLinear()
-          .domain([0, yCeiling([...measured.map((p) => p.seconds), NOMINAL_BLOCK_S * 2])])
+          .domain([0, Math.max(BLOCK_TIME_CEILING_S, yCeiling(measured.map((p) => p.seconds)))])
           .range([frame.bottom, frame.top]);
-        const targetY = fix(y(NOMINAL_BLOCK_S));
-        g.append(el('path', { d: intervalArea(x, y, frame.bottom)(series.points) ?? '' }, 'plot-area'));
-        g.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-axis'));
-        g.append(el('line', { x1: frame.left, x2: frame.right, y1: targetY, y2: targetY }, 'plot-axis plot-target'));
+        const bandTop = fix(y(high));
+        const bandBottom = fix(y(low));
+        g.append(el('rect', { x: frame.left, y: bandTop, width: frame.innerWidth, height: fix(bandBottom - bandTop) }, 'plot-band'));
+        g.append(el('line', { x1: frame.left, x2: frame.right, y1: bandTop, y2: bandTop }, 'plot-axis plot-band-edge'));
+        g.append(el('line', { x1: frame.left, x2: frame.right, y1: bandBottom, y2: bandBottom }, 'plot-axis plot-band-edge'));
+        g.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-zero'));
         g.append(el('path', { d: intervalLine(x, y)(series.points) ?? '' }, 'plot-line'));
         const last = measured[measured.length - 1];
         g.append(el('circle', { cx: fix(x(last.number)), cy: fix(y(last.seconds)), r: 2.5 }, 'plot-dot'));
-        svg.append(label(frame.left + 3, targetY - 4, `${NOMINAL_BLOCK_S} s target`, 'start', 'plot-label plot-note'));
+        svg.append(label(frame.left + 3, bandTop - 4, `${low}–${high} s target`, 'start', 'plot-label plot-note'));
         svg.append(label(frame.left, frame.height - 3, `#${formatInteger(series.first)}`));
         svg.append(label(frame.right, frame.height - 3, `#${formatInteger(series.last)}`, 'end'));
         return summary;
@@ -480,7 +614,7 @@ export function init(root, ctx) {
     });
   }
 
-  // ── 2 · agreements per era ──
+  // ── 2 · agreements, cumulative over the eras shown ──
   function showAgreements() {
     const strip = strips.agreements;
     const events = records.agreements;
@@ -501,7 +635,8 @@ export function init(root, ctx) {
       }
       const list = items.map((item) => ({ blockNumber: ctx.field(item, 'blockNumber') }));
       const { buckets, open, dropped, historyFrom } = bucketByEra(spans.whole, spans.open, list, {
-        complete: record.complete,
+        // Read back past the oldest era's start: every event of every era drawn is in hand.
+        complete: record.complete || record.reachedStart === true,
         indexFrom,
       });
       if (buckets.length === 0) {
@@ -515,8 +650,13 @@ export function init(root, ctx) {
       }
       const lastSettled = buckets[buckets.length - 1];
       const firstEra = buckets[0].era;
+      const bars = open ? [...buckets, { ...open, open: true }] : buckets;
+      const totals = cumulativeTotals(bars.map((b) => b.count));
+      const totalSettled = totals[buckets.length - 1];
+      const totalAll = totals[totals.length - 1];
       const extra = [
-        `eras ${formatInteger(firstEra)}–${formatInteger(lastSettled.era)}`,
+        `derived: running total over eras ${formatInteger(firstEra)}–${formatInteger(lastSettled.era)}`,
+        `${formatInteger(lastSettled.count)} in era ${formatInteger(lastSettled.era)}, the last settled`,
         open ? `${formatInteger(open.count)} in era ${formatInteger(open.era)}, still open` : '',
         dropped ? `history from block #${formatInteger(historyFrom)}` : '',
         `era boundaries from ${eras.label}`,
@@ -525,19 +665,19 @@ export function init(root, ctx) {
         .join(' · ');
       ctx.readout.showValue(strip.target, record, {
         live: false,
-        value: lastSettled.count,
-        unit: ` in era ${formatInteger(lastSettled.era)}`,
+        value: totalAll,
+        unit: ` agreements since era ${formatInteger(firstEra)}`,
         extra,
         motion: ctx.motion,
       });
       const busiest = buckets.reduce((a, b) => (b.count > a.count ? b : a), buckets[0]);
       const summary =
-        `Agreements opened in each of the last ${buckets.length} settled eras, ${formatInteger(firstEra)} to ${formatInteger(lastSettled.era)}` +
+        `Agreements opened, cumulative over the last ${buckets.length} settled eras, ${formatInteger(firstEra)} to ${formatInteger(lastSettled.era)}: ` +
+        `${formatInteger(totalSettled)} in all, ${formatInteger(lastSettled.count)} in the last settled era` +
         (open ? `, plus ${formatInteger(open.count)} in era ${formatInteger(open.era)}, which is still open` : '') +
-        `: the last settled era had ${formatInteger(lastSettled.count)}; the busiest, era ${formatInteger(busiest.era)}, had ${formatInteger(busiest.count)}.`;
-      const bars = open ? [...buckets, { ...open, open: true }] : buckets;
+        `; the busiest, era ${formatInteger(busiest.era)}, had ${formatInteger(busiest.count)}.`;
       strip.draw((frame, svg, g) => {
-        drawBars(frame, svg, g, bars, {
+        drawBarsWithTotal(frame, svg, g, bars, totals, {
           value: (b) => b.count,
           isLast: (b) => b === lastSettled,
           leftLabel: `era ${formatInteger(firstEra)}`,
@@ -548,59 +688,103 @@ export function init(root, ctx) {
     });
   }
 
-  // ── 3 · emission per era ──
+  // ── 3 · CMN issued to agents, cumulative since the record begins ──
   function showEmission() {
     const strip = strips.emission;
-    const eras = records.eras;
+    const eras = records.erasAll;
+    const supply = records.supply;
     show(strip, [eras], (data, record) => {
-      const items = ctx.field(data, 'items');
-      const series = emissionSeries(items, ctx.field, cmnNumber);
+      const series = emissionSeries(record.items, ctx.field, cmnNumber, Infinity);
+      const indexFrom = ctx.field(data, 'settledHistoryFrom');
       if (series.length === 0) {
-        const indexFrom = ctx.field(data, 'settledHistoryFrom');
         ctx.readout.showAbsent(
           strip.target,
           record,
           `no settled era since block #${formatInteger(indexFrom)}, where this site's record begins`,
         );
-        strip.clear('No settled era to show yet.');
+        strip.clear('No settled era to sum yet.');
         return;
       }
+      const totals = cumulativePlancks(series.map((e) => e.plancks));
+      const totalPlancks = totals[totals.length - 1];
+      const totalCmn = cmnNumber(totalPlancks);
       const last = series[series.length - 1];
       const allZero = series.every((e) => e.cmn === 0);
+      // The run may stop short of the record's start at a hole in the eras
+      // page; the provenance says which, never "since the record begins" when it is not.
+      const settledHeld = record.items.filter((item) => ctx.field(item, 'settled') === true).length;
+      const wholeRecord = record.complete && series.length === settledHeld;
+      const coverage = wholeRecord
+        ? `since block #${formatInteger(indexFrom)}, where this site's record begins`
+        : `eras ${formatInteger(series[0].era)}–${formatInteger(last.era)}, the unbroken run the index holds${record.complete ? '' : ' of the pages read'}`;
+      let sub;
+      let supplyExtra = '';
+      if (supply === null) sub = 'All issuance, every source: reading…';
+      else if (!supply.ok) sub = `All issuance, every source: unavailable — ${supply.error}`;
+      else {
+        try {
+          const figures = supplyFigures(supply.data, ctx.field);
+          // Two lines at most: the context figure, and that it is not what agents were paid.
+          sub = `All issuance, genesis and validators too: ${formatCmn(figures.issuedPlancks)} CMN, ${figures.percent.toFixed(2)} % of the cap.`;
+          supplyExtra = ` · total issuance from ${supply.label} · ${utcTime(supply.at)}`;
+        } catch (error) {
+          sub = `All issuance, every source: unavailable — ${error.message}`;
+        }
+      }
       ctx.readout.showValue(strip.target, record, {
         live: false,
-        value: formatCmn(last.plancks),
+        value: formatCmn(totalPlancks),
         unit: ' CMN',
-        // Empty bars are the record, not a missing one: the sentence sits where it is read.
-        sub: allZero
-          ? `No CMN was paid out in any of these ${formatInteger(series.length)} eras: no agent did enough verified work to qualify.`
-          : '',
-        extra: `era ${formatInteger(last.era)} · settled at block #${formatInteger(last.settledAt)}`,
+        sub: (allZero ? `No CMN was paid out in any of these ${formatInteger(series.length)} eras: no agent did enough verified work to qualify. ` : '') + sub,
+        extra:
+          `derived: running total of ${plural(series.length, 'settled era')}, ${coverage}` +
+          ` · last: era ${formatInteger(last.era)} paid ${formatCmn(last.plancks)} CMN` +
+          (record.complete ? '' : ' · the index holds more eras than were read, so this is a floor') +
+          supplyExtra,
       });
       const summary =
-        `CMN paid out at the close of each era, eras ${formatInteger(series[0].era)} to ${formatInteger(last.era)}: ` +
-        `the last, era ${formatInteger(last.era)}, paid ${formatCmn(last.plancks)} CMN` +
-        (allZero ? '; every era shown paid none.' : '.');
+        `CMN issued to agents, cumulative over ${series.length} settled eras, ${formatInteger(series[0].era)} to ${formatInteger(last.era)}: ` +
+        `${formatCmn(totalPlancks)} CMN in all` +
+        (allZero ? '; no era shown paid any, since no agent did enough verified work to qualify.' : `; the last era paid ${formatCmn(last.plancks)} CMN.`);
       strip.draw((frame, svg, g) => {
-        drawBars(frame, svg, g, series, {
-          value: (e) => e.cmn,
-          isLast: (e) => e === last,
-          leftLabel: `era ${formatInteger(series[0].era)}`,
-          rightLabel: `era ${formatInteger(last.era)}`,
-        });
+        const x = scaleLinear().domain([series[0].era, Math.max(last.era, series[0].era + 1)]).range([frame.left, frame.right]);
+        const y = scaleLinear().domain([0, yCeiling([totalCmn])]).range([frame.bottom, frame.top]);
+        const perEra = line()
+          .x((e) => x(e.era))
+          .y((e) => y(e.cmn))
+          .curve(curveLinear);
+        const total = line()
+          .x((e) => x(e.era))
+          .y((e, i) => y(cmnNumber(totals[i])))
+          .curve(curveLinear);
+        const fill = area()
+          .x((e) => x(e.era))
+          .y0(frame.bottom)
+          .y1((e, i) => y(cmnNumber(totals[i])))
+          .curve(curveLinear);
+        g.append(el('path', { d: fill(series) ?? '' }, 'plot-area'));
+        g.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-zero'));
+        g.append(el('path', { d: perEra(series) ?? '' }, 'plot-line plot-line-secondary'));
+        g.append(el('path', { d: total(series) ?? '' }, 'plot-line'));
+        g.append(el('circle', { cx: fix(x(last.era)), cy: fix(y(totalCmn)), r: 2.5 }, 'plot-dot'));
+        svg.append(label(frame.left, frame.height - 3, `era ${formatInteger(series[0].era)}`));
+        svg.append(label(frame.right, frame.height - 3, `era ${formatInteger(last.era)}`, 'end'));
+        svg.append(
+          label(frame.left + 3, frame.top + 8, allZero ? 'nothing issued to agents yet' : 'running total · per era beneath', 'start', 'plot-label plot-note'),
+        );
         return summary;
       });
     });
   }
 
-  /** Bars on a band scale with a baseline, a tick under each band, and the end labels. */
-  function drawBars(frame, svg, g, entries, { value, isLast, leftLabel, rightLabel }) {
+  /** Bars on a band scale with the running total as a line over them, on the same scale. */
+  function drawBarsWithTotal(frame, svg, g, entries, totals, { value, isLast, leftLabel, rightLabel }) {
     const x = scaleBand()
       .domain(entries.map((_, i) => i))
       .range([frame.left, frame.right])
       .paddingInner(0.3)
       .paddingOuter(0.05);
-    const y = scaleLinear().domain([0, yCeiling(entries.map(value))]).range([frame.bottom, frame.top]);
+    const y = scaleLinear().domain([0, yCeiling([...entries.map(value), ...totals])]).range([frame.bottom, frame.top]);
     entries.forEach((entry, i) => {
       const v = value(entry);
       let height = Math.max(0, frame.bottom - y(v));
@@ -617,9 +801,29 @@ export function init(root, ctx) {
       const cx = fix(x(i) + x.bandwidth() / 2);
       svg.append(el('line', { x1: cx, x2: cx, y1: frame.bottom, y2: frame.bottom + 3 }, 'plot-axis plot-tick'));
     });
-    svg.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-axis'));
+    const centre = (i) => x(i) + x.bandwidth() / 2;
+    const settledCount = entries.filter((e) => !e.open).length;
+    const total = line()
+      .x((_, i) => centre(i))
+      .y((t) => y(t))
+      .curve(curveLinear);
+    g.append(el('path', { d: total(totals.slice(0, settledCount)) ?? '' }, 'plot-line'));
+    if (settledCount < totals.length && settledCount > 0) {
+      // The open era's total is provisional: a dashed continuation.
+      const tail = line()
+        .x((_, i) => centre(settledCount - 1 + i))
+        .y((t) => y(t))
+        .curve(curveLinear);
+      g.append(el('path', { d: tail(totals.slice(settledCount - 1)) ?? '' }, 'plot-line plot-line-open'));
+    }
+    if (settledCount > 0) {
+      const lastIndex = settledCount - 1;
+      g.append(el('circle', { cx: fix(centre(lastIndex)), cy: fix(y(totals[lastIndex])), r: 2.5 }, 'plot-dot'));
+    }
+    svg.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-zero'));
     svg.append(label(frame.left, frame.height - 3, leftLabel));
     svg.append(label(frame.right, frame.height - 3, rightLabel, 'end'));
+    svg.append(label(frame.left + 3, frame.top + 8, 'running total · per era as bars', 'start', 'plot-label plot-note'));
   }
 
   // ── 4 · agents over time ──
@@ -676,7 +880,7 @@ export function init(root, ctx) {
           `and ${plural(series.unstakes, 'departure')}.`;
         const note = `${formatInteger(series.baseline)} joined before this record`;
         strip.draw((frame, svg, g) => {
-          const points = series.points;
+          const points = thinSteps(series.points);
           const lastBlock = points[points.length - 1].block;
           const x = scaleLinear().domain([series.start, Math.max(lastBlock, series.start + 1)]).range([frame.left, frame.right]);
           const y = scaleLinear().domain([0, yCeiling(points.map((p) => p.count))]).range([frame.bottom, frame.top]);
@@ -690,7 +894,7 @@ export function init(root, ctx) {
             .y1((p) => y(p.count))
             .curve(curveStepAfter);
           g.append(el('path', { d: fill(points) }, 'plot-area'));
-          g.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-axis'));
+          g.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-zero'));
           g.append(el('path', { d: step(points) }, 'plot-line'));
           const end = points[points.length - 1];
           g.append(el('circle', { cx: fix(x(end.block)), cy: fix(y(end.count)), r: 2.5 }, 'plot-dot'));
@@ -717,21 +921,55 @@ export function init(root, ctx) {
     'eras',
     (record) => {
       records.eras = record;
+      watchAgreements(record);
       showAgreements();
-      showEmission();
       showAgents();
     },
     INTERVAL_MS,
   );
   ctx.watchAll(
-    'agreementsCreated',
+    'erasAll',
     (record) => {
-      records.agreements = record;
-      showAgreements();
+      records.erasAll = record;
+      showEmission();
     },
     INTERVAL_MS,
-    { maxPages: 5 },
+    { maxPages: ERAS_ALL_PAGES },
   );
+  ctx.watch(
+    'supply',
+    (record) => {
+      records.supply = record;
+      showEmission();
+    },
+    INTERVAL_MS,
+  );
+  // The agreement events are read once the era boundaries say how far back to go.
+  let agreementsFrom = null;
+  let agreementsWatched = false;
+  function watchAgreements(eras) {
+    const start = agreementsStart(eras, readerOf(eras));
+    if (start.from !== null) agreementsFrom = start.from;
+    if (agreementsWatched) return; // once reading, showAgreements reports a bad eras record itself
+    if (agreementsFrom === null) {
+      // Nothing to read back to yet: say why, never a silent wait.
+      const strip = strips.agreements;
+      ctx.readout.showError(strip.target, eras, start.error);
+      strip.clear(`unavailable: ${start.error}`);
+      return;
+    }
+    agreementsWatched = true;
+    ctx.watchSince(
+      'agreementsCreated',
+      () => agreementsFrom,
+      (record) => {
+        records.agreements = record;
+        showAgreements();
+      },
+      INTERVAL_MS,
+      { maxPages: AGREEMENT_PAGES },
+    );
+  }
   ctx.watchAll(
     'registrations',
     (record) => {
@@ -739,7 +977,7 @@ export function init(root, ctx) {
       showAgents();
     },
     INTERVAL_MS,
-    { maxPages: 3 },
+    { maxPages: REGISTRATION_PAGES },
   );
   ctx.watchAll(
     'unstakes',

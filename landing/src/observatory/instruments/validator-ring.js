@@ -13,9 +13,12 @@
 // ring subscribes itself); `grandpa_roundState` every 6 s for the finality
 // vote sample; `system_health` every 30 s for the node.
 //
-// Motion: a halo expands and fades once around the point that sealed a block;
-// a new vote tick fades in once when a sample adds it. Nothing moves between
-// data changes.
+// Motion: when a block is sealed the "sealing now" mark — the accent fill,
+// a ring and the words — moves to the validator that sealed it and a halo
+// expands and fades once, so the ring is seen to rotate block by block; a
+// new vote tick fades in once when a sample adds it. Nothing moves between
+// data changes. Points are labelled "Validator 1" to "Validator n"; the
+// address is a tooltip on the point and a link in the list.
 
 import { decodeValidators, decodeQueuedKeys, decodeBabeAuthorities, bytesToHex, babePreDigestOf } from '../scale.js';
 import { encodeSs58 } from '../ss58.js';
@@ -49,11 +52,15 @@ export const LABEL_PAD = 24;
 /** Rendered text sizes, in CSS px, held constant whatever the ring's scale (see the CSS). */
 export const INDEX_PX = 12;
 export const ADDR_PX = 11;
-const CHAR_EM = 0.6; // Plex Mono advance width, in em
+const CHAR_EM = 0.6; // a mono advance width, in em (JetBrains Mono: 600 of 1000 units)
 const ASCENT = 0.75;
 const DESCENT = 0.25;
 /** The ring label of a validator queued for the next session; the list carries the full phrase. */
 export const QUEUED_LABEL = 'queued';
+/** The ring label of a validator: its position, in words. */
+export const ringLabelText = (index) => `Validator ${index + 1}`;
+/** The words that travel with the sealing mark. */
+export const SEALING_LABEL = 'sealing now';
 
 // ── pure helpers (unit-tested) ────────────────────────────────────────────────
 
@@ -389,13 +396,16 @@ export function init(root, ctx) {
       'Authorship is decoded from each block’s BABE pre-digest as it arrives. Finality (GRANDPA) votes are sampled from grandpa_roundState every 6 s and are a sample, not a count of every round: a round is counted only when a sample caught its votes past the finality threshold, so a validator missing from it was absent from a round that completed without it. Both counts cover only what arrived while this page was open and visible — blocks sealed while this tab was hidden or the live stream was down are not counted, so they are floors. A validator’s own peer count and sync state are not exposed by a public RPC, so they are not shown.';
   }
 
-  // The key to the marks on the ring, in mono under it.
-  const key = html('p', 'ring-key mono');
-  key.textContent = `circled point: sealed the latest block · ticks around a point: the last ${VOTE_TICKS} finality rounds sampled, lit where that validator’s vote was seen · dashed point: joining next session`;
-  host.after(key);
+  // The key to the marks on the ring: with the section's notes when the page
+  // folds them (the ring itself says "sealing now" beside the lit point),
+  // otherwise in mono under the ring.
+  const key = html('p', 'ring-key');
+  key.textContent = `lit point, “${SEALING_LABEL}”: sealed the latest block · ticks around a point: the last ${VOTE_TICKS} finality rounds sampled, lit where that validator’s vote was seen · dashed point: joining next session · point at a validator for its address`;
+  if (note?.closest('details')) note.before(key);
+  else host.after(key);
 
   // Said once above the list rather than on every row.
-  const listHead = html('p', 'ring-list-head mono', 'Since you opened this page');
+  const listHead = html('p', 'ring-list-head eyebrow', 'Since you opened this page');
   list?.before(listHead);
 
   // A status line for the parts of the picture that have no reading slot of
@@ -420,6 +430,7 @@ export function init(root, ctx) {
   let lastHeadNumber = null;
   const nodes = new Map(); // stashHex → { validator, g, point, halo, latest, votes, label, li, meta, ticksKey, cancel }
   let unmappedLi = new Map(); // authorityIndex → { li, meta, label }
+  let sealingText = null; // the "sealing now" words, moved to the point that sealed the latest block
   let cancelHalo = () => {};
   let hostWidth = host.clientWidth || SIZE;
   const wideQuery = window.matchMedia ? window.matchMedia('(min-width: 64rem)') : null;
@@ -429,10 +440,11 @@ export function init(root, ctx) {
   function applyLayout() {
     const all = set ? [...set.active, ...set.queued] : [];
     const labels = all.map((v) => ({
-      indexDigits: String(v.index + 1).length,
+      indexDigits: ringLabelText(v.index).length,
       addrChars: v.queued ? QUEUED_LABEL.length : shortAddress(v.address).length,
     }));
-    layout = ringLayout(labels, hostWidth, Boolean(wideQuery?.matches));
+    // The address is a tooltip now, not a label, so the ring is always compact.
+    layout = ringLayout(labels, hostWidth, false);
     svg.setAttribute('viewBox', layout.viewBox.join(' '));
     svg.style.setProperty('--ring-scale', String(fix(layout.scale)));
     svg.classList.toggle('is-compact', layout.compact);
@@ -443,9 +455,9 @@ export function init(root, ctx) {
     const { validator, label, num, addr, angle } = node;
     const placed = labelPlacement(angle, {
       scale: layout.scale,
-      showAddress: !layout.compact,
-      indexDigits: String(validator.index + 1).length,
-      addrChars: validator.queued ? QUEUED_LABEL.length : shortAddress(validator.address).length,
+      showAddress: validator.queued,
+      indexDigits: ringLabelText(validator.index).length,
+      addrChars: QUEUED_LABEL.length,
     });
     label.setAttribute('x', placed.x);
     label.setAttribute('text-anchor', placed.anchor);
@@ -524,11 +536,15 @@ export function init(root, ctx) {
       const tick = el('line', { x1: from.x, y1: from.y, x2: to.x, y2: to.y }, 'ring-tick');
       const label = el('text', {}, 'ring-label');
       const num = el('tspan', {}, 'ring-label-index');
-      num.textContent = String(validator.index + 1);
+      num.textContent = ringLabelText(validator.index);
       const addr = el('tspan', {}, 'ring-label-addr');
-      addr.textContent = validator.queued ? QUEUED_LABEL : shortAddress(validator.address);
+      addr.textContent = validator.queued ? QUEUED_LABEL : '';
       label.append(num, addr);
-      g.append(halo, votes, latest, point, tick, label);
+      // The address as a tooltip on the point, and in the accessible name.
+      const title = el('title');
+      title.textContent = `${ringLabelText(validator.index)} · ${validator.address}${validator.queued ? ' · joining next session' : ''}`;
+      g.append(title, halo, votes, latest, point, tick, label);
+      g.setAttribute('tabindex', '-1');
       points.append(g);
       nodes.set(validator.stashHex, {
         validator,
@@ -548,10 +564,24 @@ export function init(root, ctx) {
       });
     }
     svg.append(points);
+    sealingText = el('text', { 'text-anchor': 'middle' }, 'ring-sealing');
+    sealingText.textContent = SEALING_LABEL;
+    sealingText.setAttribute('opacity', '0');
+    svg.append(sealingText);
     applyLayout();
     buildList(all);
     drawVotes();
     updateAria();
+    if (lastAuthorHex && nodes.has(lastAuthorHex)) placeSealing(nodes.get(lastAuthorHex));
+  }
+
+  /** Moves the "sealing now" words beside the point that sealed the latest block, outside the vote band. */
+  function placeSealing(node) {
+    if (!sealingText) return;
+    const at = pointAt(node.angle, RADIUS - 30);
+    sealingText.setAttribute('x', at.x);
+    sealingText.setAttribute('y', at.y + 4);
+    sealingText.setAttribute('opacity', '1');
   }
 
   function buildList(all) {
@@ -560,7 +590,7 @@ export function init(root, ctx) {
     unmappedLi = new Map();
     for (const validator of all) {
       const li = html('li', validator.queued ? 'is-queued' : '');
-      li.append(html('span', 'v-index', String(validator.index + 1)));
+      li.append(html('span', 'v-index', ringLabelText(validator.index)));
       const addr = html('span', 'v-addr');
       const a = html('a', 'mono', shortAddress(validator.address));
       a.href = `${ctx.EXPLORER_ORIGIN}/account/${validator.address}`;
@@ -657,6 +687,7 @@ export function init(root, ctx) {
     }
     node.g.classList.add('is-authoring');
     node.point.classList.add('is-authoring');
+    placeSealing(node);
     if (ctx.motion.reduced()) return;
     cancelHalo = ctx.motion.tween(
       HALO_MS,
@@ -792,6 +823,7 @@ export function init(root, ctx) {
         lastAuthor = node.validator.index + 1;
         node.g.classList.add('is-authoring');
         node.point.classList.add('is-authoring');
+        placeSealing(node);
       }
       changed = true;
     }
@@ -871,6 +903,7 @@ export function init(root, ctx) {
         other.g.classList.remove('is-authoring');
         other.point.classList.remove('is-authoring');
       }
+      sealingText?.setAttribute('opacity', '0');
       drawMeta();
       updateAria();
       return;

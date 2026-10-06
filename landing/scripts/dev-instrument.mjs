@@ -24,6 +24,9 @@ const readJson = (relative) => JSON.parse(readFileSync(here(relative), 'utf8'));
 const INSTRUMENT_FILES = {
   pulse: 'pulse.js',
   era: 'era-dial.js',
+  economy: 'economy.js',
+  'agent-field': 'agent-field.js',
+  'last-hour': 'last-hour.js',
   constellation: 'constellation.js',
   validators: 'validator-ring.js',
   history: 'history.js',
@@ -61,6 +64,16 @@ await build({
   target: ['es2022'],
   outfile: join(outDir, 'observatory.js'),
   alias: { 'instrument-under-test': here(`../src/observatory/instruments/${INSTRUMENT_FILES[name]}`) },
+  logLevel: 'warning',
+});
+// The network graph, fetched by the agent field on demand, as on the page.
+await build({
+  entryPoints: [here('../src/observatory/instruments/constellation.js')],
+  bundle: true,
+  format: 'esm',
+  sourcemap: 'inline',
+  target: ['es2022'],
+  outfile: join(outDir, 'observatory-graph.js'),
   logLevel: 'warning',
 });
 console.log(`harness for "${name}" built into ${outDir}`);

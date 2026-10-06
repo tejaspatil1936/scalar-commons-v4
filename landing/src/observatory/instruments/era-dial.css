@@ -1,13 +1,5 @@
-/* 02 · era dial — the graduations, the captions and the states the design
+/* 02 · Economy, the era dial — the graduations, the captions and the states the design
    system's .dial rules do not cover. Tokens only. */
-
-/* The reticle is registered to the dial: the box is the dial's own height,
-   and a hairline crosses at its centre both ways, so the twelve o'clock mark
-   sits on a line of the grid rather than beside one. */
-#era .instrument {
-  align-self: start;
-  background-position: calc(50% - var(--grid-step) / 2) calc(50% - var(--grid-step) / 2);
-}
 
 .dial .dial-mark {
   stroke: var(--border);
@@ -19,8 +11,8 @@
 }
 
 /* The face has room for its captions to be read on a projector. */
-#era .dial .dial-caption {
-  font-size: 0.75rem;
+#economy .dial .dial-caption {
+  font-size: var(--t-eyebrow);
 }
 
 /* The percentage is a live figure, so it takes the accent while the era runs. */
@@ -52,11 +44,4 @@
 
 .dial[data-state="unavailable"] .dial-settles {
   fill: var(--slashed);
-}
-
-/* Time to settlement is a phrase ("5 h 17 min"), not a count: it is set a
-   step smaller than the numeric readings so its longest case stays on one
-   line in the two-up column at every width. */
-#era [data-reading="eraCountdown"] .reading-value {
-  font-size: clamp(1.5rem, 1.25rem + 0.8vw, 2rem);
 }
