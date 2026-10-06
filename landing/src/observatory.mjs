@@ -279,9 +279,13 @@ ${upgradeRows(history)}
 
 const POSTURE_FIELDS = [
   ['findingsExamined', 'Findings examined', 'Security findings the testnet audit examined against the runtime and its operation.'],
-  ['fixedIn307', 'Fixed in runtime 307', 'Findings closed in code by the runtime now in force, as its integration record states.'],
+  ['fixedIn307', 'Fixed in runtime 307', 'Findings closed in code by runtime 307, as its integration record states.'],
   ['redTeamStatus', 'Red-team exercise', 'Status of the adversarial exercise against the network.'],
-  ['lastIndependentRehearsal', 'Last independent rehearsal', 'Most recent upgrade or recovery rehearsal by an outside party.'],
+  // NOT "independent". The rehearsal recorded here was run by the operators,
+  // and a label claiming an outside party would assert the one thing this
+  // entry exists to distinguish. The field's own todo keeps the independent
+  // rehearsal marked as outstanding.
+  ['lastRehearsal', 'Last upgrade rehearsal', 'Most recent upgrade or recovery rehearsal, and who ran it.'],
 ];
 
 /**
