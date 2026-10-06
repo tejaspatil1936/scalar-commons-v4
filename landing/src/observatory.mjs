@@ -11,6 +11,9 @@
 import { escapeHtml, renderNav } from './render.mjs';
 import { storageKey } from './observatory/scale.js';
 
+/** The second live page, /pulse, linked from this page's nav (its own module imports this one, so the item lives here). */
+export const PULSE_NAV = { key: 'pulse', label: 'Pulse', href: 'pulse' };
+
 export const API_HOST = 'api.scalarnet.io';
 export const RPC_WSS = 'wss://rpc.scalarnet.io';
 export const RPC_HTTPS = 'https://rpc.scalarnet.io';
@@ -428,19 +431,19 @@ export const SOURCES_BOOT =
  * the page is the only one that uses it. The same CSS is still written out as
  * observatory.css so it can be read on its own.
  */
-export function renderHead({ title, description, css = null, scripts = true }) {
-  const styles = css === null ? '<link rel="stylesheet" href="observatory.css">' : `<style>${css.replace(/<\/style/gi, '<\\/style')}</style>`;
+export function renderHead({ title, description, css = null, scripts = true, script = 'observatory.js', boot = scripts }) {
+  const styles = css === null ? `<link rel="stylesheet" href="${script.replace(/\.js$/, '.css')}">` : `<style>${css.replace(/<\/style/gi, '<\\/style')}</style>`;
   return `<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(description)}">
 <meta name="color-scheme" content="dark light">
-${scripts ? SOURCES_BOOT : ''}
+${boot ? SOURCES_BOOT : ''}
 <link rel="preload" href="fonts/source-serif-4-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preconnect" href="https://${API_HOST}" crossorigin>
 ${styles}
-${scripts ? '<script type="module" src="observatory.js"></script>' : ''}`;
+${scripts && script === 'observatory.js' ? '<script type="module" src="observatory.js"></script>' : ''}`;
 }
 
 const HOW_TO_READ = [
@@ -465,7 +468,7 @@ function statusBar() {
   <div class="frame sb-inner">
     <div class="sb-left">
       ${wordmark()}
-${renderNav('observatory')}
+${renderNav('observatory', [PULSE_NAV])}
     </div>
     <div class="sb-right">
       <p class="sb-pill" role="status" aria-live="off"><span class="reading-label">Network status</span><span class="pulse-dot" aria-hidden="true"></span><span class="sb-state">Connecting</span><span class="sb-sep" aria-hidden="true"> · </span><span class="sb-block">block <span class="reading-value is-loading">${skeleton(true)}</span></span><span class="sb-sep" aria-hidden="true"> · </span><span class="sb-finality">finality —</span><span class="sb-validators">validators not yet read</span></p>

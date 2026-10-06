@@ -2,11 +2,11 @@
   "provenance": {
     "endpoint": "https://rpc.scalarnet.io",
     "specName": "scalar-commons",
-    "specVersion": 307,
+    "specVersion": 309,
     "genesisHash": "0xff6882b49ad61dd3128a6e834b4f81704a3824ce358f2f69fe765ca07cf803d1",
-    "readAtBlock": 905412,
-    "readAtHash": "0x14c2006da07f1f47ce64789edac08799165e9d78ef38a54b62052fe68ee9116f",
-    "readAt": "2026-10-05T14:29:44.369Z",
+    "readAtBlock": 920067,
+    "readAtHash": "0xc290ee94ad5f888ed7d57372b6620b153c34ff1a01284369a6b77116be8426d2",
+    "readAt": "2026-10-06T14:55:29.676Z",
     "metadataVersion": 14
   },
   "pallets": {
@@ -178,6 +178,8 @@
       "GovVoteRecorded",
       "HeartbeatBackfilled",
       "HeartbeatSent",
+      "MessagingKeyCleared",
+      "MessagingKeySet",
       "MetadataUpdated",
       "SlashAppealWithdrawn",
       "SlashAppealed",
@@ -189,12 +191,16 @@
       "VotingDelegationRemoved"
     ],
     "escrow": [
+      "AgreementAccepted",
       "AgreementCreated",
+      "AgreementExpired",
+      "AgreementRejected",
       "DeadlineExtended",
       "DeliveryConfirmed",
       "DeliveryRecorded",
       "DisputeOpened",
       "DisputeResolved",
+      "PendingCancelled",
       "RefundClaimed"
     ],
     "oracle": [
@@ -325,6 +331,9 @@
       "SubmissionDepositRefunded",
       "Submitted",
       "TimedOut"
+    ],
+    "messages": [
+      "MessageSent"
     ]
   }
 }

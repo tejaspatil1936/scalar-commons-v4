@@ -34,6 +34,7 @@ const THEME_NAMES = [
   'slashed',
   'slash',
   'idle',
+  'paid',
   'font-mono',
   'font-serif',
   'font-sans',
