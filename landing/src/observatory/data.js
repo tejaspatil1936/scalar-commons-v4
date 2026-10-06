@@ -130,6 +130,8 @@ export const SOURCES = {
 export const blockHashSource = (number) =>
   rpc('chain_getBlockHash', [number], `chain_getBlockHash(${number})`);
 export const blockSource = (hash) => rpc('chain_getBlock', [hash], `chain_getBlock(${String(hash).slice(0, 10)}…)`);
+// Every event one finalized block emitted, in emission order: the one read /pulse makes per block, so each animation is a real event and none is a poll's replay.
+export const blockEventsSource = (number) => api(`/v1/blocks/${number}/events?limit=${INDEXER_MAX_LIMIT}`);
 
 // ── pure helpers ─────────────────────────────────────────────────────────────
 
