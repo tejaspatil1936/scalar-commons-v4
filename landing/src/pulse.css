@@ -48,15 +48,40 @@ body {
   margin: 0;
 }
 .pulse-figure {
-  min-width: 9rem;
+  /* A fixed width in every state: three figures sit in one row at any width
+     above the phone break, and an "unavailable" figure never widens its row. */
+  flex: 0 0 13rem;
+  width: 13rem;
+}
+.pulse-figure .reading-value .error {
+  display: block;
+  width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .pulse-figure .reading-value {
+  /* One figure-line tall whatever it holds — the skeleton, the number or
+     "unavailable" — so the strip never changes height and the stage never
+     moves (the observatory holds CLS under 0.02; so does this page). */
+  display: flex;
+  align-items: flex-end;
+  height: var(--t-figure-l);
   font-family: var(--font-serif);
   font-size: var(--t-figure-l);
   line-height: var(--lh-figure-l);
   font-weight: 400;
   font-variant-numeric: tabular-nums lining-nums;
   margin: 0;
+  overflow: hidden;
+}
+.pulse-figure .reading-value.is-error {
+  flex-wrap: wrap;
+  align-content: flex-end;
+  font-family: var(--font-sans);
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
+  font-weight: 500;
 }
 .pulse-figure .reading-label {
   margin: var(--space-1) 0 0;
@@ -231,6 +256,9 @@ body {
   text-transform: uppercase;
   color: var(--text-dim);
 }
+.ticker-following[hidden] {
+  display: none;
+}
 .ticker-following {
   display: flex;
   align-items: center;
@@ -315,7 +343,8 @@ body {
     gap: var(--space-2) var(--space-4);
   }
   .pulse-figure {
-    min-width: 6rem;
+    flex-basis: 10rem;
+    width: 10rem;
   }
   .pulse-figure .reading-value {
     font-size: var(--t-h3);
