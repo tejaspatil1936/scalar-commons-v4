@@ -1,12 +1,14 @@
 // The ticker down the right of /pulse: every live event as one plain
 // sentence, newest first, thirty kept, each a link to the extrinsic on the
 // explorer. The sentences are the model's (tested word for word against the
-// issue); this file only puts them on the page, keeps their ages current and
-// narrows them to one agent while that agent is followed. Nothing is written
+// issue); this file only puts them on the page in order of when they
+// happened, keeps their ages current, narrows them to one agent while that
+// agent is followed, and says so when the feed is down. Nothing is written
 // here that the chain did not do: the ticker has no sample lines and no
-// filler, and before the first event it says so.
+// filler, and before the first event it says it is waiting.
 
 import { TICKER_MAX, ageText, displayName, explorerHref, sentence } from './model.js';
+import { feedDown } from './wiring.js';
 
 export function init(root, ctx, feed) {
   const list = root.querySelector('.ticker-lines');
@@ -18,6 +20,7 @@ export function init(root, ctx, feed) {
   const stage = root.closest('.pulse-stage');
   const lines = []; // newest first: { li, age, at, parties }
   let filterAddress = null;
+  let downReason = null; // while the feed is unavailable or behind the chain
   const releaseListeners = new Set();
 
   function render() {
@@ -32,11 +35,17 @@ export function init(root, ctx, feed) {
       }
     }
     if (empty) {
-      empty.hidden = shown > 0;
-      empty.textContent = lines.length === 0 ? 'Waiting for the first event.' : 'Nothing yet for this agent.';
+      if (downReason) {
+        empty.hidden = false;
+        empty.textContent = `live feed unavailable — ${downReason}. ${shown ? 'The lines below are dated; nothing newer is known.' : ''}`.trim();
+      } else {
+        empty.hidden = shown > 0;
+        empty.textContent = lines.length === 0 ? 'Waiting for the first event.' : 'Nothing yet for this agent.';
+      }
     }
   }
 
+  /** Adds a line where its instant belongs: the list is newest first, whether a line arrives live or from the index's record. */
   function push({ event, row, parties, at }) {
     const li = document.createElement('li');
     li.dataset.kind = row.kind;
@@ -48,8 +57,14 @@ export function init(root, ctx, feed) {
     const age = document.createElement('span');
     age.className = 'ticker-age';
     li.append(a, ' · ', age);
-    list.prepend(li);
-    lines.unshift({ li, age, at, parties });
+    const index = lines.findIndex((line) => line.at <= at);
+    if (index === -1) {
+      list.append(li);
+      lines.push({ li, age, at, parties });
+    } else {
+      list.insertBefore(li, lines[index].li);
+      lines.splice(index, 0, { li, age, at, parties });
+    }
     while (lines.length > TICKER_MAX) lines.pop().li.remove();
     render();
   }
@@ -72,6 +87,10 @@ export function init(root, ctx, feed) {
   release?.addEventListener('click', () => {
     filter(null);
     for (const fn of releaseListeners) fn();
+  });
+  feed.on('status', (status) => {
+    downReason = feedDown(status.state) ? (status.reason ?? 'no source answered') : null;
+    render();
   });
 
   render();

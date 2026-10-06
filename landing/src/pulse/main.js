@@ -8,11 +8,11 @@
 // with it, so a background tab draws nothing and asks for nothing.
 
 import { createContext } from '../observatory/context.js';
-import { isOperatorRun } from '../observatory/instruments/agent-field.js';
 import { createFeed } from './feed.js';
 import { createGraph } from './graph.js';
-import { LIVE_WINDOW_BLOCKS, TICKER_MAX, agreementKeyOf, displayName, nodeValue } from './model.js';
-import { bannerText, capDevicePixelRatio, roleOf } from './wiring.js';
+import { LIVE_WINDOW_BLOCKS, TICKER_MAX, displayName } from './model.js';
+import { activityOf, moveOf } from './moves.js';
+import { bannerText, roleOf } from './wiring.js';
 import * as strip from './strip.js';
 import * as ticker from './ticker.js';
 
@@ -29,7 +29,6 @@ function canvasAvailable(doc) {
 }
 
 function boot() {
-  capDevicePixelRatio(window);
   const ctx = createContext();
   ctx.start();
   const { formatInteger } = ctx.format;
@@ -48,6 +47,8 @@ function boot() {
   const figures = strip.init(root.querySelector('.pulse-strip'), ctx, feed);
   const lines = ticker.init(root.querySelector('.ticker'), ctx, feed);
   let links = []; // the open agreements as the index lists them, for roles and the tooltip
+  let agents = []; // the agents as the index lists them
+  let activity = new Map(); // address → events in the last hour, from the hour's read
   let graph = null;
   let announcedFirst = false;
 
@@ -85,7 +86,7 @@ function boot() {
       banner.textContent = text;
       banner.hidden = text === '';
     }
-    const word = { live: 'Live', stale: 'Paused', unavailable: 'Unavailable', connecting: 'Connecting' }[status.state] ?? 'Connecting';
+    const word = { live: 'Live', stale: 'Unavailable', unavailable: 'Unavailable', connecting: 'Connecting' }[status.state] ?? 'Connecting';
     if (barState) barState.textContent = word;
     bar?.setAttribute('data-state', status.state === 'live' ? 'network-normal' : status.state);
     if (text) ctx.announce(text);
@@ -97,6 +98,15 @@ function boot() {
     host.addEventListener('pointerleave', () => showTip(null));
   } else if (fallback) {
     fallback.hidden = false;
+  }
+
+  /** The plate's points: the index's agents, each sized by its last hour (the hour's read, then live events). */
+  function showAgents() {
+    if (!graph) return;
+    graph.setAgents(
+      agents.map((agent) => ({ ...agent, activityLastHour: activity.get(agent.address) ?? 0 })),
+      { names: feed.names() },
+    );
   }
 
   function renderFallback(record, items) {
@@ -116,31 +126,39 @@ function boot() {
   }
 
   feed.on('agents', ({ record, items }) => {
-    if (graph) {
-      if (record.ok) graph.setAgents(items, { names: feed.names() });
-    } else {
-      renderFallback(record, items ?? []);
+    if (!record.ok) {
+      if (!graph) renderFallback(record, []);
+      return;
     }
+    agents = items;
+    if (graph) showAgents();
+    else renderFallback(record, items);
   });
   feed.on('links', ({ record, items }) => {
     if (!record.ok) return;
     links = items;
     graph?.setLinks(items);
   });
-  // The ticker starts with the index's record of the last three minutes — the
-  // live window, with true ages — so the first screen is not blank between
-  // bursts; those lines are history, read with provenance, and never animate.
+  // The index's last hour: the points' sizes, and the ticker's first lines —
+  // the live window's record, with true ages, so the first screen is not blank
+  // between bursts. Those lines are history, read with provenance; they never
+  // animate.
   let tickerSeeded = false;
-  feed.on('hour', ({ events }) => {
-    if (tickerSeeded) return;
+  feed.on('hour', ({ events, error }) => {
+    if (error) return;
+    activity = activityOf(events);
+    showAgents();
     const head = feed.head();
-    if (head === null) return;
+    if (tickerSeeded || head === null) return;
     tickerSeeded = true;
     const recent = events.filter(({ event }) => head - event.blockNumber <= LIVE_WINDOW_BLOCKS).slice(-TICKER_MAX);
     for (const item of recent) lines.push(item);
   });
   feed.on('event', (live) => {
-    animate(live);
+    if (graph) {
+      const { call, args } = moveOf(live, { names: feed.names(), field: ctx.field });
+      graph[call](...args);
+    }
     lines.push(live);
     if (!announcedFirst) {
       announcedFirst = true;
@@ -149,43 +167,13 @@ function boot() {
   });
   feed.on('status', showStatus);
 
-  /** One light per real event: the graph's move for the event's kind, with the parties the event names. */
-  function animate({ event, row, parties }) {
-    if (!graph) return;
-    const key = agreementKeyOf(event);
-    switch (row.kind) {
-      case 'agreement':
-        graph.addLink({ id: key, source: parties.from, target: parties.to, seq: ctx.field(event.data, 'seq'), status: 'Created' }, { drawMs: row.lifetimeMs });
-        break;
-      case 'message':
-        graph.message(parties.from, parties.to, key);
-        break;
-      case 'settled':
-        graph.settleLink(key, { source: parties.from, target: parties.to });
-        break;
-      case 'dispute':
-        graph.disputeLink(key, { source: parties.from, target: parties.to });
-        break;
-      case 'resolved':
-        graph.resolveLink(key);
-        break;
-      case 'oracle':
-        graph.spark(parties.from);
-        break;
-      default: {
-        const name = feed.names().get(parties.from);
-        graph.registered(parties.from, { id: parties.from, name, operator: isOperatorRun(name), val: nodeValue(0), completed: 0, disputed: false });
-      }
-    }
-  }
-
   // ── the tab, the keys, the buttons ──
   ctx.bus.on('visibility', ({ hidden }) => {
     if (hidden) graph?.pause();
     else graph?.resume();
   });
   lines.onRelease(() => graph?.follow(null));
-  ctx.motion.onChange((reduced) => graph?.setStatic?.(reduced));
+  ctx.motion.onChange((reduced) => graph?.setStatic(reduced));
 
   function toggleFullscreen() {
     if (document.fullscreenElement) document.exitFullscreen?.().catch((error) => console.error(error));

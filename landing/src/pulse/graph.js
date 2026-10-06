@@ -20,13 +20,21 @@
 // own alpha is only a clock. Dragging a point warms the layout to DRAG_HEAT
 // so its neighbours react, and it cools again when the point is let go.
 //
-// Why the points are painted in one pass rather than through the library's
-// per-node callback: at 2,000 points the cost is the number of fill() calls,
-// not the pixels. Every point in the same state is one path and one fill —
-// halo, disc, operator ring — and only a point still fading in is painted on
-// its own. Nothing is allocated per frame on that path. Threads at rest are
-// the library's own bundled strokes; only a thread mid-animation (drawing
-// in, flashing, pulsing, dissolving) is painted here.
+// Why the points are sprites, painted in one pass rather than through the
+// library's per-node callback: at 2,000 points the cost is rasterization,
+// not JavaScript. Measured in headless Chromium (software Skia, 1920×1080),
+// a halo and a disc as two anti-aliased arcs per point cost ~10 ms a frame,
+// one path holding every disc ~20 ms (its bounds are the whole plate), and
+// one bitmap blit per point at an integer device position ~6 ms. So each
+// point is a sprite — the same plain halo, disc and operator ring, painted
+// once per radius bucket and state with ordinary arcs, no gradient, no blur
+// — blitted where the point is; a point too large for a sprite (zoomed far
+// in) is drawn as arcs. Points off the plate are skipped. Nothing is
+// allocated per point per frame. Threads at rest are the library's own
+// bundled strokes; only a thread mid-animation (drawing in, flashing,
+// pulsing, dissolving) is painted here. The many-body force, the other
+// measurable cost at 2,000 points, runs every tick while the layout is warm
+// and every second or fourth tick at the drift floor, scaled to match.
 //
 // Honesty: a thread or a light appears only when main.js reports an event,
 // and lives exactly the lifetime model.js gives its kind; past EFFECT_CAP the
@@ -66,8 +74,14 @@ export const DIM_ALPHA = 0.15;
 export const WARMUP_MS = 3000;
 /** Synchronous ticks before the first paint, so the plate never shows the seed spiral. */
 const WARMUP_TICKS = 90;
-/** Under reduced motion the layout is computed to rest in this many synchronous ticks. */
+/**
+ * Under reduced motion the layout is computed to rest synchronously: this
+ * many ticks on first data (the same energy as the live warm-up), and after
+ * a change this many at STATIC_SETTLE_HEAT, enough for a new thread to pull.
+ */
 const STATIC_TICKS = 300;
+const STATIC_SETTLE_TICKS = 40;
+const STATIC_SETTLE_HEAT = 0.25;
 /** The heat the layout drifts at once settled; 0 would freeze it. */
 const FLOOR_HEAT = 0.004;
 /** The nudge when a point or thread joins or leaves — a local settle, not a reheat. */
@@ -93,6 +107,9 @@ const PULSE_PX = 16;
 const PARTICLE_PX = 4;
 const TAU = Math.PI * 2;
 const GOLDEN_ANGLE = 2.399963;
+/** Point sprites come in buckets of half a CSS pixel of radius; above this halo radius (CSS px) a point is drawn as arcs. */
+const SPRITE_STEP = 2;
+const SPRITE_MAX_HALO_PX = 64;
 /** Message particles cross their thread in this many ticks — the message lifetime at 60 ticks a second. */
 const MESSAGE_TICKS = 72;
 const FRAME_RING = 1024;
@@ -247,6 +264,9 @@ function buildPalette(theme) {
   };
   const accent = token('live');
   const settled = token('settled');
+  // The page's own token: green for a payment that settled. The observatory's
+  // `--settled` is the grey of a thread at rest, which no light should wear.
+  const paid = token('paid');
   const amber = token('disputed');
   const dim = token('text-dim');
   const ramp = [];
@@ -255,6 +275,7 @@ function buildPalette(theme) {
     accent,
     amber,
     settled,
+    paid,
     halo: rgba(accent, HALO_ALPHA),
     haloDisputed: rgba(amber, HALO_ALPHA),
     ring: rgba(dim, 0.9),
@@ -272,7 +293,7 @@ function buildPalette(theme) {
  * names.
  */
 export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {} }) {
-  const reduced = Boolean(ctx.motion?.reduced?.());
+  let reduced = Boolean(ctx.motion?.reduced?.());
   const now = () => ctx.now();
   capDevicePixelRatio();
   let palette = buildPalette(ctx.theme);
@@ -294,7 +315,10 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
   let frameAt = 0;
 
   // ── the layout's own force ────────────────────────────────────────────────
-  const sim = { heat: 0, tick: 0 };
+  // `heat` drives the live layout; under reduced motion the synchronous run
+  // follows a tick budget instead: `peak` falling to 0 over `budget` ticks.
+  const sim = { heat: 0, tick: 0, budget: STATIC_TICKS, peak: 1 };
+  let fitted = false;
   const charge = forceManyBody().strength(CHARGE).theta(0.9).distanceMax(400);
   const spring = forceLink()
     .id((d) => d.id)
@@ -305,13 +329,16 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
   const layout = () => {
     let heat = sim.heat;
     if (reduced) {
-      // Tick-scheduled, since the whole run is synchronous: 1 → 0 over STATIC_TICKS.
-      const left = 1 - sim.tick / STATIC_TICKS;
-      heat = left > 0 ? left * left : 0;
-      sim.tick += 1;
+      // Tick-scheduled, since the whole run is synchronous: peak → 0 over the budget.
+      const left = 1 - sim.tick / sim.budget;
+      heat = left > 0 ? sim.peak * left : 0;
     }
+    sim.tick += 1;
     if (heat > 0) {
-      charge(heat);
+      // The many-body force is the layout's one real cost; cooled, it runs
+      // every second or fourth tick with its impulse scaled to match.
+      const every = heat >= 0.1 ? 1 : heat >= 0.02 ? 2 : 4;
+      if (sim.tick % every === 0) charge(heat * every);
       spring(heat);
       centre();
     }
@@ -330,7 +357,11 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
     charge.initialize(ns, random);
     centre.initialize(ns, random);
     spring.initialize(ns, random);
-    spring.links(data.links);
+    // Only threads whose both ends are among these points: the library's
+    // update runs on a debounce, so what it holds can trail what flush() built.
+    const ids = new Set();
+    for (let i = 0; i < ns.length; i += 1) ids.add(ns[i].id);
+    spring.links(data.links.filter((link) => ids.has(endId(link.source)) && ids.has(endId(link.target))));
   };
 
   /** Cools the layout to the floor over `seconds`; never interrupts the warm-up. */
@@ -443,16 +474,29 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
       if (!reduced) sim.heat = Math.max(sim.heat, DRAG_HEAT);
     })
     .onNodeDragEnd(() => settle(SETTLE_S))
+    .onEngineStop(() => {
+      // Static mode: the layout was computed to rest in the update; fit it once.
+      if (reduced && !fitted && data.nodes.length) {
+        fitted = true;
+        graph.zoomToFit(0, 48);
+      }
+    })
     .onRenderFramePre(() => {
       flush();
       if (effects.length) {
         const at = now();
+        let stale = false;
         for (let i = 0; i < effects.length; i += 1) {
-          if (effects[i].until <= at) {
-            prune();
-            break;
+          const effect = effects[i];
+          if (effect.until <= at) stale = true;
+          // The library's data update drops every single-hop particle; a
+          // message still crossing is put back where it was.
+          if (effect.kind === 'message') {
+            const photons = effect.link.__photons ?? (effect.link.__photons = []);
+            if (!photons.includes(effect.photon)) photons.push(effect.photon);
           }
         }
+        if (stale) prune();
       }
     })
     .onRenderFramePost((c, k) => {
@@ -465,49 +509,52 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
   /** The static-mode poke: Kapsule runs a prop's onChange on every set, and a style prop's marks the plate for one repaint. */
   const redraw = () => graph.linkWidth(linkWidth);
 
-  /** Hands the layout the current points and threads, once per frame at most, keeping every object that stayed. */
+  /**
+   * Hands the layout the current points and threads, once per frame at most,
+   * keeping every object that stayed. The library applies the data on a
+   * one-millisecond debounce, so the warm-up ticks it should run are set
+   * here and left standing until the next flush sets its own; calls within
+   * that millisecond coalesce, and the latest data wins.
+   */
   function flush() {
     if (!dirty) return;
     dirty = false;
     data.nodes = [...nodes.values()];
     data.links = [];
     for (const link of links.values()) {
-      if (nodes.has(endId(link.source)) && nodes.has(endId(link.target))) data.links.push(link);
+      const a = nodes.get(endId(link.source));
+      const b = nodes.get(endId(link.target));
+      if (!a || !b) continue;
+      // Resolved here, not left to the layout: a message sent in the same
+      // block as its agreement then rides the thread rather than an arc.
+      link.source = a;
+      link.target = b;
+      data.links.push(link);
     }
     const first = !warmed;
     if (first) {
       warmed = true;
       warming = !reduced;
-      sim.heat = 1;
-      graph.warmupTicks(reduced ? STATIC_TICKS : WARMUP_TICKS);
-    } else if (reduced) {
-      graph.warmupTicks(STATIC_TICKS);
+      sim.heat = reduced ? 0 : 1; // static mode follows its tick budget, not the heat
+    }
+    if (reduced) {
+      sim.budget = first ? STATIC_TICKS : STATIC_SETTLE_TICKS;
+      sim.peak = first ? 1 : STATIC_SETTLE_HEAT;
+      graph.warmupTicks(sim.budget);
+    } else {
+      graph.warmupTicks(first ? WARMUP_TICKS : 0);
     }
     graph.graphData({ nodes: data.nodes, links: data.links });
-    graph.warmupTicks(0);
-    // graphData() drops every single-hop particle (the library's
-    // updDataPhotons); the messages still crossing are put back where they were.
-    for (const effect of effects) {
-      if (effect.kind !== 'message') continue;
-      const link = effect.link;
-      if (!link.__photons) link.__photons = [];
-      if (!link.__photons.includes(effect.photon)) link.__photons.push(effect.photon);
-    }
-    if (first) {
-      if (reduced) {
-        sim.heat = 0;
-        graph.zoomToFit(0, 48);
-      } else {
-        gsap.to(sim, {
-          heat: FLOOR_HEAT,
-          duration: WARMUP_MS / 1000,
-          ease: 'power2.out',
-          onComplete: () => {
-            warming = false;
-            if (!touched && !destroyed) graph.zoomToFit(400, 48);
-          },
-        });
-      }
+    if (first && !reduced) {
+      gsap.to(sim, {
+        heat: FLOOR_HEAT,
+        duration: WARMUP_MS / 1000,
+        ease: 'power2.out',
+        onComplete: () => {
+          warming = false;
+          if (!touched && !destroyed) graph.zoomToFit(400, 48);
+        },
+      });
     }
   }
   const commit = () => {
@@ -518,82 +565,116 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
   // ── painting ──────────────────────────────────────────────────────────────
   const dimmed = (node) => hood !== null && !hood.has(node.id);
 
-  /** All the points, batched by state: one path and one fill per halo colour, per disc, per ring. */
+  /** Point sprites by radius bucket and state (bit 0: in dispute, bit 1: operator-run), at the plate's device pixel ratio. */
+  const sprites = new Map();
+  let spriteDpr = 0;
+  const spriteKey = (bucket, node) => bucket * 4 + (node.disputed ? 1 : 0) + (node.operator ? 2 : 0);
+  /** Paints one sprite with the same arcs a point is made of: halo, disc, ring. Once per bucket and state, never per frame. */
+  function makeSprite(bucket, node, dpr) {
+    const r = bucket / SPRITE_STEP;
+    const halo = r * HALO_RATIO;
+    const ring = r + 2;
+    const extent = (node.operator ? Math.max(halo, ring + 1) : halo) + 1;
+    const size = 2 * Math.ceil(extent * dpr) + 2;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const s = canvas.getContext('2d');
+    const half = size / 2;
+    s.fillStyle = node.disputed ? palette.haloDisputed : palette.halo;
+    s.beginPath();
+    s.arc(half, half, halo * dpr, 0, TAU);
+    s.fill();
+    s.fillStyle = palette.accent;
+    s.beginPath();
+    s.arc(half, half, r * dpr, 0, TAU);
+    s.fill();
+    if (node.operator) {
+      s.strokeStyle = palette.ring;
+      s.lineWidth = dpr;
+      s.beginPath();
+      s.arc(half, half, ring * dpr, 0, TAU);
+      s.stroke();
+    }
+    return { image: canvas, half };
+  }
+
+  /** The device-space frame the points are blitted in, read once per frame (one small matrix), never per point. */
+  const frame = { scale: 1, ox: 0, oy: 0, dpr: 1, w: 0, h: 0 };
+
+  /** One point at its device position: a sprite blit, or arcs when it is too large for one. */
+  function blit(c, n, k) {
+    const dx = Math.round(n.x * frame.scale + frame.ox);
+    const dy = Math.round(n.y * frame.scale + frame.oy);
+    const r = radiusAt(n, k) * k; // CSS px
+    const halo = r * HALO_RATIO;
+    const reach = (halo + 3) * frame.dpr;
+    if (dx < -reach || dy < -reach || dx > frame.w + reach || dy > frame.h + reach) return;
+    if (halo <= SPRITE_MAX_HALO_PX) {
+      const bucket = Math.round(r * SPRITE_STEP);
+      const key = spriteKey(bucket, n);
+      let sprite = sprites.get(key);
+      if (!sprite) {
+        sprite = makeSprite(bucket, n, frame.dpr);
+        sprites.set(key, sprite);
+      }
+      c.drawImage(sprite.image, dx - sprite.half, dy - sprite.half);
+      return;
+    }
+    const dpr = frame.dpr;
+    c.fillStyle = n.disputed ? palette.haloDisputed : palette.halo;
+    c.beginPath();
+    c.arc(dx, dy, halo * dpr, 0, TAU);
+    c.fill();
+    c.fillStyle = palette.accent;
+    c.beginPath();
+    c.arc(dx, dy, r * dpr, 0, TAU);
+    c.fill();
+    if (n.operator) {
+      c.strokeStyle = palette.ring;
+      c.lineWidth = dpr;
+      c.beginPath();
+      c.arc(dx, dy, (r + 2) * dpr, 0, TAU);
+      c.stroke();
+    }
+  }
+
+  /** All the points: the bright ones, then (while following) the dim ones, then the few fading in at their own alpha. */
   function paintNodes(c, k) {
     const ns = data.nodes;
     const count = ns.length;
-    const hw = 1 / k;
+    const m = c.getTransform();
+    const dpr = window.devicePixelRatio;
+    if (dpr !== spriteDpr) {
+      sprites.clear();
+      spriteDpr = dpr;
+    }
+    frame.scale = m.a;
+    frame.ox = m.e;
+    frame.oy = m.f;
+    frame.dpr = dpr;
+    frame.w = c.canvas.width;
+    frame.h = c.canvas.height;
+    c.save();
+    c.setTransform(1, 0, 0, 1, 0, 0);
     for (let pass = 0; pass < 2; pass += 1) {
       const wantDim = pass === 1;
       if (wantDim && hood === null) break;
       c.globalAlpha = wantDim ? DIM_ALPHA : 1;
-      // halos — accent, then amber for the agents in a dispute
-      for (let group = 0; group < 2; group += 1) {
-        const amber = group === 1;
-        let any = false;
-        c.fillStyle = amber ? palette.haloDisputed : palette.halo;
-        c.beginPath();
-        for (let i = 0; i < count; i += 1) {
-          const n = ns[i];
-          if (n.alpha < 1 || n.disputed !== amber || dimmed(n) !== wantDim) continue;
-          const r = radiusAt(n, k) * HALO_RATIO;
-          c.moveTo(n.x + r, n.y);
-          c.arc(n.x, n.y, r, 0, TAU);
-          any = true;
-        }
-        if (any) c.fill();
-      }
-      // discs
-      let any = false;
-      c.fillStyle = palette.accent;
-      c.beginPath();
       for (let i = 0; i < count; i += 1) {
         const n = ns[i];
-        if (n.alpha < 1 || dimmed(n) !== wantDim) continue;
-        const r = radiusAt(n, k);
-        c.moveTo(n.x + r, n.y);
-        c.arc(n.x, n.y, r, 0, TAU);
-        any = true;
+        if (n.alpha < 1 || n.x === undefined || dimmed(n) !== wantDim) continue;
+        blit(c, n, k);
       }
-      if (any) c.fill();
-      // the thin ring of the operator-run agents
-      any = false;
-      c.strokeStyle = palette.ring;
-      c.lineWidth = hw;
-      c.beginPath();
-      for (let i = 0; i < count; i += 1) {
-        const n = ns[i];
-        if (!n.operator || n.alpha < 1 || dimmed(n) !== wantDim) continue;
-        const r = radiusAt(n, k) + 2 * hw;
-        c.moveTo(n.x + r, n.y);
-        c.arc(n.x, n.y, r, 0, TAU);
-        any = true;
-      }
-      if (any) c.stroke();
     }
-    // the few still fading in, each at its own alpha
     for (let i = 0; i < count; i += 1) {
       const n = ns[i];
       if (n.alpha >= 1 || n.x === undefined) continue;
       c.globalAlpha = n.alpha * (dimmed(n) ? DIM_ALPHA : 1);
-      const r = radiusAt(n, k);
-      c.fillStyle = n.disputed ? palette.haloDisputed : palette.halo;
-      c.beginPath();
-      c.arc(n.x, n.y, r * HALO_RATIO, 0, TAU);
-      c.fill();
-      c.fillStyle = palette.accent;
-      c.beginPath();
-      c.arc(n.x, n.y, r, 0, TAU);
-      c.fill();
-      if (n.operator) {
-        c.strokeStyle = palette.ring;
-        c.lineWidth = hw;
-        c.beginPath();
-        c.arc(n.x, n.y, r + 2 * hw, 0, TAU);
-        c.stroke();
-      }
+      blit(c, n, k);
     }
     c.globalAlpha = 1;
+    c.restore();
   }
 
   /** A thread mid-animation; threads at rest are the library's bundled strokes. */
@@ -614,7 +695,7 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
         y2 = s.y + (t.y - s.y) * p;
         break;
       case 'settled': // a green flash, then a dissolve
-        colour = palette.settled;
+        colour = palette.paid;
         if (p < FLASH_PART) width = 1 + 2 * (1 - p / FLASH_PART);
         else alpha = 1 - (p - FLASH_PART) / (1 - FLASH_PART);
         break;
@@ -693,7 +774,7 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
           const particles = e.particles;
           const reach = BURST_PX * inv;
           c.globalAlpha = 1 - p;
-          c.fillStyle = palette.settled;
+          c.fillStyle = palette.paid;
           c.beginPath();
           for (let j = 0; j < particles.length; j += 1) {
             const q = particles[j];
@@ -775,15 +856,19 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
   };
   /**
    * The thread for a key, making one for the moment when the index never
-   * listed the agreement but both parties are on the plate; null when a
-   * party is not (nothing to draw a thread to).
+   * listed the agreement but both parties are on the plate — the parties
+   * the caller names (`{ source, target }`, the event's own), else those in
+   * the key; null when a party is not on the plate (nothing to draw to).
    */
-  const threadFor = (key, status) => {
+  const threadFor = (key, status, hint) => {
     const known = links.get(key);
     if (known) return known;
-    const parties = partiesOfKey(key);
-    if (!parties || !nodes.has(parties.buyer) || !nodes.has(parties.provider)) return null;
-    const link = linkOf({ buyer: parties.buyer, provider: parties.provider, seq: parties.seq, status });
+    const fromKey = partiesOfKey(key);
+    const buyer = hint?.source ?? fromKey?.buyer;
+    const provider = hint?.target ?? fromKey?.provider;
+    if (!buyer || !provider || !nodes.has(buyer) || !nodes.has(provider)) return null;
+    const link = linkOf({ buyer, provider, seq: fromKey?.seq ?? '', status });
+    link.id = key;
     link.origin = 'live';
     links.set(key, link);
     commit();
@@ -832,6 +917,7 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
   const offTheme =
     ctx.bus?.on?.('theme', () => {
       palette = buildPalette(ctx.theme);
+      sprites.clear();
       redraw();
     }) ?? null;
 
@@ -857,8 +943,11 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
           changed = true;
         }
       }
-      for (const id of nodes.keys()) {
-        if (!seen.has(id)) {
+      for (const [id, node] of nodes) {
+        if (seen.has(id)) {
+          node.live = false; // the index lists it now
+        } else if (!node.live) {
+          // A point that joined live (AgentRegistered) stays until the index lists it: the event was real.
           nodes.delete(id);
           changed = true;
         }
@@ -911,9 +1000,9 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
       return thread;
     },
 
-    /** DeliveryConfirmed: the thread flashes green, the provider's point bursts, the thread dissolves and goes. */
-    settleLink(key) {
-      const link = threadFor(key, 'Delivered');
+    /** DeliveryConfirmed: the thread flashes green, the provider's point bursts, the thread dissolves and goes. `parties` ({ source, target }) names them when the index never listed the thread. */
+    settleLink(key, parties) {
+      const link = threadFor(key, 'Delivered', parties);
       if (!link) return false;
       link.status = 'Delivered';
       const provider = nodes.get(endId(link.target));
@@ -937,9 +1026,9 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
       return true;
     },
 
-    /** DisputeOpened: an amber pulse on both parties and the thread; the thread stays amber. */
-    disputeLink(key) {
-      const link = threadFor(key, 'Disputed');
+    /** DisputeOpened: an amber pulse on both parties and the thread; the thread stays amber. `parties` as for settleLink. */
+    disputeLink(key, parties) {
+      const link = threadFor(key, 'Disputed', parties);
       if (!link) return false;
       link.status = 'Disputed';
       const a = nodes.get(endId(link.source));
@@ -959,9 +1048,9 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
       return true;
     },
 
-    /** DisputeResolved: the thread returns to the accent and dissolves, then goes. */
-    resolveLink(key) {
-      const link = threadFor(key, 'Disputed');
+    /** DisputeResolved: the thread returns to the accent and dissolves, then goes. `parties` as for settleLink. */
+    resolveLink(key, parties) {
+      const link = threadFor(key, 'Disputed', parties);
       if (!link) return false;
       const a = nodes.get(endId(link.source));
       const b = nodes.get(endId(link.target));
@@ -1037,6 +1126,7 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
       const fresh = nodeOf({ address, name: node.name, activeEscrowCount: 0, completedAgreements: node.completed ?? 0 }, null);
       if (typeof node.operator === 'boolean') fresh.operator = node.operator;
       placeNear(fresh);
+      fresh.live = true;
       nodes.set(address, fresh);
       if (!reduced) {
         fresh.alpha = 0;
@@ -1077,6 +1167,31 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
       graph.zoomToFit(reduced ? 0 : 400, 48);
     },
 
+    /**
+     * Switches the plate between live and static (prefers-reduced-motion
+     * changing while the page is open): static ends every light at once,
+     * cools the layout and stops the engine; live warms the layout a little
+     * and lets it drift again.
+     */
+    setStatic(flag) {
+      const next = Boolean(flag);
+      if (next === reduced) return;
+      reduced = next;
+      gsap.killTweensOf(sim);
+      warming = false;
+      if (reduced) {
+        while (effects.length) finish(effects[0]);
+        sim.heat = 0;
+        graph.cooldownTicks(0);
+        commit();
+      } else {
+        graph.cooldownTicks(Infinity).warmupTicks(0);
+        sim.heat = EVENT_HEAT;
+        graph.d3ReheatSimulation(); // only to start the engine: this module's force ignores the library's alpha
+        settle(SETTLE_S);
+      }
+    },
+
     pause() {
       graph.pauseAnimation();
       gsap.globalTimeline.pause();
@@ -1097,6 +1212,12 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
       host.removeEventListener('wheel', onTouched);
       host.removeEventListener('pointerdown', onTouched);
       offTheme?.();
+      // The destructor's own (debounced) empty update must find no threads of ours.
+      nodes.clear();
+      links.clear();
+      data.nodes = [];
+      data.links = [];
+      sprites.clear();
       graph._destructor();
     },
 

@@ -355,3 +355,14 @@ body {
     animation: none;
   }
 }
+
+/* The bar's dot while the feed is not live: amber for a feed that is down or
+   behind the chain (the observatory's dispute colour: something is wrong, not
+   dangerous), the plate's grey while connecting. */
+.pulse-bar[data-state="connecting"] .pulse-dot {
+  background: var(--text-dim);
+}
+.pulse-bar[data-state="stale"] .pulse-dot,
+.pulse-bar[data-state="unavailable"] .pulse-dot {
+  background: var(--disputed);
+}

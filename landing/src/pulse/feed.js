@@ -101,6 +101,16 @@ export function backlogRange(lastRead, head, cap = BACKLOG_BLOCKS) {
 }
 
 /** Within `windowBlocks` of the head, and not from its future. The feed's own window, beside the model's isLive. */
+/**
+ * Where the next read starts after a block the index has not reached: the
+ * block before it, so the next head reads it again. With no block read yet,
+ * reading only each new head would skip every block the index was late on
+ * and, if it is always a block late, read nothing at all. Pure; tested.
+ */
+export function retryFrom(lastRead, block) {
+  return lastRead === null || lastRead === undefined ? block - 1 : Math.min(lastRead, block - 1);
+}
+
 export function withinWindow(blockNumber, head, windowBlocks) {
   const behind = head - blockNumber;
   return Number.isFinite(behind) && behind >= 0 && behind <= windowBlocks;
@@ -284,6 +294,8 @@ export function createFeed(ctx, { windowBlocks = LIVE_WINDOW_BLOCKS } = {}) {
           if (!result.ok) {
             // A 404 is "not indexed yet": stop here and retry from this block on the next head.
             if (!result.notIndexed) failure = result.record.error;
+            // Not indexed yet: the next head reads from this block, not from itself.
+            lastRead = retryFrom(lastRead, n);
             break;
           }
           lastRead = n;
@@ -373,11 +385,19 @@ export function createFeed(ctx, { windowBlocks = LIVE_WINDOW_BLOCKS } = {}) {
    * and the status read that fixes the bound is seconds away. Until then, or
    * when that read fails, the page is told why the hour is not there.
    */
+  // The hour's lists are read once, to seed the counters; after that the
+  // per-block feed carries them forward, so seven lists are not re-read every
+  // half minute for the page's whole life.
+  const hourStops = [];
+  function endHour() {
+    for (const stop of hourStops) stop();
+    hourStops.length = 0;
+  }
   function startHour() {
     if (hourStarted) return;
     hourStarted = true;
     for (const name of HOUR_SOURCES) {
-      stops.push(
+      hourStops.push(
         ctx.watchSince(
           name,
           () => hour.get()?.since ?? null,
@@ -438,6 +458,7 @@ export function createFeed(ctx, { windowBlocks = LIVE_WINDOW_BLOCKS } = {}) {
       events.sort((a, b) => a.event.blockNumber - b.event.blockNumber || a.event.index - b.event.index);
     }
     bus.emit('hour', { records, events, hour: window, error: window ? null : (hourError ?? 'the hour is not known yet') });
+    if (window && [...hourRecords.values()].every((record) => record.ok)) Promise.resolve().then(endHour);
   }
 
   return {
@@ -471,6 +492,7 @@ export function createFeed(ctx, { windowBlocks = LIVE_WINDOW_BLOCKS } = {}) {
     },
 
     stop() {
+      endHour();
       endPoll();
       for (const stop of stops.splice(0)) stop();
     },
