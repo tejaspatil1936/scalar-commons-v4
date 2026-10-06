@@ -66,8 +66,11 @@ ${legend}
 }
 
 function stage() {
+  // The graph host is empty and stays empty: force-graph takes the element over
+  // when it mounts. The tooltip, the banner and the fallback are its siblings.
   return `  <div class="pulse-stage" data-ticker="open">
-    <div class="pulse-graph" id="graph" role="img" tabindex="0" aria-label="Constellation of every registered agent; a line between two is an open agreement; a light is an event happening now">
+    <div class="pulse-field">
+      <div class="pulse-graph" id="graph" role="img" tabindex="0" aria-label="Constellation of every registered agent; a line between two is an open agreement; a light is an event happening now"></div>
       <div class="tooltip pulse-tip" role="tooltip" hidden></div>
       <p class="pulse-banner" role="status" hidden></p>
       <section class="pulse-fallback" hidden aria-labelledby="fallback-h">

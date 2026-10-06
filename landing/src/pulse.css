@@ -150,11 +150,15 @@ body {
 .pulse-stage[data-ticker="closed"] {
   grid-template-columns: minmax(0, 1fr) 40px;
 }
-.pulse-graph {
+.pulse-field {
   position: relative;
   min-height: 0;
   overflow: hidden;
   background: var(--bg);
+}
+.pulse-graph {
+  position: absolute;
+  inset: 0;
   touch-action: none;
   cursor: grab;
 }
@@ -186,8 +190,11 @@ body {
   white-space: nowrap;
 }
 .pulse-fallback {
+  position: absolute;
+  inset: 0;
   padding: var(--space-4);
   overflow: auto;
+  background: var(--bg);
 }
 .pulse-fallback ol {
   columns: 16rem;

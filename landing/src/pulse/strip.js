@@ -9,8 +9,9 @@
 
 import { HOUR_MS, counters } from './model.js';
 
-/** The reading keys the strip fills, in order. */
+/** The reading keys the strip fills, in order, and the counter each shows. */
 export const KEYS = ['activeAgents', 'eventsPerMinute', 'messagesHour'];
+export const COUNTER = { activeAgents: 'activeAgents', eventsPerMinute: 'eventsLastMinute', messagesHour: 'messagesLastHour' };
 const EXTRA = {
   activeAgents: 'agents party to an event in the last 10 minutes',
   eventsPerMinute: 'events the page reacts to, in the last minute',
@@ -43,7 +44,7 @@ export function init(root, ctx, feed) {
     const figures = counters([...seeded, ...live], now);
     for (const key of KEYS) {
       if (!targets[key]) continue;
-      ctx.readout.showValue(targets[key], provenance, { value: figures[key], extra: `${EXTRA[key]} · ${basisText(liveSeen)}`, motion: ctx.motion });
+      ctx.readout.showValue(targets[key], provenance, { value: figures[COUNTER[key]], extra: `${EXTRA[key]} · ${basisText(liveSeen)}`, motion: ctx.motion });
     }
   }
 

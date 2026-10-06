@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { basisText, KEYS } from '../../src/pulse/strip.js';
-import { MAX_DPR, bannerText, capDevicePixelRatio, roleOf } from '../../src/pulse/main.js';
+import { MAX_DPR, bannerText, capDevicePixelRatio, roleOf } from '../../src/pulse/wiring.js';
 import { FIGURES } from '../../src/pulse.mjs';
 
 test('the strip names both reads a figure comes from, and the three keys are the page’s three figures', () => {

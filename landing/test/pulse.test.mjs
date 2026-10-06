@@ -46,9 +46,10 @@ test('the build emits the pulse page, its one script and its stylesheet, and the
   assert.deepEqual([...observatory.matchAll(/<script[^>]* src="([^"]+)"/g)].map((m) => m[1]), ['observatory.js']);
   assert.ok(!observatory.includes('pulse.js'));
   // The canvas library and the easing library ride in pulse.js and nowhere else.
-  assert.ok(/kapsule|ForceGraph|forceSimulation/.test(bundle), 'force-graph lives in pulse.js');
-  assert.ok(/gsap/i.test(bundle), 'gsap lives in pulse.js');
-  assert.ok(!/gsap|kapsule/.test(observatoryBundle), 'and not in observatory.js');
+  // Minification keeps the libraries' own property names, not their identifiers.
+  assert.ok(/linkDirectionalParticles|nodeCanvasObject/.test(bundle), 'force-graph lives in pulse.js');
+  assert.ok(/gsap|globalTimeline/i.test(bundle), 'gsap lives in pulse.js');
+  assert.ok(!/gsap|globalTimeline|linkDirectionalParticles|nodeCanvasObject/.test(observatoryBundle), 'and not in observatory.js');
   assert.ok(page.includes('<style>') && !page.includes('<link rel="stylesheet"'), 'the stylesheet is inlined');
   assert.ok(page.includes('fonts/source-serif-4-latin-opsz-normal.woff2'), 'the display serif is preloaded');
 });
@@ -74,7 +75,7 @@ test('the strip has exactly the three figures, the caption and a legend of six',
 });
 
 test('the stage: the graph host, the tooltip, the banner, the fallback list, the ticker and the fullscreen key', () => {
-  assert.match(page, /<div class="pulse-graph" id="graph" role="img" tabindex="0" aria-label="[^"]+">/);
+  assert.match(page, /<div class="pulse-graph" id="graph" role="img" tabindex="0" aria-label="[^"]+"><\/div>/, 'the host ships empty: force-graph takes it over');
   assert.match(page, /<div class="tooltip pulse-tip" role="tooltip" hidden>/);
   assert.match(page, /<p class="pulse-banner" role="status" hidden>/);
   assert.match(page, /<section class="pulse-fallback" hidden/);
