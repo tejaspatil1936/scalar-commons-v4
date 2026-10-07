@@ -8,7 +8,7 @@
 // tooltip, bar), so the two pages read as one site.
 
 import { escapeHtml, renderNav } from './render.mjs';
-import { PULSE_NAV, reading, renderHead, wordmark } from './observatory.mjs';
+import { OVERSIGHT_NAV, PULSE_NAV, reading, renderHead, wordmark } from './observatory.mjs';
 
 export { PULSE_NAV };
 export const CAPTION = 'Every light is a real transaction on the Scalar Commons test network.';
@@ -38,7 +38,7 @@ function bar() {
   <div class="frame sb-inner">
     <div class="sb-left">
       ${wordmark({ href: './' })}
-${renderNav('pulse', [PULSE_NAV])}
+${renderNav('pulse', [PULSE_NAV, OVERSIGHT_NAV])}
     </div>
     <div class="sb-right">
       <p class="sb-pill" role="status" aria-live="off"><span class="pulse-dot" aria-hidden="true"></span><span class="sb-state">Connecting</span></p>

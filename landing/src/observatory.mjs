@@ -13,6 +13,8 @@ import { storageKey } from './observatory/scale.js';
 
 /** The second live page, /pulse, linked from this page's nav (its own module imports this one, so the item lives here). */
 export const PULSE_NAV = { key: 'pulse', label: 'Pulse', href: 'pulse' };
+/** /oversight — the agent-messaging oversight sample. Same reason it lives here. */
+export const OVERSIGHT_NAV = { key: 'oversight', label: 'Oversight', href: 'oversight' };
 
 export const API_HOST = 'api.scalarnet.io';
 export const RPC_WSS = 'wss://rpc.scalarnet.io';
@@ -468,7 +470,7 @@ function statusBar() {
   <div class="frame sb-inner">
     <div class="sb-left">
       ${wordmark()}
-${renderNav('observatory', [PULSE_NAV])}
+${renderNav('observatory', [PULSE_NAV, OVERSIGHT_NAV])}
     </div>
     <div class="sb-right">
       <p class="sb-pill" role="status" aria-live="off"><span class="reading-label">Network status</span><span class="pulse-dot" aria-hidden="true"></span><span class="sb-state">Connecting</span><span class="sb-sep" aria-hidden="true"> · </span><span class="sb-block">block <span class="reading-value is-loading">${skeleton(true)}</span></span><span class="sb-sep" aria-hidden="true"> · </span><span class="sb-finality">finality —</span><span class="sb-validators">validators not yet read</span></p>

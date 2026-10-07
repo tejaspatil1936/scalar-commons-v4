@@ -21,6 +21,19 @@ export const FONTS = [
  * rules live beside its script and may only use the tokens the design system
  * defines; they never redefine `:root`.
  */
+/**
+ * The stylesheet /oversight ships: the design system and the instrument rules,
+ * then the page's own. Shared by the site build and the standalone emitter so
+ * the two cannot drift — the standalone copy is evidence, and evidence that
+ * looks different from the page it came from is worth less.
+ */
+export function oversightCss() {
+  return `${observatoryCss()}\n/* ── oversight.css ── */\n${readFileSync(
+    fileURLToPath(new URL('./oversight.css', import.meta.url)),
+    'utf8',
+  )}`;
+}
+
 export function observatoryCss() {
   const base = readFileSync(fileURLToPath(new URL('./observatory.css', import.meta.url)), 'utf8');
   const dir = new URL('./observatory/instruments/', import.meta.url);
