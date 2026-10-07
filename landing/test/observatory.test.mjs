@@ -723,3 +723,21 @@ test('identity: the wordmark with the mark in the top bar and the footer; no fav
   assert.match(footer, /class="merge" data-reading="lastMerge"/);
   assert.match(footer, /<details class="disclosure howto">/);
 });
+
+test('the graph key names what the plate now draws: active points and three line states', () => {
+  const legend = page.match(/<ul class="legend graph-legend"[\s\S]*?<\/ul>/)?.[0] ?? '';
+  assert.ok(legend, 'the graph key must be on the page');
+  for (const label of ['Active — event in last 10 min', 'Open agreement', 'Settled, last hour', 'In dispute']) {
+    assert.ok(legend.includes(label), `the graph key is missing "${label}"`);
+  }
+  // Each label needs the mark it describes, and the old bare "Open"/"Settled"
+  // wording is gone rather than left beside the new.
+  for (const mark of ['dot dot-working', 'swatch swatch-active', 'swatch swatch-settled-hour', 'swatch swatch-disputed']) {
+    assert.ok(legend.includes(`class="${mark}"`), `the graph key is missing the mark ${mark}`);
+  }
+  assert.ok(!/>Open<|>Settled<|>Disputed</.test(legend), 'the superseded one-word labels are gone');
+  // The key's samples must exist as rules, or it shows four blank gaps.
+  for (const cls of ['.swatch-settled-hour', '.swatch-disputed', '.swatch-settled', '.dot-working']) {
+    assert.ok(css.includes(cls), `${cls} has no rule`);
+  }
+});

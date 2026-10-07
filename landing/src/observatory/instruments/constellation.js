@@ -26,15 +26,25 @@
 
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, forceX, forceY } from 'd3-force';
 
+// The page's one tracker of the index's newest hour. Imported (unlike the
+// agent field's constants) because it is the shared status read itself: a
+// second copy would mean a second clock, and the plate would then disagree
+// with the hour row about which blocks "the last hour" means.
+import { hourTracker } from '../hour.js';
+
 // The same intervals and page caps as the agent field (agent-field.js), so
 // the reads are shared, not repeated. They are restated here rather than
 // imported: an import would pull the agent field into a chunk of its own and
 // cost the first screen a second script. A test holds the two equal.
 export const AGENT_PAGES = 10;
 export const ESCROW_PAGES = 5;
+/** The page cap the hour row uses for its event lists (last-hour.js, HOUR_PAGES). */
+export const HOUR_PAGES = 10;
 const AGENTS_INTERVAL_MS = 60_000;
 const ESCROWS_INTERVAL_MS = 30_000;
 const SETTLED_INTERVAL_MS = 60_000;
+/** The hour row's interval for its event lists (last-hour.js, INTERVAL_MS). */
+const ACTIVITY_INTERVAL_MS = 30_000;
 const SETTLED_PAGES = 2; // the most recent two pages of settled agreements
 
 /** The graph shows this many of the most active agents, never more. */
@@ -62,6 +72,12 @@ const PULSE_MS = 600;
 const FADE_MS = 400;
 const FIRST_LAYOUT_GRACE_MS = 1_500; // how long the first layout waits for the line sources
 const CROWDED_LINE_ALPHA = 0.55; // settled lines step back only when the plate is crowded
+/** An open agreement: the heaviest ordinary line on the plate. */
+export const OPEN_WIDTH = 2;
+export const OPEN_ALPHA = 0.9;
+/** A settled agreement inside the index's newest hour, and one older than it. */
+export const SETTLED_HOUR_ALPHA = 0.35;
+export const SETTLED_OLD_ALPHA = 0.18;
 
 // ── pure model ───────────────────────────────────────────────────────────────
 
@@ -73,6 +89,103 @@ export const pairKey = (a, b) => (a < b ? `${a}|${b}` : `${b}|${a}`);
 
 /** Created and Delivered are both "open — payment held"; Disputed is its own state. */
 export const stateOf = (status) => (status === 'Disputed' ? 'disputed' : 'open');
+
+// ── what a point is doing now ────────────────────────────────────────────────
+//
+// A point is coloured by RECENT ACTIVITY, not by what it holds: an agent with
+// any on-chain event in the last ten minutes is working, whatever its open
+// agreements say. The window is measured in BLOCKS against the index's newest
+// hour (hour.js), not in wall-clock milliseconds, for the same reason the hour
+// row is: the event index can fall behind the chain, and a window measured
+// from the browser's clock would start past everything the index holds and
+// read as "nothing is happening".
+
+/** Ten minutes, in blocks (the runtime's SECS_PER_BLOCK = 6). */
+export const ACTIVE_WINDOW_BLOCKS = 100;
+/** One minute, in blocks: a point this fresh pulses. */
+export const PULSE_WINDOW_BLOCKS = 10;
+/** One full in-and-out of a point's pulse. */
+export const NODE_PULSE_MS = 2_000;
+
+/**
+ * The point colours, by state. Restated from the agent field's STATE_COLOUR
+ * rather than imported, for the reason given above AGENT_PAGES; a test holds
+ * the two equal.
+ */
+export const NODE_STATE_COLOUR = { idle: 'idle', working: 'active', disputed: 'disputed' };
+
+/**
+ * The event lists a point's state is read from — exactly the ones the hour row
+ * already fetches (last-hour.js FIGURES), so this costs no extra read. A test
+ * holds the two lists equal.
+ */
+export const ACTIVITY_SOURCES = [
+  'oracleAnswers',
+  'oracleBatches',
+  'deliveriesConfirmed',
+  'disputesOpened',
+  'slashes',
+  'messagesSent',
+];
+
+/**
+ * Per-agent event activity over the index's newest hour: the newest block each
+ * agent appears in, and how many of the hour's events it was party to.
+ *
+ * `records` are the event reads themselves; every indexed event carries the
+ * accounts it touched (`accounts`), which is what makes one pass over the
+ * lists the hour row already holds enough. A failed read contributes nothing
+ * rather than making every agent look idle. Pure; tested.
+ */
+export function agentEvents(records, hour) {
+  const byAgent = new Map();
+  if (!hour) return byAgent;
+  for (const record of records) {
+    if (!record?.ok) continue;
+    for (const item of record.items ?? []) {
+      const block = item?.blockNumber;
+      if (!Number.isFinite(block) || block < hour.since) continue;
+      for (const address of item?.accounts ?? []) {
+        if (typeof address !== 'string') continue;
+        const entry = byAgent.get(address);
+        if (entry) {
+          entry.hourCount += 1;
+          if (block > entry.lastBlock) entry.lastBlock = block;
+        } else {
+          byAgent.set(address, { lastBlock: block, hourCount: 1 });
+        }
+      }
+    }
+  }
+  return byAgent;
+}
+
+/** How many blocks ago this agent was last seen, or null when it was not. Pure; tested. */
+export function blocksSince(entry, hour) {
+  if (!hour || !entry || !Number.isFinite(entry.lastBlock)) return null;
+  return Math.max(0, hour.to - entry.lastBlock);
+}
+
+/**
+ * A point's state, most urgent first: in dispute, working (an event within ten
+ * minutes), else idle. Grey means only "nothing in ten minutes". Pure; tested.
+ */
+export function nodeState(entry, hour, disputed = false) {
+  if (disputed) return 'disputed';
+  const since = blocksSince(entry, hour);
+  return since !== null && since <= ACTIVE_WINDOW_BLOCKS ? 'working' : 'idle';
+}
+
+/** Whether a point pulses: an event within the last minute. Pure; tested. */
+export function nodePulses(entry, hour) {
+  const since = blocksSince(entry, hour);
+  return since !== null && since <= PULSE_WINDOW_BLOCKS;
+}
+
+/** Was this settled agreement settled inside the index's newest hour? Pure; tested. */
+export function settledInHour(edge, hour) {
+  return Boolean(hour && Number.isFinite(edge?.block) && edge.block >= hour.since);
+}
 
 /**
  * The lines to draw: every open agreement, then every settled one that is
@@ -392,6 +505,10 @@ export function init(root, ctx) {
   let settledList = null;
   const failures = { agents: null, open: null, settled: null };
   const seen = { open: false, settled: false }; // a line source has reported at least once
+  /** The event reads a point's state is drawn from, by source name (ACTIVITY_SOURCES). */
+  const activityRecords = new Map();
+  /** The index's newest hour, from the page's one status tracker; null until it reports. */
+  let hourWindow = null;
 
   // ── graph state ──
   const nodes = new Map(); // address -> point (persistent objects: d3 mutates x/y)
@@ -399,6 +516,10 @@ export function init(root, ctx) {
   let fading = []; // lines on their way out
   let settledShown = 0;
   let maxActivity = 0;
+  /** 0 to 1 across one breath of the point pulse; held at 0 when nothing should move. */
+  let pulsePhase = 0;
+  let pulseRunning = false;
+  let cancelPulse = null;
   let laidOut = false; // the first layout has run
   let graceTimer = null; // the first layout's wait for the line sources
   let graceElapsed = false;
@@ -548,11 +669,38 @@ export function init(root, ctx) {
       }
     }
     maxActivity = 0;
+    // What each point is doing now, from the hour row's own event reads, and
+    // which points a disputed line touches.
+    const events = agentEvents([...activityRecords.values()], hourWindow);
+    // Either every point is sized by the hour's events or none is: sizing some
+    // by event count and the rest by agreements taken part in would put two
+    // different scales under one `maxActivity` and distort every radius.
+    //
+    // The test is "the hour had events", not "the reads succeeded". On a quiet
+    // hour every count would be 0, `maxActivity` would be 0, and nodeRadius
+    // treats a zero maximum as "no scale to speak of" and returns its LARGEST
+    // radius — so an idle chain would have drawn every point at 12 px. Falling
+    // back to the agreement counts keeps the plate readable when nothing is
+    // happening.
+    const haveEvents = hourWindow !== null && events.size > 0;
+    const inDispute = new Set();
+    for (const edge of built.edges.values()) {
+      if (edge.state !== 'disputed') continue;
+      inDispute.add(edge.buyer);
+      inDispute.add(edge.provider);
+    }
     // `degree` was counted by synthesizeNodes from the line map just built,
     // so the sizes and the lines drawn come from the same poll.
     for (const node of nodes.values()) {
       if (node.ghost) continue;
-      node.activity = activityOf(node, node.degree);
+      const entry = events.get(node.id) ?? null;
+      node.state = nodeState(entry, hourWindow, inDispute.has(node.id));
+      node.pulses = nodePulses(entry, hourWindow);
+      node.hourEvents = entry ? entry.hourCount : null;
+      // Size follows the hour's events once they have been read; until then it
+      // falls back to the agreements the agent has taken part in, so the first
+      // paint is not a plate of identical smallest points.
+      node.activity = haveEvents ? (entry ? entry.hourCount : 0) : activityOf(node, node.degree);
       if (node.activity > maxActivity) maxActivity = node.activity;
     }
     computeRadii();
@@ -643,6 +791,9 @@ export function init(root, ctx) {
     describe();
     renderList();
     renderNote();
+    // This poll may have made a quiet point fresh; the breath starts (or
+    // stops, once nothing is fresh) from here.
+    runPulse();
   }
 
   function clearGrace() {
@@ -704,15 +855,71 @@ export function init(root, ctx) {
     simulation.restart();
   }
 
+  /**
+   * The point pulse: one 2 s breath, re-armed while any point is still fresh.
+   *
+   * `ctx.motion.tween` runs once and stops, and under reduced motion or in a
+   * hidden tab it calls its frame with 1 and finishes SYNCHRONOUSLY — so
+   * re-arming from `done` without these guards would spin forever. Both cases
+   * are therefore refused up front and `pulsePhase` stays 0, which draws no
+   * ring at all; the visibility handler below starts the loop again when the
+   * tab comes back.
+   */
+  function runPulse() {
+    if (pulseRunning || ctx.motion.reduced() || document.hidden) return;
+    let anyPulses = false;
+    for (const node of nodes.values()) if (node.pulses) anyPulses = true;
+    if (!anyPulses) {
+      pulsePhase = 0;
+      return;
+    }
+    pulseRunning = true;
+    cancelPulse = ctx.motion.tween(
+      NODE_PULSE_MS,
+      (t) => {
+        pulsePhase = t;
+        draw();
+      },
+      {
+        ease: (t) => t, // the swell is a sine in the paint; the tween is linear
+        done: () => {
+          pulseRunning = false;
+          cancelPulse = null;
+          runPulse();
+        },
+      },
+    );
+  }
+
   ctx.bus.on('visibility', ({ hidden }) => {
     if (hidden) simulation.stop();
     else if (simulation.alpha() > simulation.alphaMin()) settle(simulation.alpha());
+    if (hidden) {
+      // A hidden tab stops firing requestAnimationFrame, so the tween in
+      // flight never reaches `done` and never clears `pulseRunning`. Without
+      // this the breath would be dead for the rest of the visit once the tab
+      // had been away. Cancel it and let the loop start clean on return.
+      cancelPulse?.();
+      cancelPulse = null;
+      pulseRunning = false;
+      pulsePhase = 0;
+    } else {
+      runPulse();
+    }
   });
   ctx.bus.on('theme', () => draw());
 
   // ── drawing ──
+  /**
+   * A line's colour. A settled agreement is teal while it is still inside the
+   * index's newest hour — it is recent work, and the eye should group it with
+   * the open lines — and only falls back to the settled grey once it is older
+   * than that.
+   */
   function edgeColour(edge) {
-    return colour(edge.state === 'disputed' ? 'disputed' : edge.state === 'settled' ? 'settled' : 'active');
+    if (edge.state === 'disputed') return colour('disputed');
+    if (edge.state === 'settled') return colour(settledInHour(edge, hourWindow) ? 'active' : 'settled');
+    return colour('active');
   }
 
   function edgePath(g, edge, progress) {
@@ -749,17 +956,21 @@ export function init(root, ctx) {
     let alpha = edge.alpha;
     let width = 1;
     if (state === 'settled') {
-      // Full colour: the hierarchy settled < open < disputed is carried by
-      // the dash, the width and the colour; the plate steps settled lines
-      // back only when it is crowded.
-      g.setLineDash([4, 3]);
+      // Three tiers, all solid: settled inside the index's newest hour reads
+      // as recent work (teal, thin, well back), older settled as the grey it
+      // always was but fainter still. The dash is gone — the hierarchy
+      // settled < open < disputed is carried by width and opacity now, which
+      // survives a crowded plate better than a 4/3 dash does.
+      g.setLineDash([]);
+      alpha *= settledInHour(edge, hourWindow) ? SETTLED_HOUR_ALPHA : SETTLED_OLD_ALPHA;
       if (crowded) alpha *= CROWDED_LINE_ALPHA;
     } else if (state === 'disputed') {
       g.setLineDash([]);
       width = 2 + 3 * edge.pulse;
     } else {
       g.setLineDash([]);
-      alpha *= 0.9;
+      width = OPEN_WIDTH;
+      alpha *= OPEN_ALPHA;
     }
     if (isolatedAlpha < 1 && (edge.source.degree <= 1 || edge.target.degree <= 1)) alpha *= 0.7;
     g.globalAlpha = Math.max(0, alpha);
@@ -838,12 +1049,25 @@ export function init(root, ctx) {
         g.lineWidth = 1;
         g.stroke();
       } else {
-        g.fillStyle = colour('text');
+        g.fillStyle = colour(NODE_STATE_COLOUR[node.state] ?? NODE_STATE_COLOUR.idle);
         if (node.leaving) g.globalAlpha *= 0.5;
         g.fill();
         g.strokeStyle = colour('bg');
         g.lineWidth = 1;
         g.stroke();
+        // An event in the last minute: one slow ring, in the point's own
+        // colour, breathing out and back over NODE_PULSE_MS. `pulsePhase`
+        // holds at 0 under reduced motion or a hidden tab, so this draws
+        // nothing rather than a static halo.
+        if (node.pulses && pulsePhase > 0) {
+          const swell = Math.sin(Math.PI * pulsePhase);
+          g.globalAlpha = 0.45 * swell;
+          g.beginPath();
+          g.arc(node.x, node.y, node.r + 3 + 5 * swell, 0, Math.PI * 2);
+          g.strokeStyle = colour(NODE_STATE_COLOUR[node.state] ?? NODE_STATE_COLOUR.idle);
+          g.lineWidth = 1.5;
+          g.stroke();
+        }
       }
       g.globalAlpha = 1;
     }
@@ -1175,15 +1399,42 @@ export function init(root, ctx) {
         settledList = null;
         failures.settled = error.message;
       }
+      // The same read also says who was active: a confirmed delivery is one of
+      // the hour's events. Kept raw, beside the other five.
+      activityRecords.set('deliveriesConfirmed', record);
       rebuild();
     },
     SETTLED_INTERVAL_MS,
     { maxPages: SETTLED_PAGES },
   );
 
+  // What each point is doing now. These are the hour row's own event reads
+  // (ACTIVITY_SOURCES), at its page cap, so the pool serves both from one
+  // fetch; `deliveriesConfirmed` is already watched above for the lines.
+  for (const name of ACTIVITY_SOURCES) {
+    if (name === 'deliveriesConfirmed') continue;
+    ctx.watchAll(
+      name,
+      (record) => {
+        activityRecords.set(name, record);
+        rebuild();
+      },
+      ACTIVITY_INTERVAL_MS,
+      { maxPages: HOUR_PAGES },
+    );
+  }
+
+  // The hour the windows are measured against. A change of synced height moves
+  // both the ten-minute window and the settled tiers, so the plate redraws.
+  hourTracker(ctx).onChange(({ hour }) => {
+    hourWindow = hour;
+    rebuild();
+  });
+
   describe();
   renderList();
   renderNote();
   draw();
+  runPulse();
   return { nodes: () => nodes };
 }

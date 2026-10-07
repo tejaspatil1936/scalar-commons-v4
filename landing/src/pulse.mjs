@@ -21,6 +21,21 @@ export const LEGEND = [
   ['sym-spark', 'Oracle answer'],
   ['sym-agent', 'Agent joined'],
 ];
+/**
+ * What the points and threads mean, beside what the lights mean.
+ *
+ * "Settled, last hour" is deliberately absent: a settled agreement's thread
+ * DISSOLVES on this page (the green flash, then it is gone), so there is no
+ * settled mark here to put in a key. That tier is on the observatory's graph,
+ * which draws settled agreements as lines. A key must not name a mark the
+ * plate never shows.
+ */
+export const STATE_LEGEND = [
+  ['dot dot-working', 'Active — event in last 10 min'],
+  ['swatch swatch-active', 'Open agreement'],
+  ['swatch swatch-disputed', 'In dispute'],
+];
+
 /** The three figures, in order: key, caption. */
 export const FIGURES = [
   ['activeAgents', 'agents active now'],
@@ -60,6 +75,11 @@ ${figures}
     <p class="pulse-caption">${escapeHtml(CAPTION)}</p>
     <ul class="pulse-legend" aria-label="What the lights mean">
 ${legend}
+    </ul>
+    <ul class="pulse-legend pulse-state-legend" aria-label="What the points and threads mean">
+${STATE_LEGEND.map(
+  ([mark, label]) => `      <li><span class="${mark}" aria-hidden="true"></span>${escapeHtml(label)}</li>`,
+).join('\n')}
     </ul>
   </header>`;
 }

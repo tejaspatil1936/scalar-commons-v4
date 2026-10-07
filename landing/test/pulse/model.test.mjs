@@ -6,23 +6,29 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
+  ACTIVE_WINDOW_MS,
+  EFFECT_CAP,
   EVENTS,
+  HOUR_MS,
   KINDS,
   LIVE_WINDOW_BLOCKS,
-  EFFECT_CAP,
+  MINUTE_MS,
+  NODE_PULSE_MS,
   TICKER_MAX,
-  kindOf,
-  partiesOf,
+  ageText,
   agreementKey,
   agreementKeyOf,
-  displayName,
-  isLive,
-  explorerHref,
-  sentence,
-  ageText,
   counters,
-  nodeValue,
+  displayName,
   expire,
+  explorerHref,
+  isLive,
+  kindOf,
+  nodeActivity,
+  nodeValue,
+  partiesOf,
+  pulsePhase,
+  sentence,
 } from '../../src/pulse/model.js';
 import { formatCmn } from '../../src/observatory/format.js';
 import { EXPLORER_ORIGIN } from '../../src/observatory/data.js';
@@ -202,4 +208,54 @@ test('effects expire by lifetime, then the oldest first past the cap, in order',
   assert.equal(alive[0].i, 50, 'the 20 dead and the 30 oldest living are gone');
   assert.equal(alive[199].i, 249);
   assert.deepEqual(expire([{ until: now + 1 }], now, 5), [{ until: now + 1 }]);
+});
+
+// ── what a point is doing now (teal while working, grey when quiet) ──────────
+
+test('a point is working for ten minutes after its newest event, and fresh for one', () => {
+  const now = 1_000_000;
+  assert.deepEqual(nodeActivity([now], now), { working: true, fresh: true });
+  assert.deepEqual(nodeActivity([now - MINUTE_MS], now), { working: true, fresh: true }, 'exactly a minute still pulses');
+  assert.deepEqual(nodeActivity([now - MINUTE_MS - 1], now), { working: true, fresh: false });
+  assert.deepEqual(nodeActivity([now - ACTIVE_WINDOW_MS], now), { working: true, fresh: false }, 'exactly ten minutes still works');
+  assert.deepEqual(nodeActivity([now - ACTIVE_WINDOW_MS - 1], now), { working: false, fresh: false });
+  // Only the newest matters: the list is in time order and pruned to the hour.
+  assert.deepEqual(nodeActivity([now - HOUR_MS, now - 1_000], now), { working: true, fresh: true });
+});
+
+test('a point with no events, or an event in the future, is not called active', () => {
+  const now = 1_000_000;
+  assert.deepEqual(nodeActivity([], now), { working: false, fresh: false });
+  assert.deepEqual(nodeActivity(undefined, now), { working: false, fresh: false });
+  assert.deepEqual(nodeActivity([now + 5_000], now), { working: false, fresh: false }, 'a negative age is not activity');
+});
+
+test('the working window is the same ten minutes the strip counts "agents active now" over', () => {
+  // A point is teal exactly when it is one of the agents that figure counts.
+  const now = 1_000_000;
+  const seen = [{ kind: 'message', at: now - 5_000, parties: { from: 'a', to: 'b' } }];
+  assert.equal(counters(seen, now).activeAgents, 2);
+  assert.equal(nodeActivity([now - 5_000], now).working, true);
+  const stale = now - ACTIVE_WINDOW_MS - 1;
+  assert.equal(counters([{ kind: 'message', at: stale, parties: { from: 'a', to: 'b' } }], now).activeAgents, 0);
+  assert.equal(nodeActivity([stale], now).working, false);
+});
+
+test('the pulse phase walks 0 to 1 once per period, from the clock alone', () => {
+  assert.equal(pulsePhase(0), 0);
+  assert.equal(pulsePhase(NODE_PULSE_MS / 2), 0.5);
+  assert.equal(pulsePhase(NODE_PULSE_MS), 0, 'it wraps rather than running past 1');
+  assert.equal(pulsePhase(NODE_PULSE_MS * 3 + NODE_PULSE_MS / 4), 0.25, 'and keeps wrapping');
+  assert.equal(pulsePhase(Number.NaN), 0, 'a clock that says nothing animates nothing');
+  assert.equal(pulsePhase(1_000, 0), 0);
+  // Never outside [0, 1): the paint takes sin(pi * phase) and must not go negative.
+  for (const t of [1, 333, 1_999, 2_000, 123_456]) {
+    const p = pulsePhase(t);
+    assert.ok(p >= 0 && p < 1, `phase ${p} out of range at ${t}`);
+    assert.ok(Math.sin(Math.PI * p) >= 0, 'the swell is never negative');
+  }
+});
+
+test('NODE_PULSE_MS is the brief’s slow two seconds', () => {
+  assert.equal(NODE_PULSE_MS, 2_000);
 });

@@ -6,6 +6,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  ACTIVE_WINDOW_BLOCKS,
+  ACTIVITY_SOURCES,
   BUNDLE_CAP,
   BUNDLE_MAX_BAND,
   BUNDLE_MIN_SPACING,
@@ -13,10 +15,20 @@ import {
   FADE_ISOLATED_ABOVE,
   GHOST_RADIUS,
   GRAPH_MAX_NODES,
+  HOUR_PAGES,
   ISOLATED_ALPHA,
   LABEL_MAX_CHARS,
   LABEL_MAX_NODES,
+  NODE_PULSE_MS,
+  NODE_STATE_COLOUR,
+  OPEN_ALPHA,
+  OPEN_WIDTH,
+  PULSE_WINDOW_BLOCKS,
+  SETTLED_HOUR_ALPHA,
+  SETTLED_OLD_ALPHA,
   activityOf,
+  agentEvents,
+  blocksSince,
   buildEdges,
   bundleLayout,
   clusterAnchors,
@@ -27,12 +39,15 @@ import {
   labelPolicy,
   labelText,
   linesAt,
+  nodePulses,
   nodeRadius,
+  nodeState,
   overlaps,
   pairKey,
   parallelOffset,
   rectTouchesCircle,
   seedAngle,
+  settledInHour,
   stateOf,
   summaryText,
   synthesizeNodes,
@@ -339,4 +354,107 @@ test('the summary groups thousands when given the page’s formatter', () => {
     summaryText({ agents: 120, of: 2000, open: 1500, disputed: 12, settled: 40 }, fmt),
     'Network graph: the 120 most active of 2,000 agents, 1,500 open agreements, 12 disputed, 40 recently settled.',
   );
+});
+
+// ── what a point is doing now (the teal/amber/grey states) ──────────────────
+
+test('agentEvents counts the hour’s events per agent and remembers the newest block each was seen in', () => {
+  const hour = { since: 1000, to: 1100, best: 1100, behind: 0 };
+  const records = [
+    { ok: true, items: [
+      { blockNumber: 1099, accounts: ['a', 'b'] },
+      { blockNumber: 1050, accounts: ['a'] },
+      { blockNumber: 999, accounts: ['c'] }, // before the hour: ignored
+    ] },
+    { ok: true, items: [{ blockNumber: 1020, accounts: ['b'] }] },
+    { ok: false, error: 'unavailable', items: [] }, // contributes nothing, breaks nothing
+  ];
+  const events = agentEvents(records, hour);
+  assert.deepEqual(events.get('a'), { lastBlock: 1099, hourCount: 2 });
+  assert.deepEqual(events.get('b'), { lastBlock: 1099, hourCount: 2 });
+  assert.equal(events.get('c'), undefined, 'an event before the hour is not counted');
+  assert.equal(agentEvents(records, null).size, 0, 'with no hour there is nothing to measure against');
+  assert.equal(agentEvents([{ ok: true, items: [{ blockNumber: 1050 }] }], hour).size, 0, 'an event with no accounts touches nobody');
+});
+
+test('a point is working on any event within ten minutes, in dispute ahead of that, grey only when nothing', () => {
+  const hour = { since: 1000, to: 1100, best: 1100, behind: 0 };
+  const fresh = { lastBlock: 1100, hourCount: 1 };
+  const tenMinutesAgo = { lastBlock: 1100 - ACTIVE_WINDOW_BLOCKS, hourCount: 1 };
+  const older = { lastBlock: 1100 - ACTIVE_WINDOW_BLOCKS - 1, hourCount: 1 };
+
+  assert.equal(nodeState(fresh, hour), 'working');
+  assert.equal(nodeState(tenMinutesAgo, hour), 'working', 'exactly ten minutes still counts');
+  assert.equal(nodeState(older, hour), 'idle', 'a block past the window is grey');
+  assert.equal(nodeState(null, hour), 'idle', 'an agent in no event list is grey');
+  assert.equal(nodeState(fresh, null), 'idle', 'with no hour, nothing can be called active');
+  // Dispute outranks everything, including an agent with no events at all.
+  assert.equal(nodeState(fresh, hour, true), 'disputed');
+  assert.equal(nodeState(null, hour, true), 'disputed');
+});
+
+test('a point pulses for one minute after an event, and never under a missing hour', () => {
+  const hour = { since: 1000, to: 1100, best: 1100, behind: 0 };
+  assert.equal(nodePulses({ lastBlock: 1100, hourCount: 1 }, hour), true);
+  assert.equal(nodePulses({ lastBlock: 1100 - PULSE_WINDOW_BLOCKS, hourCount: 1 }, hour), true);
+  assert.equal(nodePulses({ lastBlock: 1100 - PULSE_WINDOW_BLOCKS - 1, hourCount: 1 }, hour), false);
+  assert.equal(nodePulses(null, hour), false);
+  assert.equal(nodePulses({ lastBlock: 1100, hourCount: 1 }, null), false);
+});
+
+test('blocksSince never goes negative, so an index ahead of its own window cannot fake a stale point', () => {
+  const hour = { since: 1000, to: 1100, best: 1100, behind: 0 };
+  assert.equal(blocksSince({ lastBlock: 1120, hourCount: 1 }, hour), 0);
+  assert.equal(blocksSince({ lastBlock: 1090, hourCount: 1 }, hour), 10);
+  assert.equal(blocksSince(null, hour), null);
+});
+
+test('the windows are the runtime’s own six seconds a block', () => {
+  assert.equal(ACTIVE_WINDOW_BLOCKS, 100, 'ten minutes at six seconds a block');
+  assert.equal(PULSE_WINDOW_BLOCKS, 10, 'one minute at six seconds a block');
+});
+
+test('a settled line is teal only while it is inside the index’s newest hour', () => {
+  const hour = { since: 1000, to: 1100, best: 1100, behind: 0 };
+  assert.equal(settledInHour({ block: 1000 }, hour), true, 'the hour’s first block is inside it');
+  assert.equal(settledInHour({ block: 999 }, hour), false);
+  assert.equal(settledInHour({ block: 1100 }, hour), true);
+  assert.equal(settledInHour({}, hour), false, 'a line with no block is not claimed to be recent');
+  assert.equal(settledInHour({ block: 1050 }, null), false);
+});
+
+test('the plate’s point colours and its event reads are the ones the rest of the page already uses', async () => {
+  const field = await import('../../src/observatory/instruments/agent-field.js');
+  const hourRow = await import('../../src/observatory/instruments/last-hour.js');
+  // Restated rather than imported (see the note above AGENT_PAGES); held equal here.
+  for (const state of ['idle', 'working', 'disputed']) {
+    assert.equal(NODE_STATE_COLOUR[state], field.STATE_COLOUR[state], `${state} must use the field’s ink`);
+  }
+  assert.equal(HOUR_PAGES, hourRow.HOUR_PAGES, 'the same page cap as the hour row');
+  // Every list the hour row counts, and nothing the page does not already fetch.
+  const rowSources = [...new Set(hourRow.FIGURES.flatMap((figure) => figure.sources))];
+  assert.deepEqual([...ACTIVITY_SOURCES].sort(), rowSources.sort(), 'a point’s state costs no extra read');
+});
+
+test('the two plates breathe at the same rate', async () => {
+  const pulseModel = await import('../../src/pulse/model.js');
+  assert.equal(NODE_PULSE_MS, pulseModel.NODE_PULSE_MS);
+  assert.equal(NODE_PULSE_MS, 2_000, 'the brief’s slow two-second pulse');
+});
+
+test('an open line is the heaviest ordinary line, and the settled tiers step back behind it', () => {
+  assert.equal(OPEN_WIDTH, 2);
+  assert.equal(OPEN_ALPHA, 0.9);
+  assert.equal(SETTLED_HOUR_ALPHA, 0.35);
+  assert.ok(SETTLED_OLD_ALPHA < SETTLED_HOUR_ALPHA, 'older settled is fainter than the last hour’s');
+});
+
+test('a quiet hour does not blow every point up to the largest radius', () => {
+  // nodeRadius treats a zero maximum as "no scale", returning its largest
+  // radius — so sizing by an hour with no events in it would draw every point
+  // at 12 px. The instrument falls back to agreement counts instead; this
+  // pins the trap that made that necessary.
+  assert.equal(nodeRadius(0, 0), 12, 'the trap: no scale means largest');
+  assert.equal(nodeRadius(0, 10), 3, 'with a real scale, no activity is the smallest point');
+  assert.equal(nodeRadius(10, 10), 12);
 });

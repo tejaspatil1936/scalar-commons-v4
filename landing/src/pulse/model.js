@@ -43,6 +43,8 @@ export const LIVE_WINDOW_BLOCKS = 30;
 export const EFFECT_CAP = 200;
 export const ACTIVE_WINDOW_MS = 10 * 60_000;
 export const MINUTE_MS = 60_000;
+/** One full in-and-out of a fresh point's pulse (constellation.js NODE_PULSE_MS; a test holds them equal). */
+export const NODE_PULSE_MS = 2_000;
 export const HOUR_MS = 3_600_000;
 /** How many lines the ticker keeps, newest first. */
 export const TICKER_MAX = 30;
@@ -208,6 +210,28 @@ export function counters(seen, nowMs) {
 export function nodeValue(activityLastHour) {
   const count = Number.isFinite(activityLastHour) && activityLastHour > 0 ? activityLastHour : 0;
   return Math.min(6, 1 + Math.sqrt(count));
+}
+
+/**
+ * What a point is doing now, from the live events it has been party to.
+ *
+ * `hits` is the point's own list of event instants, newest last (graph.js
+ * `touch`), already pruned to the hour — so the newest is the only one these
+ * two windows need. `working` is the same ten minutes the strip's "agents
+ * active now" figure counts over, so a point is teal exactly when it is one of
+ * the agents that figure is counting. Pure; tested.
+ */
+export function nodeActivity(hits, nowMs) {
+  const last = Array.isArray(hits) && hits.length ? hits[hits.length - 1] : null;
+  if (last === null) return { working: false, fresh: false };
+  const age = nowMs - last;
+  return { working: age >= 0 && age <= ACTIVE_WINDOW_MS, fresh: age >= 0 && age <= MINUTE_MS };
+}
+
+/** 0 to 1 across one breath of a fresh point's pulse, from the clock alone. Pure; tested. */
+export function pulsePhase(nowMs, periodMs = NODE_PULSE_MS) {
+  if (!Number.isFinite(nowMs) || periodMs <= 0) return 0;
+  return (((nowMs % periodMs) + periodMs) % periodMs) / periodMs;
 }
 
 /**

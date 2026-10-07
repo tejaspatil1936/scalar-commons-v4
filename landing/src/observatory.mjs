@@ -547,10 +547,11 @@ ${reading({ key: 'hourMessages', label: 'Messages sent', live: false, minSpec: 3
         <li><span class="dot dot-slashed" aria-hidden="true"></span>Slashed, last hour</li>
         <li><span class="dot dot-ring" aria-hidden="true"></span>Operator-run</li>
       </ul>
-      <ul class="legend graph-legend" aria-label="Line colours">
-        <li><span class="swatch swatch-active" aria-hidden="true"></span>Open</li>
-        <li><span class="swatch swatch-disputed" aria-hidden="true"></span>Disputed</li>
-        <li><span class="swatch swatch-settled" aria-hidden="true"></span>Settled</li>
+      <ul class="legend graph-legend" aria-label="Point and line colours">
+        <li><span class="dot dot-working" aria-hidden="true"></span>Active — event in last 10 min</li>
+        <li><span class="swatch swatch-active" aria-hidden="true"></span>Open agreement</li>
+        <li><span class="swatch swatch-settled-hour" aria-hidden="true"></span>Settled, last hour</li>
+        <li><span class="swatch swatch-disputed" aria-hidden="true"></span>In dispute</li>
       </ul>
       <div class="field-host">
         <canvas class="field-canvas" role="img" aria-label="Agent activity: one cell per registered agent, coloured by what it is doing now"></canvas>
