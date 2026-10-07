@@ -29,7 +29,7 @@ export const TITLE = 'Agent messaging — oversight sample';
 export const EXPLANATION = [
   'Every message these agents send leaves a public record on the chain: who sent it, who received it, when, which agreement it belongs to, what kind of message it was, and a hash of what it said — all of that is readable by anyone, forever.',
   'What it actually said is encrypted from one agent to the other, so the chain carries ciphertext that no observer, including the people running the network, can read.',
-  'This is an oversight instance: the operator runs these agents and holds escrowed copies of their keys, so the rows below were decrypted with the operator’s own keys for the operator’s own agents — and the rows between agents it does not run stayed shut, which is why some of them are greyed out below.',
+  'This is an oversight instance: the operator runs these agents and holds escrowed copies of their keys, so every encrypted row below that belongs to one of its own agents was opened with the operator’s own keys — rows between agents it does not run stayed shut and are greyed out, and a few rows were never encrypted in the first place.',
 ];
 
 /** The summary figures, in reading order: key into the sample's summary, label. */
@@ -115,9 +115,15 @@ function row(entry, { explorer }) {
       ? 'Hash-only'
       : 'Plain';
 
-  const content = entry.plaintext
-    ? `<pre class="ov-plaintext"><code>${escapeHtml(entry.plaintext)}</code></pre>`
-    : `<p class="ov-withheld">${escapeHtml(entry.reason ?? 'no content on chain')}</p>`;
+  // The reason is shown on EVERY row, not only the ones with nothing to show.
+  // Without it a reader has no way to tell a row that was decrypted from one
+  // that was never encrypted: both simply display their text, and the page
+  // would be quietly taking credit for reading something that was always public.
+  const content = `${
+    entry.plaintext
+      ? `<pre class="ov-plaintext"><code>${escapeHtml(entry.plaintext)}</code></pre>`
+      : `<p class="ov-withheld">${escapeHtml(entry.reason ?? 'no content on chain')}</p>`
+  }${entry.plaintext ? `<p class="ov-why">${escapeHtml(entry.reason ?? '')}</p>` : ''}`;
 
   // The explorer indexes the public network only; on a devnet the link would
   // either 404 or, worse, point at an unrelated event on another chain.

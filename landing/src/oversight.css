@@ -378,6 +378,15 @@ html[data-sources] .ov-prov {
   overflow-wrap: anywhere;
 }
 
+/* Why this row reads the way it does: decrypted with a held key, or public all
+   along. Said on every row, so the two are never confusable. */
+.ov-why {
+  margin: var(--space-2) 0 0;
+  color: var(--text-dim);
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
+}
+
 .ov-withheld {
   margin: 0;
   padding: var(--space-3);

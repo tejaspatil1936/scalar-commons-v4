@@ -12,6 +12,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { EXPLANATION, FIGURES, TITLE, renderOversight } from '../src/oversight.mjs';
+import { escapeHtml } from '../src/render.mjs';
 import { OVERSIGHT_NAV } from '../src/observatory.mjs';
 
 const sample = JSON.parse(
@@ -161,4 +162,20 @@ test('the script escapes a closing tag inside the inlined data, so markup cannot
   const json = standalone.slice(standalone.indexOf('id="oversight-sample"'));
   assert.ok(!json.slice(0, json.indexOf('</script>')).includes('<script>'), 'no raw script tag survives in the data block');
   assert.ok(!standalone.includes('<script>alert(1)</script>'), 'and none in the rendered row either');
+});
+
+test('every row says WHY it reads the way it does, so public is never confusable with decrypted', () => {
+  const sealedOpen = sample.rows.find((r) => r.decrypted);
+  const plain = sample.rows.find((r) => r.bodyType === 'Plain');
+  assert.ok(sealedOpen && plain, 'the sample must contain both kinds');
+  // Compared through escapeHtml: an apostrophe reaches the markup as &#39;, so
+  // a raw-string comparison would fail on copy that is in fact present.
+  assert.ok(html.includes(escapeHtml(sealedOpen.reason)), 'a decrypted row states the key it was opened with');
+  assert.match(sealedOpen.reason, /opened with the operator\u2019s escrowed key/);
+  assert.ok(html.includes(escapeHtml(plain.reason)), 'a plaintext row states that it needed no key');
+  assert.match(plain.reason, /Plain \u2014 public on chain/);
+  // Every row, readable or not, carries its reason somewhere.
+  for (const row of sample.rows) {
+    if (row.reason) assert.ok(html.includes(escapeHtml(row.reason)), `row ${row.id}: reason missing from the page`);
+  }
 });
