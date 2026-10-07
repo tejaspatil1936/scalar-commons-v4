@@ -58,7 +58,7 @@ import { gsap } from 'gsap';
 import { forceCenter, forceLink, forceManyBody } from 'd3-force';
 import { shortAddress } from '../observatory/format.js';
 import { isOperatorRun, mixColour, parseColour } from '../observatory/instruments/agent-field.js';
-import { EFFECT_CAP, EVENTS, HOUR_MS, agreementKey, expire, nodeValue } from './model.js';
+import { EFFECT_CAP, EVENTS, HOUR_MS, agreementKey, expire, nodeActivity, nodeValue, pulsePhase } from './model.js';
 
 /** The page never paints at more than twice the CSS pixel density. */
 export const DPR_MAX = 2;
@@ -68,6 +68,14 @@ export const NODE_REL_SIZE = 4;
 const MIN_RADIUS_PX = 1.5;
 const HALO_RATIO = 2.4;
 const HALO_ALPHA = 0.14;
+/** An open agreement's thread: the width and opacity the key states. */
+export const OPEN_WIDTH = 2;
+export const OPEN_ALPHA = 0.9;
+/** A thread in dispute, or one in a followed agent's neighbourhood, is heavier still. */
+const EMPHASIS_WIDTH = 2.5;
+/** The ring a point wears for a minute after an event, at its widest. */
+const PULSE_REACH_PX = 5;
+const PULSE_ALPHA = 0.45;
 /** What everything outside a followed agent's neighbourhood fades to. */
 export const DIM_ALPHA = 0.15;
 /** The layout warms up for this long on load, then drifts. */
@@ -278,8 +286,15 @@ function buildPalette(theme) {
     paid,
     halo: rgba(accent, HALO_ALPHA),
     haloDisputed: rgba(amber, HALO_ALPHA),
+    // A point with nothing in ten minutes: the same grey the observatory's
+    // agent field uses for idle, halo included so the whole point steps back.
+    idle: token('idle'),
+    haloIdle: rgba(token('idle'), HALO_ALPHA),
     ring: rgba(dim, 0.9),
-    link: { Created: rgba(dim, 0.4), Delivered: rgba(settled, 0.5), Disputed: rgba(amber, 0.85) },
+    // Created and Delivered are both OPEN agreements — the payment is still
+    // held either way — so both wear the open line's teal. The thread's own
+    // dissolve still marks the moment one settles.
+    link: { Created: rgba(accent, OPEN_ALPHA), Delivered: rgba(accent, OPEN_ALPHA), Disputed: rgba(amber, 0.85) },
     linkBright: { Created: rgba(accent, 0.9), Delivered: rgba(settled, 0.9), Disputed: amber },
     linkDim: { Created: rgba(dim, 0.08), Delivered: rgba(settled, 0.08), Disputed: rgba(amber, 0.15) },
     ramp,
@@ -422,7 +437,8 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
     const set = hood === null ? palette.link : touches(link) ? palette.linkBright : palette.linkDim;
     return set[link.status] ?? set.Created;
   };
-  const linkWidth = (link) => (hood !== null && touches(link) ? 1.6 : link.status === 'Disputed' ? 1.4 : 1);
+  const linkWidth = (link) =>
+    hood !== null && touches(link) ? EMPHASIS_WIDTH : link.status === 'Disputed' ? EMPHASIS_WIDTH : OPEN_WIDTH;
   const radiusAt = (node, k) => (node.r > MIN_RADIUS_PX / k ? node.r : MIN_RADIUS_PX / k);
 
   const graph = new ForceGraph(host)
@@ -564,11 +580,17 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
 
   // ── painting ──────────────────────────────────────────────────────────────
   const dimmed = (node) => hood !== null && !hood.has(node.id);
+  /** 0 to 1 across one breath of the fresh-point ring; held at 0 under reduced motion. */
+  let phase = 0;
 
-  /** Point sprites by radius bucket and state (bit 0: in dispute, bit 1: operator-run), at the plate's device pixel ratio. */
+  /** Point sprites by radius bucket and state (bit 0: in dispute, bit 1: operator-run, bit 2: working), at the plate's device pixel ratio. */
   const sprites = new Map();
   let spriteDpr = 0;
-  const spriteKey = (bucket, node) => bucket * 4 + (node.disputed ? 1 : 0) + (node.operator ? 2 : 0);
+  const spriteKey = (bucket, node) =>
+    bucket * 8 + (node.disputed ? 1 : 0) + (node.operator ? 2 : 0) + (node.working ? 4 : 0);
+  /** A point's ink: amber in dispute, teal while working, else the idle grey. */
+  const nodeInk = (node) => (node.disputed ? palette.amber : node.working ? palette.accent : palette.idle);
+  const nodeHalo = (node) => (node.disputed ? palette.haloDisputed : node.working ? palette.halo : palette.haloIdle);
   /** Paints one sprite with the same arcs a point is made of: halo, disc, ring. Once per bucket and state, never per frame. */
   function makeSprite(bucket, node, dpr) {
     const r = bucket / SPRITE_STEP;
@@ -581,11 +603,11 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
     canvas.height = size;
     const s = canvas.getContext('2d');
     const half = size / 2;
-    s.fillStyle = node.disputed ? palette.haloDisputed : palette.halo;
+    s.fillStyle = nodeHalo(node);
     s.beginPath();
     s.arc(half, half, halo * dpr, 0, TAU);
     s.fill();
-    s.fillStyle = palette.accent;
+    s.fillStyle = nodeInk(node);
     s.beginPath();
     s.arc(half, half, r * dpr, 0, TAU);
     s.fill();
@@ -619,14 +641,15 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
         sprites.set(key, sprite);
       }
       c.drawImage(sprite.image, dx - sprite.half, dy - sprite.half);
+      pulseRing(c, n, dx, dy, r, frame.dpr);
       return;
     }
     const dpr = frame.dpr;
-    c.fillStyle = n.disputed ? palette.haloDisputed : palette.halo;
+    c.fillStyle = nodeHalo(n);
     c.beginPath();
     c.arc(dx, dy, halo * dpr, 0, TAU);
     c.fill();
-    c.fillStyle = palette.accent;
+    c.fillStyle = nodeInk(n);
     c.beginPath();
     c.arc(dx, dy, r * dpr, 0, TAU);
     c.fill();
@@ -637,6 +660,27 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
       c.arc(dx, dy, (r + 2) * dpr, 0, TAU);
       c.stroke();
     }
+    pulseRing(c, n, dx, dy, r, dpr);
+  }
+
+  /**
+   * One slow ring on a point that saw an event in the last minute: out and
+   * back over NODE_PULSE_MS, in the point's own ink. `phase` is 0 under
+   * reduced motion, which draws nothing — a still halo would read as a state
+   * the point is not in.
+   */
+  function pulseRing(c, n, dx, dy, r, dpr) {
+    if (!n.fresh || phase <= 0) return;
+    const swell = Math.sin(Math.PI * phase);
+    if (swell <= 0) return;
+    const alpha = c.globalAlpha;
+    c.globalAlpha = alpha * PULSE_ALPHA * swell;
+    c.strokeStyle = nodeInk(n);
+    c.lineWidth = 1.5 * dpr;
+    c.beginPath();
+    c.arc(dx, dy, (r + 2 + PULSE_REACH_PX * swell) * dpr, 0, TAU);
+    c.stroke();
+    c.globalAlpha = alpha;
   }
 
   /** All the points: the bright ones, then (while following) the dim ones, then the few fading in at their own alpha. */
@@ -648,6 +692,18 @@ export function createGraph(host, { ctx, onHover = () => {}, onSelect = () => {}
     if (dpr !== spriteDpr) {
       sprites.clear();
       spriteDpr = dpr;
+    }
+    // Both windows are read from the clock, so they have to be refreshed on
+    // the frame rather than only when an event lands: a point goes quiet by
+    // time passing, which no event announces. One `now()` for the whole pass
+    // keeps every point on the same instant.
+    const at = now();
+    phase = reduced ? 0 : pulsePhase(at);
+    for (let i = 0; i < count; i += 1) {
+      const n = ns[i];
+      const state = nodeActivity(n.hits, at);
+      n.working = state.working;
+      n.fresh = state.fresh;
     }
     frame.scale = m.a;
     frame.ox = m.e;

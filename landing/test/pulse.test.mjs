@@ -129,3 +129,23 @@ test('the stylesheet honours reduced motion and the light scheme, never loops, a
   assert.ok(!/gradient\(/.test(css), 'no gradients');
   assert.match(css, /grid-template-columns: minmax\(0, 1fr\) 320px;/, 'the ticker is 320 px');
 });
+
+test('the plate has a key for its points and threads, beside the one for its lights', async () => {
+  const { STATE_LEGEND, LEGEND, renderPulse } = await import('../src/pulse.mjs');
+  const html = renderPulse({ css: '' });
+  // The lights key is kept: the new one says nothing about what a light means.
+  assert.ok(html.includes('aria-label="What the lights mean"'), 'the lights key stays');
+  for (const [, label] of LEGEND) assert.ok(html.includes(label), `lights key lost "${label}"`);
+  // And the states key is there, in the brief's words.
+  assert.ok(html.includes('aria-label="What the points and threads mean"'));
+  assert.deepEqual(
+    STATE_LEGEND.map(([, label]) => label),
+    ['Active — event in last 10 min', 'Open agreement', 'In dispute'],
+  );
+  for (const [mark, label] of STATE_LEGEND) {
+    assert.ok(html.includes(`class="${mark}"`), `missing the mark for "${label}"`);
+    assert.ok(html.includes(label), `missing "${label}"`);
+  }
+  // A settled thread dissolves on this page, so its key must not claim one.
+  assert.ok(!html.includes('Settled, last hour'), 'no key for a mark this plate never draws');
+});

@@ -22,7 +22,8 @@ import { sourceClaims } from '../src/source-claims.mjs';
 import { renderPage } from '../src/render.mjs';
 import { renderObservatory } from '../src/observatory.mjs';
 import { renderPulse } from '../src/pulse.mjs';
-import { FONTS, observatoryCss } from '../src/observatory-assets.mjs';
+import { renderOversight } from '../src/oversight.mjs';
+import { FONTS, observatoryCss, oversightCss } from '../src/observatory-assets.mjs';
 
 const here = (relative) => fileURLToPath(new URL(relative, import.meta.url));
 const readJson = (relative) => JSON.parse(readFileSync(here(relative), 'utf8'));
@@ -59,6 +60,16 @@ const pulseCss = (
 writeFileSync(join(outDir, 'pulse.html'), renderPulse({ css: pulseCss }));
 writeFileSync(join(outDir, 'pulse.css'), pulseCss);
 
+// /oversight: the agent-messaging oversight sample. Unlike the other two live
+// pages this one ships a RECORD — the read-only decrypt tool's output, checked
+// in — rendered into the page and re-read live in the reader's browser. The
+// sample is copied out as well, both because the page fetches it and because
+// the raw file is the thing a sceptic should be able to read for themselves.
+const sample = readJson('../public/oversight-sample.json');
+const ovCss = (await transform(oversightCss(), { loader: 'css', minify: true })).code.trim();
+writeFileSync(join(outDir, 'oversight.css'), ovCss);
+copyFileSync(here('../public/oversight-sample.json'), join(outDir, 'oversight-sample.json'));
+
 mkdirSync(join(outDir, 'fonts'), { recursive: true });
 for (const [source, name] of FONTS) {
   copyFileSync(here(`../node_modules/${source}`), join(outDir, 'fonts', name));
@@ -94,13 +105,25 @@ const pulseBundle = await build({
   entryPoints: [here('../src/pulse/main.js')],
   outfile: join(outDir, 'pulse.js'),
 });
+// /oversight is one script too: blakejs (pinned) for the in-browser blake2b-256
+// and nothing else — no chart library, no d3, no polkadot-js. It talks to the
+// node with plain JSON-RPC over fetch, which is why it stays small enough to
+// inline into the standalone copy.
+const oversightBundle = await build({
+  ...common,
+  entryPoints: [here('../src/oversight/main.js')],
+  outfile: join(outDir, 'oversight.js'),
+});
+writeFileSync(join(outDir, 'oversight.html'), renderOversight({ sample, css: ovCss }));
 const bundleBytes = Object.values(bundle.metafile.outputs)[0]?.bytes ?? 0;
 const chunkBytes = Object.values(graph.metafile.outputs)[0]?.bytes ?? 0;
 const pulseBytes = Object.values(pulseBundle.metafile.outputs)[0]?.bytes ?? 0;
+const oversightBytes = Object.values(oversightBundle.metafile.outputs)[0]?.bytes ?? 0;
 
 console.log(
   `built ${outDir}/index.html (${(html.length / 1024).toFixed(1)} kB) from ${facts.provenance.specName} spec ` +
     `${facts.provenance.specVersion}, metadata v${facts.provenance.metadataVersion}, block ` +
     `#${facts.provenance.readAtBlock}; observatory.js ${(bundleBytes / 1024).toFixed(1)} kB` +
-    `, observatory-graph.js (on demand) ${(chunkBytes / 1024).toFixed(1)} kB; pulse.js ${(pulseBytes / 1024).toFixed(1)} kB`,
+    `, observatory-graph.js (on demand) ${(chunkBytes / 1024).toFixed(1)} kB; pulse.js ${(pulseBytes / 1024).toFixed(1)} kB` +
+    `; oversight.js ${(oversightBytes / 1024).toFixed(1)} kB from ${sample.rows.length} recorded rows at block #${sample.provenance.generatedAtBlock}`,
 );

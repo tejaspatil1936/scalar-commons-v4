@@ -792,19 +792,28 @@ pre {
   gap: var(--space-2);
 }
 
-/* The key samples the plate: open 1 px in the accent, disputed 2 px in amber, settled 1 px dashed grey. */
+/* The key samples the plate: an open agreement 2 px in the accent, one settled
+   inside the index's newest hour 1 px in the same accent well back, an older
+   settled one faint grey, a dispute 2 px in amber. Solid throughout — the
+   plate stopped dashing settled lines; opacity and width carry the order. */
 .swatch {
   width: 16px;
   height: 0;
-  border-top: 1px solid var(--active);
+  border-top: 2px solid var(--active);
 }
 
 .swatch-disputed {
   border-top: 2px solid var(--disputed);
 }
 
+.swatch-settled-hour {
+  border-top: 1px solid var(--active);
+  opacity: 0.35;
+}
+
 .swatch-settled {
-  border-top: 1px dashed var(--settled);
+  border-top: 1px solid var(--settled);
+  opacity: 0.18;
 }
 
 /* The legend's samples are the plate's own marks: a dot in each state's ink, and the operator-run ring. */

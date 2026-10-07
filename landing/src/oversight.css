@@ -1,0 +1,495 @@
+/* /oversight — the agent-messaging oversight sample.
+ *
+ * Rides on the observatory's design system: these rules use its tokens and add
+ * none of their own colours, so dark and light, the Sources switch and
+ * presenter mode all behave here exactly as they do there.
+ *
+ * The page is a long list of evidence, so the layout is a reading column, not a
+ * dashboard: one card per message, the public metadata first, the content
+ * under it, the checks last. At 1920 the cards sit two across; at 390 they
+ * stack and every row of the field list becomes its own line. */
+
+.ov-body {
+  background: var(--bg);
+}
+
+/* ── the first screen ─────────────────────────────────────────────────── */
+
+.ov-hero {
+  padding: var(--space-6) 0 var(--space-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.ov-hero-grid {
+  display: grid;
+  gap: var(--space-5);
+}
+
+@media (min-width: 60rem) {
+  .ov-hero-grid {
+    grid-template-columns: 7fr 5fr;
+    align-items: start;
+  }
+}
+
+.ov-hero h1 {
+  font-family: var(--font-serif);
+  font-size: var(--t-h2);
+  line-height: var(--lh-h2);
+  margin: 0 0 var(--space-4);
+  max-width: 24ch;
+}
+
+@media (min-width: 60rem) {
+  .ov-hero h1 {
+    font-size: var(--t-display);
+    line-height: var(--lh-display);
+  }
+}
+
+.ov-hero .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* The three sentences. Measure capped so they stay readable at 1920. */
+.ov-hero .dek {
+  max-width: 68ch;
+  margin: 0 0 var(--space-3);
+  color: var(--text-dim);
+}
+
+.ov-hero .dek:first-of-type {
+  color: var(--text);
+}
+
+/* The devnet label. Never behind a disclosure: it is the page's main caveat. */
+.ov-label {
+  margin: var(--space-4) 0 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--disputed);
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
+  max-width: 68ch;
+}
+
+.ov-label strong {
+  color: var(--text);
+}
+
+.ov-figures {
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.ov-figure .reading-value {
+  font-family: var(--font-serif);
+  font-size: var(--t-h3);
+  line-height: var(--lh-h3);
+  margin: 0;
+}
+
+@media (min-width: 60rem) {
+  .ov-figure .reading-value {
+    font-size: var(--t-figure-l);
+    line-height: var(--lh-figure-l);
+  }
+}
+
+/* ── how to read this ─────────────────────────────────────────────────── */
+
+.ov-htr {
+  max-width: calc(var(--content) + 2 * var(--gutter));
+  margin: var(--space-5) auto 0;
+  padding-inline: var(--gutter);
+}
+
+.ov-htr-list {
+  margin: var(--space-3) 0 0;
+  display: grid;
+  gap: var(--space-4);
+}
+
+@media (min-width: 70rem) {
+  .ov-htr-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.ov-htr-item dt {
+  font-weight: 600;
+  margin-bottom: var(--space-1);
+}
+
+.ov-htr-item dd {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--t-label);
+  line-height: var(--lh-body);
+}
+
+/* ── sections ─────────────────────────────────────────────────────────── */
+
+.ov-section {
+  padding: var(--space-6) 0 0;
+}
+
+.ov-section-head {
+  margin-bottom: var(--space-5);
+}
+
+.ov-section-head h2 {
+  font-family: var(--font-serif);
+  font-size: var(--t-h2);
+  line-height: var(--lh-h2);
+  margin: 0 0 var(--space-3);
+  max-width: 30ch;
+}
+
+.ov-section-head .lede {
+  max-width: 72ch;
+  color: var(--text-dim);
+}
+
+/* ── the rows ─────────────────────────────────────────────────────────── */
+
+.ov-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-4);
+}
+
+@media (min-width: 90rem) {
+  .ov-rows {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* The thread is one negotiation in order, so it stays a single column at every
+   width: side by side, "first, then, then" stops being legible. */
+.ov-rows-thread {
+  grid-template-columns: minmax(0, 1fr);
+  counter-reset: step;
+}
+
+.ov-rows-thread .ov-row::before {
+  counter-increment: step;
+  content: "Step " counter(step);
+  display: block;
+  font-size: var(--t-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: var(--space-2);
+}
+
+.ov-row {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* Rows the operator could not open. Dimmed, never hidden: they are the honest
+   half of the page. The border stays at full contrast so the card is still
+   clearly a card. */
+.ov-row.is-quiet {
+  background: transparent;
+}
+
+.ov-row.is-quiet .ov-fields,
+.ov-row.is-quiet .ov-row-head {
+  opacity: 0.72;
+}
+
+.ov-row-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+  margin: 0;
+}
+
+.ov-row-head p {
+  margin: 0;
+}
+
+.ov-kind {
+  font-family: var(--font-serif);
+  font-size: var(--t-h3);
+  line-height: var(--lh-h3);
+}
+
+.ov-body-type {
+  font-size: var(--t-label);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  padding: 2px var(--space-2);
+}
+
+.ov-body-type[data-body="Sealed"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.ov-block,
+.ov-when {
+  font-size: var(--t-label);
+  color: var(--text-dim);
+  margin-left: auto;
+}
+
+.ov-when {
+  font-family: var(--font-mono);
+  margin-left: 0;
+}
+
+/* The public metadata. A definition list, because that is what it is. */
+.ov-fields {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2) var(--space-3);
+  margin: 0;
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
+}
+
+@media (max-width: 26rem) {
+  .ov-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+  .ov-fields dt {
+    margin-top: var(--space-2);
+  }
+}
+
+.ov-fields dt {
+  color: var(--text-dim);
+}
+
+.ov-fields dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ov-who {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.ov-name {
+  font-weight: 600;
+}
+
+.ov-addr,
+.ov-hash {
+  color: var(--text-dim);
+  font-size: 0.9em;
+}
+
+.ov-none,
+.ov-seq {
+  color: var(--text-dim);
+}
+
+/* A live value that disagrees with the record. Should never appear; if it does,
+   it must be impossible to miss. */
+[data-live="differs"] {
+  color: var(--slash);
+  font-weight: 600;
+}
+
+.ov-live-differs {
+  color: var(--slash);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+.ov-prov {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text-dim);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Provenance follows the site's rule: hidden until the Sources switch, or on
+   hover/focus of the row. */
+.ov-prov {
+  display: none;
+}
+
+html[data-sources] .ov-prov {
+  display: block;
+}
+
+.ov-row:hover .ov-prov,
+.ov-row:focus-within .ov-prov {
+  display: block;
+}
+
+/* A row whose live read disagrees with the record. Its provenance is pinned
+   open whatever the Sources switch says: the one thing this page must never do
+   is let a disagreement hide behind a hover. */
+.ov-row[data-disagrees] .ov-prov {
+  display: block;
+  color: var(--slash);
+  font-weight: 600;
+}
+
+.ov-row[data-disagrees] {
+  border-color: var(--slash);
+}
+
+/* ── the content ──────────────────────────────────────────────────────── */
+
+.ov-content {
+  min-width: 0;
+}
+
+.ov-plaintext {
+  margin: 0;
+  padding: var(--space-3);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Why this row reads the way it does: decrypted with a held key, or public all
+   along. Said on every row, so the two are never confusable. */
+.ov-why {
+  margin: var(--space-2) 0 0;
+  color: var(--text-dim);
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
+}
+
+.ov-withheld {
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px dashed var(--border);
+  color: var(--text-dim);
+  font-size: var(--t-label);
+}
+
+/* ── the checks ───────────────────────────────────────────────────────── */
+
+.ov-checks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.ov-badge {
+  display: inline-block;
+  font-size: var(--t-label);
+  line-height: var(--lh-label);
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+}
+
+.ov-badge[data-state="ok"] {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.ov-badge[data-state="bad"] {
+  color: var(--slash);
+  border-color: var(--slash);
+  font-weight: 600;
+}
+
+.ov-badge[data-state="pending"] {
+  font-style: italic;
+}
+
+.ov-links {
+  margin: 0;
+  font-size: var(--t-label);
+}
+
+.ov-explorer.is-off {
+  color: var(--text-dim);
+  text-decoration: underline dotted;
+  cursor: help;
+}
+
+/* ── the status bar's state ───────────────────────────────────────────── */
+
+.ov-bar .sb-network {
+  color: var(--text-dim);
+  font-size: var(--t-label);
+}
+
+.ov-bar[data-state="offline"] .pulse-dot,
+.ov-bar[data-state="error"] .pulse-dot {
+  background: var(--idle);
+  animation: none;
+}
+
+.ov-bar[data-state="error"] .sb-state {
+  color: var(--slash);
+}
+
+/* ── the foot ─────────────────────────────────────────────────────────── */
+
+.ov-foot {
+  margin-top: var(--space-6);
+  padding: var(--space-5) 0 var(--space-6);
+  border-top: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: var(--t-label);
+  line-height: var(--lh-body);
+}
+
+.ov-foot p {
+  max-width: 80ch;
+  margin: 0 0 var(--space-2);
+  overflow-wrap: anywhere;
+}
+
+/* ── presenter mode ───────────────────────────────────────────────────── */
+
+/* One screen at a time, as on /observatory: the stylesheet there hides the nav
+   and the footer; here the long row list scrolls within its screen. */
+html[data-present] .ov-htr,
+html[data-present] .ov-foot {
+  display: none;
+}
+
+html[data-present] .ov-section,
+html[data-present] .ov-hero {
+  min-height: 100vh;
+}
+
+html[data-present] .ov-rows {
+  max-height: 72vh;
+  overflow-y: auto;
+}
