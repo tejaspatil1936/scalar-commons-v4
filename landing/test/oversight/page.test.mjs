@@ -137,6 +137,42 @@ test('live: a row whose block the node serves is re-read and reported as live', 
   assert.match(provOf(doc, unserved.id).textContent, /offline — showing recorded values|unknown block/);
 });
 
+test('a chain that disagrees with the record is marked loudly, not left to a hover', async () => {
+  // The node serves a REAL extrinsic, but at the index of a DIFFERENT row. The
+  // page must notice rather than present it as that row's live value.
+  const victim = sample.rows.find((r) => r.id === fixture.cases[0].id);
+  const other = fixture.cases[1] ?? fixture.cases[0];
+  const hash = '0xdecoy';
+  const fetchImpl = (_url, init) => {
+    const { method, params } = JSON.parse(init.body);
+    const reply = (result) => Promise.resolve({ ok: true, json: () => Promise.resolve({ result }) });
+    if (method === 'chain_getHeader') return reply({ number: '0x10' });
+    if (method === 'chain_getBlockHash') {
+      if (params[0] === '0x0') return reply(sample.provenance.genesisHash);
+      return Number.parseInt(params[0], 16) === victim.block
+        ? reply(hash)
+        : Promise.resolve({ ok: true, json: () => Promise.resolve({ error: { message: 'unknown block' } }) });
+    }
+    if (method === 'chain_getBlock') {
+      const extrinsics = [];
+      for (let i = 0; i <= victim.extrinsicIndex; i += 1) extrinsics[i] = other.extrinsicHex;
+      return reply({ block: { extrinsics } });
+    }
+    return Promise.reject(new Error(`unexpected ${method}`));
+  };
+
+  const doc = await boot(fetchImpl, { token: 'disagrees' });
+  const rowEl = doc.querySelector(`[data-row="${victim.id}"]`);
+  const prov = provOf(doc, victim.id).textContent;
+  // Either the payload is not in those bytes, or the extrinsic hash is wrong —
+  // whichever it notices first, it must say something and must not claim agreement.
+  assert.ok(!/agree with the record/.test(prov), `must not claim agreement: ${prov}`);
+  assert.match(prov, /does NOT match the record|could not decode the call/);
+  if (/does NOT match/.test(prov)) {
+    assert.ok(rowEl.hasAttribute('data-disagrees'), 'a disagreeing row must be flagged for the stylesheet');
+  }
+});
+
 test('a node on a different chain is refused rather than decoded', async () => {
   const fetchImpl = (_url, init) => {
     const { method } = JSON.parse(init.body);

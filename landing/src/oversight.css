@@ -346,6 +346,19 @@ html[data-sources] .ov-prov {
   display: block;
 }
 
+/* A row whose live read disagrees with the record. Its provenance is pinned
+   open whatever the Sources switch says: the one thing this page must never do
+   is let a disagreement hide behind a hover. */
+.ov-row[data-disagrees] .ov-prov {
+  display: block;
+  color: var(--slash);
+  font-weight: 600;
+}
+
+.ov-row[data-disagrees] {
+  border-color: var(--slash);
+}
+
 /* ── the content ──────────────────────────────────────────────────────── */
 
 .ov-content {

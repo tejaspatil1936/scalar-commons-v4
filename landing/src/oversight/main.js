@@ -90,7 +90,15 @@ function renderCommitment(element, row, live) {
   return verdict;
 }
 
-/** The provenance line under a row: where the live read came from, and when. */
+/**
+ * The provenance line under a row: where the live read came from, and when.
+ *
+ * Provenance follows the site's rule and hides until the Sources switch or a
+ * hover — but a DISAGREEMENT must not hide. When the chain and the record do
+ * not match, the row is marked `data-disagrees` and the stylesheet pins its
+ * line open, in the slash colour. Nothing on this page should be able to go
+ * wrong quietly.
+ */
 function renderProvenance(rowEl, { read, live, verdict }) {
   const line = rowEl.querySelector('[data-prov="row"]');
   if (!line) return;
@@ -99,10 +107,20 @@ function renderProvenance(rowEl, { read, live, verdict }) {
     return;
   }
   const parts = [`re-read live from ${read.endpoint} at ${read.at}`, `block ${read.blockHash}`];
-  if (!live?.ok) parts.push(`could not decode the call: ${live?.reason}`);
-  else if (verdict.extrinsicHashMatches === false) parts.push('the extrinsic hash does NOT match the record');
-  else if (verdict.fieldsAgree === false) parts.push('the live fields do NOT agree with the record');
-  else parts.push('extrinsic hash and fields agree with the record');
+  let disagrees = false;
+  if (!live?.ok) {
+    parts.push(`could not decode the call: ${live?.reason}`);
+  } else if (verdict.extrinsicHashMatches === false) {
+    parts.push('the extrinsic hash does NOT match the record');
+    disagrees = true;
+  } else if (verdict.fieldsAgree === false) {
+    parts.push('the live fields do NOT agree with the record');
+    disagrees = true;
+  } else {
+    parts.push('extrinsic hash and fields agree with the record');
+  }
+  if (verdict.commitment?.matches === false) disagrees = true;
+  if (disagrees) rowEl.dataset.disagrees = '';
   line.textContent = parts.join(' · ');
 }
 
