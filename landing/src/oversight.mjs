@@ -92,8 +92,14 @@ function agreementOf(row) {
 
 /**
  * One row. The on-chain fields come from the record and are re-read live by the
- * script; `data-*` carries exactly what the script needs to do that, so the
- * markup is the single source of what is being checked.
+ * script.
+ *
+ * `data-row` is the only attribute the script needs: it joins the element back
+ * to its row in the sample, which is where the bytes it re-reads come from. The
+ * rest are there for a reader with view-source, so a single row can be checked
+ * against a block explorer without the JSON file. The payload frame used to be
+ * among them and is not any more — nothing read it, and it was 30 kB of the
+ * page.
  */
 function row(entry, { explorer }) {
   const sealed = entry.bodyType === 'Sealed';
@@ -139,7 +145,6 @@ function row(entry, { explorer }) {
         data-block="${escapeHtml(String(entry.block))}"
         data-extrinsic-index="${escapeHtml(String(entry.extrinsicIndex))}"
         data-extrinsic-hash="${escapeHtml(entry.extrinsicHash)}"
-        data-payload-hex="${escapeHtml(entry.payloadHex ?? '')}"
         data-payload-hash="${escapeHtml(entry.payloadHashOnChain ?? '')}"
         data-kind="${escapeHtml(entry.kind)}">
         <header class="ov-row-head">
