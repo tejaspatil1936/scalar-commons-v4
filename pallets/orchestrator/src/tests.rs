@@ -1204,3 +1204,111 @@ fn queued_offers_cannot_overshoot_max_sub_agents_on_accept() {
         );
     });
 }
+
+fn orchestration_accounting_setup() {
+    System::set_block_number(1);
+    for who in [ALICE, BOB] {
+        register(who, 10_000);
+        set_rank(who, 2);
+        assert_ok!(Orchestrator::register_orchestrator(
+            RuntimeOrigin::signed(who),
+            10,
+            100
+        ));
+    }
+}
+
+fn orchestration_accounting_settle(alice_volume: u64, bob_volume: u64) -> (u128, u128) {
+    Orchestrator::add_orchestrator_volume(&ALICE, alice_volume);
+    Orchestrator::add_orchestrator_volume(&BOB, bob_volume);
+    let (total_weight, count) = Orchestrator::compute_era_orchestrator_weights(5_000);
+    assert!(count > 0 && total_weight > 0);
+    let weights = (
+        OrchestratorWeightSnapshot::<Test>::get(ALICE),
+        OrchestratorWeightSnapshot::<Test>::get(BOB),
+    );
+    Orchestrator::settle_orchestrator_era(100_000, total_weight);
+    weights
+}
+
+fn orchestration_accounting_claim(who: u64) -> u64 {
+    let before = <Balances as frame_support::traits::Currency<u64>>::free_balance(&who);
+    assert_ok!(Orchestrator::claim_orchestrator(RuntimeOrigin::signed(who)));
+    <Balances as frame_support::traits::Currency<u64>>::free_balance(&who).saturating_sub(before)
+}
+
+#[test]
+fn orchestration_accounting_control_constant_weights_preserve_budget() {
+    new_test_ext().execute_with(|| {
+        orchestration_accounting_setup();
+        for _ in 0..3 {
+            assert_eq!(
+                orchestration_accounting_settle(1_000_000, 1_000_000),
+                (500, 500)
+            );
+        }
+        let alice = orchestration_accounting_claim(ALICE);
+        let bob = orchestration_accounting_claim(BOB);
+        assert_eq!((alice, bob), (150_000, 150_000));
+        assert_eq!(alice.saturating_add(bob), 300_000);
+    });
+}
+
+#[test]
+fn orchestration_accounting_regression_dormancy_reactivation_preserves_budget() {
+    new_test_ext().execute_with(|| {
+        orchestration_accounting_setup();
+        assert_eq!(
+            orchestration_accounting_settle(1_000_000, 1_000_000),
+            (500, 500)
+        );
+        assert_eq!(orchestration_accounting_settle(0, 1_000_000), (0, 500));
+        assert_noop!(
+            Orchestrator::claim_orchestrator(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::NothingToClaim
+        );
+        assert_eq!(
+            orchestration_accounting_settle(1_000_000, 1_000_000),
+            (500, 500)
+        );
+        let alice = orchestration_accounting_claim(ALICE);
+        let bob = orchestration_accounting_claim(BOB);
+        eprintln!(
+            "ORCHESTRATION_WITNESS dormancy: A={}, B={}, minted={}, budget=300000",
+            alice,
+            bob,
+            alice.saturating_add(bob)
+        );
+        assert!(
+            alice.saturating_add(bob) <= 300_000,
+            "orchestrator deferred claims exceed the historical share pools"
+        );
+    });
+}
+
+#[test]
+fn orchestration_accounting_regression_volume_growth_preserves_budget() {
+    new_test_ext().execute_with(|| {
+        orchestration_accounting_setup();
+        assert_eq!(
+            orchestration_accounting_settle(1_000_000, 1_000_000),
+            (500, 500)
+        );
+        assert_eq!(
+            orchestration_accounting_settle(9_000_000, 1_000_000),
+            (1_500, 500)
+        );
+        let alice = orchestration_accounting_claim(ALICE);
+        let bob = orchestration_accounting_claim(BOB);
+        eprintln!(
+            "ORCHESTRATION_WITNESS growth: A={}, B={}, minted={}, budget=200000",
+            alice,
+            bob,
+            alice.saturating_add(bob)
+        );
+        assert!(
+            alice.saturating_add(bob) <= 200_000,
+            "orchestrator new volume weight must not reprice prior share pools"
+        );
+    });
+}
