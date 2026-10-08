@@ -1018,3 +1018,302 @@ pub fn reset_gov_state() {
     HELD_VOTES.with(|v| v.borrow_mut().clear());
     ONGOING_POLLS.with(|p| p.borrow_mut().clear());
 }
+
+// ── Deferred reward accounting audit: multi-era witnesses ─────────────────────
+
+#[derive(Clone, Copy, Debug)]
+struct RewardAccountingEra {
+    pool: u64,
+    alice_weight: u128,
+    bob_weight: u128,
+}
+
+/// Record actual era weights independently of the deferred claim accumulator.
+fn reward_accounting_settle(alice_work: Option<u64>, bob_work: Option<u64>) -> RewardAccountingEra {
+    for (who, amount) in [(ALICE, alice_work), (BOB, bob_work)] {
+        if let Some(per_buyer) = amount {
+            do_era_work_of(who, per_buyer);
+        }
+    }
+    let era_dur = <Test as crate::pallet::Config>::EraDuration::get();
+    System::set_block_number(System::block_number().saturating_add(era_dur));
+    for who in [ALICE, BOB] {
+        if pallet_agents::AgentStake::<Test>::contains_key(who) {
+            assert_ok!(Agents::heartbeat(RuntimeOrigin::signed(who)));
+        }
+    }
+    assert_ok!(Emissions::settle_era(RuntimeOrigin::signed(BOB)));
+    RewardAccountingEra {
+        pool: LastEraEmission::<Test>::get(),
+        alice_weight: AgentWeightSnapshot::<Test>::get(ALICE),
+        bob_weight: AgentWeightSnapshot::<Test>::get(BOB),
+    }
+}
+
+fn reward_accounting_setup() {
+    chain_with_alice(10_000);
+    register(BOB, 10_000);
+    // Established agents: keep onboarding boost inert across the witness eras.
+    pallet_agents::CompletedAgreements::<Test>::insert(ALICE, 10);
+    pallet_agents::CompletedAgreements::<Test>::insert(BOB, 10);
+}
+
+fn reward_accounting_claim(who: u64) -> u64 {
+    let before = Balances::free_balance(who);
+    assert_ok!(Emissions::claim(RuntimeOrigin::signed(who)));
+    Balances::free_balance(who).saturating_sub(before)
+}
+
+fn reward_accounting_share(era: RewardAccountingEra, alice: bool) -> u64 {
+    let weight = if alice {
+        era.alice_weight
+    } else {
+        era.bob_weight
+    };
+    let total = era.alice_weight.saturating_add(era.bob_weight);
+    u128::from(era.pool)
+        .checked_mul(weight)
+        .and_then(|n| n.checked_div(total))
+        .expect("witness has positive total weight and no overflow")
+        .try_into()
+        .expect("witness reward fits the mock balance")
+}
+
+fn reward_accounting_budget(eras: &[RewardAccountingEra]) -> u64 {
+    eras.iter()
+        .fold(0u64, |sum, era| sum.saturating_add(era.pool))
+}
+
+#[test]
+fn reward_accounting_control_constant_weights_preserve_budget() {
+    new_test_ext().execute_with(|| {
+        reward_accounting_setup();
+        let eras = [
+            reward_accounting_settle(Some(20_000), Some(20_000)),
+            reward_accounting_settle(Some(20_000), Some(20_000)),
+            reward_accounting_settle(Some(20_000), Some(20_000)),
+        ];
+        assert!(eras.iter().all(|era| era.alice_weight > 0
+            && era.alice_weight == eras[0].alice_weight
+            && era.bob_weight == eras[0].bob_weight));
+        let alice = reward_accounting_claim(ALICE);
+        let bob = reward_accounting_claim(BOB);
+        assert_eq!(
+            alice,
+            eras.iter().fold(0u64, |sum, era| sum
+                .saturating_add(reward_accounting_share(*era, true)))
+        );
+        assert_eq!(
+            bob,
+            eras.iter().fold(0u64, |sum, era| sum
+                .saturating_add(reward_accounting_share(*era, false)))
+        );
+        assert!(alice.saturating_add(bob) <= reward_accounting_budget(&eras));
+    });
+}
+
+#[test]
+fn reward_accounting_control_claim_before_stake_increase_preserves_shares() {
+    new_test_ext().execute_with(|| {
+        reward_accounting_setup();
+        let first = reward_accounting_settle(Some(20_000), Some(20_000));
+        let alice_first = reward_accounting_claim(ALICE);
+        assert_ok!(Agents::add_stake(RuntimeOrigin::signed(ALICE), 80_000));
+        let second = reward_accounting_settle(Some(20_000), Some(20_000));
+        assert!(second.alice_weight > first.alice_weight);
+        let alice = alice_first.saturating_add(reward_accounting_claim(ALICE));
+        let bob = reward_accounting_claim(BOB);
+        assert_eq!(
+            alice,
+            reward_accounting_share(first, true)
+                .saturating_add(reward_accounting_share(second, true))
+        );
+        assert!(alice.saturating_add(bob) <= reward_accounting_budget(&[first, second]));
+    });
+}
+
+#[test]
+fn reward_accounting_control_registration_excludes_pre_registration_eras() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(1);
+        register(BOB, 10_000);
+        pallet_agents::CompletedAgreements::<Test>::insert(BOB, 10);
+        let first = reward_accounting_settle(None, Some(20_000));
+        register(ALICE, 10_000);
+        assert_eq!(
+            AgentRewardDebt::<Test>::get(ALICE),
+            AccRewardPerStake::<Test>::get()
+        );
+        let second = reward_accounting_settle(Some(20_000), Some(20_000));
+        let alice = reward_accounting_claim(ALICE);
+        let bob = reward_accounting_claim(BOB);
+        assert_eq!(alice, reward_accounting_share(second, true));
+        assert!(alice.saturating_add(bob) <= reward_accounting_budget(&[first, second]));
+    });
+}
+
+#[test]
+fn reward_accounting_control_batch_claim_before_stake_increase_preserves_budget() {
+    new_test_ext().execute_with(|| {
+        reward_accounting_setup();
+        let issuance_before = Balances::total_issuance();
+        let alice_before = Balances::free_balance(ALICE);
+        let bob_before = Balances::free_balance(BOB);
+        let first = reward_accounting_settle(Some(20_000), Some(20_000));
+        assert_ok!(Emissions::batch_claim(
+            RuntimeOrigin::signed(3),
+            vec![ALICE, BOB]
+        ));
+        assert_ok!(Agents::add_stake(RuntimeOrigin::signed(ALICE), 80_000));
+        let second = reward_accounting_settle(Some(20_000), Some(20_000));
+        assert_ok!(Emissions::batch_claim(
+            RuntimeOrigin::signed(3),
+            vec![ALICE, BOB]
+        ));
+        let minted = Balances::total_issuance().saturating_sub(issuance_before);
+        assert_eq!(minted, reward_accounting_budget(&[first, second]));
+        assert_eq!(
+            Balances::free_balance(ALICE).saturating_sub(alice_before),
+            reward_accounting_share(first, true)
+                .saturating_add(reward_accounting_share(second, true))
+        );
+        assert_eq!(
+            Balances::free_balance(BOB).saturating_sub(bob_before),
+            reward_accounting_share(first, false)
+                .saturating_add(reward_accounting_share(second, false))
+        );
+        assert_eq!(
+            AgentRewardDebt::<Test>::get(ALICE),
+            AccRewardPerStake::<Test>::get()
+        );
+        assert_eq!(
+            AgentRewardDebt::<Test>::get(BOB),
+            AccRewardPerStake::<Test>::get()
+        );
+    });
+}
+
+#[test]
+fn reward_accounting_regression_dormancy_reactivation_preserves_total_budget() {
+    new_test_ext().execute_with(|| {
+        reward_accounting_setup();
+        let issuance_before = Balances::total_issuance();
+        let first = reward_accounting_settle(Some(20_000), Some(20_000));
+        let idle = reward_accounting_settle(None, Some(20_000));
+        assert_eq!(idle.alice_weight, 0);
+        assert!(idle.bob_weight > 0 && idle.pool > 0);
+        assert_noop!(
+            Emissions::claim(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::NothingToClaim
+        );
+        let last = reward_accounting_settle(Some(20_000), Some(20_000));
+        assert_eq!(first.alice_weight, last.alice_weight);
+        let alice = reward_accounting_claim(ALICE);
+        let bob = reward_accounting_claim(BOB);
+        let budget = reward_accounting_budget(&[first, idle, last]);
+        let minted = Balances::total_issuance().saturating_sub(issuance_before);
+        eprintln!(
+            "REWARD_WITNESS dormancy: eras={:?}, A={}, B={}, minted={}, budget={}",
+            [first, idle, last],
+            alice,
+            bob,
+            minted,
+            budget
+        );
+        assert!(
+            minted <= budget,
+            "deferred claims minted {minted} above historical era budget {budget}"
+        );
+    });
+}
+
+#[test]
+fn reward_accounting_regression_registered_idle_agent_cannot_claim_idle_era() {
+    new_test_ext().execute_with(|| {
+        reward_accounting_setup();
+        let idle = reward_accounting_settle(None, Some(20_000));
+        assert_eq!(idle.alice_weight, 0);
+        let active = reward_accounting_settle(Some(20_000), Some(20_000));
+        let alice = reward_accounting_claim(ALICE);
+        let expected = reward_accounting_share(active, true);
+        eprintln!(
+            "REWARD_WITNESS first_work: A={}, historical_share={}",
+            alice, expected
+        );
+        assert_eq!(
+            alice, expected,
+            "first work must not reprice earlier idle eras"
+        );
+    });
+}
+
+#[test]
+fn reward_accounting_regression_stake_clear_closes_old_reward_interval() {
+    new_test_ext().execute_with(|| {
+        reward_accounting_setup();
+        let first = reward_accounting_settle(Some(20_000), Some(20_000));
+        let old_debt = AgentRewardDebt::<Test>::get(ALICE);
+        assert_ok!(Agents::add_stake(RuntimeOrigin::signed(ALICE), 80_000));
+        assert_eq!(AgentWeightSnapshot::<Test>::get(ALICE), 0);
+        assert_noop!(
+            Emissions::claim(RuntimeOrigin::signed(ALICE)),
+            Error::<Test>::NothingToClaim
+        );
+        assert_eq!(AgentRewardDebt::<Test>::get(ALICE), old_debt);
+        let second = reward_accounting_settle(Some(20_000), Some(20_000));
+        assert!(second.alice_weight > first.alice_weight);
+        let alice = reward_accounting_claim(ALICE);
+        let bob = reward_accounting_claim(BOB);
+        let budget = reward_accounting_budget(&[first, second]);
+        eprintln!(
+            "REWARD_WITNESS stake_increase: A={}, B={}, minted={}, budget={}",
+            alice,
+            bob,
+            alice.saturating_add(bob),
+            budget
+        );
+        assert!(
+            alice.saturating_add(bob) <= budget,
+            "cleared snapshot must not restore old deltas at a higher stake weight"
+        );
+    });
+}
+
+#[test]
+fn reward_accounting_regression_lower_work_weight_preserves_earned_rewards() {
+    new_test_ext().execute_with(|| {
+        reward_accounting_setup();
+        let first = reward_accounting_settle(Some(20_000), Some(20_000));
+        let second = reward_accounting_settle(Some(1_000), Some(20_000));
+        assert!(second.alice_weight > 0 && second.alice_weight < first.alice_weight);
+        let alice = reward_accounting_claim(ALICE);
+        let expected = reward_accounting_share(first, true)
+            .saturating_add(reward_accounting_share(second, true));
+        eprintln!(
+            "REWARD_WITNESS lower_work: A={}, historical_share={}",
+            alice, expected
+        );
+        assert_eq!(
+            alice, expected,
+            "later lower weight must preserve rewards earned earlier"
+        );
+    });
+}
+
+#[test]
+fn reward_accounting_regression_claim_before_idle_cannot_pay_idle_era() {
+    new_test_ext().execute_with(|| {
+        reward_accounting_setup();
+        let first = reward_accounting_settle(Some(20_000), Some(20_000));
+        let alice_first = reward_accounting_claim(ALICE);
+        let idle = reward_accounting_settle(None, Some(20_000));
+        assert_eq!(idle.alice_weight, 0);
+        let last = reward_accounting_settle(Some(20_000), Some(20_000));
+        let alice_last = reward_accounting_claim(ALICE);
+        let expected_last = reward_accounting_share(last, true);
+        eprintln!("REWARD_WITNESS timely_claim_then_idle: A_before_idle={}, A_after_idle={}, expected_after_idle={}",
+            alice_first, alice_last, expected_last);
+        assert_eq!(alice_first, reward_accounting_share(first, true));
+        assert_eq!(alice_last, expected_last, "claiming before idling must not make the idle era payable");
+    });
+}

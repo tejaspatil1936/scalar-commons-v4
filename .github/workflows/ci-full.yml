@@ -17,6 +17,12 @@ on:
   pull_request:
     branches: [master]
   workflow_dispatch:
+    inputs:
+      audit_reward_accounting_only:
+        description: Run the isolated reward-accounting audit on its test branch
+        type: boolean
+        default: false
+        required: false
 
 concurrency:
   group: ci-full-${{ github.ref }}
@@ -24,6 +30,7 @@ concurrency:
 
 jobs:
   full:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.audit_reward_accounting_only == true && startsWith(github.ref, 'refs/heads/codex/scalar-reward-regression-')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
 
@@ -162,5 +169,84 @@ jobs:
       # run that made this step necessary. This reports; it never votes, so the
       # job's conclusion is unchanged either way.
       - name: Disk headroom after the build
+        if: always()
+        run: df -h /
+
+  reward-accounting-audit:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.audit_reward_accounting_only == true && startsWith(github.ref, 'refs/heads/codex/scalar-reward-regression-') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Bind the subject and check runner capacity
+        id: subject
+        shell: bash
+        run: |
+          git rev-parse HEAD
+          df -h /
+          free -h
+          available_bytes=$(df -B1 --output=avail / | tail -1 | tr -d ' ')
+          test "$available_bytes" -ge 10737418240
+          sha256sum --check <<'HASHES'
+          dcb11b000a5ca996d29af6810c78097b66fc34ccff9a0e85ab365145d1343168  pallets/emissions/src/tests.rs
+          875d21d1b54f6506362b7e9510e87c52ccca78953775f3a3eefb49bfb333527a  pallets/emissions/src/lib.rs
+          ccda5693198377a7a256d03c2af1e06e9414e16781346e2484c94a1a2515649d  pallets/agents/src/lib.rs
+          d8ac2a2e096d5ec58aaebac3da01e3693b9d06c50599f07f0794792bceecc890  Cargo.lock
+          HASHES
+      - name: Install protoc
+        id: protoc
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - uses: dtolnay/rust-toolchain@master
+        id: toolchain
+        with:
+          toolchain: "1.85.0"
+          targets: wasm32v1-none
+          components: rust-src,rustfmt,clippy
+      - name: Verify the toolchain pin
+        id: pin
+        shell: bash
+        run: |
+          rustc --version | tee "$RUNNER_TEMP/scalar-reward-toolchain.log"
+          rustc --version | grep -q 'rustc 1.85.0 '
+          cargo --version
+      - name: Check fixture formatting
+        run: rustfmt --edition 2021 --check pallets/emissions/src/tests.rs
+      - name: Lint the affected pallet
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo clippy --locked -p pallet-emissions --all-targets -- -D warnings 2>&1 | tee "$RUNNER_TEMP/scalar-reward-clippy.log"
+      - name: Existing pallet tests and passing controls
+        if: ${{ !cancelled() && steps.subject.outcome == 'success' && steps.protoc.outcome == 'success' && steps.toolchain.outcome == 'success' && steps.pin.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --locked -p pallet-emissions --lib -- --skip reward_accounting_regression_ 2>&1 | tee "$RUNNER_TEMP/scalar-reward-baseline.log"
+          grep -Eq 'test result: ok\. [1-9][0-9]* passed; 0 failed' "$RUNNER_TEMP/scalar-reward-baseline.log"
+      - name: Execute accounting regressions without suppressing failures
+        if: ${{ !cancelled() && steps.subject.outcome == 'success' && steps.protoc.outcome == 'success' && steps.toolchain.outcome == 'success' && steps.pin.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --locked -p pallet-emissions --lib reward_accounting_regression_ -- --nocapture 2>&1 | tee "$RUNNER_TEMP/scalar-reward-regressions.log"
+      - name: Retain bounded diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scalar-reward-accounting-${{ github.run_id }}
+          path: ${{ runner.temp }}/scalar-reward-*.log
+          retention-days: 3
+          if-no-files-found: warn
+      - name: Record remaining runner capacity
         if: always()
         run: df -h /
