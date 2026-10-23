@@ -1,5 +1,6 @@
 /*
- * The Ledger — the tokens. Black ink on paper: the single source for every
+ * The Ledger — the tokens. Light ink on a dark page (round 3: the palette is
+ * inverted; print.css turns it back to paper for paper): the single source for every
  * colour, face, size, step and timing on the site (SITE-ROUND2.md §1.1); every
  * other stylesheet — the chrome, the page sheets, the instruments, the docs
  * theme, the explorer's shell — consumes these and defines none of its own.
@@ -8,16 +9,16 @@
  * the contrast pairs and the type and spacing scales closed.
  */
 :root {
-  /* paper */
-  --paper:   #fcfcfc;  /* page */
-  --paper-2: #f4f4f4;  /* sheet, band, code */
-  --paper-3: #ebebeb;  /* field, pressed, selected */
-  /* ink */
-  --ink:   #111111;    /* text, figures, live marks        18.4:1 on paper, 15.8:1 on paper-3 */
-  --ink-2: #4d4d4d;    /* secondary text                    8.2:1 on paper, 7.1:1 on paper-3 */
-  --ink-3: #6f6f6f;    /* labels, captions, settled marks   4.9:1 on paper, 4.6:1 on paper-2; never as text on paper-3 (4.2:1) — use ink-2 there */
-  --rule:  #d6d6d6;    /* hairlines, leaders, rails */
-  --rule-2:#b0b0b0;    /* stronger rules, outlines */
+  /* paper — now the night */
+  --paper:   #0b0b0b;  /* page */
+  --paper-2: #141414;  /* sheet, band, code */
+  --paper-3: #1d1d1d;  /* field, pressed, selected */
+  /* ink — now light */
+  --ink:   #f2f2f2;    /* text, figures, live marks       17.6:1 on paper, 15.1:1 on paper-3 */
+  --ink-2: #bdbdbd;    /* secondary text                  10.5:1 on paper,  9.0:1 on paper-3 */
+  --ink-3: #8f8f8f;    /* labels, captions, settled marks  6.1:1 on paper,  5.2:1 on paper-3 */
+  --rule:  #2a2a2a;    /* hairlines, leaders, rails */
+  --rule-2:#3d3d3d;    /* stronger rules, outlines */
   /* type — two families only */
   --font-serif: "Source Serif 4", Georgia, serif;
   --font-mono:  "IBM Plex Mono", ui-monospace, monospace;

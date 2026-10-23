@@ -1,6 +1,7 @@
 /*
  * The Ledger — the chrome. Every component the site draws, in the tokens of
- * tokens.css and nothing else: black ink on paper, a serif for every word, a
+ * tokens.css and nothing else: light ink on a dark page (dark by default and
+ * only; print.css prints it on paper), a serif for every word, a
  * mono for every figure, hairline rules between rows, dotted leaders from
  * label to value. Nothing is coloured: state is carried by ink weight,
  * outline, hatching and the word beside it. A rule is a line, never a frame;
@@ -38,6 +39,8 @@
 *,
 *::before,
 *::after { box-sizing: border-box; }
+/* Dark by default and only: form controls, scrollbars and built-in widgets follow. */
+:root { color-scheme: dark; }
 /* The body font is set on body, not html: on the root element a rem-sized
    font would make 1 rem 18 px and lift every token 12.5 % off the scale. */
 html {

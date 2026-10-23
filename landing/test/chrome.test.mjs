@@ -15,6 +15,17 @@ const css = readFileSync(new URL('../src/chrome/tokens.css', import.meta.url), '
 const tokens = rootTokens(css);
 
 const PALETTE = {
+  '--paper': '#0b0b0b',
+  '--paper-2': '#141414',
+  '--paper-3': '#1d1d1d',
+  '--ink': '#f2f2f2',
+  '--ink-2': '#bdbdbd',
+  '--ink-3': '#8f8f8f',
+  '--rule': '#2a2a2a',
+  '--rule-2': '#3d3d3d',
+};
+// Round 2's light values: print.css turns the page back to these, and nowhere else may they appear.
+export const PRINT_PALETTE = {
   '--paper': '#fcfcfc',
   '--paper-2': '#f4f4f4',
   '--paper-3': '#ebebeb',
@@ -58,22 +69,36 @@ test('the palette is the Ledger’s, to the hex: paper, ink and rules, and no hu
   }
 });
 
-test('the five ink/paper pairs meet the contrast the brief states', () => {
+test('the ink/paper pairs meet the contrast the brief states (round 3: dark)', () => {
   const pairs = [
-    ['--ink', '--paper', 18.4],
-    ['--ink', '--paper-3', 15.8],
-    ['--ink-2', '--paper', 8.2],
-    ['--ink-2', '--paper-3', 7.1],
-    ['--ink-3', '--paper', 4.9],
-    ['--ink-3', '--paper-2', 4.6],
+    ['--ink', '--paper', 17.6],
+    ['--ink', '--paper-3', 15.1],
+    ['--ink-2', '--paper', 10.5],
+    ['--ink-2', '--paper-3', 9.0],
+    ['--ink-3', '--paper', 6.1],
+    ['--ink-3', '--paper-3', 5.2],
   ];
   for (const [ink, ground, stated] of pairs) {
     const ratio = contrast(tokens[ink], tokens[ground]);
     assert.ok(ratio >= stated - 0.05, `${ink} on ${ground} is ${ratio.toFixed(2)}:1, under the stated ${stated}:1`);
     assert.ok(ratio >= 4.5, `${ink} on ${ground} is under WCAG AA`);
   }
-  // ink-3 is never text on paper-3: the brief states it fails there.
-  assert.ok(contrast(tokens['--ink-3'], tokens['--paper-3']) < 4.5);
+  // Printed, the light values keep round 2's pairs.
+  for (const [ink, ground, stated] of [['--ink', '--paper', 18.4], ['--ink-2', '--paper', 8.2], ['--ink-3', '--paper', 4.9]]) {
+    const ratio = contrast(PRINT_PALETTE[ink], PRINT_PALETTE[ground]);
+    assert.ok(ratio >= stated - 0.05, `printed ${ink} on ${ground} is ${ratio.toFixed(2)}:1`);
+  }
+});
+
+test('dark by default and only; print is light and is the one place the light values survive', () => {
+  const chromeCss = readFileSync(new URL('../src/chrome/chrome.css', import.meta.url), 'utf8');
+  const printCss = readFileSync(new URL('../src/chrome/print.css', import.meta.url), 'utf8');
+  assert.match(chromeCss, /:root \{ color-scheme: dark; \}/);
+  const printRoot = printCss.match(/@media print \{\s*:root \{([^}]*)\}/)?.[1] ?? '';
+  assert.match(printRoot, /color-scheme: light;/);
+  for (const [name, hex] of Object.entries(PRINT_PALETTE)) assert.ok(printRoot.includes(`${name}: ${hex};`), `print sets ${name} to ${hex}`);
+  // Outside that block, print.css carries no colour at all.
+  assert.ok(!/#[0-9a-f]{3,8}\b/i.test(printCss.replace(/@media print \{\s*:root \{[^}]*\}/, '')), 'a colour in print.css outside its :root');
 });
 
 test('the type scale is closed: eleven styles, two self-hosted faces, and nothing else sets a size', () => {
@@ -124,7 +149,7 @@ export const COLOUR_SCOPE = [
   ...walk('landing/src/', (n) => /\.(css|m?js)$/.test(n)),
   ...walk('docs/.vitepress/theme/', (n) => /\.(css|vue|ts)$/.test(n)),
   ...walk('explorer/src/', (n) => /\.(css|ts)$/.test(n)),
-].filter((u) => !/\/chrome\/tokens\.css$/.test(u.pathname));
+].filter((u) => !/\/chrome\/(?:tokens|print)\.css$/.test(u.pathname));
 // Every stylesheet the spacing and type scales are enforced over, with the
 // explorer's inline layout sheet (render.ts) lifted out of its template literal.
 export const STYLE_SCOPE = () => {
@@ -281,7 +306,7 @@ test('chrome.css draws in the Ledger: rules are lines not frames, the only gradi
     for (const part of value.split(/,\s*/)) assert.match(part.trim(), hard, `a box-shadow with blur: ${value}`);
   }
   assert.ok(!/font-style:\s*italic/.test(chrome + print), 'no italics');
-  assert.ok(!/prefers-color-scheme/.test(chrome + print), 'one theme, light');
+  assert.ok(!/prefers-color-scheme/.test(chrome + print), 'one theme, dark; print is not a scheme');
   assert.match(print, /@media print/);
   assert.match(print, /\.nw-receipt, \.nw-receipt-line \{ display: block !important; \}/);
   assert.match(print, /\.nw-bar[^{]*\{ display: none !important; \}/, 'print is the page without the bar');

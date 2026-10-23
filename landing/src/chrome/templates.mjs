@@ -289,7 +289,7 @@ export function head({ title, description, css, scripts = [], boot = true, extra
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(description)}">
-<meta name="color-scheme" content="light">
+<meta name="color-scheme" content="dark">
 ${sourcesBoot}
 <link rel="preload" href="fonts/source-serif-4-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>

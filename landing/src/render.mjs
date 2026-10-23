@@ -433,7 +433,7 @@ export function renderPage({ facts, content, sourceClaims, builtAt = null }) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${fill(content.meta.title, facts)}</title>
 <meta name="description" content="${fill(content.meta.description, facts)}">
-<meta name="color-scheme" content="light">
+<meta name="color-scheme" content="dark">
 <link rel="preload" href="fonts/source-serif-4-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="styles.css">

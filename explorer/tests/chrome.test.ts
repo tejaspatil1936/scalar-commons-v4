@@ -437,7 +437,7 @@ describe('search and chrome routes', () => {
   it('reads the stylesheet as tokens + chrome + print, byte-for-byte from the synced copy', () => {
     const dir = defaultChromeDir();
     const css = readChromeStylesheet(dir);
-    expect(css).toContain('--paper:   #fcfcfc;');
+    expect(css).toContain('--paper:   #0b0b0b;');
     expect(css).toContain('.nw-reading');
     expect(css).toContain('@media print');
     const landing = fileURLToPath(new URL('../../landing/src/chrome/chrome.css', import.meta.url));

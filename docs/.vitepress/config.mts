@@ -82,7 +82,7 @@ export default defineConfig({
   // One theme (the Ledger): light only, no dark scheme, no appearance toggle.
   appearance: false,
   head: [
-    ['meta', { name: 'color-scheme', content: 'light' }],
+    ['meta', { name: 'color-scheme', content: 'dark' }],
     // The Sources switch's memory, applied before first paint (the chrome's key).
     [
       'script',
