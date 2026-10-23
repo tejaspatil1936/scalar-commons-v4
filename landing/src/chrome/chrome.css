@@ -441,6 +441,11 @@ html[data-sources] .nw-receipt-line { display: block; }
   .nw-foot-col { grid-column: 1 / -1; }
 }
 
+/* ── touch: 40 px hit targets ─────────────────────────────────────────────── */
+@media (pointer: coarse) {
+  .nw-stub, .nw-quiet, .nw-copy, .nw-sources, .nw-menu { min-height: 40px; }
+}
+
 /* ── reduced motion ───────────────────────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

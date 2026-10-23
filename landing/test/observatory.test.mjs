@@ -670,9 +670,9 @@ test('components: the chrome’s controls only — every button is a chrome cont
   // Copy is the chrome's: "Copy" on hover, "Copied" in filament for 1.2 s.
   assert.ok(bundle.includes("'Copied'") || bundle.includes('"Copied"'));
   assert.match(chromeCss, /\.nw-copy\.is-copied \{ color: var\(--filament\)/);
-  // Hit targets stay 40 px on touch (requested of the chrome in chrome/requests/phase3.css; carried here meanwhile).
-  assert.match(css.slice(css.indexOf('@media (pointer: coarse)')), /\.nw-stub, \.nw-quiet, \.nw-copy, \.nw-sources, \.nw-menu \{ min-height: 40px; \}/);
-  assert.match(readFileSync(new URL('../src/chrome/requests/phase3.css', import.meta.url), 'utf8'), /pointer: coarse/);
+  // Hit targets stay 40 px on touch: requested of the chrome (chrome/requests/phase3.css) and, once merged, the chrome's rule.
+  const coarse = /\.nw-stub, \.nw-quiet, \.nw-copy, \.nw-sources, \.nw-menu \{ min-height: 40px; \}/;
+  assert.match(chromeCss.slice(chromeCss.indexOf('@media (pointer: coarse)')), coarse, 'the chrome carries the 40 px touch targets');
 });
 
 test('provenance: every Reading wears a stub that tears to a receipt — request, fetched · block, raw ↗ — Sources tears them all and is remembered; scripts off is a Band with the build time', () => {
@@ -689,7 +689,7 @@ test('provenance: every Reading wears a stub that tears to a receipt — request
   }
   assert.equal((page.match(/class="nw-receipt-line" data-receipt-line/g) ?? []).length, readings.length + 4, 'one inline receipt line per Reading and per strip');
   assert.match(chromeCss, /html\[data-sources\] \.nw-receipt-line \{ display: block; \}/);
-  assert.match(chromeCss, /\.nw-reading\.is-torn \.nw-receipt, html\[data-sources\] \.nw-reading:not\(\[data-sealed="true"\]\) \.nw-receipt \{ display: block;/);
+  assert.match(chromeCss, /\.nw-reading\.is-torn \.nw-receipt, \.nw-reading:focus-within \.nw-receipt, html\[data-sources\] \.nw-reading:not\(\[data-sealed="true"\]\) \.nw-receipt \{ display: block;/);
   // The records tear nothing: the posture file is sealed and says so; no Reading is drawn from it.
   assert.match(section('verify'), /<div class="posture-record" data-record="true">/);
   // Scripts off: the Band, with the build's time and block from chain-facts.json; no figure in a value slot.
