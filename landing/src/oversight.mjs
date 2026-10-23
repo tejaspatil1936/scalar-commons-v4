@@ -254,7 +254,7 @@ ${EXPLANATION.map((sentence) => `      <p class="nw-dim">${sentence}</p>`).join(
     </div>
     <p class="ov-label nw-small" role="note">${tag({ state: 'operator', text: provenance.chainName })} <span class="nw-dim">${escapeHtml(provenance.networkNote)}</span></p>
     <p class="ov-status-line"><span class="nw-tag ov-status" data-ov-status data-state="connecting" role="status" aria-live="off"><span class="nw-dot" aria-hidden="true"></span><span data-status-text>Reading the chain…</span><span class="nw-dim"> · </span><span data-status-network>${escapeHtml(provenance.chainName)}</span></span></p>
-    <div class="ov-figures">
+    <div class="nw-row ov-figures">
 ${figures}
     </div>
   </section>

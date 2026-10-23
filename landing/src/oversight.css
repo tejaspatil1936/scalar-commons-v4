@@ -8,7 +8,8 @@
  * with the record carries a dotted ink rule down its left edge and its word.
  * Requests for the chrome go to src/chrome/requests/, never here.
  */
-.ov { padding-top: var(--s-8); }
+/* The first section opens --s-9 under the bar; the rest are --s-10 apart (the chrome's .nw-section). */
+.ov > .nw-section:first-child { padding-top: var(--s-9); }
 .ov-hero .nw-eyebrow { display: inline-flex; }
 .ov-standfirst { margin-top: var(--s-6); max-width: 62ch; }
 .ov-explanation { margin-top: var(--s-5); }
@@ -16,10 +17,18 @@
 .ov-status-line { margin-top: var(--s-4); }
 .ov-status[data-state="live"] .nw-dot { background: var(--ink); border-color: var(--ink); }
 .ov-status[data-state="error"] .nw-dot { border-radius: 0; border-color: var(--ink); background: var(--paper); }
-.ov-figures { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); column-gap: var(--gutter); row-gap: var(--s-6); margin-top: var(--s-8); }
-.ov-htr-list { display: grid; gap: var(--s-4); max-width: 960px; }
-.ov-htr-row { display: flex; align-items: baseline; gap: 0; }
-.ov-htr-row dt { flex: none; }
+/* The five summary figures are one .nw-row: the chrome sets five at --figure-s.
+   Their labels wrap inside their columns in a box two label-lines tall, so the
+   labels share a top line and the figures a baseline. The self-check is the
+   record's own sentence ("n of m keys match") and stays at --body. */
+.ov-figures { margin-top: var(--s-8); }
+.ov-figures .nw-reading-line > .nw-label { white-space: normal; min-height: var(--s-5); }
+.ov .ov-figures.nw-row .nw-reading-figure .nw-figure--body { font: var(--body); }
+/* HOW TO READ THIS and a message's fields: every row shares the list's three
+   tracks (term · leader · value), so the values start on one line. */
+.ov-htr-list { display: grid; grid-template-columns: max-content minmax(var(--s-6), 1fr) minmax(0, 8fr); row-gap: var(--s-4); }
+.ov-htr-row, .ov-field { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: baseline; min-width: 0; }
+.ov-htr-row .nw-leader, .ov-field .nw-leader { align-self: start; margin-top: var(--s-3); min-width: 0; }
 .ov-htr-row dd { margin: 0; max-width: 62ch; }
 .ov-lede { margin-top: var(--s-4); max-width: 72ch; }
 .ov-rows { display: grid; gap: 0; margin-top: var(--s-7); }
@@ -40,9 +49,8 @@
 .ov-kind { color: var(--ink); }
 .ov-kind[data-live="differs"] { color: var(--ink); text-decoration: underline dotted var(--ink); text-underline-offset: 4px; }
 .ov-when { color: var(--ink-2); }
-.ov-fields { display: grid; gap: var(--s-2); margin: 0; }
-.ov-field { display: flex; align-items: baseline; gap: 0; min-width: 0; }
-.ov-field dt { flex: none; }
+.ov-fields { display: grid; grid-template-columns: max-content minmax(var(--s-6), 1fr) minmax(0, 8fr); row-gap: var(--s-2); margin: 0; }
+.ov-field .nw-leader { margin-top: var(--s-2); }
 .ov-field dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font: var(--mono); }
 .ov-who { display: inline-flex; gap: var(--s-2); align-items: baseline; flex-wrap: wrap; }
 .ov-addr { color: var(--ink-2); }
@@ -72,13 +80,14 @@
 .ov-ledger a { text-decoration: underline dotted var(--rule-2); text-underline-offset: 4px; }
 .ov-sample .nw-pager { margin-top: var(--s-4); }
 .ov-foot p + p { margin-top: var(--s-4); }
-@media (max-width: 1024px) {
-  .ov-figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
 @media (max-width: 480px) {
-  .ov-figures { grid-template-columns: minmax(0, 1fr); }
-  .ov-htr-row, .ov-field { flex-direction: column; align-items: flex-start; gap: var(--s-2); }
-  .ov-htr-row .nw-leader, .ov-field .nw-leader { width: 24px; flex: none; margin-inline: 0; }
+  /* The six-row ledger at 480 px and under: index · extrinsic · state on the first line, the message under them. */
+  .ov-ledger .nw-ledger-row { grid-template-columns: 32px minmax(0, 1fr) auto; row-gap: var(--s-1); padding-block: var(--s-2); }
+  .ov-ledger .nw-ledger-row > :nth-child(3) { grid-column: 2 / -1; grid-row: 2; }
+  .ov-ledger .nw-ledger-row > :nth-child(5) { grid-column: 3; grid-row: 1; }
+  .ov-htr-list, .ov-fields { grid-template-columns: minmax(0, 1fr); }
+  .ov-htr-row, .ov-field { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-2); }
+  .ov-htr-row .nw-leader, .ov-field .nw-leader { width: 24px; flex: none; margin: 0; }
 }
 
 /* Narrow screens: the status line wraps instead of widening the page, and a

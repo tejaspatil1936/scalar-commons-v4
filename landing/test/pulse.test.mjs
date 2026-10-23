@@ -181,6 +181,15 @@ test('pulse.css draws in the Ledger: tokens only, no hue, the eleven fonts, rule
   const chromeCss = readFileSync(new URL('../src/chrome/chrome.css', import.meta.url), 'utf8');
   assert.match(chromeCss, /\.nw-lamp-dot\[data-lit="true"\] \{ background: var\(--ink\); border-color: var\(--ink\); \}/, 'the chrome lights a lamp dot outside the lamp in ink');
   assert.ok(!existsSync(fileURLToPath(new URL('../src/chrome/requests/phase4.css', import.meta.url))), 'the phase-4 request was merged and is gone');
-  assert.match(body, /--pulse-feed: 320px;/, 'the feed is 320 px');
-  assert.match(body, /grid-template-columns: minmax\(0, 1fr\) var\(--pulse-feed\);/);
+  // On the page's grid (round-2 contract §2.3): 1200 px, twelve columns; the Waterfall 1–9, the feed 10–12; the strip's three in 1–7.
+  assert.match(body, /\.pulse \{[^}]*max-width: calc\(var\(--content\) \+ 2 \* var\(--gutter\)\);[^}]*margin-inline: auto;/);
+  assert.match(body, /\.pulse-stage \{[^}]*grid-template-columns: repeat\(12, minmax\(0, 1fr\)\);/);
+  assert.match(body, /\.pulse-waterfall \{ grid-column: 1 \/ span 9;/);
+  assert.match(body, /\.pulse-feed \{ grid-column: 10 \/ span 3;/);
+  assert.match(body, /\.pulse-strip-left \{ grid-column: 1 \/ span 7; \}/);
+  assert.match(body, /@media \(max-width: 480px\)/, 'the narrow step is the contract’s 480 px');
+  // The three Readings and the strip's three are .nw-row rows, so the chrome sizes their figures by count (three → --figure-m).
+  assert.match(page, /<section class="nw-row pulse-readings" aria-label="Now">/);
+  assert.match(page, /<div class="nw-row pulse-strip-left">/);
+  assert.ok(!/nw-figure--(?:body|l|xl)/.test(page.slice(page.indexOf('<main'))), 'every figure on the page is mono, sized by its row');
 });

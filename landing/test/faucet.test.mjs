@@ -93,6 +93,10 @@ test('faucet.css draws in the Ledger: tokens only, no hue, the eleven fonts, rul
   for (const [, value] of css.matchAll(/(?:^|[;{\s])font:\s*([^;]+);/g)) assert.match(value.trim(), /^var\(--(?:display|h2|h3|body|small|figure-(?:xl|l|m|s)|label|mono)\)$/);
   assert.match(css, /\.fc-title-word \{ font: var\(--display\); letter-spacing: -0\.015em;/, 'the display face at the Ledger’s tracking');
   assert.match(css, /@media \(max-width: 480px\)/, 'the narrow step is the contract’s 480 px');
+  // On the 12-column grid (round-2 contract §2.3): the title's slots and words, the form, the account and the recent drips start and end on column lines.
+  assert.match(css, /\.fc-title \{ display: grid; grid-template-columns: repeat\(12, minmax\(0, 1fr\)\);/);
+  assert.match(css, /\.fc-account, \.fc-recent \{ display: grid; grid-template-columns: repeat\(12, minmax\(0, 1fr\)\);/);
+  assert.ok(!/[{;]\s*max-width:\s*\d+px/.test(css), 'no block width off the grid');
 });
 
 test('npm run build emits faucet.html and faucet.js beside oversight.html and oversight.js', () => {

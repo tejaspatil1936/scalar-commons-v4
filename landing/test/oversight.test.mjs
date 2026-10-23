@@ -208,5 +208,8 @@ test('oversight.css draws in the Ledger: no hue; a message is a ruled entry, not
   assert.match(chrome, /\.nw-redaction--hash span \{ background: var\(--rule-2\); \}/);
   assert.match(chrome, /\.nw-redaction--hash span\.is-on \{ background: var\(--ink\); \}/, 'hash-only: the grid in ink and rule-2');
   assert.ok(html.includes('no key held'), 'the sealed bar says so');
+  // Alignment (round-2 §2.5): the five summary figures are one .nw-row, so the chrome sets them at one size by count.
+  assert.match(html, /<div class="nw-row ov-figures">/);
+  assert.equal((html.slice(html.indexOf('nw-row ov-figures')).match(/data-reading="/g) ?? []).length >= 5, true);
   assert.equal((html.match(/class="nw-redaction nw-redaction--hash"/g) ?? []).length, sample.rows.filter((r) => r.bodyType === 'None' && r.payloadHashOnChain).length, 'one 32×2 grid per hash-only row');
 });

@@ -13,10 +13,13 @@
 
 .pulse-body { background: var(--paper); color: var(--ink); font: var(--body); }
 
-/* The instrument takes the whole viewport width, not the 1200 px content frame: at 1440 every registered agent is a 4 px column with a 1 px gap. */
+/* On the page's grid (round-2 contract §2.3): 1200 px, 12 columns, 24 px
+   gutters, centred under the bar. The Waterfall takes columns 1–9 and the feed
+   10–12; waterfall.js keeps every registered agent a column inside that
+   width (the gap goes first, then the column narrows). */
 .pulse {
-  --pulse-feed: 320px;
   box-sizing: border-box;
+  max-width: calc(var(--content) + 2 * var(--gutter));
   margin-inline: auto;
   padding: var(--s-5) var(--gutter) var(--s-4);
   height: calc(100vh - var(--bar));
@@ -26,19 +29,18 @@
   row-gap: var(--s-5);
 }
 
-/* the three Readings */
-.pulse-readings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: var(--gutter); }
+/* the three Readings: a .nw-row of three, so the chrome sets them at --figure-m */
 .pulse-figure .nw-receipt-line { color: var(--ink-2); }
 
-/* the stage: the Waterfall and the feed */
-.pulse-stage { display: grid; grid-template-columns: minmax(0, 1fr) var(--pulse-feed); column-gap: var(--gutter); min-height: 0; }
-.pulse-waterfall { position: relative; margin: 0; min-height: 0; background: var(--paper); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); overflow: hidden; }
+/* the stage: the Waterfall (columns 1–9) and the feed (10–12) */
+.pulse-stage { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gutter); min-height: 0; }
+.pulse-waterfall { grid-column: 1 / span 9; position: relative; margin: 0; min-height: 0; background: var(--paper); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); overflow: hidden; }
 .pulse-canvas { display: block; width: 100%; height: 100%; }
 .pulse-band { position: absolute; inset: 0 0 auto 0; z-index: 1; }
 
-.pulse-feed { display: flex; flex-direction: column; gap: var(--s-3); min-height: 0; min-width: 0; }
+.pulse-feed { grid-column: 10 / span 3; display: flex; flex-direction: column; gap: var(--s-3); min-height: 0; min-width: 0; }
 .pulse-feed-head { display: inline-flex; align-items: center; gap: var(--s-3); margin: 0; color: var(--ink-2); }
-.pulse-feed-note { margin: 0; color: var(--ink-3); }
+.pulse-feed-note { margin: 0; color: var(--ink-2); }
 .pulse-feed-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-3); overflow: hidden; color: var(--ink); font-variant-numeric: tabular-nums lining-nums; }
 .pulse-feed-lines li { overflow-wrap: anywhere; }
 .pulse-feed-age { color: var(--ink-2); white-space: nowrap; }
@@ -49,24 +51,23 @@
 .pulse-legend-glyph { display: block; width: 24px; height: var(--s-3); }
 .pulse-operators { margin-left: auto; color: var(--ink-2); }
 
-/* the bottom strip */
-.pulse-strip { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: var(--s-3) var(--gutter); }
-.pulse-strip-left { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-3) var(--s-7); }
-.pulse-strip-reading { gap: var(--s-1); }
-.pulse-strip-reading .nw-figure--body { color: var(--ink); }
-.pulse-strip-right { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--s-5); color: var(--ink-2); }
+/* the bottom strip: Height · Finalized · Era as a .nw-row in columns 1–7; the disclaimer and F in 8–12 */
+.pulse-strip { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gutter); row-gap: var(--s-3); align-items: end; }
+.pulse-strip-left { grid-column: 1 / span 7; }
+.pulse-strip-right { grid-column: 8 / span 5; display: flex; align-items: baseline; justify-content: flex-end; flex-wrap: wrap; gap: var(--s-3) var(--s-5); color: var(--ink-2); }
 .pulse-disclaimer { margin: 0; color: var(--ink-2); }
 
 @media (max-width: 1024px) {
   .pulse { height: auto; }
-  .pulse-stage { grid-template-columns: minmax(0, 1fr); row-gap: var(--s-5); }
+  .pulse-stage { row-gap: var(--s-5); }
+  .pulse-waterfall, .pulse-feed, .pulse-strip-left, .pulse-strip-right { grid-column: 1 / -1; }
+  .pulse-strip-right { justify-content: flex-start; }
   .pulse-waterfall { height: 50vh; }
 }
 
-@media (max-width: 390px) {
-  .pulse { padding-inline: calc(var(--s-4) + var(--s-1)); row-gap: var(--s-4); }
-  .pulse-readings { grid-template-columns: minmax(0, 1fr); row-gap: var(--s-4); }
-  .pulse-figure .nw-figure--l { font: var(--figure-m); }
+/* At 480 px and under: one column, 20 px gutters (the chrome's --gutter), rows --s-5 apart. */
+@media (max-width: 480px) {
+  .pulse { row-gap: var(--s-5); }
   .pulse-waterfall { height: 40vh; }
   .pulse-operators { margin-left: 0; }
 }

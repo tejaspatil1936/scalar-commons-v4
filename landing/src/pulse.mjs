@@ -45,7 +45,7 @@ export function sourceOf(name, computed = null) {
 }
 
 function readings() {
-  return FIGURES.map(([key, label, source]) => reading({ key, label, size: 'l', live: true, stack: true, state: 'connecting', source: sourceOf(source, EXTRA[key]), className: 'pulse-figure' })).join('\n');
+  return FIGURES.map(([key, label, source]) => reading({ key, label, size: 'm', live: true, stack: true, state: 'connecting', source: sourceOf(source, EXTRA[key]), className: 'pulse-figure' })).join('\n');
 }
 
 function stage() {
@@ -71,9 +71,9 @@ ${items}
 }
 
 function strip() {
-  const left = STRIP.map(([key, label, source]) => reading({ key, label, size: 'body', live: true, state: 'connecting', source: sourceOf(source), className: 'pulse-strip-reading' })).join('\n');
+  const left = STRIP.map(([key, label, source]) => reading({ key, label, size: 'm', live: true, state: 'connecting', source: sourceOf(source), className: 'pulse-strip-reading' })).join('\n');
   return `  <footer class="pulse-strip">
-    <div class="pulse-strip-left">
+    <div class="nw-row pulse-strip-left">
 ${left}
     </div>
     <div class="pulse-strip-right">
@@ -102,7 +102,7 @@ ${topBar({ current: 'pulse' })}
 <noscript>${band({ text: SCRIPTS_OFF(builtAt) })}</noscript>
 <main class="pulse" aria-labelledby="pulse-h">
   <h1 class="nw-visually-hidden" id="pulse-h">Pulse</h1>
-  <section class="pulse-readings" aria-label="Now">
+  <section class="nw-row pulse-readings" aria-label="Now">
 ${readings()}
   </section>
 ${stage()}
