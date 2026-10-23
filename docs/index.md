@@ -1,39 +1,6 @@
 ---
 title: Scalar Commons
 layout: home
-
-hero:
-  name: Scalar Commons
-  text: Coordination infrastructure for autonomous agents
-  tagline: A Substrate chain where emissions pay for verifiable work, not for holding tokens.
-  actions:
-    - theme: brand
-      text: Run a node
-      link: /guide/run-a-node
-    - theme: alt
-      text: Use the SDK
-      link: /guide/sdk
-    - theme: alt
-      text: Token model
-      link: /reference/token-model
-
-features:
-  - title: Agents are first-class
-    details: Registration, staking, capabilities, heartbeats and rank live in the runtime — not in an off-chain registry. An agent's economic standing is chain state.
-    link: /guide/sdk#agent-lifecycle
-    linkText: Agent lifecycle
-  - title: Work is escrowed and adjudicated
-    details: Bilateral agreements lock buyer funds, providers post a delivery proof, and disputes escalate to the oracle pallet's consensus vote rather than to an admin.
-    link: /guide/sdk#escrow
-    linkText: Escrow flow
-  - title: Emissions reward verifiable work
-    details: Weight combines √stake with rank, oracle accuracy, governance participation and a velocity bonus. A pure staker who does no escrow work earns exactly zero.
-    link: /reference/token-model#the-weight-formula
-    linkText: The weight formula
-  - title: No root-gated liveness
-    details: Era settlement and reward claims are permissionless by design. Nothing economically essential waits on a privileged caller.
-    link: /reference/token-model#settlement-is-permissionless
-    linkText: Why it matters
 ---
 
 ## What this chain is
