@@ -199,10 +199,17 @@ function inspect({ colours, fontSizes, spacing }) {
   // (c) no horizontal scroll; name the element that reaches furthest right
   const sw = document.documentElement.scrollWidth;
   if (sw > window.innerWidth) {
+    // Content inside a scrolling or clipping box (a code block) does not widen the page.
+    const clipped = (el) => {
+      for (let x = el.parentElement; x && x !== document.body; x = x.parentElement) {
+        if (getComputedStyle(x).overflowX !== 'visible') return true;
+      }
+      return false;
+    };
     let worst = null;
     for (const el of document.body.querySelectorAll('*')) {
       const r = el.getBoundingClientRect();
-      if (r.width && r.right > window.innerWidth + 1 && (!worst || r.right > worst[1])) worst = [el, r.right];
+      if (r.width && r.right > window.innerWidth + 1 && (!worst || r.right > worst[1]) && !clipped(el)) worst = [el, r.right];
     }
     out.push(`(c) scrollWidth ${sw} px > viewport ${window.innerWidth} px${worst ? `; furthest right: ${sel(worst[0])} reaching ${Math.round(worst[1])} px` : ''}`);
   }
