@@ -81,7 +81,7 @@ button, input { font: inherit; color: inherit; }
 .nw-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gutter); row-gap: 32px; }
 .nw-section { padding-block: 96px; }
 .nw-section + .nw-section { padding-top: 0; }
-.nw-section-head { display: flex; align-items: baseline; gap: 16px; margin-bottom: 48px; }
+.nw-section-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 16px; margin-bottom: 48px; }
 .nw-section-head .nw-figure { color: var(--sage); }
 .nw-row { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); column-gap: var(--gutter); row-gap: 24px; }
 .nw-stack > * + * { margin-top: 24px; }
