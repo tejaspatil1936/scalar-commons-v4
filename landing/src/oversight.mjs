@@ -6,13 +6,15 @@
 // about that by construction — every on-chain field is rendered from the record
 // AND re-read live in the reader's browser, and the row says which of the two
 // it is showing. A row whose live read disagrees with the record is marked as
-// disagreeing, in vermilion with its word, not quietly corrected.
+// disagreeing — a dotted ink rule down its left edge and the word, never a
+// colour (SITE-ROUND2.md §1.2) — not quietly corrected.
 //
 // The two checks on each row are of different kinds and are labelled as such:
-// the signature was verified by the tool (a sage stub: the reader is trusting
-// the record for that one), while the commitment is recomputed in the reader's
-// own browser from the plaintext with a bundled blake2b-256 (a filament stub:
-// live). Only the second is something the reader checks for themselves.
+// the signature was verified by the tool (a record stub, a rule-2 outline on
+// paper: the reader is trusting the record for that one), while the
+// commitment is recomputed in the reader's own browser from the plaintext with
+// a bundled blake2b-256 (a live stub, solid ink). Only the second is something
+// the reader checks for themselves.
 //
 // Drawn on the chrome (src/chrome): head(), topBar(), footer(), Readings,
 // Tags, Redactions, leaders and the Ledger; this file adds no colour or size.
@@ -40,7 +42,7 @@ export const EXPLANATION = [
   'This is an oversight instance: the operator runs these agents and holds escrowed copies of their keys, so every encrypted row below that belongs to one of its own agents was opened with the operator’s own keys — rows between agents it does not run stayed shut and are greyed out, and a few rows were never encrypted in the first place.',
 ];
 
-/** The recorded summary figures, in reading order: key into the sample's summary, label. All four are the tool's (sage). */
+/** The recorded summary figures, in reading order: key into the sample's summary, label. All four are the tool's (record stubs: outline, not fill). */
 export const FIGURES = [
   ['selfCheck', 'Operator keys matching the chain'],
   ['decryptedCount', 'Decrypted by the operator'],

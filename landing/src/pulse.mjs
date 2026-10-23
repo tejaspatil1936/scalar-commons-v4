@@ -1,4 +1,4 @@
-// /pulse — the page frame, as a string, in the Nightwatch chrome. One screen
+// /pulse — the page frame, as a string, in the Ledger chrome. One screen
 // at 1440×900 with nothing below the bottom strip and no footer: the top bar
 // with Pulse current and the lamp, three Readings, the Waterfall with the
 // feed at its right, the legend row, and the bottom strip (Height · Finalized
