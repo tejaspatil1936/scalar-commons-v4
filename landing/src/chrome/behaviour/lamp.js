@@ -1,4 +1,4 @@
-// The lamp: 8 px of filament and one line of label text, lit only while the
+// The lamp: an 8 px ink dot and one line of label text (block n · fin k), lit only while the
 // socket is open and the last block is under 30 s old. Fed by the page's
 // head/finalized events; this module composes the words and the state.
 const fmt = new Intl.NumberFormat('en-US');
@@ -24,9 +24,9 @@ export function createLamp(el, { rpc = 'wss://rpc.scalarnet.io', staleMs = 30_00
     let words;
     if (mode === 'connecting') words = `connecting · ${rpc}`;
     else if (mode === 'stalled') words = `last block ${utc(state.lastBlockAt)} · ${Math.round(age / 60_000)} min ago · <span class="nw-alarm">stalled</span>`;
-    else if (mode === 'behind') words = `block ${fmt.format(state.block)} · finality ${finality} · <span class="nw-alarm">index −${fmt.format(state.indexBehind)}</span>`;
-    else if (mode === 'lagging') words = `block ${fmt.format(state.block)} · finality <span class="nw-alarm">${finality}</span>`;
-    else words = `block ${fmt.format(state.block)} · finality ${finality} · normal`;
+    else if (mode === 'behind') words = `block ${fmt.format(state.block)} · fin ${finality} · <span class="nw-alarm">index −${fmt.format(state.indexBehind)}</span>`;
+    else if (mode === 'lagging') words = `block ${fmt.format(state.block)} · fin <span class="nw-alarm">${finality}</span>`;
+    else words = `block ${fmt.format(state.block)} · fin ${finality}`;
     text.innerHTML = words;
   };
   const tick = () => {

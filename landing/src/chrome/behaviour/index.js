@@ -5,6 +5,7 @@ import { initStubs, initSourcesSwitch } from './stubs.js';
 import { initCopy } from './copy.js';
 import { initPalette } from './palette.js';
 import { initPrint } from './print.js';
+import { initFit } from './fit.js';
 
 export { createLamp } from './lamp.js';
 export { setFigure } from './digits.js';
@@ -16,5 +17,6 @@ export function initChrome(root = document) {
   initCopy(root);
   initPalette(root);
   initPrint(root);
+  initFit(root);
   return { sources };
 }

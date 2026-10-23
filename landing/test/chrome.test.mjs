@@ -249,7 +249,7 @@ test('chrome.css draws in the Ledger: rules are lines not frames, the only gradi
     if (selector.startsWith('@font-face') || selector.startsWith(':root')) continue;
     // A four-sided border is a frame; the Ledger draws frames only as marks
     // (a stub, a tag's mark, the lamp's ring, the switch) and the focus ring.
-    if (/(^|;)\s*border\s*:\s*(?!0\s*;|none)/.test(body)) {
+    if (/(?:^|;)\s*border\s*:(?!\s*(?:0|none)\s*(?:;|$))/.test(body)) {
       assert.match(selector, /focus-visible|nw-stub|nw-dot|nw-mark|nw-lamp|nw-switch|nw-ember|nw-redaction/, `${selector} draws a box`);
     }
   }
@@ -262,8 +262,12 @@ test('chrome.css draws in the Ledger: rules are lines not frames, the only gradi
     .replace(/repeating-linear-gradient\((?:45deg|-45deg|135deg), var\(--ink\) 0 1px, transparent 1px [0-9]+px\)/g, '');
   assert.ok(!/gradient\(/.test(rest), 'the only gradients are the leader dots and the 45° hatch');
   assert.ok(!/text-shadow|backdrop-filter|blur\(|drop-shadow/.test(chrome), 'no glow, no glass');
+  // A shadow is allowed only as a hard line or ring (blur 0): the double
+  // outline of an operator-run stub, a mark's ring, a one-pixel tick.
+  const hard = /^(?:inset )?(?:-?[\d.]+px|0) (?:-?[\d.]+px|0) 0(?: [\d.]+px)? var\(--(?:ink|ink-2|ink-3|rule|rule-2|paper|paper-2|paper-3)\)$/;
   for (const [, value] of chrome.matchAll(/box-shadow:\s*([^;]+);/g)) {
-    assert.match(value, /^(?:none|(?:inset )?0 0 0 [^,]+var\(--(?:ink|ink-2|rule|rule-2|paper|paper-2)\)(?:, (?:inset )?0 0 0 [^,]+var\(--(?:ink|ink-2|rule|rule-2|paper|paper-2)\))*)$/, `a box-shadow with blur: ${value}`);
+    if (value.trim() === 'none') continue;
+    for (const part of value.split(/,\s*/)) assert.match(part.trim(), hard, `a box-shadow with blur: ${value}`);
   }
   assert.ok(!/font-style:\s*italic/.test(chrome + print), 'no italics');
   assert.ok(!/prefers-color-scheme/.test(chrome + print), 'one theme, light');

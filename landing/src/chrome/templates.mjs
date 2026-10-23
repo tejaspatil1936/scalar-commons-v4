@@ -113,7 +113,7 @@ export function reading({ key, label, figure = null, size = 'm', state = 'record
 }
 
 export function tag({ state = 'record', text, detail = null }) {
-  const dot = state === 'built' ? '' : '<span class="nw-dot" aria-hidden="true"></span>';
+  const dot = state === 'kbd' ? '' : '<span class="nw-dot" aria-hidden="true"></span>';
   // The detail (a time, a block) is the part a narrow bar may hide; the word stays.
   const tail = detail === null ? '' : `<span class="nw-tag-detail"> · ${escapeHtml(detail)}</span>`;
   return `<span class="nw-tag" data-state="${escapeHtml(state)}">${dot}${escapeHtml(text)}${tail}</span>`;
@@ -200,7 +200,17 @@ export function spine({ ticks, form = 'margin', ariaLabel }) {
  */
 export function curve({ id, width = 400, height = 120, pathLine, pathArea, labels = [], end = null, ticks = [], alt, table = null }) {
   const labelHtml = labels.map((l, i) => `<text class="nw-curve-value" x="0" y="${12 + i * ((height - 12) / Math.max(1, labels.length - 1))}">${escapeHtml(l)}</text>`).join('');
-  const tickHtml = ticks.map((t) => `<line class="nw-curve-tick" data-state="${escapeHtml(t.state ?? 'settled')}" x1="${t.x}" x2="${t.x}" y1="${height - 6}" y2="${height}"></line>`).join('');
+  const tickHtml = ticks
+    .map((t) => {
+      const st = escapeHtml(t.state ?? 'settled');
+      const word = t.state === 'dispute' ? 'dispute' : t.state === 'slash' ? 'slash' : null;
+      const mark =
+        t.state === 'slash'
+          ? `<line class="nw-curve-tick" data-state="slash" x1="${t.x - 3}" x2="${t.x + 3}" y1="${height - 6}" y2="${height}"></line><line class="nw-curve-tick" data-state="slash" x1="${t.x - 3}" x2="${t.x + 3}" y1="${height}" y2="${height - 6}"></line>`
+          : `<line class="nw-curve-tick" data-state="${st}" x1="${t.x}" x2="${t.x}" y1="${height - 6}" y2="${height}"></line>`;
+      return word ? `${mark}<text class="nw-curve-word" x="${t.x + 6}" y="${height - 1}">${word}</text>` : mark;
+    })
+    .join('');
   const endHtml = end ? `<circle class="nw-curve-end" cx="${end[0]}" cy="${end[1]}" r="3"></circle>` : '';
   const tableHtml = table ? `<table><tbody>${table.map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>` : '';
   return `<figure class="nw-curve" data-curve="${escapeHtml(id)}"><svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${escapeHtml(alt)}"><path class="nw-curve-pool" d="${pathArea}"></path><path class="nw-curve-line" d="${pathLine}"></path>${labelHtml}${tickHtml}${endHtml}</svg>${tableHtml}</figure>`;
@@ -245,9 +255,11 @@ export function topBar({ current, base = '', present = false, lampHtml = null, w
     <button type="button" class="nw-menu nw-label" aria-expanded="false" aria-controls="nw-nav" data-menu><span>${escapeHtml(currentLabel)}</span><span>Menu</span></button>
     <div class="nw-bar-right">
       ${lampHtml ?? lamp()}
-      ${sourcesSwitch()}
-      <span class="nw-tag nw-tag--kbd" data-palette-open role="button" tabindex="0">⌘K</span>
-      ${present ? '<button type="button" class="nw-quiet nw-present" aria-pressed="false" aria-keyshortcuts="P">Present</button>' : ''}
+      <div class="nw-bar-controls">
+        ${sourcesSwitch()}
+        <span class="nw-tag nw-tag--kbd" data-palette-open role="button" tabindex="0">⌘K</span>
+        ${present ? '<button type="button" class="nw-quiet nw-present" aria-pressed="false" aria-keyshortcuts="P">Present</button>' : ''}
+      </div>
     </div>
   </div>
   <nav class="nw-nav-row nw-label" aria-label="Site, small screens">${items}</nav>
