@@ -718,6 +718,7 @@ test('components: the chrome’s controls only — every button is a chrome cont
   assert.match(page, /<div class="tooltip field-tip nw-tag" role="tooltip" hidden>/);
   assert.match(page, /<div class="tooltip constellation-tip nw-tag" role="tooltip" hidden>/);
   assert.match(css, /\.tooltip \{ position: absolute; pointer-events: none;/);
+  assert.match(css, /\.tooltip\[hidden\] \{ display: none; \}/, 'a hidden tip (a chrome tag) stays hidden');
   // Copy is the chrome's: "Copy" on hover, "Copied" in ink for 1.2 s.
   assert.ok(bundle.includes("'Copied'") || bundle.includes('"Copied"'));
   assert.match(chromeCss, /\.nw-copy\.is-copied \{ color: var\(--ink\)/);

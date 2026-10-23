@@ -6,3 +6,9 @@
    whose first read lands in the last 1.8 s before the measurement.
    Replace the transition in the .nw-stub rule with: */
 .nw-stub { transition: transform var(--t-ui) var(--ease-ui); }
+
+/* Request from /observatory (round 2): .nw-tag sets display: inline-flex,
+   which beats the UA's [hidden] rule, so a tag used as a tooltip and hidden
+   with the attribute still paints an empty paper-2 tag (it covered the start
+   of the EmberBank's live line and footnote). Add to the chrome: */
+.nw-tag[hidden] { display: none; }

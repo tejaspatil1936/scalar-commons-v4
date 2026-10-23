@@ -83,6 +83,8 @@ pre {
 .hero-panel[data-graph] .graph-legend { display: flex; }
 .hero-panel[data-graph] .graph-host, .hero-panel[data-graph] .graph-note { display: block; }
 .tooltip { position: absolute; pointer-events: none; z-index: 2; }
+/* A tip is a chrome tag, whose display beats the UA's [hidden]: a hidden tip stays hidden (it was painting an empty paper-2 tag over the live line). */
+.tooltip[hidden] { display: none; }
 .field-live { display: block; margin: var(--s-4) 0 0; }
 .panel-foot { margin: var(--s-2) 0 0; }
 .agents-list { margin-top: var(--s-4); }
