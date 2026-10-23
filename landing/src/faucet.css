@@ -28,7 +28,7 @@
 .fc-sent .nw-receipt { display: block; }
 [data-faucet][data-state="open"] [data-closed], [data-faucet][data-state="open"] [data-why] { display: none; }
 @media (max-width: 1024px) {
-  .fc-form-main, .fc-readings, .fc-title > *, .fc-account > *, .fc-recent > * { grid-column: 1 / -1; }
+  .fc-form-main, .fc-readings, .fc-title > :nth-child(n), .fc-account > *, .fc-recent > * { grid-column: 1 / -1; }
 }
 @media (max-width: 480px) {
   .fc-title-word { font: var(--h2); }

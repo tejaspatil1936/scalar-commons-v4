@@ -97,6 +97,8 @@ test('faucet.css draws in the Ledger: tokens only, no hue, the eleven fonts, rul
   assert.match(css, /\.fc-title \{ display: grid; grid-template-columns: repeat\(12, minmax\(0, 1fr\)\);/);
   assert.match(css, /\.fc-account, \.fc-recent \{ display: grid; grid-template-columns: repeat\(12, minmax\(0, 1fr\)\);/);
   assert.ok(!/[{;]\s*max-width:\s*\d+px/.test(css), 'no block width off the grid');
+  // Under 1024 px the title's three parts stack; the selector must outweigh the desktop :nth-child placements, or the words overlap the slots.
+  assert.match(css, /@media \(max-width: 1024px\) \{[^}]*\.fc-title > :nth-child\(n\)[^}]*grid-column: 1 \/ -1;/);
 });
 
 test('npm run build emits faucet.html and faucet.js beside oversight.html and oversight.js', () => {
