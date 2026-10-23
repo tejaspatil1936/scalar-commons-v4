@@ -47,6 +47,7 @@ import {
 } from './chrome-templates.js';
 import { escapeHtml, formatBalance, formatTimestamp, shortHash } from './format.js';
 import { accountPath, activityPath, blockPath, extrinsicPath, SEARCH_PATH } from './routes.js';
+import { heartbeatDecayed, heartbeatMultiplier } from './types.js';
 import type {
   AccountView,
   ActivityEntry,
@@ -103,13 +104,24 @@ const decodeText = (html: string): string =>
 export const figureWidthPx = (text: string, unit: string | null, size: FigureStep): number =>
   [...text].length * 0.6 * FIGURE_PX[size] + (unit ? 8 + [...unit].length * 0.72 * 11 : 0) + 8 + 20;
 
+const figureOfHtml = (html: string): { text: string; unit: string | null } => ({
+  text: decodeText(/data-reading-value[^>]*>([\s\S]*?)(?:<span class="nw-unit">|<\/span>)/.exec(html)?.[1] ?? ''),
+  unit: /<span class="nw-unit">([^<]*)<\/span>/.exec(html)?.[1] ?? null,
+});
+
+/** Whether a row of these Readings spills at 1440 px even one step down. */
+const rowSpills = (readings: readonly string[]): boolean => {
+  const count = readings.length;
+  const column = (FRAME_PX - (count - 1) * GUTTER_PX) / count;
+  const stepped = DOWN[sizeByCount(count)];
+  return readings.map(figureOfHtml).some((f) => figureWidthPx(f.text, f.unit, stepped) > column);
+};
+const DOWN: Readonly<Record<FigureStep, FigureStep>> = { xl: 'l', l: 'm', m: 's', s: 's' };
+
 export function readingRow(readings: readonly string[], className = ''): string {
   const count = readings.length;
   const column = (FRAME_PX - (count - 1) * GUTTER_PX) / count;
-  const figures = readings.map((html) => ({
-    text: decodeText(/data-reading-value[^>]*>([\s\S]*?)(?:<span class="nw-unit">|<\/span>)/.exec(html)?.[1] ?? ''),
-    unit: /<span class="nw-unit">([^<]*)<\/span>/.exec(html)?.[1] ?? null,
-  }));
+  const figures = readings.map(figureOfHtml);
   const spills = (size: FigureStep, width: number): boolean => figures.some((f) => figureWidthPx(f.text, f.unit, size) > width);
   const phone = phoneSizeByCount(count);
   return `<div class="nw-row${className ? ` ${className}` : ''}"${attrs({
@@ -118,6 +130,25 @@ export function readingRow(readings: readonly string[], className = ''): string 
   })}>
 ${readings.join('\n')}
 </div>`;
+}
+
+/**
+ * Readings that may not fit one row: when a figure spills its column even a
+ * step down (a 24-glyph balance in a quarter of the frame), the Readings split
+ * into rows of half as many, each row still sized by its own count — never a
+ * figure cut short, never two figures colliding.
+ */
+export function readingRows(readings: readonly string[]): string {
+  let per = readings.length;
+  while (per > 1) {
+    const chunks: string[][] = [];
+    for (let i = 0; i < readings.length; i += per) chunks.push(readings.slice(i, i + per));
+    if (!chunks.some(rowSpills)) break;
+    per = Math.ceil(per / 2);
+  }
+  const rows: string[] = [];
+  for (let i = 0; i < readings.length; i += per) rows.push(readingRow(readings.slice(i, i + per)));
+  return rows.length === 1 ? (rows[0] ?? '') : `<div class="x-rows">\n${rows.join('\n')}\n</div>`;
 }
 
 /** What the lamp and footer know about the chain at render time. */
@@ -583,21 +614,26 @@ export function renderAccount(view: AccountView, chain: ChainInfo): string {
   const roles = view.roles;
   const renderedAt = roles?.renderedAt ?? null;
   const balanceSource = sourceAt('STORAGE', 'system.account', view.at.number, renderedAt);
-  const balance = (value: bigint): string => formatBalance(value, chain.tokenDecimals, chain.tokenSymbol);
 
   const name = roles?.agentName.value ?? null;
   const operator = name !== null && name.startsWith('swarm-');
   const isAgent = name !== null || (roles?.agentStake.value ?? null) !== null;
+  // DECAYED: the head is past the agent's heartbeat by more than the runtime's
+  // grace period, where the pallet's decay begins (the rule and both bounds
+  // are the chain's; the multiplier it implies is on the receipt).
+  const heartbeat = roles?.heartbeat?.value ?? null;
+  const multiplier = heartbeat === null ? null : heartbeatMultiplier(heartbeat);
   const tags = [
     roles?.validator.value === true ? tag({ state: 'record', text: 'VALIDATOR STASH' }) : '',
     (roles?.bonded.value ?? null) !== null ? tag({ state: 'record', text: 'BONDED' }) : '',
     isAgent ? tag({ state: 'record', text: 'AGENT' }) : '',
     operator ? tag({ state: 'operator', text: 'OPERATOR-RUN' }) : '',
+    heartbeat !== null && heartbeatDecayed(heartbeat) ? tag({ state: 'record', text: 'DECAYED' }) : '',
   ].join('');
 
   const figureOf = (value: bigint): string => tokenFigure(value, chain.tokenDecimals, chain.tokenSymbol);
   const unit = chain.tokenSymbol;
-  const balances = readingRow([
+  const balances = readingRows([
     fact('Free', figureOf(view.free), balanceSource, { size: 'm', unit }),
     fact('Reserved', figureOf(view.reserved), balanceSource, { size: 'm', unit }),
     fact('Frozen', figureOf(view.frozen), balanceSource, { size: 'm', unit }),
@@ -608,7 +644,27 @@ export function renderAccount(view: AccountView, chain: ChainInfo): string {
   const roleReadings = isAgent
     ? `${sectionHead('Agent')}<div class="nw-grid">
 ${col(readingOf('Name', roles?.agentName, (n) => n ?? 'no metadata on chain', { size: 'body', figureHtml: (n) => (n ? agentName({ name: n, operator: n.startsWith('swarm-') }) : '<span class="nw-sage">no metadata on chain</span>') }))}
-${col(readingOf('Stake', roles?.agentStake, (stake) => (stake === null ? 'none' : balance(stake))))}
+${col(readingOf('Stake', roles?.agentStake, (stake) => (stake === null ? 'none' : figureOf(stake)), { unit: (roles?.agentStake.value ?? null) === null ? null : unit }))}
+${
+  roles?.heartbeat === undefined || (roles.heartbeat.value === null && roles.heartbeat.reason === null)
+    ? ''
+    : col(
+        readingOf(
+          'Last heartbeat',
+          roles.heartbeat.value === null
+            ? roles.heartbeat
+            : {
+                ...roles.heartbeat,
+                source: {
+                  ...roles.heartbeat.source,
+                  computed: `best ${roles.heartbeat.value.best} − ${roles.heartbeat.value.lastHeartbeat} = ${roles.heartbeat.value.best - roles.heartbeat.value.lastHeartbeat} blocks · grace ${roles.heartbeat.value.grace} · decay ${roles.heartbeat.value.decay} · multiplier ${multiplier ?? 100} % (pallets/agents/src/lib.rs:1987)`,
+                },
+              },
+          (h) => (h === null ? '' : formatInt(h.lastHeartbeat)),
+          { href: heartbeat === null ? null : blockPath({ kind: 'number', number: heartbeat.lastHeartbeat }) },
+        ),
+      )
+}
 </div>`
     : `${sectionHead('Staking')}<div class="nw-grid">
 ${col(readingOf('Bonded', roles?.bonded, (controller) => controller ?? 'not bonded', { size: 'body' }))}

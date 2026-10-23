@@ -8,10 +8,11 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createIndexerClient, createIndexerReader } from '../src/activity.js';
 import type { ExplorerChain } from '../src/chain.js';
 import { band, curve, curvePaths, reading, tag, topBar, NAV } from '../src/chrome-templates.js';
-import { figureWidthPx, readingRow, renderAccount, renderActivity, renderBlock, renderError, renderExtrinsic, renderHome } from '../src/render.js';
+import { figureWidthPx, readingRow, readingRows, renderAccount, renderActivity, renderBlock, renderError, renderExtrinsic, renderHome } from '../src/render.js';
 import { parseRoute, searchPath } from '../src/routes.js';
 import { createExplorerServer, readChromeStylesheet, defaultChromeDir } from '../src/server.js';
 import type { AccountView, ActivityView, BlockView, ChainInfo, ExtrinsicView, HomeView, Read } from '../src/types.js';
+import { heartbeatMultiplier } from '../src/types.js';
 
 /**
  * The Nightwatch chrome on the explorer: the shell, the stylesheet and font
@@ -317,6 +318,29 @@ describe('renderAccount in the chrome', () => {
     expect(html).toContain(`data-copy="${ALICE}"`);
   });
 
+  it('tags DECAYED only once the head is past the last heartbeat by more than the runtime grace period', () => {
+    const at = (lastHeartbeat: number): string =>
+      renderAccount({ ...ACCOUNT, roles: { ...ACCOUNT.roles!, heartbeat: ok({ lastHeartbeat, best: 1_000, grace: 100, decay: 900 }, 'agents.lastHeartbeat · agents.heartbeatGracePeriod · agents.heartbeatDecayPeriod') } }, CHAIN);
+    expect(html).not.toContain('DECAYED');
+    // Exactly at the grace period the multiplier is still 100 %.
+    expect(at(900)).not.toContain('>DECAYED<');
+    expect(at(900)).toContain('multiplier 100 %');
+    const decayed = at(899);
+    expect(decayed).toContain('<span class="nw-dot" aria-hidden="true"></span>DECAYED</span>');
+    expect(decayed).toContain('best 1000 − 899 = 101 blocks · grace 100 · decay 900 · multiplier 100 %');
+    // Far past grace + decay the multiplier sits on its 10 % floor.
+    expect(at(0)).toContain('multiplier 10 %');
+    expect(at(0)).toContain('STORAGE agents.lastHeartbeat · agents.heartbeatGracePeriod · agents.heartbeatDecayPeriod');
+  });
+
+  it('computes the heartbeat multiplier as the pallet does (100 within grace, linear to a 10 % floor)', () => {
+    expect(heartbeatMultiplier({ lastHeartbeat: 0, best: 100, grace: 100, decay: 900 })).toBe(100);
+    expect(heartbeatMultiplier({ lastHeartbeat: 0, best: 101, grace: 100, decay: 900 })).toBe(100);
+    expect(heartbeatMultiplier({ lastHeartbeat: 0, best: 110, grace: 100, decay: 900 })).toBe(99);
+    expect(heartbeatMultiplier({ lastHeartbeat: 0, best: 550, grace: 100, decay: 900 })).toBe(55);
+    expect(heartbeatMultiplier({ lastHeartbeat: 0, best: 5_000, grace: 100, decay: 900 })).toBe(10);
+  });
+
   it('renders four balance readings, the total derived with its computation named', () => {
     expect(html).toContain('free + reserved');
     expect(html.match(/STORAGE system.account/g)?.length).toBeGreaterThanOrEqual(4);
@@ -532,6 +556,16 @@ describe('layout faults seen at 1440 px against the public node', () => {
     expect(figureWidthPx('1,099.999891842778', null, 'm')).toBeCloseTo(18 * 16.8 + 28);
     // Two in a row on a phone sit at --figure-m; a 21-glyph balance spills the 350 px column and drops to --figure-s.
     expect(readingRow(['1,000,000.12345678901', '0'].map((f) => `<span data-reading-value>${f}</span>`))).toContain('data-step-m="1"');
+  });
+
+  it('splits Readings into rows of half as many when a figure spills even a step down, never cutting a figure', () => {
+    const fig = (f: string): string => `<span data-reading-value>${f}<span class="nw-unit">CMN</span></span>`;
+    // 22 glyphs at --figure-s with the unit and stub is 348 px: over a quarter of the frame (282 px).
+    const html = readingRows(['995,008,924.86145069865', '170', '10,000', '995,009,094.86145069865'].map(fig));
+    expect(html.match(/<div class="nw-row"/g)?.length).toBe(2);
+    expect(html.startsWith('<div class="x-rows">')).toBe(true);
+    // Short figures stay in one row of four.
+    expect(readingRows(['1,000', '0', '0', '1,000'].map(fig)).match(/<div class="nw-row"/g)?.length).toBe(1);
   });
 
   it('prints the spine row time as HH:MM:SS with the full UTC on the title, and never truncates the block number', () => {
