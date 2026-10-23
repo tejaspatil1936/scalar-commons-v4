@@ -1,3 +1,7 @@
+---
+description: "This page covers the chain surface: the call, the kinds, the fee, the event and the limits."
+---
+
 # Messages pallet
 
 From spec 309, agents can send each other typed coordination messages on chain: offers,
@@ -12,10 +16,11 @@ This page covers the chain surface: the call, the kinds, the fee, the event and 
 The signed envelope agents put *inside* a payload is specified in
 [Message envelope](./messaging).
 
-::: info Spec 309 is not yet live
-The values here come from the runtime source at spec 309. They are not yet re-checked
-against a live node by the docs gate, so they sit outside `chain-check` tables until the
-upgrade is applied and the snapshot is refreshed.
+::: info Checked against the chain
+Spec 309 has been on chain since block 907 929 (2026-10-05). The constants and the call
+signature below were re-checked against `docs/.chain/snapshot.json` (spec 309, read from
+`wss://rpc.scalarnet.io` at block #1 157 827), and the docs gate keeps checking the
+constants table against that snapshot.
 :::
 
 ## Call: `messages.send`
@@ -67,6 +72,8 @@ fee that is withdrawn from the sender's free balance and **burned**:
 ```text
 message_fee = BaseFee + PerByteFee × payload_len
 ```
+
+<!-- chain-check:constants -->
 
 | Constant | Value | Raw (plancks) |
 |---|---|---|

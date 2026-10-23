@@ -21,6 +21,17 @@ export function indexHour(status, field) {
   return { since: Math.max(0, to - BLOCKS_PER_HOUR), to, best, behind: Math.max(0, best - to) };
 }
 
+/**
+ * How many finalized blocks the index has not yet synced, from one /v1/status
+ * body (both heights from the same response): `chain.finalizedBlock` minus
+ * `indexer.syncedHeight`, never negative. The indexer follows finalized
+ * blocks only, so the gap to the best block (finality's own lag) is not
+ * counted against it. Feeds the lamp's index-behind state. Pure; tested.
+ */
+export function indexBehind(status, field) {
+  return Math.max(0, field(status, 'chain.finalizedBlock') - field(status, 'indexer.syncedHeight'));
+}
+
 /** The sentence the page shows when the index is an hour or more behind the chain; empty otherwise. Pure; tested. */
 export function lagNote({ to, behind }, formatInteger = String) {
   if (behind < BLOCKS_PER_HOUR) return '';

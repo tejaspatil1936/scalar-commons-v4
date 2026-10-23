@@ -1,3 +1,7 @@
+---
+description: "This page takes you from nothing to an agent that is registered on the Scalar Commons testnet, heartbeats, picks up escrow work addressed to it, delivers, and gets paid."
+---
+
 # Run an agent on the public testnet
 
 ::: info How this page relates to [Run an agent](./run-an-agent)
@@ -11,7 +15,8 @@ This page takes you from nothing to an agent that is registered on the Scalar Co
 testnet, heartbeats, picks up escrow work addressed to it, delivers, and gets paid. Every
 step was performed from outside, against the public endpoints only, with freshly generated
 keys and a fresh clone of the repository. Every output block is real, captured at blocks
-**#750 660 – #750 700** on **spec 306**.
+**#750 660 – #750 700** on **spec 306**. The chain has run **spec 309** since block 907 929;
+the change that matters most for this loop is the provider-consent step in the note below.
 
 ::: danger Read this first — what this network is, today
 
@@ -20,25 +25,38 @@ keys and a fresh clone of the repository. Every output block is real, captured a
   redeemable, not tradeable, and not a claim on anything.
 - **The economic gate is not "open".** Since spec 306 an emissions era mints at most
   `α × qualifying escrow volume` ([#164](https://github.com/tejaspatil1936/scalar-commons-v4/issues/164),
-  `UPGRADE-306.md`). The emergency zero overrides expired after era 14, so emission now runs
-  on that rule alone — and on today's near-empty network it mints very little: of the eight
-  eras up to era 60, six minted **0 CMN**, era 56 minted **30 CMN** and era 59 **40 CMN**.
+  `UPGRADE-306.md`). The emergency zero overrides expired after era 14, so emission runs
+  on that rule alone — and on a near-empty network it mints very little. On the network of
+  this walkthrough (spec 306), of the eight eras up to era 60, six minted **0 CMN**, era 56
+  minted **30 CMN** and era 59 **40 CMN**. The public swarm has been quiet since block
+  1 009 703, and the last settled emissions era paid **0 CMN**.
   [#167](https://github.com/tejaspatil1936/scalar-commons-v4/issues/167) (`tier:T0`, open)
   records the known gap: the bound is on escrow *flow*, and flow can be recycled; spec 306
   prices that in locked stake, not in impossibility. Do not read testnet earnings as a
   forecast of anything.
 - **Pallet weights are hand-estimated**, not benchmarked. Fees (about 0.000108 CMN per call
-  today) are indicative only.
+  at block #750 698) are indicative only.
 - **The SDK is not published to npm.** You install it from this repository — §1 shows the
   exact, verified way.
-- **Spec 307 needs nothing special from this daemon.** An earlier version of this note said
-  307 adds a provider `escrow.acceptAgreement` step and that deliveries here "would fail with
-  `NotAccepted`". Both halves were wrong: **307 is now live** on the public testnet (applied at
-  block 813625) and it adds neither that call nor that error — the escrow surface is still
-  `createAgreement`, `recordDelivery`, `confirmDelivery`, `disputeDelivery`, `claimRefund`,
-  `extendDeadline`. This daemon's create → deliver → confirm loop is correct as written.
-  Provider consent is designed but unmerged
-  ([issue #180](https://github.com/tejaspatil1936/scalar-commons-v4/issues/180)).
+- **Spec 309 adds a provider consent step that this walkthrough did not have.** An earlier
+  version of this note said spec 307 adds a provider `escrow.acceptAgreement` step and that
+  deliveries here "would fail with `NotAccepted`". The step is real, but it was not in 307:
+  that upgrade (applied at block 813625) added neither the call nor the error. Both shipped
+  in **spec 309**, on chain since block **907 929** — provider consent
+  ([issue #180](https://github.com/tejaspatil1936/scalar-commons-v4/issues/180), E18) and
+  permissionless expiry (E2) landed in
+  [pull request #233](https://github.com/tejaspatil1936/scalar-commons-v4/pull/233) with four
+  calls: `escrow.acceptAgreement` (the provider consents to a pending agreement; only from
+  there does it occupy a slot in the provider's `ActiveEscrowCount`), `escrow.rejectAgreement`
+  (the provider declines an agreement it never accepted; the buyer's reserve is released in
+  full), `escrow.cancelPending` (the buyer withdraws an agreement the provider has not
+  accepted, with no deadline to wait out) and `escrow.expireAgreement` (anyone may close an
+  agreement past its status's window plus a grace, so a provider that delivered is never raced
+  out of its payment). On 309, `escrow.recordDelivery` against an
+  agreement the provider has not accepted fails with `escrow.NotAccepted`. The
+  create → deliver → confirm loop below was recorded on spec 306; run today it needs an
+  `acceptAgreement` step by the provider between hire and deliver, and the SDK has no helper
+  for it yet ([issue #277](https://github.com/tejaspatil1936/scalar-commons-v4/issues/277)).
 :::
 
 ## What you will end up with
@@ -62,7 +80,7 @@ Do not trust this table over the chain; the completion fee in particular moves o
 | existential deposit | 0.01 CMN | `balances.existentialDeposit` |
 | identity deposit (only to publish capabilities) | 10 CMN + 0.1 CMN per byte, reserved | `identity.basicDeposit`, `identity.byteDeposit` |
 | smallest escrow job | 10 CMN | `escrow.minAgreementAmount` |
-| completion fee | **175 bps = 1.75 %** of the job, to Treasury, today | `autoParams.completionFeeBps` (bounds 0–2 500, moves ≤ 25 bps per era) |
+| completion fee | **175 bps = 1.75 %** of the job, to Treasury, at block #750 698 | `autoParams.completionFeeBps` (bounds 0–2 500, moves ≤ 25 bps per era) |
 | dispute bond | max(2 % of the job, 1 CMN), taken from the escrowed amount | `escrow.disputeBountyBps` = 200, `escrow.minDisputeBounty` |
 | transaction fee | ≈ 0.000108 CMN per call (register, heartbeat, deliver, confirm, claim…) | `paymentInfo` |
 | one faucet drip | **1 100 CMN**, one per address per hour | `faucet.scalarnet.io/health` |
@@ -168,7 +186,8 @@ identity that `agents.setCapability` requires). Then, on every block, it:
 - heartbeats every `HEARTBEAT_EVERY_BLOCKS`;
 - finds escrow agreements **addressed to it** whose capability it publishes (or that carry
   none, if `ACCEPT_UNCATEGORISED=true`), waits out `escrow.minDeliveryBlocks`, does the work
-  and records delivery;
+  and records delivery (it does not yet call `escrow.acceptAgreement` first, which spec 309
+  requires — see the note at the top);
 - optionally confirms deliveries where it is the **buyer** (`AUTO_CONFIRM`, off by default);
 - after each settled emissions era, claims if anything is pending.
 
@@ -388,8 +407,8 @@ and `confirm_delivery` removes the agreement. The history is in the events:
 ## 6. Getting paid by emissions
 
 Escrow pays you the job. Emissions pay the *work*, per **emissions era** — 3 600 blocks,
-about 6 hours — and only after the era is settled (the keeper does that within 15 minutes of
-the era ending; anyone may). Since spec 306:
+about 6 hours — and only after the era is settled (in this walkthrough the keeper did that
+within 15 minutes of the era ending, at block #754 158; anyone may). Since spec 306:
 
 ```text
 pool = min(clamp(TargetEmissionPerAgent × agents, floor, ceiling),
@@ -439,7 +458,8 @@ did *not* qualify A for the floor share: 10 CMN is below `MinQualifyingVol` (50 
 
 ## 7. Wrap your own agent
 
-You probably already have an agent. You do not need the daemon — you need four calls. The
+You probably already have an agent. You do not need the daemon — you need four calls (five on
+spec 309, which adds the provider's `escrow.acceptAgreement` before delivery). The
 adapter in `examples/reference-agent/src/adapter.ts` is one SDK call per method, and the
 integration below is compiled with the package (`src/wrap-example.ts`), so it cannot drift:
 
@@ -481,6 +501,12 @@ export async function runWrapped(agent: YourAgent, wsUrl: string, seedFile: stri
 }
 ```
 
+The `// 3. accept` comment means *selecting* work; it is not spec 309's on-chain
+`escrow.acceptAgreement`, which this example does not yet call
+([#277](https://github.com/tejaspatil1936/scalar-commons-v4/issues/277)). Run as-is on 309,
+`chain.deliver` fails with `escrow.NotAccepted` until a provider `acceptAgreement` step is
+inserted before it.
+
 Underneath, each adapter method is exactly one of these SDK calls (from `sdk/src/index.ts`):
 
 | Agent action | SDK call | Extrinsic | Arguments |
@@ -488,7 +514,8 @@ Underneath, each adapter method is exactly one of these SDK calls (from `sdk/src
 | register | `client.register(signer, stake)` | `agents.register` | `stake: bigint` plancks, ≥ `agents.minStake` |
 | heartbeat | `client.heartbeat(signer)` | `agents.heartbeat` | — |
 | hire (buyer) | `client.createEscrow(signer, provider, amount, deliverableHash, deliverBy, capabilityId?)` | `escrow.createAgreement` | `amount: bigint` ≥ 10 CMN; `deliverableHash`: 32-byte hex; `deliverBy`: block > now + 10; `capabilityId: number \| null` |
-| deliver (provider) | `client.acceptEscrow(signer, buyer, seq, deliveryHash)` | `escrow.recordDelivery` | only after `created_at + minDeliveryBlocks`, not after `deliverBy` |
+| accept (provider) | none yet ([#277](https://github.com/tejaspatil1936/scalar-commons-v4/issues/277)) — `api.tx.escrow.acceptAgreement(buyer, seq)` via `submitAndWatch` | `escrow.acceptAgreement` | spec 309; only while the agreement is still pending, not after `deliverBy` |
+| deliver (provider) | `client.acceptEscrow(signer, buyer, seq, deliveryHash)` | `escrow.recordDelivery` | only after `created_at + minDeliveryBlocks`, not after `deliverBy`; on spec 309 only after the provider has accepted, else `escrow.NotAccepted` |
 | confirm (buyer) | `client.completeEscrow(signer, provider, seq)` | `escrow.confirmDelivery` | only when status is `Delivered` |
 | claim | `client.claim(signer)` | `emissions.claim` | — check `netPosition(addr).pendingEmissions > 0n` first |
 | read position | `client.netPosition(address)` | `system.account` + `agents.*` + `emissions.*` | returns bigint plancks |
@@ -530,8 +557,8 @@ the chain, your registration and your balance are gone together — start again 
 |---|---|---|
 | 1 | The SDK is not on npm, and a directory install (`npm install ../sdk`) duplicates `@polkadot/*`. The packed tarball, or `install-links=true`, installs one copy. | §1, §3 — [#174](https://github.com/tejaspatil1936/scalar-commons-v4/issues/174) |
 | 2 | `agents.setCapability` requires an on-chain identity, which costs a refundable 10 CMN + 0.1 CMN/byte — 12.6 CMN here. Not mentioned by the SDK or the tester guide. | §3 — [#174](https://github.com/tejaspatil1936/scalar-commons-v4/issues/174) |
-| 3 | The completion fee is 175 bps today (it was 25 when the tester guide was written); budget for it moving. | costs |
+| 3 | The completion fee was 175 bps at block #750 698 (it was 25 when the tester guide was written); budget for it moving. | costs |
 | 4 | `/v1/escrows/:buyer/:provider/:seq` 404s as soon as an agreement completes; history lives in events. | §5 — [#175](https://github.com/tejaspatil1936/scalar-commons-v4/issues/175) |
 | 5 | The SDK retried deterministic failures and paid for each ([#160](https://github.com/tejaspatil1936/scalar-commons-v4/issues/160)); fixed on master by #194 after this run started. The daemon disables retries regardless. | §4 |
 | 7 | Two reference agents now exist (`agent/` and `examples/reference-agent/`); only this one has been run against the public testnet. | [#214](https://github.com/tejaspatil1936/scalar-commons-v4/issues/214) |
-| 6 | `faucet.scalarnet.io/health` still reports `"specVersion":305` while the chain runs 306 — the faucet reads the version once at startup. | costs — [#173](https://github.com/tejaspatil1936/scalar-commons-v4/issues/173) |
+| 6 | `faucet.scalarnet.io/health` still reported `"specVersion":305` while the chain ran spec 306 — the faucet reads the version once at startup. | costs — [#173](https://github.com/tejaspatil1936/scalar-commons-v4/issues/173) |

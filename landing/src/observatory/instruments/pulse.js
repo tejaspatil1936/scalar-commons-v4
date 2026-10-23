@@ -345,7 +345,8 @@ export function init(root, ctx, { strip = null } = {}) {
   let listeningSince = null; // when the socket first opened or polling began: the stall clock before any block arrives
 
   // ── view state ──
-  const box = ctx.fitCanvas(canvas, () => draw());
+  // On /observatory the river is drawn once, into the strip under the first screen; a page without its own plate passes none.
+  const box = canvas ? ctx.fitCanvas(canvas, () => draw()) : null;
   const stripBox = strip ? ctx.fitCanvas(strip, () => draw()) : null;
   let anchor = { from: null, to: null, t: 1 }; // the chain time drawn at the right edge, sliding on arrival
   let marker = { fromX: null, t: 1 }; // the finality boundary, sliding when finality advances
@@ -437,7 +438,7 @@ export function init(root, ctx, { strip = null } = {}) {
   }
 
   function draw() {
-    paint(box());
+    if (box) paint(box());
     if (stripBox) paint(stripBox());
   }
 

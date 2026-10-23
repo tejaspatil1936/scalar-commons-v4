@@ -17,6 +17,8 @@ export interface ChainInfo {
   readonly tokenDecimals: number;
   readonly ss58Format: number;
   readonly genesisHash: string;
+  /** The node's version string from `system_version`, read at connect time; absent in a reduced view. */
+  readonly nodeVersion?: string;
 }
 
 /**
@@ -40,6 +42,8 @@ export interface ExtrinsicSummary {
   readonly isSigned: boolean;
   readonly signer: string | null;
   readonly outcome: Outcome;
+  /** The events the extrinsic emitted, when the view read them (the block page groups them). */
+  readonly events?: readonly EventView[];
 }
 
 /** A block, with enough header detail to walk backwards through history. */
@@ -53,6 +57,8 @@ export interface BlockView {
   readonly timestampMs: bigint | null;
   readonly specVersion: number;
   readonly extrinsics: readonly ExtrinsicSummary[];
+  /** The receipt readings beyond the header; absent when only the header was read. */
+  readonly detail?: BlockDetail;
 }
 
 /** One decoded call argument, with the type name the metadata gave it. */
@@ -87,6 +93,9 @@ export interface ExtrinsicView {
   readonly outcome: Outcome;
   /** Every account the call arguments or emitted events named, signer first. */
   readonly accounts: readonly string[];
+  /** Set for `escrow.disputeDelivery`: the terms the runtime fixes for what happens next. */
+  readonly disputeTerms?: DisputeTerms;
+  readonly renderedAt?: string;
 }
 
 /**
@@ -105,12 +114,18 @@ export interface AccountView {
   readonly nonce: number;
   /** The block the account state was read at. */
   readonly at: { readonly number: number; readonly hash: string };
+  readonly roles?: AccountRoles;
+  /** The account's history from the index; absent when the server did not ask. */
+  readonly history?: Read<readonly HistoryEntry[]>;
 }
 
 /** The index page: which chain this is, and where its head currently sits. */
 export interface HomeView {
   readonly chain: ChainInfo;
   readonly head: { readonly number: number; readonly hash: string };
+  /** The live readings; absent only in a reduced view. */
+  readonly readings?: HomeReadings;
+  readonly indexer?: Read<IndexerStatus>;
 }
 
 /**
@@ -154,4 +169,160 @@ export interface ActivityView {
   /** The oldest block the indexer holds: the feed reaches no further back. */
   readonly historyFrom: number | null;
   readonly entries: readonly ActivityEntry[];
+  /** The agent-scoped readings; set when `agent` is set and the server asked the index. */
+  readonly agentReadings?: AgentReadings;
 }
+
+/**
+ * Where a figure came from. `method` names the kind of read (`RPC`, `STORAGE`,
+ * `META` for a runtime constant read from metadata, `GET` for the indexer),
+ * `url` the item (`chain_getHeader`, `emissions.eraStartBlock`, …),
+ * `fetchedAt` the render time, `block` the best block at render, `raw` null
+ * (the explorer serves no raw-bytes endpoint), `computed` the derivation when
+ * the figure is derived. Every Reading on a page carries one.
+ */
+export interface Source {
+  readonly method: string;
+  readonly url: string;
+  readonly fetchedAt: string | null;
+  readonly block: number | null;
+  readonly raw: string | null;
+  readonly computed?: string | null;
+}
+
+/**
+ * One read off the node or the index, with its receipt. A read that failed
+ * keeps its source and carries the reason: the page renders `unavailable` and
+ * the reason, never a guess.
+ */
+export type Read<T> =
+  | { readonly value: T; readonly source: Source; readonly reason: null }
+  | { readonly value: null; readonly source: Source; readonly reason: string };
+
+/** One of the last blocks the home page read, for the Spine and the ledgers. */
+export interface RecentBlock {
+  readonly number: number;
+  readonly hash: string;
+  readonly timestampMs: bigint | null;
+  readonly author: string | null;
+  readonly extrinsics: readonly ExtrinsicSummary[];
+  /** Every event in the block, in the node's order, with the extrinsic it belongs to. */
+  readonly events: readonly (EventView & { readonly extrinsicIndex: number | null })[];
+}
+
+/** An extrinsic waiting in the node's pool, from `author_pendingExtrinsics`. */
+export interface PendingExtrinsic {
+  readonly hash: string;
+  readonly section: string;
+  readonly method: string;
+  readonly signer: string | null;
+}
+
+/** The live readings the home page shows, each with its receipt. */
+export interface HomeReadings {
+  readonly renderedAt: string;
+  /** Milliseconds between the best block's timestamp and the render; null when the block has no timestamp. */
+  readonly headAgeMs: number | null;
+  readonly finalized: Read<{ readonly number: number; readonly hash: string }>;
+  readonly era: Read<{ readonly number: number; readonly elapsed: number; readonly length: number }>;
+  readonly session: Read<{ readonly index: number; readonly elapsed: number; readonly length: number }>;
+  readonly validators: Read<number>;
+  readonly issuance: Read<bigint>;
+  readonly recent: Read<readonly RecentBlock[]>;
+  readonly pending: Read<readonly PendingExtrinsic[]>;
+}
+
+/** What the indexer says about itself, read at render for the footer line. */
+export interface IndexerStatus {
+  readonly syncedHeight: number;
+}
+
+/** The extra facts the block page reads beyond the header, each with its receipt. */
+export interface BlockDetail {
+  readonly renderedAt: string;
+  readonly best: number;
+  readonly finalized: Read<boolean>;
+  readonly author: Read<string | null>;
+  readonly slot: Read<string | null>;
+  readonly era: Read<number>;
+  readonly session: Read<number>;
+  readonly weight: Read<string>;
+  /** Every event in the block in the node's order, with the extrinsic it belongs to. */
+  readonly events: readonly (EventView & { readonly extrinsicIndex: number | null })[];
+}
+
+/** The dispute terms the runtime fixes, read from metadata for `escrow.disputeDelivery`. */
+export interface DisputeTerms {
+  readonly bountyBps: Read<number>;
+  readonly burnBps: Read<number>;
+  readonly settles: Read<string>;
+}
+
+/** What the chain says about an account beyond its balances: agent and staking roles. */
+export interface AccountRoles {
+  readonly renderedAt: string;
+  readonly agentName: Read<string | null>;
+  readonly agentStake: Read<bigint | null>;
+  readonly bonded: Read<string | null>;
+  readonly validator: Read<boolean>;
+  /**
+   * The agent's heartbeat against the head (`agents.lastHeartbeat`), with the
+   * two runtime constants the decay rule reads (`heartbeatGracePeriod`,
+   * `heartbeatDecayPeriod`); null for an account that is not an agent.
+   * Optional: a view that did not read it renders no DECAYED tag.
+   */
+  readonly heartbeat?: Read<HeartbeatState | null>;
+}
+
+/** `pallets/agents/src/lib.rs` `heartbeat_multiplier`, as read at one head. */
+export interface HeartbeatState {
+  readonly lastHeartbeat: number;
+  readonly best: number;
+  readonly grace: number;
+  readonly decay: number;
+}
+
+/**
+ * The decay rule, line for line with `heartbeat_multiplier`
+ * (pallets/agents/src/lib.rs:1987): 100 % while `best − lastHeartbeat` is
+ * within the grace period, then falling linearly by 90 points over the decay
+ * period to a 10 % floor (integer division, as the pallet does it).
+ */
+export function heartbeatMultiplier(h: HeartbeatState): number {
+  const since = Math.max(0, h.best - h.lastHeartbeat);
+  if (since <= h.grace) return 100;
+  const decay = Math.max(1, h.decay);
+  const over = Math.min(since - h.grace, h.decay);
+  return Math.max(10, 100 - Math.floor((90 * over) / decay));
+}
+
+/** One row of an account's history, from the index's `/v1/accounts/:address/extrinsics`. */
+export interface HistoryEntry {
+  readonly blockNumber: number;
+  readonly index: number;
+  readonly section: string;
+  readonly method: string;
+  readonly timestampMs: bigint | null;
+  readonly success: boolean | null;
+}
+
+/** The agent-scoped readings of the activity page, from the index. */
+export interface AgentReadings {
+  readonly renderedAt: string;
+  readonly earnedAllTime: Read<bigint | null>;
+  readonly earnedThisEra: Read<bigint | null>;
+  readonly agreementsOpen: Read<number | null>;
+  readonly inDispute: Read<number | null>;
+  readonly counterparties: Read<readonly { readonly address: string; readonly count: number }[]>;
+  readonly earningsByEra: Read<readonly { readonly era: number; readonly amount: bigint }[]>;
+  readonly decayed: boolean;
+  readonly cooldown: boolean;
+  readonly name: string | null;
+}
+
+/**
+ * Decayed: the head is past the last heartbeat by more than
+ * `HeartbeatGracePeriod`, the bound the pallet names as the point "before
+ * heartbeat decay begins" (pallets/agents/src/lib.rs:318). No other threshold.
+ */
+export const heartbeatDecayed = (h: HeartbeatState): boolean => h.best - h.lastHeartbeat > h.grace;

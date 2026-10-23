@@ -749,14 +749,15 @@ export function init(root, ctx) {
     let alpha = edge.alpha;
     let width = 1;
     if (state === 'settled') {
-      // Full colour: the hierarchy settled < open < disputed is carried by
-      // the dash, the width and the colour; the plate steps settled lines
-      // back only when it is crowded.
-      g.setLineDash([4, 3]);
+      // The Ledger carries the hierarchy settled < open < disputed by ink and
+      // dash, never by hue: settled is a 1 px ink-3 line, stepped back only
+      // when the plate is crowded; open is a solid 1 px ink line; disputed is
+      // ink dashed 2/2 (a line's hatch), thickened while it pulses.
+      g.setLineDash([]);
       if (crowded) alpha *= CROWDED_LINE_ALPHA;
     } else if (state === 'disputed') {
-      g.setLineDash([]);
-      width = 2 + 3 * edge.pulse;
+      g.setLineDash([2, 2]);
+      width = 1 + edge.pulse;
     } else {
       g.setLineDash([]);
       alpha *= 0.9;
@@ -766,11 +767,6 @@ export function init(root, ctx) {
     g.lineWidth = width;
     edgePath(g, edge, edge.progress);
     g.stroke();
-    if (state === 'disputed' && edge.pulse > 0) {
-      g.globalAlpha = 0.35 * edge.pulse;
-      g.lineWidth = width + 6 * edge.pulse;
-      g.stroke();
-    }
     g.setLineDash([]);
     g.globalAlpha = 1;
   }
@@ -785,7 +781,7 @@ export function init(root, ctx) {
   }
 
   function drawEmpty(g, width, height, lines) {
-    const font = ctx.theme.font('sans');
+    const font = ctx.theme.font('serif');
     g.font = `400 14px ${font}`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
@@ -819,7 +815,7 @@ export function init(root, ctx) {
 
     const { labels, isolatedAlpha } = policy();
     const crowded = nodes.size > LABEL_MAX_NODES;
-    const font = ctx.theme.font('sans');
+    const font = ctx.theme.font('serif');
 
     // Lines, back to front: gone, settled, open, disputed.
     for (const edge of fading) drawEdge(g, edge, isolatedAlpha, crowded);

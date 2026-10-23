@@ -7,7 +7,7 @@
  * have.
  */
 
-import { createIndexerClient } from './activity.js';
+import { createIndexerClient, createIndexerReader } from './activity.js';
 import { connectExplorerChain } from './chain.js';
 import { readIntEnv } from './config.js';
 import { createExplorerServer } from './server.js';
@@ -32,7 +32,13 @@ if (!/^https?:\/\//.test(indexerUrl)) {
 
 const chain = await connectExplorerChain({ rpcEndpoint });
 const info = chain.chainInfo();
-const server = createExplorerServer({ chain, activity: createIndexerClient({ baseUrl: indexerUrl }) });
+const server = createExplorerServer({
+  chain,
+  activity: createIndexerClient({ baseUrl: indexerUrl }),
+  // The home page's indexer line, the account page's history and the
+  // agent-scoped activity readings come from the same indexer.
+  indexer: createIndexerReader({ baseUrl: indexerUrl }),
+});
 
 server.listen(port, host, () => {
   console.log(

@@ -26,6 +26,10 @@ const CONSTANT_PALLETS = [
   'autoParams',
   'orchestrator',
   'constitution',
+  // Runtime 309 added the messages pallet; its constants (fees, size caps)
+  // are the home page's to quote, so it joins the list. Absent on an older
+  // runtime, it is skipped like any other missing pallet.
+  'messages',
   'balances',
   'babe',
   'timestamp',
@@ -57,6 +61,35 @@ export async function readChainFacts(api) {
   });
 
   const lastSettledEra = await api.query.emissions.lastSettledEra();
+  const eraStartBlock = (await api.query.emissions.eraStartBlock()).toNumber();
+  const nodeVersion = (await api.rpc.system.version()).toString();
+
+  // The home page's readings that are counts, read whole from storage so the
+  // page never types them: how many registered agents are operator-run (the
+  // `swarm-` prefix on the on-chain name, as the Observatory counts it) and
+  // how many agreements are in dispute right now.
+  const agentEntries = await api.query.agents.agentMetadata.entries();
+  const operatorRunAgents = agentEntries.filter(([, meta]) => {
+    const m = meta.unwrapOr(null) ?? meta;
+    const name = m?.name ? Buffer.from(m.name.toU8a(true)).toString('utf8') : '';
+    return name.startsWith('swarm-');
+  }).length;
+  const agreementEntries = await api.query.escrow.agreements.entries();
+  let openDisputes = 0;
+  for (const [, list] of agreementEntries) {
+    for (const agreement of list) if (agreement.status.isDisputed) openDisputes += 1;
+  }
+
+  // The last blocks, for the river the home page draws as built: number,
+  // extrinsic count, and whether each was final when read.
+  const finalizedHash = await api.rpc.chain.getFinalizedHead();
+  const finalizedNumber = (await api.rpc.chain.getHeader(finalizedHash)).number.toNumber();
+  const recentBlocks = [];
+  for (let n = header.number.toNumber(); n > header.number.toNumber() - 40 && n >= 0; n -= 1) {
+    const hash = await api.rpc.chain.getBlockHash(n);
+    const block = await api.rpc.chain.getBlock(hash);
+    recentBlocks.push({ number: n, extrinsics: block.block.extrinsics.length, final: n <= finalizedNumber });
+  }
 
   return {
     provenance: {
@@ -71,6 +104,8 @@ export async function readChainFacts(api) {
       ss58Format: properties.ss58Format.unwrapOr(null)?.toNumber() ?? null,
       readAtBlock: header.number.toNumber(),
       readAtBlockHash: header.hash.toHex(),
+      finalizedAtRead: finalizedNumber,
+      nodeVersion,
       fetchedAt: new Date().toISOString(),
     },
     token: {
@@ -81,7 +116,13 @@ export async function readChainFacts(api) {
     constants,
     state: {
       validators: (await api.query.session.validators()).length,
+      validatorCount: (await api.query.staking.validatorCount()).toNumber(),
       registeredAgents: (await api.query.agents.counterForAgentStake()).toNumber(),
+      operatorRunAgents,
+      openDisputes,
+      eraStartBlock,
+      eraElapsedBlocks: header.number.toNumber() - eraStartBlock,
+      recentBlocks,
       totalIssuancePlancks: str(await api.query.balances.totalIssuance()),
       eraNumber: (await api.query.agents.eraNumber()).toNumber(),
       lastSettledEra: lastSettledEra.isEmpty ? null : str(lastSettledEra),

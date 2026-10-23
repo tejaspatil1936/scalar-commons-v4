@@ -21,15 +21,22 @@ import { decodeAddress, encodeAddress } from '@polkadot/util-crypto';
 import { collectAccounts } from './accounts.js';
 import type { BlockRef } from './routes.js';
 import type {
+  AccountRoles,
   AccountView,
   BlockView,
   ChainInfo,
+  DisputeTerms,
   EventView,
   ExtrinsicArg,
   ExtrinsicSummary,
   ExtrinsicView,
+  HomeReadings,
   HomeView,
   Outcome,
+  PendingExtrinsic,
+  Read,
+  RecentBlock,
+  Source,
 } from './types.js';
 
 /** Asked for a block the chain does not have (yet, or ever). */
@@ -68,6 +75,12 @@ export interface ExplorerChain {
   block(ref: BlockRef): Promise<BlockView>;
   extrinsic(ref: BlockRef, index: number): Promise<ExtrinsicView>;
   account(address: string): Promise<AccountView>;
+  /**
+   * The block and index of the extrinsic with this hash among the newest
+   * `HOME_RECENT_BLOCKS` blocks, or null. The node keeps no hash index, so
+   * the search is bounded to what the home page already reads.
+   */
+  findExtrinsic(hash: string): Promise<{ number: number; index: number } | null>;
   /**
    * Field name → metadata type name for one event of the connected runtime, or
    * null when the runtime has no such event. Read from metadata already in
@@ -150,7 +163,40 @@ interface DecodedBlock {
   readonly extrinsicsRoot: string;
   readonly timestampMs: bigint | null;
   readonly extrinsics: readonly DecodedExtrinsic[];
+  /** The BABE pre-digest, when the header carries one the explorer can decode. */
+  readonly slot: string | null;
+  /** The block author, resolved through the pre-digest's authority index into `session.validators` at that block. */
+  readonly author: string | null;
+  /** Every event in the block, in the node's order, with the extrinsic it belongs to. */
+  readonly events: readonly (EventView & { readonly extrinsicIndex: number | null })[];
 }
+
+const nowIso = (): string => new Date().toISOString();
+
+function source(method: string, url: string, block: number | null, fetchedAt: string, computed: string | null = null): Source {
+  return { method, url, fetchedAt, block, raw: null, computed };
+}
+
+/**
+ * One read, with its receipt. A read that throws becomes a `Read` carrying
+ * the reason, so one missing storage item costs the page one `unavailable`
+ * figure rather than a 502 for everything else on it.
+ */
+async function attempt<T>(src: Source, fn: () => Promise<T>): Promise<Read<T>> {
+  try {
+    return { value: await fn(), source: src, reason: null };
+  } catch (error) {
+    return { value: null, source: src, reason: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** Reads a decoded value as a number (block numbers, indices, bps constants). */
+function toNumber(value: Codec): number {
+  return Number(toBigInt(value) ?? 0n);
+}
+
+/** How many of the newest blocks the home page reads for its Spine and ledgers. */
+export const HOME_RECENT_BLOCKS = 16;
 
 /**
  * Connects to a node and returns the explorer's reader.
@@ -198,6 +244,7 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
     tokenDecimals: api.registry.chainDecimals[0] ?? 12,
     ss58Format,
     genesisHash: api.genesisHash.toHex(),
+    nodeVersion: (await api.rpc.system.version()).toString(),
   };
 
   /** Normalises any accepted address form to this chain's SS58 format. */
@@ -284,6 +331,29 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
   }
 
   /** Decodes one block: header, timestamp, and every extrinsic with its events and outcome. */
+  /** The BABE pre-digest of a header: slot and authority index, or nulls when there is none the explorer can decode. */
+  function preDigest(header: { digest: { logs: Iterable<unknown> } }): { slot: string | null; authorityIndex: number | null } {
+    for (const log of header.digest.logs) {
+      const item = log as { isPreRuntime?: boolean; asPreRuntime?: readonly [{ isBabe?: boolean }, Codec] };
+      if (!item.isPreRuntime || !item.asPreRuntime) continue;
+      const [engine, data] = item.asPreRuntime;
+      if (!engine.isBabe) continue;
+      try {
+        const digest = api.registry.createType('RawBabePreDigest', data) as unknown as {
+          value?: { slotNumber?: Codec; authorityIndex?: Codec };
+        };
+        const inner = digest.value;
+        return {
+          slot: inner?.slotNumber ? inner.slotNumber.toString() : null,
+          authorityIndex: inner?.authorityIndex ? toNumber(inner.authorityIndex) : null,
+        };
+      } catch {
+        return { slot: null, authorityIndex: null };
+      }
+    }
+    return { slot: null, authorityIndex: null };
+  }
+
   async function decodeBlock(hash: string): Promise<DecodedBlock> {
     const [signedBlock, apiAt] = await Promise.all([api.rpc.chain.getBlock(hash), api.at(hash)]);
     const systemEvents = fromMetadata(
@@ -292,6 +362,17 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
     );
     const records = (await systemEvents()) as unknown as EventRecord[];
     const timestampMs = apiAt.query.timestamp?.now ? toBigInt(await apiAt.query.timestamp.now()) : null;
+    const { slot, authorityIndex } = preDigest(signedBlock.block.header);
+    let author: string | null = null;
+    if (authorityIndex !== null && apiAt.query.session?.validators) {
+      const validators = (await apiAt.query.session.validators()) as unknown as Codec[];
+      const found = validators[authorityIndex];
+      author = found ? (collectAccounts([found], ss58Format)[0] ?? null) : null;
+    }
+    const allEvents = records.map((record, position) => ({
+      ...eventView(record, position),
+      extrinsicIndex: record.phase.isApplyExtrinsic ? record.phase.asApplyExtrinsic.toNumber() : null,
+    }));
 
     const extrinsics = signedBlock.block.extrinsics.map((extrinsic, index): DecodedExtrinsic => {
       // Each record keeps the position it holds in the block's event list, so
@@ -358,6 +439,9 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
       extrinsicsRoot: signedBlock.block.header.extrinsicsRoot.toHex(),
       timestampMs,
       extrinsics,
+      slot,
+      author,
+      events: allEvents,
     };
   }
 
@@ -370,7 +454,90 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
       isSigned: decoded.isSigned,
       signer: decoded.signer,
       outcome: decoded.outcome,
+      events: decoded.events,
     };
+  }
+
+  /** The newest `HOME_RECENT_BLOCKS` blocks from `head` down, fully decoded. */
+  async function recentBlocks(head: { number: number; hash: string }): Promise<RecentBlock[]> {
+    const blocks: RecentBlock[] = [];
+    let hash = head.hash;
+    for (let i = 0; i < HOME_RECENT_BLOCKS && blocks.length <= head.number; i += 1) {
+      const decoded = await decodeBlock(hash);
+      blocks.push({
+        number: decoded.number,
+        hash: decoded.hash,
+        timestampMs: decoded.timestampMs,
+        author: decoded.author,
+        extrinsics: decoded.extrinsics.map(summarize),
+        events: decoded.events,
+      });
+      if (decoded.number === 0) break;
+      hash = decoded.parentHash;
+    }
+    return blocks;
+  }
+
+  /** Every live reading on the home page, each a separate `attempt` so one failure costs one figure. */
+  async function homeReadings(head: { number: number; hash: string }): Promise<HomeReadings> {
+    const at = nowIso();
+    const src = (method: string, url: string, computed: string | null = null): Source => source(method, url, head.number, at, computed);
+    const apiAt = await api.at(head.hash);
+
+    const [finalized, era, session, validators, issuance, recent, pending] = await Promise.all([
+      attempt(src('RPC', 'chain_getFinalizedHead'), async () => {
+        const hash = await api.rpc.chain.getFinalizedHead();
+        const header = await api.rpc.chain.getHeader(hash);
+        return { number: header.number.toNumber(), hash: hash.toHex() };
+      }),
+      attempt(src('STORAGE', 'agents.eraNumber · emissions.eraStartBlock · emissions.eraDuration', 'elapsed = best − eraStartBlock'), async () => {
+        const eraNumber = fromMetadata(apiAt.query.agents?.eraNumber, 'runtime exposes no agents.eraNumber storage');
+        const eraStart = fromMetadata(apiAt.query.emissions?.eraStartBlock, 'runtime exposes no emissions.eraStartBlock storage');
+        const duration = fromMetadata(api.consts.emissions?.eraDuration, 'runtime exposes no emissions.eraDuration constant');
+        const [number, start] = await Promise.all([eraNumber(), eraStart()]);
+        return { number: toNumber(number), elapsed: head.number - toNumber(start), length: toNumber(duration) };
+      }),
+      attempt(src('STORAGE', 'session.currentIndex · babe.epochDuration · babe.epochStart', 'elapsed = best − epochStart'), async () => {
+        const currentIndex = fromMetadata(apiAt.query.session?.currentIndex, 'runtime exposes no session.currentIndex storage');
+        const epochStart = fromMetadata(apiAt.query.babe?.epochStart, 'runtime exposes no babe.epochStart storage');
+        const duration = fromMetadata(api.consts.babe?.epochDuration, 'runtime exposes no babe.epochDuration constant');
+        const [index, start] = await Promise.all([currentIndex(), epochStart()]);
+        // `babe.epochStart` is `(previous, current)`; the current epoch began at the second.
+        const pair = start as unknown as Codec[];
+        const current = pair[1] ?? pair[0];
+        return {
+          index: toNumber(index),
+          elapsed: current ? head.number - toNumber(current) : 0,
+          length: toNumber(duration),
+        };
+      }),
+      attempt(src('STORAGE', 'session.validators'), async () => {
+        const validatorsAt = fromMetadata(apiAt.query.session?.validators, 'runtime exposes no session.validators storage');
+        return ((await validatorsAt()) as unknown as Codec[]).length;
+      }),
+      attempt(src('STORAGE', 'balances.totalIssuance'), async () => {
+        const total = fromMetadata(apiAt.query.balances?.totalIssuance, 'runtime exposes no balances.totalIssuance storage');
+        return toBigInt(await total()) ?? 0n;
+      }),
+      attempt(src('RPC', `chain_getBlock × ${HOME_RECENT_BLOCKS} · system.events`), () => recentBlocks(head)),
+      attempt(src('RPC', 'author_pendingExtrinsics'), async () => {
+        const pool = await api.rpc.author.pendingExtrinsics();
+        return pool.map(
+          (extrinsic): PendingExtrinsic => ({
+            hash: extrinsic.hash.toHex(),
+            section: extrinsic.method.section,
+            method: extrinsic.method.method,
+            signer: extrinsic.isSigned ? (collectAccounts([extrinsic.signer], ss58Format)[0] ?? null) : null,
+          }),
+        );
+      }),
+    ]);
+
+    const newest = recent.value?.[0];
+    const headAgeMs =
+      newest && newest.timestampMs !== null ? Date.now() - Number(newest.timestampMs) : null;
+
+    return { renderedAt: at, headAgeMs, finalized, era, session, validators, issuance, recent, pending };
   }
 
   return {
@@ -379,22 +546,50 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
     },
 
     async home(): Promise<HomeView> {
-      // One header read, and no block bodies: the index page is chrome that
-      // names the chain and points at its head, so it must not cost the node
-      // more than the cheapest question there is to ask it.
+      // The head first; everything else on the page is a separate, receipted
+      // read against that head, bounded to the newest HOME_RECENT_BLOCKS blocks.
       const header = await api.rpc.chain.getHeader();
-      return {
-        chain: info,
-        head: { number: header.number.toNumber(), hash: header.hash.toHex() },
-      };
+      const head = { number: header.number.toNumber(), hash: header.hash.toHex() };
+      return { chain: info, head, readings: await homeReadings(head) };
+    },
+
+    async findExtrinsic(hash: string): Promise<{ number: number; index: number } | null> {
+      const header = await api.rpc.chain.getHeader();
+      const blocks = await recentBlocks({ number: header.number.toNumber(), hash: header.hash.toHex() });
+      for (const block of blocks) {
+        const found = block.extrinsics.find((extrinsic) => extrinsic.hash === hash);
+        if (found) return { number: block.number, index: found.index };
+      }
+      return null;
     },
 
     async block(ref: BlockRef): Promise<BlockView> {
       const { hash } = await resolveBlock(ref);
-      const [decoded, runtimeVersion] = await Promise.all([
+      const at = nowIso();
+      const [decoded, runtimeVersion, bestHeader] = await Promise.all([
         decodeBlock(hash),
         api.rpc.state.getRuntimeVersion(hash),
+        api.rpc.chain.getHeader(),
       ]);
+      const best = bestHeader.number.toNumber();
+      const src = (method: string, url: string): Source => source(method, url, best, at);
+      const apiAt = await api.at(hash);
+      const [finalized, era, session, weight] = await Promise.all([
+        attempt(src('RPC', 'chain_getFinalizedHead'), async () => {
+          const finalizedHeader = await api.rpc.chain.getHeader(await api.rpc.chain.getFinalizedHead());
+          return finalizedHeader.number.toNumber() >= decoded.number;
+        }),
+        attempt(src('STORAGE', 'agents.eraNumber'), async () =>
+          toNumber(await fromMetadata(apiAt.query.agents?.eraNumber, 'runtime exposes no agents.eraNumber storage')()),
+        ),
+        attempt(src('STORAGE', 'session.currentIndex'), async () =>
+          toNumber(await fromMetadata(apiAt.query.session?.currentIndex, 'runtime exposes no session.currentIndex storage')()),
+        ),
+        attempt(src('STORAGE', 'system.blockWeight'), async () =>
+          humanValue(await fromMetadata(apiAt.query.system?.blockWeight, 'runtime exposes no system.blockWeight storage')()),
+        ),
+      ]);
+      const digestSource = src('RPC', 'chain_getBlock · header.digest (BABE pre-runtime)');
       return {
         number: decoded.number,
         hash: decoded.hash,
@@ -404,6 +599,17 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
         timestampMs: decoded.timestampMs,
         specVersion: runtimeVersion.specVersion.toNumber(),
         extrinsics: decoded.extrinsics.map(summarize),
+        detail: {
+          renderedAt: at,
+          best,
+          finalized,
+          author: { value: decoded.author, source: { ...digestSource, computed: 'session.validators[authorityIndex]' }, reason: null },
+          slot: { value: decoded.slot, source: digestSource, reason: null },
+          era,
+          session,
+          weight,
+          events: decoded.events,
+        },
       };
     },
 
@@ -415,6 +621,22 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
         throw new ExtrinsicNotFoundError(
           `block ${decoded.number} has no extrinsic at index ${index} (it has ${decoded.extrinsics.length})`,
         );
+      }
+      const at = nowIso();
+      let disputeTerms: DisputeTerms | undefined;
+      if (extrinsic.section === 'escrow' && extrinsic.method === 'disputeDelivery') {
+        const src = (url: string): Source => source('META', url, decoded.number, at);
+        disputeTerms = {
+          bountyBps: await attempt(src('escrow.disputeBountyBps · runtime/src/lib.rs:1297'), async () =>
+            toNumber(fromMetadata(api.consts.escrow?.disputeBountyBps, 'runtime exposes no escrow.disputeBountyBps constant')),
+          ),
+          burnBps: await attempt(src('escrow.disputeBurnBps · runtime/src/lib.rs:1299'), async () =>
+            toNumber(fromMetadata(api.consts.escrow?.disputeBurnBps, 'runtime exposes no escrow.disputeBurnBps constant')),
+          ),
+          settles: await attempt(src('escrow.disputeTimeout · runtime/src/lib.rs:1295–1299'), async () =>
+            api.query.oracle ? 'oracle' : 'the runtime exposes no oracle pallet',
+          ),
+        };
       }
       return {
         block: { number: decoded.number, hash: decoded.hash },
@@ -431,6 +653,8 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
         events: extrinsic.events,
         outcome: extrinsic.outcome,
         accounts: extrinsic.accounts,
+        renderedAt: at,
+        ...(disputeTerms ? { disputeTerms } : {}),
       };
     },
 
@@ -462,6 +686,60 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
       const balance = (name: string): bigint =>
         toBigInt(structField(balances, name, 'system.account.data')) ?? 0n;
 
+      const at = nowIso();
+      const src = (url: string): Source => source('STORAGE', url, headNumber, at);
+      const optionValue = (value: Codec): Codec | null => {
+        const option = value as unknown as { isSome?: boolean; unwrap?: () => Codec };
+        return typeof option.isSome === 'boolean' && typeof option.unwrap === 'function'
+          ? option.isSome
+            ? option.unwrap()
+            : null
+          : value;
+      };
+      const roles: AccountRoles = {
+        renderedAt: at,
+        agentName: await attempt(src('agents.agentMetadata'), async () => {
+          const metadata = fromMetadata(apiAt.query.agents?.agentMetadata, 'runtime exposes no agents.agentMetadata storage');
+          const meta = optionValue(await metadata(normalized));
+          return meta === null ? null : humanValue(structField(meta, 'name', 'agents.agentMetadata'));
+        }),
+        agentStake: await attempt(src('agents.agentStake'), async () => {
+          const stake = fromMetadata(apiAt.query.agents?.agentStake, 'runtime exposes no agents.agentStake storage');
+          const value = optionValue(await stake(normalized));
+          const amount = value === null ? null : toBigInt(value);
+          return amount === null || amount === 0n ? null : amount;
+        }),
+        bonded: await attempt(src('staking.bonded'), async () => {
+          const bonded = fromMetadata(apiAt.query.staking?.bonded, 'runtime exposes no staking.bonded storage');
+          const controller = optionValue(await bonded(normalized));
+          return controller === null ? null : (collectAccounts([controller], ss58Format)[0] ?? controller.toString());
+        }),
+        validator: await attempt(src('session.validators'), async () => {
+          const validators = fromMetadata(apiAt.query.session?.validators, 'runtime exposes no session.validators storage');
+          return collectAccounts((await validators()) as unknown as Codec[], ss58Format).includes(normalized);
+        }),
+        heartbeat: await attempt(
+          source('STORAGE', 'agents.lastHeartbeat · agents.heartbeatGracePeriod · agents.heartbeatDecayPeriod', headNumber, at),
+          async () => {
+            // Only an agent has a heartbeat: lastHeartbeat is a ValueQuery, so a
+            // non-agent reads 0, which would look like a decayed agent.
+            const stake = fromMetadata(apiAt.query.agents?.agentStake, 'runtime exposes no agents.agentStake storage');
+            const metadata = fromMetadata(apiAt.query.agents?.agentMetadata, 'runtime exposes no agents.agentMetadata storage');
+            const staked = optionValue(await stake(normalized));
+            const meta = optionValue(await metadata(normalized));
+            const isAgent = (staked !== null && (toBigInt(staked) ?? 0n) > 0n) || meta !== null;
+            if (!isAgent) return null;
+            const last = fromMetadata(apiAt.query.agents?.lastHeartbeat, 'runtime exposes no agents.lastHeartbeat storage');
+            return {
+              lastHeartbeat: toNumber(await last(normalized)),
+              best: headNumber,
+              grace: toNumber(fromMetadata(api.consts.agents?.heartbeatGracePeriod, 'runtime exposes no agents.heartbeatGracePeriod constant')),
+              decay: toNumber(fromMetadata(api.consts.agents?.heartbeatDecayPeriod, 'runtime exposes no agents.heartbeatDecayPeriod constant')),
+            };
+          },
+        ),
+      };
+
       return {
         address: normalized,
         publicKey: u8aToHex(publicKey),
@@ -470,6 +748,7 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
         frozen: balance('frozen'),
         nonce: Number(toBigInt(structField(account, 'nonce', 'system.account')) ?? 0n),
         at: { number: headNumber, hash: headHash },
+        roles,
       };
     },
 

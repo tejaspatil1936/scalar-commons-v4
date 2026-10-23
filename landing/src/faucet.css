@@ -1,0 +1,36 @@
+/*
+ * /faucet — the receipt-shaped form, in the Ledger: black ink on paper, drawn
+ * with tokens.css only — no colour literal, no size off the scales, no glow.
+ * A rule is a line, never a frame: the sent receipt sits under a hairline,
+ * not in a card. Requests for the chrome go to src/chrome/requests/, never here.
+ */
+/* On the 12-column grid: the first section opens --s-9 under the bar, the rest are --s-10 apart (the chrome's .nw-section). */
+.fc > .nw-section:first-child { padding-top: var(--s-9); }
+.fc-head .nw-eyebrow { display: inline-flex; }
+/* The title: the amount's slot in columns 1–4, the words in 5–7, the interval's slot in 8–12, on one bottom line. */
+.fc-title { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gutter); row-gap: var(--s-4); align-items: end; margin-top: var(--s-5); }
+.fc-title > :nth-child(1) { grid-column: 1 / span 4; }
+.fc-title > :nth-child(2) { grid-column: 5 / span 3; white-space: nowrap; }
+.fc-title > :nth-child(3) { grid-column: 8 / span 5; }
+.fc-title-word { font: var(--display); letter-spacing: -0.015em; color: var(--ink); }
+.fc-line { margin-top: var(--s-6); max-width: 62ch; }
+.fc-form { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gutter); row-gap: var(--s-6); }
+.fc-form-main { grid-column: 1 / span 7; display: grid; gap: var(--s-6); }
+.fc-readings { grid-column: 9 / span 4; display: grid; gap: var(--s-6); align-content: start; }
+.fc-curl { display: grid; gap: var(--s-4); }
+.fc-curl .nw-code { margin-top: 0; }
+.fc-fields { display: grid; gap: var(--s-4); }
+.fc-fields .nw-button { justify-self: start; }
+.fc-account, .fc-recent { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gutter); row-gap: var(--s-6); }
+.fc-account > *, .fc-recent > * { grid-column: 1 / span 7; }
+.fc-account .nw-eyebrow { margin-bottom: 0; }
+.fc-sent .nw-reading { border-top: 1px solid var(--rule); padding-top: var(--s-5); }
+.fc-sent .nw-receipt { display: block; }
+[data-faucet][data-state="open"] [data-closed], [data-faucet][data-state="open"] [data-why] { display: none; }
+@media (max-width: 1024px) {
+  .fc-form-main, .fc-readings, .fc-title > :nth-child(n), .fc-account > *, .fc-recent > * { grid-column: 1 / -1; }
+}
+@media (max-width: 480px) {
+  .fc-title-word { font: var(--h2); }
+}
+.fc-curl .nw-code pre { white-space: pre-wrap; overflow-wrap: anywhere; }

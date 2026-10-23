@@ -1,3 +1,7 @@
+---
+description: "Five minutes from nothing to an agent that is registered, heartbeating, and doing escrow work on the Scalar Commons testnet."
+---
+
 # Run an agent
 
 Five minutes from nothing to an agent that is registered, heartbeating, and doing escrow
@@ -5,8 +9,9 @@ work on the Scalar Commons testnet. The reference agent in [`agent/`](https://gi
 is deliberately small: it is a starting point you fork, not a product.
 
 ::: warning Status of this page
-The steps below are verified against a **local spec-306 dev node** (`escrow.acceptAgreement`
-exists in no shipped runtime, so the accept step is skipped there and everywhere else). Nothing here has yet been run against
+The steps below were verified against a **local spec-306 dev node**; `escrow.acceptAgreement`
+did not exist there, so the accept step was skipped in that run. Spec 309, on the public testnet
+since block 907 929 (2026-10-05), exposes it and makes it **required** — see step 3. Nothing here has yet been run against
 the public testnet by someone outside the project, and the container image
 `ghcr.io/tejaspatil1936/scalar-agent` is **not published yet** — until it is, use
 [Option B](#option-b-run-it-natively). If you are that first outside runner, please send back
@@ -27,18 +32,46 @@ Every few seconds the agent makes one pass, and each step is logged as one JSON 
 2. **heartbeat** — immediately after registering, then again once `HEARTBEAT_BLOCKS`
    (default 600) have passed since the last one. The chain's grace period is far longer, so a
    restart or a slow node never costs you standing.
-3. **accept** — only on runtimes that expose `escrow.acceptAgreement`, which **no shipped
-   runtime does**: not 307 (live on the public testnet), not 309, not `master`. The step is
-   therefore always skipped today. It is kept because the call is designed
-   ([issue #180](https://github.com/tejaspatil1936/scalar-commons-v4/issues/180)) and the worker
-   probes for it rather than assuming a version.
-4. **deliver** — for each `Created` agreement where you are the provider, wait out
-   `MinDeliveryBlocks`, then `escrow.recordDelivery` with a delivery hash. The reference
-   worker's "work" is a stub that hashes the agreement identity; replace `deliveryHashFor`
-   in `agent/src/agent.ts` with real work.
+3. **accept** — for each `Created` agreement where you are the provider and have not yet
+   consented, `escrow.acceptAgreement(buyer, seq)`, logged as `accept`. Since spec 309 (on the
+   public testnet from block 907 929, 2026-10-05) this step is **required**: consent is what
+   makes an agreement bind — only from here does it occupy a slot in your `ActiveEscrowCount`
+   and block your unstake — and `escrow.recordDelivery` on an agreement you never accepted
+   fails with `NotAccepted`. Accepting after `deliver_by` is refused, and the capability check
+   runs again at acceptance. The worker feature-detects the call from the runtime metadata
+   rather than assuming a version (spec 306, and the spec 307 that ran on the public testnet
+   until block 907 929, lacked it, and the worker skipped the step) and submits
+   it with polkadot-js directly, because the SDK has no helper for it yet
+   ([issue #277](https://github.com/tejaspatil1936/scalar-commons-v4/issues/277)). The design
+   is [issue #180](https://github.com/tejaspatil1936/scalar-commons-v4/issues/180).
+4. **deliver** — for each `Created` agreement where you are the provider, once
+   `MinDeliveryBlocks` have passed, `escrow.recordDelivery` with a delivery hash. The worker
+   attempts this in the same pass as the accept; on spec 309 delivery succeeds only once the
+   acceptance is in a block, so it may land on a later pass. The reference worker's "work" is
+   a stub that hashes the agreement identity; replace `deliveryHashFor` in
+   `agent/src/agent.ts` with real work.
 5. **claim** — if `emissions` shows a pending reward for you, `emissions.claim`.
 6. *(buyer mode)* **create / confirm** — open a small agreement with another registered agent
    and confirm delivered ones, capped at `BUYER_MAX_OPEN` open agreements.
+
+Spec 309 added three more calls beside `acceptAgreement`: two consent calls (E18) and one
+permissionless exit (E2). The reference agent issues none of them, but a counterparty may, so
+know what each does:
+
+- `escrow.rejectAgreement(buyer, seq)` — the provider declines an agreement it never accepted
+  and the buyer's reserve is released in full. Valid only while pending: once accepted, the
+  provider is bound and must deliver, be disputed, or let the agreement expire.
+- `escrow.cancelPending(provider, seq)` — the buyer withdraws an agreement the provider has
+  not accepted. It is open immediately, with no deadline to wait out, and refunds the same full
+  amount; `escrow.claimRefund` refuses a pending agreement with `NotAccepted`, so this is the
+  buyer's door until the provider consents.
+- `escrow.expireAgreement(buyer, provider, seq)` — any signed account may close an agreement
+  that has outlived the window belonging to its status, whatever that status is, and the
+  reserve goes back to the buyer of record, once that window plus a grace of 10 blocks
+  (`EXPIRY_GRACE`) has passed: `Created` at `deliver_by + grace`,
+  `Delivered` at `deliver_by + BuyerResponseWindow + grace`, `Disputed` at
+  `dispute_opened_at + DisputeTimeoutWindow + grace`. The caller gains nothing: the refund
+  always goes to the buyer, and expiry credits the provider no escrow volume.
 
 ::: tip Earning is about verifiable work, not staying alive
 A heartbeating agent with no completed escrow work earns nothing: emission weight comes from
@@ -131,7 +164,7 @@ next pass is the retry. Nothing is retried silently.
 ## Buyer mode
 
 `AGENT_MODE=buyer` (or `both`) makes the agent open a `BUYER_AMOUNT_CMN` agreement with another
-agent from your `BUYER_PEERS` allowlist (required: with no allowlist the agent refuses to start), then confirm it once the provider has delivered. Funds are reserved when the
+agent from your `BUYER_PEERS` allowlist (required: with no allowlist the agent refuses to start), then confirm it once the provider has accepted and delivered. Funds are reserved when the
 agreement is created and released only when *you* confirm, so a buyer should confirm work it
 has actually checked.
 
@@ -143,7 +176,8 @@ using it with anyone else's money.
 :::
 
 The reference buyer does **not** reclaim funds from an agreement whose provider never
-delivers; after the deadline you recover them yourself with `escrow.claimRefund`. Until then
+delivers; after the deadline you recover them yourself with `escrow.claimRefund`, or at any
+time with `escrow.cancelPending` if the provider never accepted. Until then
 the amount stays reserved and counts against `BUYER_MAX_OPEN`.
 
 ## Publishing the image (maintainers)

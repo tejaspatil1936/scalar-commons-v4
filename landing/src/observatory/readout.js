@@ -7,6 +7,7 @@
 // previous value standing.
 
 import { formatInteger, utcTime } from './format.js';
+import { setFigure as warmFigure } from '../chrome/behaviour/digits.js';
 
 /** Object URLs for raw responses, so a figure can link to the bytes it came from. */
 const snapshots = new WeakMap();
@@ -52,6 +53,67 @@ export function provenance(target, record, extra = '') {
     prov.append(...wrappableLabel(record.label));
   }
   prov.append(` · ${utcTime(record.at)}${extra ? ` · ${extra}` : ''}`);
+  receipt(target, record, extra);
+}
+
+/**
+ * The chrome's receipt under a Reading: `fetched <UTC> · block n`, the raw
+ * bytes, and the inline receipt line. The request line is the build's.
+ */
+export function receipt(target, record, extra = '') {
+  // The fetch time stays on the reading, so a disconnection can say `as of <UTC>` for this figure.
+  if (record.at) target.dataset.at = new Date(record.at).toISOString();
+  const fetched = target.querySelector('[data-fetched]');
+  const block = record.block ?? record.atBlock ?? null;
+  if (fetched) fetched.textContent = `fetched ${utcTime(record.at)}${Number.isFinite(block) ? ` · block ${formatInteger(block)}` : ''}${extra ? ` · ${extra}` : ''}`;
+  const raw = target.querySelector('[data-raw]');
+  const url = snapshotUrl(record);
+  if (raw && url) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.setAttribute('data-raw', '');
+    a.textContent = 'raw ↗';
+    raw.replaceWith(a);
+  }
+  const line = target.querySelector('.nw-receipt-line');
+  if (line) line.textContent = `${record.label} · ${utcTime(record.at)}${Number.isFinite(block) ? ` · block ${formatInteger(block)}` : ''}`;
+}
+
+/** The Reading's stub takes the figure's state; the loading leader stops. */
+function markState(target, state) {
+  target.classList.remove('is-loading');
+  const stub = target.querySelector('.nw-stub');
+  if (stub) {
+    stub.setAttribute('data-state', state);
+    stub.setAttribute('aria-label', `${state === 'live' ? 'LIVE' : 'RECORD'} · show the source`);
+  }
+  // A fresh read ends the stale state a disconnection put on the figure.
+  target.querySelector('[data-stale]')?.remove();
+}
+
+/**
+ * Stalled or disconnected (brief §4): nothing fades, every live stub goes
+ * to a record's outline with `as of <UTC>` — the figure's own fetch time — and the figure keeps
+ * its last value until the next read marks it live again.
+ */
+export function markStale(root) {
+  for (const target of root.querySelectorAll('.nw-reading')) {
+    const stub = target.querySelector('.nw-stub[data-state="live"]');
+    if (!stub || !target.dataset.at) continue;
+    const asOf = `as of ${utcTime(new Date(target.dataset.at))}`;
+    stub.setAttribute('data-state', 'record');
+    stub.setAttribute('aria-label', `${asOf} · show the source`);
+    let sub = target.querySelector('[data-stale]');
+    if (!sub) {
+      sub = document.createElement('p');
+      sub.className = 'nw-reading-sub';
+      sub.setAttribute('data-stale', '');
+      target.querySelector('.nw-reading-line')?.after(sub);
+    }
+    sub.textContent = asOf;
+  }
 }
 
 /**
@@ -81,15 +143,17 @@ export function setFigure(node, text) {
   node.replaceChildren(document.createTextNode(String(text)));
 }
 
-/** Counts from the previous integer to the new one over 200 ms, if motion is allowed. */
-function tick(digits, from, to, motion) {
-  if (!motion || motion.reduced() || document.hidden || !(to > from) || to - from > 100_000) {
-    setFigure(digits, formatInteger(to));
-    return;
-  }
-  motion.tween(200, (t) => {
-    setFigure(digits, formatInteger(Math.round(from + (to - from) * t)));
-  });
+/**
+ * A live figure that changed (round 2 §1.2): through the chrome's setFigure,
+ * the digits that changed print at weight 500 and settle to 400 over
+ * --t-cool; nothing else moves — no count-up, no tween. `previous` is the text
+ * the slot showed before, carried across the slot's rebuild so the comparison
+ * is per digit; the first fill warms nothing. Reduced motion and a hidden tab
+ * print the figure at once.
+ */
+function fill(digits, text, previous, motion) {
+  if (previous) digits.setAttribute('data-text', previous);
+  warmFigure(digits, text, { reduced: Boolean(motion?.reduced?.()) || document.hidden });
 }
 
 /**
@@ -113,9 +177,10 @@ export function showValue(target, record, { value, prefix = '', unit = '', sub =
     return;
   }
   slot.dataset.shown = shown;
-  const before = slot.dataset.number;
+  const previous = slot.querySelector('.digits')?.getAttribute('data-text') ?? null;
   slot.classList.remove('is-loading', 'is-error', 'is-absent');
   slot.classList.toggle('is-live', live);
+  markState(target, live ? 'live' : 'record');
 
   const digits = document.createElement('span');
   digits.className = 'digits';
@@ -125,7 +190,8 @@ export function showValue(target, record, { value, prefix = '', unit = '', sub =
   slot.replaceChildren(rawLink(record, figure));
   if (unit) {
     const u = document.createElement('span');
-    u.className = 'unit';
+    // The chrome's unit: --label on the figure's baseline, 8 px after it.
+    u.className = 'unit nw-unit';
     u.textContent = unit;
     slot.append(u);
   }
@@ -139,12 +205,10 @@ export function showValue(target, record, { value, prefix = '', unit = '', sub =
   }
 
   if (typeof value === 'number') {
-    const previous = before === undefined ? NaN : Number(before);
-    if (Number.isFinite(previous)) tick(digits, previous, value, motion);
-    else setFigure(digits, formatInteger(value));
+    fill(digits, formatInteger(value), previous, motion);
     slot.dataset.number = String(value);
   } else {
-    digits.textContent = value;
+    fill(digits, String(value), previous, motion);
     delete slot.dataset.number;
   }
   provenance(target, record, extra);
@@ -156,6 +220,7 @@ export function showError(target, record, reason = record?.error ?? 'unavailable
   const slot = target.querySelector('.reading-value');
   slot.classList.remove('is-loading', 'is-absent', 'is-live');
   slot.classList.add('is-error');
+  markState(target, 'record');
   delete slot.dataset.number;
   delete slot.dataset.shown;
   const word = document.createElement('span');
@@ -175,6 +240,7 @@ export function showAbsent(target, record, reason) {
   const slot = target.querySelector('.reading-value');
   slot.classList.remove('is-loading', 'is-error', 'is-live');
   slot.classList.add('is-absent');
+  markState(target, 'record');
   delete slot.dataset.number;
   delete slot.dataset.shown;
   const dash = document.createElement('span');

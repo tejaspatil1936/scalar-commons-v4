@@ -329,7 +329,7 @@ export class VoteSampler {
   }
 }
 
-/** "seen sealing 3 blocks · last #820,715", or the honest nothing. Counts are floors: only what arrived while the page was open. */
+/** "seen sealing 3 blocks · last block 820,715", or the honest nothing. Counts are floors: only what arrived while the page was open. */
 export function sealedPhrase(sealed, formatInteger) {
   if (!sealed || sealed.count === 0) return 'not seen sealing a block';
   return `seen sealing ${formatInteger(sealed.count)} block${sealed.count === 1 ? '' : 's'} · last #${formatInteger(sealed.last)}`;
@@ -598,7 +598,8 @@ export function init(root, ctx) {
       addr.append(a);
       if (validator.queued) addr.append(' ', html('span', 'v-mark', 'joining next session'));
       const meta = html('span', 'v-meta');
-      li.append(addr, meta);
+      // Words are separated by a space, never only by a margin: "5Ck5…EAPT not seen sealing a block".
+      li.append(' ', addr, ' ', meta);
       list.append(li);
       const node = nodes.get(validator.stashHex);
       if (node) {
@@ -616,7 +617,7 @@ export function init(root, ctx) {
     li.append(html('span', 'v-index', '?'));
     const label = html('span', 'v-addr mono');
     const meta = html('span', 'v-meta');
-    li.append(label, meta);
+    li.append(' ', label, ' ', meta);
     list.append(li);
     unmappedLi.set(index, { li, meta, label });
   }

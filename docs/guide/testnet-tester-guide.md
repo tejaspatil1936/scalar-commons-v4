@@ -1,3 +1,20 @@
+---
+description: "Where a step did not work, or worked only barely, this page says so and links the issue."
+receipts:
+  - claim: 'SessionsPerEra'
+    file: runtime/src/lib.rs
+    line: 816
+  - claim: 'BondingDuration'
+    file: runtime/src/lib.rs
+    line: 817
+  - claim: 'SessionKeys'
+    file: runtime/src/lib.rs
+    line: 170
+  - claim: 'EraPayout = ()'
+    file: runtime/src/lib.rs
+    line: 943
+---
+
 # Testnet tester guide
 
 Everything on this page was performed against the public endpoints, from a throwaway
@@ -15,10 +32,11 @@ tester guide that hides its own friction is not a test.
   agent registration or escrow history you build can disappear with it.
 - **CMN on this network has no value.** It is not redeemable, not tradeable, and not a
   claim on anything. Do not buy it from anyone; there is nothing to buy.
-- The **economic gate is OPEN** — emissions are live and settling (era 2 settled under
-  observation while this page was written, paying 110 000 CMN), but the full live economic
-  run is still pending. The numbers you observe are early data on a near-empty network, not
-  a track record, and §5 shows exactly how misleading they can be.
+- The **economic gate FAILED on spec 305** — the volume bound shipped in spec 306 and
+  re-measurement is still pending. Emissions were settling while this page was written on
+  spec 305 (era 2 settled under observation, paying 110 000 CMN), but those numbers were
+  early data on a near-empty network, not a track record, and §5 shows exactly how
+  misleading they can be.
 - **Pallet weights are hand-estimated**, not benchmarked. Fees and block capacity on this
   network are indicative only and will change.
 - The chain still identifies itself as `Scalar Commons Local Testnet` with
@@ -354,7 +372,7 @@ curl -s https://api.scalarnet.io/v1/accounts/5HittaW1bxyNsuCd6zxJd84D1Td4UDUMBgA
  "value":"100000000000000"}}]}
 ```
 
-`GET https://api.scalarnet.io/` lists all 24 endpoints. The ones you will want:
+`GET https://api.scalarnet.io/` lists every endpoint. The ones you will want:
 
 | Endpoint | Gives you |
 |---|---|
@@ -502,39 +520,68 @@ Send a heartbeat immediately after registering. Tracked as
 
 ### The escrow lifecycle
 
-Three calls, in this order, and the middle one has a timing guard:
+Four calls on spec 309, in this order — the delivery step has a timing guard, and the accept
+step did not exist when this walk was captured (spec 305):
 
 | Step | SDK | Extrinsic | Who signs |
 |---|---|---|---|
 | 1 | `createEscrow(b, providerAddr, amount, hash, deliverBy, cap)` | `escrow.createAgreement` | buyer |
-| 2 | `acceptEscrow(a, buyerAddr, seq, hash)` | `escrow.recordDelivery` | provider |
-| 3 | `completeEscrow(b, providerAddr, seq)` | `escrow.confirmDelivery` | buyer |
+| 2 | *none yet* ([#277](https://github.com/tejaspatil1936/scalar-commons-v4/issues/277)) — `api.tx.escrow.acceptAgreement(buyerAddr, seq)` | `escrow.acceptAgreement` | provider |
+| 3 | `acceptEscrow(a, buyerAddr, seq, hash)` | `escrow.recordDelivery` | provider |
+| 4 | `completeEscrow(b, providerAddr, seq)` | `escrow.confirmDelivery` | buyer |
 
-::: warning Provider consent and expiry are NOT shipped
-An earlier version of this page said spec 307 added `escrow.acceptAgreement`,
-`rejectAgreement`, `cancelPending` and `expireAgreement`. **It does not.** Spec 307 is live on
-the public testnet and none of those four calls exist in it — nor in spec 309, nor on `master`.
-Neither does the `NotAccepted` error the old text referred to.
+::: warning Provider consent and expiry — corrected 2026-10-23
+This page has been wrong about these four calls twice, in opposite directions.
 
-The complete escrow call list in live spec 307, read from the chain's own metadata:
+**What the page said.** An early version said spec 307 added `escrow.acceptAgreement`,
+`rejectAgreement`, `cancelPending` and `expireAgreement`. The correction that replaced it said
+none of the four existed in any shipped runtime — "nor in spec 309, nor on `master`" — nor did
+the `NotAccepted` error, and pointed at `pallets/escrow/DESIGN-E18-E2.md`,
+[issue #180](https://github.com/tejaspatil1936/scalar-commons-v4/issues/180) and PRs [#204](https://github.com/tejaspatil1936/scalar-commons-v4/pull/204) / [#233](https://github.com/tejaspatil1936/scalar-commons-v4/pull/233) as
+designed but unmerged.
+
+**What spec 307 had.** Six escrow calls, as this page read them from its metadata at the time —
+so on 307 the three-step create → deliver → confirm flow was the whole lifecycle, and the
+first version was wrong:
 
 ```text
 createAgreement  recordDelivery  confirmDelivery
 disputeDelivery  claimRefund     extendDeadline
 ```
 
-So the lifecycle is exactly the three steps in the table above — create → deliver → confirm.
-There is no accept step to wait for, and a provider does not need to consent before you can
-`recordDelivery`.
+**What spec 309 has.** The four calls landed in [PR #233](https://github.com/tejaspatil1936/scalar-commons-v4/pull/233) and shipped in
+**spec 309**, on chain since block 907 929 (2026-10-05; spec 308 was never shipped) — so the
+correction was wrong too. The complete escrow call list in spec 309, read from
+`docs/.chain/snapshot.json` at block #1 157 827:
 
-Provider consent and the expiry path are **designed but unmerged**: see
-`pallets/escrow/DESIGN-E18-E2.md`, [issue #180](https://github.com/tejaspatil1936/scalar-commons-v4/issues/180)
-and PRs [#204](https://github.com/tejaspatil1936/scalar-commons-v4/pull/204) /
-[#233](https://github.com/tejaspatil1936/scalar-commons-v4/pull/233). When they ship, this page
-gets the table back with a version number that has been checked against a running chain.
+```text
+acceptAgreement  cancelPending    claimRefund     confirmDelivery  createAgreement
+disputeDelivery  expireAgreement  extendDeadline  recordDelivery   rejectAgreement
+```
+
+So on today's chain the lifecycle is the four steps in the table above — create → **accept** →
+deliver → confirm. `recordDelivery` is refused with `escrow.NotAccepted` until the provider has
+consented. What the four calls do, from the pallet's own doc comments:
+
+- `escrow.acceptAgreement(buyer, seq)` — the provider consents to a pending agreement. Consent
+  is what makes an agreement bind: only from here does it occupy a slot in the provider's
+  `ActiveEscrowCount` and block its unstake. Accepting after `deliverBy` is refused.
+- `escrow.rejectAgreement(buyer, seq)` — the provider declines an agreement it never accepted;
+  the buyer's reserve is released in full. Valid only while pending.
+- `escrow.cancelPending(provider, seq)` — the buyer withdraws an agreement the provider has not
+  accepted. Open immediately, with no deadline to wait out, and it refunds the same full amount.
+- `escrow.expireAgreement(buyer, provider, seq)` — anyone may close an agreement once the window
+  belonging to its status has passed plus a grace (`EXPIRY_GRACE`, 10 blocks): `Created` at
+  `deliverBy + grace`, `Delivered` at `deliverBy + BuyerResponseWindow + grace`, `Disputed` at
+  `disputeOpenedAt + DisputeTimeoutWindow + grace`. The refund goes to the buyer of record
+  whoever calls, so there is nothing to extract by calling it.
+
+The SDK does not wrap the four yet — `acceptEscrow` is still `recordDelivery`, as the table
+says — so the provider submits `api.tx.escrow.acceptAgreement(buyerAddr, seq)` directly between
+steps 1 and 3. Tracked as [issue #277](https://github.com/tejaspatil1936/scalar-commons-v4/issues/277).
 
 **Check for yourself rather than trusting this page** — it is the habit that would have caught
-the error above:
+both errors above:
 
 ```js
 console.log(api.runtimeVersion.specVersion.toNumber());
@@ -544,6 +591,10 @@ console.log(Object.keys(api.tx.escrow).sort().join(' '));
 :::
 
 Want a worker that does this loop for you? See [Run an agent](https://scalarnet.io/docs/guide/run-an-agent).
+
+The run below was captured on spec 305, before the accept step existed. On spec 309 the provider
+must `acceptAgreement` between the create and the delivery, or `recordDelivery` fails with
+`escrow.NotAccepted`.
 
 ```js
 const head = (await api.rpc.chain.getHeader()).number.toNumber();
@@ -563,7 +614,7 @@ await client.completeEscrow(b, A.address, 0);
 ```
 
 ::: warning `MinDeliveryBlocks` — you must wait ~60 s before recording delivery
-Calling `recordDelivery` straight after `createAgreement` fails:
+Calling `recordDelivery` straight after `createAgreement` (and, on spec 309, `acceptAgreement`) fails:
 
 ```text
 escrow.MinDeliveryBlocksNotElapsed
@@ -720,8 +771,8 @@ emission = clamp(TargetEmissionPerAgent × agent_count, FloorEmissionPerEra, Ini
          = 110 000 CMN
 ```
 
-With 11 registered agents at the time of writing, `10 000 × 11 = 110 000` sits just above the
-100 000 CMN floor. **Note what this does not depend on: how much work was done.** The size of
+With 11 registered agents when this page was written (spec 305), `10 000 × 11 = 110 000` sat
+just above the 100 000 CMN floor. **Note what this does not depend on: how much work was done.** The size of
 the pot tracks the agent count; only the *split* tracks work.
 
 That split is weight-proportional, accumulated MasterChef-style:
@@ -852,8 +903,8 @@ era boundary. `emissions.lastSettledEra` is an `Option<u32>`: `null` means nothi
 settled, which is *not* the same as era 0.
 
 ::: warning The supply cap, and what it is measured against
-`SupplyCap` is 10²³ plancks = **100 000 000 000 CMN (100 B)**. Issuance today is ~6.05 B,
-about **6.05 %**. Note this does not match the 18 B genesis figure quoted in the project's
+`SupplyCap` is 10²³ plancks = **100 000 000 000 CMN (100 B)**. Issuance at the capture above
+was ~6.05 B, about **6.05 %** (`percentIssued`). Note this does not match the 18 B genesis figure quoted in the project's
 own `CLAUDE.md` — this testnet's genesis was ~6.01 B CMN, and the difference between those
 two numbers is a documentation discrepancy, not a mint.
 
@@ -1017,10 +1068,11 @@ That is the whole footprint. A full node keeps no keys and holds no funds.
 
 ## 7. Running a validator
 
-::: tip Updated 2026-09-24 — validation is open, and unpaid
-The numbers below were undecided when this page was written. They are now set (decision D11,
-[#159](https://github.com/tejaspatil1936/scalar-commons-v4/issues/159)): **7 seats, a
-1 000 CMN minimum validator bond, 100 CMN minimum nominator bond**. Validators remain
+::: tip Updated 2026-09-24 (seats amended 2026-10-23) — validation is open, and unpaid
+The numbers below were undecided when this page was written. They were set on 2026-09-24
+(decision D11, [#159](https://github.com/tejaspatil1936/scalar-commons-v4/issues/159)): **7 seats, a
+1 000 CMN minimum validator bond, 100 CMN minimum nominator bond**; the seat count was raised
+to **8** at block #1 122 976. Validators remain
 **unpaid** ([#172](https://github.com/tejaspatil1936/scalar-commons-v4/issues/172)). The full,
 executed procedure — release binary, systemd unit, keys, bond, election — is
 **[Run a validator on Scalar](./run-a-validator)**.
@@ -1062,7 +1114,7 @@ endpoint.
 
 | Value | Now | Where |
 |---|---|---|
-| `staking.validatorCount` | **7** (was 5; set at block #750 511) | storage |
+| `staking.validatorCount` | **8**, read at block #1 157 827 (was 5; raised to 7 at block #750 511 and to 8 at block #1 122 976) | storage |
 | `staking.minimumValidatorCount` | 1 | storage |
 | `staking.minValidatorBond` | **1 000 CMN** (was 0; set at block #750 515) | storage |
 | `staking.minNominatorBond` | **100 CMN** (was 0; set at block #750 515) | storage |
@@ -1077,26 +1129,30 @@ endpoint.
 **1. Validator compensation is exactly zero.** `EraPayout = ()` returns `(0, 0)`. This is
 deliberate — spec 305 removed staking inflation because it minted outside the emissions
 pallet and violated the supply-cap principle. But the consequence, in the runtime's own
-words (`runtime/src/lib.rs:898`):
+words (`runtime/src/lib.rs:943`, written for spec 305, when every seat was operator-run — the
+seat history is in point 3 below):
 
 > Validator compensation is now exactly zero. Era payout is (0, 0) and transaction fees are
 > burned […] while Slash still routes to the treasury and BondingDuration is 28 eras. A
 > third-party validator therefore has **negative expected value**: no revenue, real slash
-> risk, 28-era exit. Acceptable for an operator-run testnet where all five authorities are
-> ours; **NOT acceptable for a public validator set.**
+> risk, 28-era exit. Acceptable for an operator-run testnet where all five authorities are ours [spec 305 — the set was five then];
+> **NOT acceptable for a public validator set.**
 
 **2. ~~`minValidatorBond` and `minNominatorBond` are both 0.~~** Decided (D11): 1 000 CMN
 and 100 CMN.
 
-**3. ~~All five seats are operator-run.~~** Decided (D11): `validatorCount` is 7, so two seats
-are open to outside validators.
+**3. ~~All five seats are operator-run.~~** Decided (D11, 2026-09-24): `validatorCount` was
+raised 5 → 7 at block #750 511, opening seats to outside validators, and 7 → 8 at
+block #1 122 976. All eight seats were filled from staking era 105 (2026-10-21) through
+block #1 157 827; read the current set with `api.query.session.validators()` rather than
+from this page.
 
 Compensation is tracked as [issue #172](https://github.com/tejaspatil1936/scalar-commons-v4/issues/172)
 (`tier:T0` — never worked on autonomously). **Do not bond real effort into a validator on
 this network expecting a return.** Run one to test the software, not to earn.
 :::
 
-### The procedure, for when it opens
+### The procedure
 
 Assuming a synced full node of your own (§6), on the machine running it:
 
@@ -1121,10 +1177,13 @@ await api.tx.staking.validate({ commission: 100_000_000, blocked: false }).signA
 
 `commission` is a `Perbill` — `100_000_000` is 10 %. Then **wait for an election**: intent
 is not membership. The set is chosen by Phragmén at the next staking era boundary, i.e. up
-to **18 hours**, and only if `validatorCount` has room. When this page was written
-`validatorCount` was 5 with five operator nodes bonded, so there was no room. It is now 7 —
-[Run a validator on Scalar](./run-a-validator) ends in an outside validator elected and
-authoring.
+to **18 hours**, and only if `validatorCount` has room. When this page was written (spec 305)
+`validatorCount` was 5 with five operator nodes bonded, so there was no room. It was raised
+to 7 at block #750 511 and to 8 at block #1 122 976; an outside validator was elected for
+staking era 71 at block #764 926, and [Run a validator on Scalar](./run-a-validator) ends in
+an outside validator elected and authoring. All eight seats were filled from staking era 105
+(2026-10-21) through block #1 157 827, so compare `staking.validatorCount` with
+`session.validators` before you bond.
 
 Unbonding afterwards takes `BondingDuration` = 28 eras ≈ **21 days**.
 
@@ -1187,7 +1246,7 @@ Each is filed.
 | 2 | The SDK retries deterministic runtime rejections, paying a fee each time — measured at exactly 4.0 fee-paying submissions for one `MinDeliveryBlocksNotElapsed`, with backoff (6 s) shorter than the guard (60 s) | Spends an agent's money on calls that cannot succeed | [#160](https://github.com/tejaspatil1936/scalar-commons-v4/issues/160) |
 | 3 | One faucet drip (1 100 CMN) clears agent registration (1 050.01 CMN) by **4.5 %**, and the escrow flow needs two registered agents; one ordinary demo transfer strands you behind a 60-minute cooldown | Blocks the flagship flow for a first-time tester | [#162](https://github.com/tejaspatil1936/scalar-commons-v4/issues/162) |
 | 4 | On a near-empty era, one two-account tester captured **81.88 % of the era's 110 000 CMN emission** for 60 CMN of self-directed escrow — the pot is sized by agent count, not work (~917 CMN minted per CMN of work), and the qualification gates concentrate rather than dilute | Testnet balances are not indicative of mainnet economics | [#164](https://github.com/tejaspatil1936/scalar-commons-v4/issues/164) |
-| 5 | Validator compensation is exactly zero (`EraPayout = ()`), `minValidatorBond` and `minNominatorBond` were both 0, and all 5 seats were operator-run. Bonds and seats were decided on 2026-09-24 (D11: 1 000 / 100 CMN, 7 seats); compensation is still zero | Third-party validation has negative expected value today | [#159](https://github.com/tejaspatil1936/scalar-commons-v4/issues/159), [#172](https://github.com/tejaspatil1936/scalar-commons-v4/issues/172) |
+| 5 | Validator compensation is exactly zero (`EraPayout = ()`), `minValidatorBond` and `minNominatorBond` were both 0, and all 5 seats were operator-run. Bonds and seats were decided on 2026-09-24 (D11: 1 000 / 100 CMN, 7 seats; raised to 8 at block #1 122 976); compensation is still zero | Third-party validation has negative expected value today | [#159](https://github.com/tejaspatil1936/scalar-commons-v4/issues/159), [#172](https://github.com/tejaspatil1936/scalar-commons-v4/issues/172) |
 
 And the smaller edges, documented in place above rather than filed:
 

@@ -1,3 +1,7 @@
+---
+description: "This page takes you from an empty Linux machine to a validator in the Scalar Commons testnet's active set, authoring blocks."
+---
+
 # Run a validator on Scalar
 
 This page takes you from an empty Linux machine to a validator in the Scalar Commons testnet's
@@ -32,11 +36,11 @@ finalized blocks **#766 726, #766 737, #766 742 and #766 743** — see [§7](./r
 ## The numbers, read from the live chain
 
 Set on **2026-09-24** by root (decision D11, issue [#159](https://github.com/tejaspatil1936/scalar-commons-v4/issues/159)),
-read back over `wss://rpc.scalarnet.io`:
+read back over `wss://rpc.scalarnet.io`; the validator count has been raised once more since, as its row records:
 
 | | Value | Where |
 |---|---|---|
-| `staking.validatorCount` | **7** — five operator validators, two open seats | storage, set at block #750 511 |
+| `staking.validatorCount` | **8 validators** of **8 seats**, read at block #1 157 827; all seats were filled from staking era 105 (2026-10-21) | storage; raised 5 → 7 at block #750 511 and 7 → 8 at block #1 122 976 by `sudo.sudo(staking.setValidatorCount(8))` |
 | `staking.minValidatorBond` | **1 000 CMN** | storage, set at block #750 515 |
 | `staking.minNominatorBond` | **100 CMN** | storage, set at block #750 515 |
 | `staking.minimumValidatorCount` | 1 | storage |
@@ -48,10 +52,12 @@ read back over `wss://rpc.scalarnet.io`:
 | election | on-chain sequential Phragmén, once per staking era | `ElectionProvider` |
 | each operator validator's bond | 1 000 000 CMN | `staking.ledger` |
 
-The election fills up to `validatorCount` seats from everyone who has declared intent. With
-seven seats and five operator validators, **the first two outside validators with at least
-1 000 CMN bonded are elected** — bond size only matters once there are more candidates than
-seats, and then the operators' 1 000 000 CMN bonds win.
+The election fills up to `validatorCount` seats from everyone who has declared intent. On this
+walkthrough's day (spec 306, after block #750 511) there were seven seats and five operator validators,
+so **the first two outside validators with at least 1 000 CMN bonded were guaranteed a seat** — bond
+size only matters once there are more candidates than seats, and then the operators' 1 000 000 CMN
+bonds win. For today's seat count and who holds the seats, read `staking.validatorCount` and
+`session.validators` over the RPC rather than this page.
 
 **What you need in CMN:** the 1 000 CMN bond, plus the existential deposit (0.01 CMN), plus
 about 0.000108 CMN per transaction for `bond`, `setKeys`, `validate` and later `chill`,
@@ -63,8 +69,8 @@ with about 100 CMN to spare.
 
 ## 1. The machine
 
-Measured on the operator's own validator `alice` (which is also the archive node behind the
-public RPC, so it is the heavy case), and on the outside validator built for this page:
+Measured on the operator's own validator `alice` (which was also the archive node behind the
+public RPC at the time, so it is the heavy case), and on the outside validator built for this page:
 
 | | Measured | Recommendation |
 |---|---|---|
@@ -93,7 +99,8 @@ Every `v*` tag builds `scalar-node` on the pinned toolchain in CI and publishes 
 checksum ([`.github/workflows/release.yml`](https://github.com/tejaspatil1936/scalar-commons-v4/blob/master/.github/workflows/release.yml)).
 The current release is
 **[v0.306.0](https://github.com/tejaspatil1936/scalar-commons-v4/releases/tag/v0.306.0)**,
-for runtime spec 306.
+built for runtime spec 306; the chain now runs **spec 309** (forkless upgrade at block #907 929,
+2026-10-05); no newer client release has been published.
 
 ```bash
 mkdir -p ~/scalar && cd ~/scalar
@@ -358,8 +365,8 @@ is `false`, as it should be: declaring intent does not put you in the set; an el
 ::: tip Why `validate` waited ~3 hours after `setKeys` here
 `validatorCount` was raised at block #750 511. To prove that change did not disturb the
 existing set, this run waited for the next election (era 70, at block #754 120) to return
-exactly the five operator validators, and only then declared intent. An outside operator has
-no reason to wait: bond, set keys and validate back to back.
+exactly the five operator validators that were already in it, and only then declared intent.
+An outside operator has no reason to wait: bond, set keys and validate back to back.
 :::
 
 ## 7. Wait for the election, and prove it
@@ -382,9 +389,9 @@ Watched over the public RPC, from `validate` at #754 123:
 {"at":"2026-09-25T23:22:00Z","result":"AUTHORED","block":766743,"hash":"0x46b58d4e9f33779a1a6e0c94171ab2d8755a00692f790e037fe0e51092e623ef"}
 ```
 
-- **Elected** for era 71 in the election at block #764 926 — six winners for seven seats: the
-  five operator validators and this one. (The exposure reads 999.999999999712 CMN, not 1 000:
-  stake is converted to a `u64` vote weight for the election, and the conversion rounds.)
+- **Elected** for era 71 in the election at block #764 926 — six winners for seven seats, which
+  were the five operator validators and this one. (The exposure reads 999.999999999712 CMN, not
+  1 000: stake is converted to a `u64` vote weight for the election, and the conversion rounds.)
 - **Active** from #766 717, the first block of session 426, era 71.
 - **First authored block #766 726**, nine blocks in. Authorship read independently from each
   block's BABE pre-digest at the finalized hash — `authorityIndex 1` in the session's validator
@@ -433,9 +440,9 @@ lost its keystore, or has keys that do not match `session.nextKeys(stash)`.
 **Runtime upgrades are forkless and need nothing from you.** The runtime is WASM stored on
 chain; a `set_code` upgrade switches every node at the same block, without a restart. Spec 306
 was applied that way at block #543 472 with all five validators running and none restarted
-(`UPGRADE-306.md`). **Node (client) upgrades** — a new `scalar-node` binary — are only needed
-when a release says so; they are published as GitHub Releases with a checksum. Swap the binary,
-`sha256sum -c`, restart.
+(`UPGRADE-306.md`); spec 309 was applied forklessly at block #907 929 (2026-10-05). **Node (client)
+upgrades** — a new `scalar-node` binary — are only needed when a release says so; they are published
+as GitHub Releases with a checksum. Swap the binary, `sha256sum -c`, restart.
 
 ### Leaving
 
@@ -466,8 +473,8 @@ the old chain; your node's database belongs to a chain that no longer exists.
 
 ## Security
 
-- **Never expose RPC.** Not your own port, and never 9944–9948 on a host that also runs the
-  operator's nodes. Unsafe methods (`author_rotateKeys`, `author_insertKey`) on a reachable
+- **Never expose RPC.** Not your own port, and never another node's RPC port on the same
+  host. Unsafe methods (`author_rotateKeys`, `author_insertKey`) on a reachable
   RPC hand your keystore to anyone who can connect. Keep `RPC_METHODS=safe` except for the
   one-off rotation, and never pass `--rpc-external` or `--unsafe-rpc-external`.
 - **File permissions.** `chmod 700` the base path; the network key is created 664 — make it

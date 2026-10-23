@@ -13,7 +13,7 @@
 // reveal is the browser's IntersectionObserver). /pulse is bundled the same
 // way into its own one script, with force-graph and gsap, which no other
 // page loads. The landing page itself still ships no script at all.
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build, transform } from 'esbuild';
@@ -23,6 +23,7 @@ import { renderPage } from '../src/render.mjs';
 import { renderObservatory } from '../src/observatory.mjs';
 import { renderPulse } from '../src/pulse.mjs';
 import { FONTS, observatoryCss } from '../src/observatory-assets.mjs';
+import { chromeCss } from '../src/chrome/assets.mjs';
 
 const here = (relative) => fileURLToPath(new URL(relative, import.meta.url));
 const readJson = (relative) => JSON.parse(readFileSync(here(relative), 'utf8'));
@@ -31,32 +32,39 @@ const facts = readJson('../chain-facts.json');
 
 // renderPage throws on an unresolvable placeholder, so a page that would state a
 // figure the chain never reported fails the build instead of shipping.
-const html = renderPage({ facts, content, sourceClaims });
+const builtAt = new Date().toISOString();
+const html = renderPage({ facts, content, sourceClaims, builtAt });
 
 const outDir = process.env.LANDING_OUT_DIR ?? here('../dist');
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'index.html'), html);
-copyFileSync(here('../src/styles.css'), join(outDir, 'styles.css'));
+// styles.css is the chrome: tokens, chrome and print, minified — the one
+// stylesheet the script-free home page links.
+writeFileSync(join(outDir, 'styles.css'), (await transform(chromeCss(), { loader: 'css', minify: true })).code.trim());
 
 // /observatory: a static frame whose live figures the reader's browser fetches.
 // The two sets of figures it is built with are checked-in records, and both
 // are also copied out so the page can link to the raw file it was built from.
 const history = readJson('../runtime-history.json');
 const posture = readJson('../public/posture.json');
+// The third record: who runs the validators and where, operator-written. It
+// is rendered with the Validators notes and copied out like the other two.
+const status = readJson('../public/status.json');
 // The stylesheet ships minified, inlined in the page for first paint and as a
 // file for reading; the source in src/ stays the readable copy.
-const css = (await transform(observatoryCss(), { loader: 'css', minify: true })).code.trim();
-writeFileSync(join(outDir, 'observatory.html'), renderObservatory({ history, posture, css }));
+const css = (await transform(`${chromeCss()}\n${observatoryCss()}`, { loader: 'css', minify: true })).code.trim();
+writeFileSync(join(outDir, 'observatory.html'), renderObservatory({ history, posture, status, css, facts }));
 writeFileSync(join(outDir, 'observatory.css'), css);
 copyFileSync(here('../runtime-history.json'), join(outDir, 'runtime-history.json'));
 copyFileSync(here('../public/posture.json'), join(outDir, 'posture.json'));
+copyFileSync(here('../public/status.json'), join(outDir, 'status.json'));
 
-// /pulse: the same design system (the observatory's stylesheet, then the
-// page's own), inlined the same way, written out the same way.
+// /pulse: the Nightwatch chrome (tokens, chrome, print), then the page's own
+// rules, inlined the same way, written out the same way.
 const pulseCss = (
-  await transform(`${observatoryCss()}\n${readFileSync(here('../src/pulse.css'), 'utf8')}`, { loader: 'css', minify: true })
+  await transform(`${chromeCss()}\n${readFileSync(here('../src/pulse.css'), 'utf8')}`, { loader: 'css', minify: true })
 ).code.trim();
-writeFileSync(join(outDir, 'pulse.html'), renderPulse({ css: pulseCss }));
+writeFileSync(join(outDir, 'pulse.html'), renderPulse({ css: pulseCss, facts }));
 writeFileSync(join(outDir, 'pulse.css'), pulseCss);
 
 mkdirSync(join(outDir, 'fonts'), { recursive: true });
@@ -97,6 +105,17 @@ const pulseBundle = await build({
 const bundleBytes = Object.values(bundle.metafile.outputs)[0]?.bytes ?? 0;
 const chunkBytes = Object.values(graph.metafile.outputs)[0]?.bytes ?? 0;
 const pulseBytes = Object.values(pulseBundle.metafile.outputs)[0]?.bytes ?? 0;
+
+// Pages built by their own modules: every scripts/pages/*.mjs exports a default
+// async function ({ outDir, here, readJson, facts, chromeCss, transform, build })
+// and emits its files into outDir. A page owns its module; nothing else in this
+// script changes when a page is added.
+const chrome = await transform(chromeCss(), { loader: 'css', minify: true });
+const pagesDir = here('./pages/');
+for (const name of readdirSync(pagesDir).filter((n) => n.endsWith('.mjs')).sort()) {
+  const page = await import(new URL(name, `file://${pagesDir}`).href);
+  await page.default({ outDir, here, readJson, facts, chromeCss: chrome.code.trim(), transform, build, common });
+}
 
 console.log(
   `built ${outDir}/index.html (${(html.length / 1024).toFixed(1)} kB) from ${facts.provenance.specName} spec ` +

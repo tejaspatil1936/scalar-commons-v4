@@ -1,0 +1,265 @@
+/*
+ * The Ledger — the docs' own rules. Black ink on paper: everything here is
+ * drawn from tokens.css; no colour, face or size is written that is not a
+ * token, and state is carried by rule, outline and the word, never by hue.
+ * chrome.css draws the components (the bar, the Reading, the tag, the footer);
+ * this file lays out the home, the three article columns, the prose VitePress
+ * renders (headings, lists, tables as ledger rows, custom blocks as bands,
+ * code on paper-2) and the local search sheet, which is restyled through the
+ * variables it reads.
+ */
+
+/* ── ground ───────────────────────────────────────────────────────────────── */
+body { background: var(--paper); color: var(--ink); font: var(--body); overflow-x: hidden; }
+.nw-main { min-height: calc(100vh - var(--bar)); }
+/* The 404 on the page's 12 columns (the chrome's landing 404 is a centred 640 px
+   block; the docs one starts on column line 1 like every other docs page):
+   the figure and sentence in 1–8, the three Readings in 1–6. */
+.nw-frame.nw-notfound {
+  max-width: calc(var(--content) + 2 * var(--gutter)); margin-top: 0; padding-block: var(--s-10) 0;
+  display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gutter); row-gap: var(--s-5);
+}
+.nw-notfound > * { grid-column: 1 / span 8; min-width: 0; }
+.nw-notfound > .nw-notfound-readings { grid-column: 1 / span 6; display: grid; row-gap: var(--s-6); margin-top: var(--s-7); }
+.nw-notfound .nw-figure--body { overflow-wrap: anywhere; }
+/* A dim figure (the 404, the watch-log's numbers) prints in ink-2, as a record does. */
+.nw-figure.nw-dim { color: var(--ink-2); }
+.nw-figure-link, .nw-figure-button { display: inline; padding: 0; border: 0; background: none; cursor: pointer; text-align: left; }
+.nw-figure-link .nw-figure, .nw-figure-button .nw-figure { text-decoration: underline dotted var(--rule-2); text-underline-offset: 4px; transition: color var(--t-ui) var(--ease-ui); }
+.nw-figure-link:hover .nw-figure, .nw-figure-button:hover .nw-figure { color: var(--ink); text-decoration: underline solid var(--ink); }
+
+/* ── home: on the 12 columns ──────────────────────────────────────────────────
+   head 1–8 · the three Readings 1–4, 5–8, 9–12 · the watch-log's number in 1 and
+   its group in 2–8 · index.md's prose 1–7. Sections are --s-10 apart; a
+   section's label and its first row --s-6. */
+.nw-home {
+  padding-top: var(--s-9);
+  display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gutter); align-content: start;
+}
+.nw-home > * { grid-column: 1 / -1; min-width: 0; }
+.nw-home > .nw-home-head { grid-column: 1 / span 8; display: grid; gap: var(--s-5); }
+.nw-home-head .nw-eyebrow { margin-bottom: 0; }
+.nw-search-field {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--s-4);
+  text-align: left; cursor: text; margin-top: var(--s-5);
+}
+.nw-search-placeholder { color: var(--ink-3); }
+.nw-home-readings { margin-top: var(--s-9); }
+.nw-watchlog { margin-top: var(--s-10); }
+.nw-watchlog > .nw-label { display: block; margin-bottom: var(--s-6); }
+.nw-watchlog-groups { display: grid; gap: 0; }
+/* The watch-log is a ledger: a 1 px rule between the groups, never a box. */
+.nw-watchlog-group { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gutter); align-items: baseline; padding-block: var(--s-6); border-top: 1px solid var(--rule); }
+.nw-watchlog-group:last-child { border-bottom: 1px solid var(--rule); }
+.nw-watchlog-group > .nw-figure { grid-column: 1; }
+.nw-watchlog-body { grid-column: 2 / span 7; min-width: 0; }
+/* group name · leader · page count on one line: a ledger row, not the Reading's label-above form */
+.nw-watchlog-body .nw-reading-line { display: flex; align-items: baseline; }
+.nw-watchlog-body .nw-leader { flex: 1; align-self: center; }
+.nw-watchlog-pages { margin-top: var(--s-5); display: grid; gap: var(--s-3); }
+.nw-home > .nw-home-prose { grid-column: 1 / span 7; margin-top: var(--s-10); }
+
+/* ── article on the 12 columns: index 1–3 · reading column 4–9 · margin 10–12 ── */
+.nw-article {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--gutter);
+  padding-block: var(--s-7) 0;
+}
+/* Round 3: the 20 px body keeps its 60ch measure, so the reading column takes
+   seven columns (about 690 px) and the index gives up one; the margin keeps three. */
+.nw-index { grid-column: 1 / span 2; }
+.nw-onpage-sheet { grid-column: 1 / -1; }
+.nw-reading-col { grid-column: 3 / span 7; }
+.nw-margin { grid-column: 10 / span 3; }
+.nw-index { position: sticky; top: calc(var(--bar) + var(--s-5)); align-self: start; max-height: calc(100vh - var(--bar) - var(--s-7)); overflow-y: auto; padding-right: var(--s-3); }
+.nw-index-group + .nw-index-group, .nw-onpage { margin-top: var(--s-6); }
+.nw-index-group > .nw-label, .nw-onpage > .nw-label { display: block; margin-bottom: var(--s-3); }
+.nw-index li { position: relative; }
+.nw-index a { display: flex; align-items: center; min-height: var(--s-6); padding: 0 0 0 var(--s-3); color: var(--ink-2); transition: color var(--t-ui) var(--ease-ui); }
+.nw-index a:hover { color: var(--ink); }
+.nw-index a[aria-current="page"] { color: var(--ink); }
+.nw-index a[aria-current="page"]::before {
+  content: ""; position: absolute; left: 0; top: var(--s-2); bottom: var(--s-2); width: 2px;
+  background: var(--ink); box-shadow: none;
+}
+.nw-onpage li.is-h3 a { padding-left: var(--s-5); }
+.nw-onpage-sheet { display: none; }
+.nw-reading-col { min-width: 0; }
+.nw-crumb { display: block; margin-bottom: var(--s-5); }
+.nw-article-title { margin-bottom: var(--s-5); }
+.nw-receipt-strip { display: block; padding: var(--s-3) var(--s-4); background: var(--paper-2); border-radius: var(--radius); color: var(--ink-2); margin-bottom: var(--s-7); }
+.nw-standfirst { color: var(--ink-2); margin-bottom: var(--s-5); }
+.nw-margin { min-width: 0; }
+.nw-receipt-strip { overflow-wrap: anywhere; }
+
+/* the receipts footer (a ledger of file:line rows under a rule) and prev/next */
+.nw-receipts-foot { margin-top: var(--s-9); padding-top: var(--s-5); border-top: 1px solid var(--rule); }
+.nw-receipts-foot > .nw-label { display: block; margin-bottom: var(--s-4); }
+.nw-receipt-rows { display: grid; gap: 0; margin-bottom: var(--s-4); }
+.nw-receipt-rows .nw-reading-line { display: flex; align-items: baseline; min-height: var(--s-7); padding-block: var(--s-3); border-top: 1px solid var(--rule); }
+.nw-receipt-rows .nw-reading-line:last-child { border-bottom: 1px solid var(--rule); }
+.nw-receipt-rows .nw-leader { flex: 1; align-self: center; }
+.nw-receipt-rows .nw-small { flex: none; max-width: 60%; }
+.nw-receipt-rows a { text-decoration: underline dotted var(--rule-2); text-underline-offset: 4px; }
+.nw-prevnext { display: flex; justify-content: space-between; gap: var(--s-5); margin-top: var(--s-7); }
+
+/* ── prose VitePress renders ─────────────────────────────────────────────── */
+.nw-prose { font: var(--body); }
+/* <Content /> renders two wrapper divs (the content slot, the page's root); the
+   measure applies to the blocks inside them, so the wrappers keep the reading
+   column's full six columns (the margin notes are sized from it). */
+.nw-prose > div, .nw-prose > div > div { max-width: none; }
+.nw-prose > div > div > * { max-width: min(60ch, 100%); }
+.nw-article-body h1:first-of-type { display: none; }
+.nw-prose h1 { font: var(--h2); letter-spacing: -0.01em; margin-top: var(--s-8); }
+.nw-prose h2 { font: var(--h3); margin-top: var(--s-8); }
+.nw-prose h3 { font: var(--h3); margin-top: var(--s-7); }
+.nw-prose h4, .nw-prose h5, .nw-prose h6 { font: var(--small); text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-2); margin-top: var(--s-6); }
+.nw-prose h2 + *, .nw-prose h3 + *, .nw-prose h4 + * { margin-top: var(--s-4); }
+.nw-prose p, .nw-prose ul, .nw-prose ol, .nw-prose table, .nw-prose blockquote, .nw-prose [class*="language-"], .nw-prose .custom-block, .nw-prose details { margin-top: var(--s-4); }
+.nw-prose ul { list-style: disc; padding-left: var(--s-5); }
+.nw-prose ol { list-style: decimal; padding-left: var(--s-5); }
+.nw-prose li + li { margin-top: var(--s-2); }
+.nw-prose li > ul, .nw-prose li > ol { margin-top: var(--s-2); }
+.nw-prose a { color: var(--ink); text-decoration: underline dotted var(--rule-2); text-underline-offset: 4px; transition: color var(--t-ui) var(--ease-ui), text-decoration-color var(--t-ui) var(--ease-ui); }
+.nw-prose a:hover { color: var(--ink); text-decoration: underline solid var(--ink); }
+.nw-prose strong { font-weight: 600; }
+.nw-prose em { font-style: normal; font-weight: 500; }
+.nw-prose blockquote { padding-left: var(--s-5); color: var(--ink-2); box-shadow: inset 2px 0 0 var(--rule-2); }
+.nw-prose hr { border: 0; border-top: 1px solid var(--rule); height: 0; margin-top: var(--s-7); }
+.nw-prose img { border-radius: var(--radius); }
+.nw-prose .header-anchor { position: absolute; width: 1px; height: calc(var(--s-1) / 4); overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.nw-prose h1, .nw-prose h2, .nw-prose h3, .nw-prose h4 { position: relative; }
+
+/* inline code */
+.nw-prose :not(pre) > code { padding: calc(var(--s-1) / 2) calc(var(--s-1) + (var(--s-1) / 2)); background: var(--paper-2); border-radius: var(--radius); color: var(--ink); overflow-wrap: anywhere; }
+.nw-prose a > code { text-decoration: inherit; }
+
+/* tables: a ledger — mono rows, a 1 px rule between, the head in --label ink-3, hover paper-2 */
+.nw-prose table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font: var(--mono); }
+.nw-prose th, .nw-prose td { padding: var(--s-3) var(--s-4); text-align: left; vertical-align: top; }
+.nw-prose th { font: var(--label); text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-3); white-space: nowrap; }
+.nw-prose tbody tr { border-top: 1px solid var(--rule); transition: background var(--t-ui) var(--ease-ui); }
+.nw-prose tbody tr:last-child { border-bottom: 1px solid var(--rule); }
+.nw-prose tbody tr:hover { background: var(--paper-2); }
+.nw-prose td code { background: var(--paper-2); }
+
+/* VitePress custom blocks (tip, warning, info, danger, details) as Bands on paper-2;
+   a warning or danger carries a 2 px ink rule at the left and its word, never a colour */
+.nw-prose .custom-block { background: var(--paper-2); padding: var(--s-4) var(--s-5); font: var(--small); color: var(--ink); border-radius: var(--radius); border: 0; }
+.nw-prose .custom-block.warning, .nw-prose .custom-block.danger { box-shadow: inset 2px 0 0 var(--ink); }
+.nw-prose .custom-block.tip { box-shadow: inset 2px 0 0 var(--ink-3); }
+.nw-prose .custom-block .custom-block-title { font: var(--label); text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-2); margin-bottom: var(--s-2); }
+.nw-prose .custom-block p { font: var(--small); max-width: none; }
+.nw-prose .custom-block p + p { margin-top: var(--s-2); }
+.nw-prose details.custom-block summary { cursor: pointer; font: var(--label); text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-2); }
+
+/* margin notes: in the margin (columns 10–12) above 1200 px, inline beneath. The
+   reading column is six columns, so the margin's three are (100% - gutter) / 2
+   of it, and the note floats one gutter past the column's right edge. */
+/* The note sits in the margin's three columns beside a seven-column reading
+   column: one column plus a gutter is (100% + gutter) / 7 of the reading width. */
+.nw-article-body .nw-note {
+  float: right; clear: right; width: calc((100% + var(--gutter)) * 3 / 7 - var(--gutter));
+  margin: 0 calc(-1 * (100% + var(--gutter)) * 3 / 7) var(--s-5) var(--s-5);
+}
+.nw-article-body .nw-note p { font: var(--small); margin-top: 0; max-width: none; }
+.nw-article-body .nw-note p + p { margin-top: var(--s-2); }
+
+/* code blocks: the chrome's nw-code — paper-2, a 2 px rule at the left, 24 px, mono, Copy top-right, no line numbers */
+.nw-prose [class*="language-"] {
+  position: relative; padding: var(--s-5); background: var(--paper-2); border-radius: var(--radius);
+  border-left: 2px solid var(--rule); overflow-x: auto; max-width: none;
+}
+.nw-prose [class*="language-"] pre { margin: 0; white-space: pre; background: none; overflow: visible; }
+.nw-prose [class*="language-"] code { font: var(--mono); color: var(--ink); background: none; padding: 0; display: block; width: fit-content; min-width: 100%; }
+/* Shiki's spans carry token variables only (theme/code-theme.ts): keywords are
+   ink at weight 500 — the one mark code gets — comments and strings ink-2. */
+.nw-prose [class*="language-"] { --nw-code-keyword: var(--ink); }
+.nw-prose [class*="language-"] span[style*="--nw-code-keyword"] { font-weight: 500; }
+.nw-prose [class*="language-"] .line { display: inline; }
+.nw-prose [class*="language-"] .lang, .nw-prose .line-numbers-wrapper { display: none; }
+.nw-prose [class*="language-"] .copy {
+  position: absolute; top: var(--s-3); right: var(--s-3); padding: var(--s-1) var(--s-2); border: 0; border-radius: var(--radius);
+  background: var(--paper-3); color: var(--ink-2); cursor: pointer;
+  font: var(--label); text-transform: uppercase; letter-spacing: 0.12em;
+  opacity: 0; transition: opacity var(--t-ui) var(--ease-ui);
+}
+.nw-prose [class*="language-"]:hover .copy, .nw-prose [class*="language-"] .copy:focus-visible { opacity: 1; }
+.nw-prose [class*="language-"] .copy::before { content: "Copy"; }
+.nw-prose [class*="language-"] .copy.copied { opacity: 1; color: var(--ink); }
+.nw-prose [class*="language-"] .copy.copied::before { content: "Copied"; }
+.nw-prose .vp-code-group .tabs { display: flex; gap: var(--s-4); font: var(--label); text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-2); }
+.nw-prose .vp-code-group .tabs label { cursor: pointer; }
+.nw-prose .vp-code-group input { position: absolute; opacity: 0; pointer-events: none; }
+.nw-prose .vp-code-group input:checked + label { color: var(--ink); text-decoration: underline solid var(--ink); text-underline-offset: 4px; }
+.nw-prose .vp-code-group .blocks > div { display: none; }
+.nw-prose .vp-code-group .blocks > div.active { display: block; }
+
+/* ── the local search sheet (VitePress VPLocalSearchBox), in tokens ───────── */
+/* Every variable the sheet reads is a token: the chrome palette's look — a
+   paper sheet under a 2 px ink rule, a paper-3 field with a rule-2 bottom
+   rule, results as rows with a 1 px rule between, the selected row paper-3. */
+:root {
+  --vp-local-search-bg: var(--paper);
+  --vp-local-search-result-bg: var(--paper);
+  --vp-local-search-result-border: var(--rule);
+  --vp-local-search-result-selected-bg: var(--paper-3);
+  --vp-local-search-result-selected-border: var(--rule-2);
+  --vp-local-search-highlight-bg: var(--paper-3);
+  --vp-local-search-highlight-text: var(--ink);
+  --vp-c-divider: var(--rule);
+  --vp-c-brand-1: var(--ink);
+  --vp-backdrop-bg-color: color-mix(in srgb, var(--paper) 85%, transparent);
+  --vp-z-index-local-search: 40;
+}
+.VPLocalSearchBox .shell { border: 0; border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); border-radius: 0; box-shadow: none; }
+.VPLocalSearchBox .search-bar { border: 0; border-bottom: 1px solid var(--rule-2); border-radius: 0; background: var(--paper-3); height: var(--s-7); padding: 0 var(--s-4); }
+.VPLocalSearchBox .search-bar:focus-within { border-bottom: 2px solid var(--ink); }
+.VPLocalSearchBox .search-input { font: var(--mono); color: var(--ink); caret-color: var(--ink); }
+.VPLocalSearchBox .search-input::placeholder { color: var(--ink-3); }
+.VPLocalSearchBox .local-search-icon, .VPLocalSearchBox .navigate-icon, .VPLocalSearchBox .excerpt-gradient-top, .VPLocalSearchBox .excerpt-gradient-bottom { display: none; }
+.VPLocalSearchBox .search-actions button { color: var(--ink-2); }
+.VPLocalSearchBox .result { border: 0; border-top: 1px solid var(--rule); border-radius: 0; }
+.VPLocalSearchBox .result .title { font: var(--small); color: var(--ink); }
+.VPLocalSearchBox .result .titles { font: var(--label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
+.VPLocalSearchBox .result .excerpt { font: var(--small); color: var(--ink-2); }
+.VPLocalSearchBox .search-keyboard-shortcuts, .VPLocalSearchBox .no-results { font: var(--label); text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-2); }
+.VPLocalSearchBox kbd { font: var(--mono); color: var(--ink-2); border: 0; background: var(--paper-2); border-radius: var(--radius); box-shadow: none; }
+.VPLocalSearchBox kbd:has(.navigate-icon), .VPLocalSearchBox .title-icon { display: none; }
+.VPLocalSearchBox mark { background: var(--paper-3); color: var(--ink); font-weight: 600; }
+
+/* ── responsive ───────────────────────────────────────────────────────────── */
+@media (max-width: 1200px) {
+  .nw-index { display: none; }
+  .nw-margin { display: none; }
+  .nw-reading-col { grid-column: 1 / span 8; }
+  .nw-article-body .nw-note { float: none; width: auto; margin: var(--s-5) 0; }
+  .nw-onpage-sheet {
+    display: block; position: sticky; top: var(--bar); z-index: 20;
+    margin: 0 calc(-1 * var(--gutter)) var(--s-5); padding: var(--s-3) var(--gutter);
+    background: var(--paper-2);
+  }
+  .nw-onpage-sheet summary { cursor: pointer; list-style: none; }
+  .nw-onpage-sheet summary::-webkit-details-marker { display: none; }
+  .nw-onpage-sheet ul { padding-top: var(--s-3); max-height: 50vh; overflow-y: auto; }
+  .nw-onpage-sheet a { display: block; padding: calc(var(--s-1) + (var(--s-1) / 2)) 0; color: var(--ink-2); }
+  .nw-onpage-sheet li.is-h3 a { padding-left: var(--s-4); }
+}
+@media (max-width: 1024px) {
+  .nw-reading-col { grid-column: 1 / -1; }
+  .nw-home > .nw-home-head, .nw-home > .nw-home-prose { grid-column: 1 / span 10; }
+  .nw-watchlog-body { grid-column: 2 / -1; }
+}
+/* 480 px and under: one column, the chrome's 20 px gutters, sections --s-9 apart. */
+@media (max-width: 480px) {
+  .nw-home, .nw-article, .nw-frame.nw-notfound { grid-template-columns: minmax(0, 1fr); }
+  .nw-home > *, .nw-home > .nw-home-head, .nw-home > .nw-home-prose, .nw-reading-col, .nw-notfound > *, .nw-notfound > .nw-notfound-readings { grid-column: 1 / -1; }
+  .nw-home { padding-top: var(--s-7); }
+  .nw-home-readings { margin-top: var(--s-8); }
+  .nw-watchlog, .nw-home > .nw-home-prose { margin-top: var(--s-9); }
+  .nw-watchlog-group { grid-template-columns: minmax(0, 1fr); row-gap: var(--s-3); }
+  .nw-watchlog-group > .nw-figure, .nw-watchlog-body { grid-column: 1 / -1; }
+  .nw-prose th, .nw-prose td { padding: var(--s-2) var(--s-3); }
+}

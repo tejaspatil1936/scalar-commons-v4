@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { renderHarness } from '../src/observatory.mjs';
 import { FONTS, observatoryCss } from '../src/observatory-assets.mjs';
+import { chromeCss } from '../src/chrome/assets.mjs';
 
 const here = (relative) => fileURLToPath(new URL(relative, import.meta.url));
 const readJson = (relative) => JSON.parse(readFileSync(here(relative), 'utf8'));
@@ -51,8 +52,9 @@ const port = Number(flag('--port', 8770));
 mkdirSync(join(outDir, 'fonts'), { recursive: true });
 const history = readJson('../runtime-history.json');
 const posture = readJson('../public/posture.json');
-const css = observatoryCss();
-writeFileSync(join(outDir, 'index.html'), renderHarness(name, { history, posture, css }));
+const status = readJson('../public/status.json');
+const css = `${chromeCss()}\n${observatoryCss()}`;
+writeFileSync(join(outDir, 'index.html'), renderHarness(name, { history, posture, status, css }));
 writeFileSync(join(outDir, 'observatory.css'), css);
 for (const [source, file] of FONTS) copyFileSync(here(`../node_modules/${source}`), join(outDir, 'fonts', file));
 

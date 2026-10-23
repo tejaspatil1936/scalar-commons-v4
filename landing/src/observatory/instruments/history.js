@@ -434,6 +434,41 @@ function label(x, y, content, anchor = 'start', className = 'plot-label') {
 
 const fix = (n) => Number(n.toFixed(2));
 
+/**
+ * The Curve's three values at the left (round 2 §1.2): the top of the y
+ * scale, its half and zero, in --label, each on its own gridline height.
+ */
+function curveValues(svg, frame, y, format, { values = null } = {}) {
+  const [, top] = y.domain();
+  for (const v of values ?? [top, top / 2, 0]) {
+    svg.append(label(frame.left + 2, fix(Math.min(frame.bottom - 2, Math.max(frame.top + 8, y(v) + 3))), format(v), 'start', 'plot-label plot-value'));
+  }
+}
+
+/** The Curve's table fallback: one row per point, visually hidden, named by the plot's summary. */
+export function curveTable(rows, summary) {
+  // The hidden box is a div: a table grows to its content whatever its width says, so it is clipped inside one.
+  const box = document.createElement('div');
+  box.className = 'curve-table nw-visually-hidden';
+  const table = document.createElement('table');
+  const caption = document.createElement('caption');
+  caption.textContent = summary;
+  table.append(caption);
+  const body = document.createElement('tbody');
+  for (const cells of rows) {
+    const tr = document.createElement('tr');
+    for (const cell of cells) {
+      const td = document.createElement('td');
+      td.textContent = cell;
+      tr.append(td);
+    }
+    body.append(tr);
+  }
+  table.append(body);
+  box.append(table);
+  return box;
+}
+
 /** One strip: its plot box, its reading, and the state needed to redraw it. */
 class Strip {
   constructor(root, ctx, key) {
@@ -488,10 +523,13 @@ class Strip {
     defs.append(clip);
     svg.append(defs);
     const group = el('g', { 'clip-path': `url(#${clipId})` });
-    const summary = build(frame, svg, group) ?? '';
+    const built = build(frame, svg, group) ?? '';
+    // A Curve says its points twice: as the picture, and as a table for anyone who cannot see it.
+    const summary = typeof built === 'string' ? built : built.summary;
     svg.append(group);
     svg.setAttribute('aria-label', summary);
     this.plot.replaceChildren(svg);
+    if (typeof built !== 'string' && built.rows?.length) this.plot.append(curveTable(built.rows, summary));
 
     this.cancel();
     if (!animate || this.revealed) return;
@@ -603,13 +641,16 @@ export function init(root, ctx) {
         g.append(el('line', { x1: frame.left, x2: frame.right, y1: bandTop, y2: bandTop }, 'plot-axis plot-band-edge'));
         g.append(el('line', { x1: frame.left, x2: frame.right, y1: bandBottom, y2: bandBottom }, 'plot-axis plot-band-edge'));
         g.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-zero'));
+        g.append(el('path', { d: intervalArea(x, y, frame.bottom)(series.points) ?? '' }, 'plot-area'));
         g.append(el('path', { d: intervalLine(x, y)(series.points) ?? '' }, 'plot-line'));
+        // The target band's own label is the middle value here, so the left edge carries the top and zero.
+        curveValues(svg, frame, y, (v) => `${s(v)} s`, { values: [y.domain()[1], 0] });
         const last = measured[measured.length - 1];
-        g.append(el('circle', { cx: fix(x(last.number)), cy: fix(y(last.seconds)), r: 2.5 }, 'plot-dot'));
+        g.append(el('circle', { cx: fix(x(last.number)), cy: fix(y(last.seconds)), r: 3 }, 'plot-dot'));
         svg.append(label(frame.left + 3, bandTop - 4, `${low}–${high} s target`, 'start', 'plot-label plot-note'));
         svg.append(label(frame.left, frame.height - 3, `#${formatInteger(series.first)}`));
         svg.append(label(frame.right, frame.height - 3, `#${formatInteger(series.last)}`, 'end'));
-        return summary;
+        return { summary, rows: measured.map((p) => [`block ${formatInteger(p.number)}`, `${s(p.seconds)} s`]) };
       });
     });
   }
@@ -683,7 +724,7 @@ export function init(root, ctx) {
           leftLabel: `era ${formatInteger(firstEra)}`,
           rightLabel: open ? `era ${formatInteger(open.era)}, open` : `era ${formatInteger(lastSettled.era)}`,
         });
-        return summary;
+        return { summary, rows: bars.map((b, i) => [`era ${formatInteger(b.era)}${b.open ? ', open' : ''}`, formatInteger(b.count), `running total ${formatInteger(totals[i])}`]) };
       });
     });
   }
@@ -766,18 +807,25 @@ export function init(root, ctx) {
         g.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-zero'));
         g.append(el('path', { d: perEra(series) ?? '' }, 'plot-line plot-line-secondary'));
         g.append(el('path', { d: total(series) ?? '' }, 'plot-line'));
-        g.append(el('circle', { cx: fix(x(last.era)), cy: fix(y(totalCmn)), r: 2.5 }, 'plot-dot'));
+        g.append(el('circle', { cx: fix(x(last.era)), cy: fix(y(totalCmn)), r: 3 }, 'plot-dot'));
+        curveValues(svg, frame, y, (v) => formatInteger(Math.round(v)));
         svg.append(label(frame.left, frame.height - 3, `era ${formatInteger(series[0].era)}`));
         svg.append(label(frame.right, frame.height - 3, `era ${formatInteger(last.era)}`, 'end'));
         svg.append(
-          label(frame.left + 3, frame.top + 8, allZero ? 'nothing issued to agents yet' : 'running total · per era beneath', 'start', 'plot-label plot-note'),
+          // One line below the top value at the left, so the two never print over each other.
+          label(frame.left + 3, frame.top + 24, allZero ? 'nothing issued to agents yet' : 'running total · per era beneath', 'start', 'plot-label plot-note'),
         );
-        return summary;
+        return { summary, rows: series.map((e, i) => [`era ${formatInteger(e.era)}`, `${formatCmn(e.plancks)} CMN`, `running total ${formatCmn(totals[i])} CMN`]) };
       });
     });
   }
 
-  /** Bars on a band scale with the running total as a line over them, on the same scale. */
+  /**
+   * The running total as a Curve (round 2 §1.2): a 1.5 px ink line over a
+   * flat 8 % ink pool, a tick on the baseline per era, the three values at
+   * the left and the 6 px end dot; the open era's total is provisional, so
+   * its stretch is dashed. The per-era counts are the table's.
+   */
   function drawBarsWithTotal(frame, svg, g, entries, totals, { value, isLast, leftLabel, rightLabel }) {
     const x = scaleBand()
       .domain(entries.map((_, i) => i))
@@ -785,24 +833,18 @@ export function init(root, ctx) {
       .paddingInner(0.3)
       .paddingOuter(0.05);
     const y = scaleLinear().domain([0, yCeiling([...entries.map(value), ...totals])]).range([frame.bottom, frame.top]);
-    entries.forEach((entry, i) => {
-      const v = value(entry);
-      let height = Math.max(0, frame.bottom - y(v));
-      // The open era's outline is always drawn, so "in progress" has a mark as well as a label.
-      if (entry.open) height = openBarHeight(height);
-      const classes = ['plot-bar', isLast(entry) ? 'is-last' : '', entry.open ? 'is-open' : ''].filter(Boolean).join(' ');
-      g.append(
-        el(
-          'rect',
-          { x: fix(x(i)), y: fix(frame.bottom - height), width: fix(x.bandwidth()), height: fix(height) },
-          classes,
-        ),
-      );
-      const cx = fix(x(i) + x.bandwidth() / 2);
-      svg.append(el('line', { x1: cx, x2: cx, y1: frame.bottom, y2: frame.bottom + 3 }, 'plot-axis plot-tick'));
-    });
     const centre = (i) => x(i) + x.bandwidth() / 2;
+    entries.forEach((entry, i) => {
+      const cx = fix(centre(i));
+      svg.append(el('line', { x1: cx, x2: cx, y1: frame.bottom, y2: frame.bottom + 3 }, `plot-axis plot-tick${isLast(entry) ? ' is-last' : ''}`));
+    });
     const settledCount = entries.filter((e) => !e.open).length;
+    const pool = area()
+      .x((_, i) => centre(i))
+      .y0(frame.bottom)
+      .y1((t) => y(t))
+      .curve(curveLinear);
+    g.append(el('path', { d: pool(totals.slice(0, settledCount)) ?? '' }, 'plot-area'));
     const total = line()
       .x((_, i) => centre(i))
       .y((t) => y(t))
@@ -818,12 +860,12 @@ export function init(root, ctx) {
     }
     if (settledCount > 0) {
       const lastIndex = settledCount - 1;
-      g.append(el('circle', { cx: fix(centre(lastIndex)), cy: fix(y(totals[lastIndex])), r: 2.5 }, 'plot-dot'));
+      g.append(el('circle', { cx: fix(centre(lastIndex)), cy: fix(y(totals[lastIndex])), r: 3 }, 'plot-dot'));
     }
     svg.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-zero'));
+    curveValues(svg, frame, y, (v) => (Number.isInteger(v) ? formatInteger(v) : v.toFixed(1)));
     svg.append(label(frame.left, frame.height - 3, leftLabel));
     svg.append(label(frame.right, frame.height - 3, rightLabel, 'end'));
-    svg.append(label(frame.left + 3, frame.top + 8, 'running total · per era as bars', 'start', 'plot-label plot-note'));
   }
 
   // ── 4 · agents over time ──
@@ -897,9 +939,10 @@ export function init(root, ctx) {
           g.append(el('line', { x1: frame.left, x2: frame.right, y1: frame.bottom, y2: frame.bottom }, 'plot-zero'));
           g.append(el('path', { d: step(points) }, 'plot-line'));
           const end = points[points.length - 1];
-          g.append(el('circle', { cx: fix(x(end.block)), cy: fix(y(end.count)), r: 2.5 }, 'plot-dot'));
+          g.append(el('circle', { cx: fix(x(end.block)), cy: fix(y(end.count)), r: 3 }, 'plot-dot'));
           svg.append(label(frame.left, frame.height - 3, left));
           svg.append(label(frame.right, frame.height - 3, series.end === null ? `#${formatInteger(lastBlock)}` : 'now', 'end'));
+          curveValues(svg, frame, y, (v) => formatInteger(Math.round(v)));
           // The note goes where the step line is not: the highest count under
           // the note's extent decides whether it sits at the top or the bottom.
           const noteRight = frame.left + 3 + note.length * NOTE_CHAR_PX;
@@ -908,7 +951,7 @@ export function init(root, ctx) {
           const bottomAtLeft = under.length ? y(min(under, (p) => p.count)) : NaN;
           const at = notePosition(frame, topAtLeft, bottomAtLeft);
           svg.append(label(at.x, at.y, note, 'start', 'plot-label plot-note'));
-          return summary;
+          return { summary, rows: points.map((p) => [`block ${formatInteger(p.block)}`, `${formatInteger(p.count)} agents`]) };
         });
       },
       { provenance: agents },

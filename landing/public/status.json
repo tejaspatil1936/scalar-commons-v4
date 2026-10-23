@@ -1,0 +1,13 @@
+{
+  "note": "Operator-written status that cannot be read from the chain: who runs the validators, and where. Shown on /observatory in the Validators section's notes, labelled a record, and quoted in docs/guide/run-a-node.md through the docs lint, so it is written here once and nowhere else. Like posture.json, each value names the document in this repository it was taken from (`source`) and the date it was true (`asOf`). No count that the chain can report is written here: the size of the active set is `session.validators` and the seat count is `staking.validatorCount`, both read live on the Observatory and pinned from the snapshot in the docs. `names` lists every host or operator the value names, so a test can hold the pages to printing no other.",
+  "updated": "2026-10-23",
+  "fields": {
+    "hosts": {
+      "value": "Five validators run on the operator's host; one is run independently by Bourn on his own server; two are operator-run on separate hosts (Ron and JC). That is four fault domains, not one per validator.",
+      "asOf": "2026-10-23",
+      "source": "deploy/README.md, 'The validator set today', written by the operators on 2026-10-23. The seat count's history is on chain and is not repeated here: sudo.sudo(staking.setValidatorCount) at block #1 122 976 raised it from seven to eight, and the set of eight has been active since staking era 105 (2026-10-21).",
+      "names": ["Bourn", "Ron", "JC"],
+      "todo": "recorded. TODO(owner): when a validator moves host or changes hands, change this value and its asOf the same day; the Observatory and the docs both print this line."
+    }
+  }
+}

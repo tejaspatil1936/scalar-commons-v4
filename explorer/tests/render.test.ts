@@ -193,8 +193,9 @@ describe('renderAccount', () => {
 
   it('shows the address and its balances in CMN', () => {
     expect(html).toContain(ALICE);
-    expect(html).toContain('1,000,050,000 CMN');
-    expect(html).toContain('10,000 CMN');
+    // The figure carries the number; the symbol is the Reading's unit, at --label size.
+    expect(html).toContain('1,000,050,000<span class="nw-unit">CMN</span>');
+    expect(html).toContain('10,000<span class="nw-unit">CMN</span>');
   });
 
   it('says which block the state was read at, so a balance is never undated', () => {

@@ -1,3 +1,11 @@
+---
+description: "This page covers the unit, the supply cap, the emission schedule, and — the part that actually matters — how the weight formula pays for verifiable work rather than for holding tokens."
+receipts:
+  - claim: 'pallet-orchestrator::claim_orchestrator'
+    file: pallets/orchestrator/src/lib.rs
+    line: 642
+---
+
 # Token model
 
 CMN is the native token of Scalar Commons. This page covers the unit, the supply cap, the
@@ -80,22 +88,23 @@ The cap is an absolute invariant, not a target. Three things enforce it:
 
    **Two consequences of that history survive the fix, and both are real balances, not
    accounting notes.** The **44 511 778 CMN already minted** is in the treasury and stays
-   there; zeroing future payouts does not unmint it. And **`ErasValidatorReward` holds 48
-   entries summing 14 935 812.93 CMN** that are *booked but not yet minted* — no validator
-   has ever called `payout_stakers`, `ClaimedRewards` holds zero keys, and that call is
-   permissionless, so **a caller can still mint up to ~14.9 M CMN in aggregate**. Spec 305
-   stops new bookings; it cannot and does not cancel the ones already made.
+   there; zeroing future payouts does not unmint it. And **`ErasValidatorReward` held 48
+   entries summing 14 935 812.93 CMN** that were *booked but not yet minted* — no validator
+   had ever called `payout_stakers`, `ClaimedRewards` held zero keys, and that call is
+   permissionless, so **as of block #527277 a caller could still mint up to ~14.9 M CMN in
+   aggregate**. Spec 305 stops new bookings; it cannot and does not cancel the ones already
+   made.
 
    Total historical and pending issuance from the staking path: **~59.4 M CMN**.
 
    **The pending half expires.** `HistoryDepth` is 84 eras and a *staking* era is 18 hours
    (`SessionsPerEra` 6 x `EpochDuration` 3 h — not the six-hour *emissions* era), so each
    `ErasValidatorReward` entry is pruned once `CurrentEra` passes `era + 84`, about **63
-   days**. `CurrentEra` was 48 at the upgrade, so era 0 lapses in roughly four weeks and the
-   whole booking lapses by around day 98 of chain life. There is a fixed window in which to decide
-   whether to migrate the entries away, claim them, or let them expire.
+   days**. `CurrentEra` was 48 at the upgrade, so era 0 was due to lapse roughly four weeks
+   after the upgrade and the whole booking by around day 98 of chain life. That left a fixed
+   window in which to decide whether to migrate the entries away, claim them, or let them expire.
 
-   The 14.6 M is an **aggregate upper bound** across all 47 eras and all validators, not
+   The 14.9 M is an **aggregate upper bound** across all 48 eras and all validators, not
    what one call mints: `payout_stakers` pays one validator, one page, one era, scaled by
    that validator's `ErasRewardPoints` share, and mints nothing for a stash with
    `RewardDestination::None`.
@@ -534,18 +543,18 @@ Every raw value on this page is read from a live node and mechanically re-checke
 | Field | Value |
 |---|---|
 | Chain | Scalar Commons Local Testnet |
-| Runtime | `scalar-commons` spec 306 |
+| Runtime | `scalar-commons` spec 309, read at block #1 157 827 |
 | Metadata | v15 |
 | Token | CMN, 12 decimals, SS58 42 |
-| Validators | 5 |
+| Validators | **8 validators** of **8 seats**, read at block #1 157 827 |
 
 The mechanism, in order:
 
-1. `npm run snapshot:chain` connects to a node (default `ws://127.0.0.1:9944`), reads
-   metadata, and writes `docs/.chain/snapshot.json` — pallet indices, every pallet
-   constant, the extrinsic and storage surface, runtime API signatures, and the RPC method
-   list, with a provenance block recording endpoint, block height, genesis hash and node
-   version.
+1. `npm run snapshot:chain` connects to a node (default `ws://127.0.0.1:9944`; the committed
+   snapshot was read from `wss://rpc.scalarnet.io` at block #1 157 827), reads metadata, and
+   writes `docs/.chain/snapshot.json` — pallet indices, every pallet constant, the extrinsic
+   and storage surface, runtime API signatures, and the RPC method list, with a provenance
+   block recording endpoint, block height, genesis hash and node version.
 2. `npm run lint` runs `scripts/check-chain-values.mjs`, which fails if any documented raw
    value disagrees with the snapshot, if a pallet index is wrong, if a custom pallet's
    extrinsic is undocumented, or if a `ScalarCommonsApi` method is missing from the RPC
@@ -553,8 +562,8 @@ The mechanism, in order:
 
 Only runtime-*defined* facts are snapshotted. Volatile state — issuance, era number,
 balances — is deliberately excluded: documenting it would guarantee it goes stale. Where
-this page cites live state (the validator count above), read it as an observation of the
-reference devnet, not an invariant.
+this page cites live state (the validator count above), read it as the snapshot's
+observation at block #1 157 827, not an invariant.
 
 ::: tip Re-verify against your own node
 

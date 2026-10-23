@@ -1,3 +1,7 @@
+---
+description: "@scalar-commons/sdk is the agent-facing TypeScript surface of the chain — the hands that let an autonomous agent register, stake, sell escrowed work, answer oracle requests, vote, and claim emissions."
+---
+
 # SDK usage
 
 `@scalar-commons/sdk` is the agent-facing TypeScript surface of the chain — the hands that
@@ -156,7 +160,8 @@ These have no SDK wrapper yet; call them through `client.api.tx`:
 ## Escrow
 
 An agreement is bilateral and sequenced per buyer/provider pair. The buyer's funds are
-locked on creation and released on confirmation.
+locked on creation and released on confirmation. Since spec 309 the provider must **accept**
+an agreement before it can deliver on it; until then the agreement does not bind the provider.
 
 ```ts
 const provider = '5FHneW46…';
@@ -166,24 +171,38 @@ const deadline = 20_000;                    // absolute block number
 // 1. Buyer opens the agreement, locking `amount`.
 await client.createEscrow(buyer, provider, amount, deliverableHash, deadline);
 
-// 2. Provider posts the delivery proof (seq comes from the AgreementCreated event).
+// 2. Provider consents (seq comes from the AgreementCreated event). No SDK helper yet
+//    (#277), so use the raw signer path; recordDelivery fails with NotAccepted until
+//    this is in a block.
+await submitAndWatch(
+  client.api,
+  client.api.tx.escrow.acceptAgreement(buyerAddress, seq),
+  providerPair,
+  'acceptAgreement',
+);
+
+// 3. Provider posts the delivery proof.
 await client.acceptEscrow(providerPair, buyerAddress, seq, deliveryHash);
 
-// 3. Buyer confirms; funds move, the completion fee is taken, volume is credited.
+// 4. Buyer confirms; funds move, the completion fee is taken, volume is credited.
 await client.completeEscrow(buyer, provider, seq);
 ```
 
 `capabilityId` is the optional fifth argument to `createEscrow` and defaults to `null` for
 a generic agreement.
 
-| Step | SDK | Extrinsic |
-|---|---|---|
-| Open | `createEscrow(signer, provider, amount, deliverableHash, deliverBy, capabilityId?)` | `escrow.createAgreement` |
-| Deliver | `acceptEscrow(signer, buyer, seq, deliveryHash)` | `escrow.recordDelivery` |
-| Confirm | `completeEscrow(signer, provider, seq)` | `escrow.confirmDelivery` |
-| Dispute | — | `escrow.disputeDelivery` |
-| Refund | — | `escrow.claimRefund` |
-| Extend | — | `escrow.extendDeadline` |
+| Step | SDK | Extrinsic | Notes |
+|---|---|---|---|
+| Open | `createEscrow(signer, provider, amount, deliverableHash, deliverBy, capabilityId?)` | `escrow.createAgreement` | Reserves `amount`; the agreement is *pending* until the provider accepts. |
+| Accept | — (no helper yet, [#277](https://github.com/tejaspatil1936/scalar-commons-v4/issues/277)) | `escrow.acceptAgreement(buyer, seq)` | Provider consents; only from here does the agreement occupy a slot in its `ActiveEscrowCount`. Refused after `deliverBy`; re-checks the capability. |
+| Reject | — (no helper yet, [#277](https://github.com/tejaspatil1936/scalar-commons-v4/issues/277)) | `escrow.rejectAgreement(buyer, seq)` | Provider declines a *pending* agreement; the buyer's reserve is released in full. |
+| Cancel | — (no helper yet, [#277](https://github.com/tejaspatil1936/scalar-commons-v4/issues/277)) | `escrow.cancelPending(provider, seq)` | Buyer withdraws a *pending* agreement, immediately and for the full amount. |
+| Deliver | `acceptEscrow(signer, buyer, seq, deliveryHash)` | `escrow.recordDelivery` | Requires an accepted agreement (`NotAccepted` otherwise) and `escrow.minDeliveryBlocks` elapsed. |
+| Confirm | `completeEscrow(signer, provider, seq)` | `escrow.confirmDelivery` | |
+| Dispute | — | `escrow.disputeDelivery` | |
+| Refund | — | `escrow.claimRefund` | Accepted agreements only; a pending one is closed with Cancel. |
+| Extend | — | `escrow.extendDeadline` | |
+| Expire | — (no helper yet, [#277](https://github.com/tejaspatil1936/scalar-commons-v4/issues/277)) | `escrow.expireAgreement(buyer, provider, seq)` | Anyone may close an agreement past its status's window plus a 10-block grace, refunding the buyer; reachable from `Created`, `Delivered` and `Disputed`. |
 
 The constraints that will actually bite:
 
@@ -195,6 +214,11 @@ The constraints that will actually bite:
   `BilateralCapReached`.
 - Self-dealing is rejected outright (`SelfDeal`), and both parties must be registered
   agents (`BuyerNotAgent` / `ProviderNotAgent`).
+- Until the provider accepts, an agreement is pending: it does not count toward the
+  provider's `ActiveEscrowCount`, so it cannot block `agents.requestUnstake`, and
+  `recordDelivery` on it fails with `NotAccepted`. Either side can close it for a full refund
+  (`rejectAgreement` by the provider, `cancelPending` by the buyer). Once accepted the
+  provider is bound: it must deliver, be disputed, or let the agreement expire.
 - After delivery the buyer has `escrow.buyerResponseWindow` to confirm or dispute.
 - A completed agreement credits the provider's era escrow volume, which is the input the
   [weight formula](/reference/token-model#the-weight-formula) actually rewards. It also
