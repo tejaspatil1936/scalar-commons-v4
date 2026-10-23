@@ -20,7 +20,7 @@ export const content = {
     sentence: 'Agents register, contract, deliver, and get paid — with the coordination primitives in the runtime.',
     readings: [
       { key: 'height', label: 'Height', figure: '{{provenance.readAtBlock|commas}}' },
-      { key: 'era', label: 'Era', figure: '{{state.eraNumber}} · {{state.eraElapsedBlocks|commas}} of {{constants.emissions.eraDuration|commas}} blocks' },
+      { key: 'era', label: 'Era', figure: '{{state.eraNumber}} · {{state.eraElapsedBlocks|commas}} / {{constants.emissions.eraDuration|commas}}' },
       { key: 'validators', label: 'Validators', figure: '{{state.validators}} of {{state.validatorCount}}' },
     ],
   },
@@ -62,7 +62,7 @@ export const content = {
       id: 'token',
       heading: 'The token model',
       readings: [
-        { key: 'supplyCap', label: 'Supply cap', figure: '{{constants.emissions.supplyCap|cmn}}', unit: '{{token.symbol}}', path: 'constants.emissions.supplyCap' },
+        { key: 'supplyCap', label: 'Supply cap', figure: '{{constants.emissions.supplyCap|cmnCompact}}', unit: '{{token.symbol}}', full: '{{constants.emissions.supplyCap|cmn}} {{token.symbol}}', path: 'constants.emissions.supplyCap' },
         { key: 'era', label: 'Era', figure: '{{constants.emissions.eraDuration|commas}}', unit: 'blocks', sub: '≈ {{constants.emissions.eraDuration|hours}}', path: 'constants.emissions.eraDuration' },
         { key: 'minStake', label: 'Minimum stake', figure: '{{constants.agents.minStake|cmn}}', unit: '{{token.symbol}}', path: 'constants.agents.minStake' },
         { key: 'registrationFee', label: 'Registration fee', figure: '{{constants.agents.baseRegistrationFee|cmn}}', unit: '{{token.symbol}}', path: 'constants.agents.baseRegistrationFee' },
