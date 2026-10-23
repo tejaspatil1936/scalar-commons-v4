@@ -225,7 +225,7 @@ body { font: var(--body); color: var(--text); background: var(--bg); }
 .VPDoc .vp-doc h5, .VPDoc .vp-doc h6 { font: var(--body); font-weight: 600; letter-spacing: normal; }
 .vp-doc p, .vp-doc li { line-height: 1.6; max-width: 65ch; }
 .vp-doc ul, .vp-doc ol { padding-left: var(--s-5); }
-.vp-doc a { font-weight: 400; color: var(--accent); text-decoration: none; overflow-wrap: anywhere; transition: color .15s, background-color .15s, border-color .15s; }
+.vp-doc a { font-weight: 400; color: var(--accent); text-decoration: underline; text-underline-offset: 0.15em; text-decoration-thickness: 1px; overflow-wrap: anywhere; transition: color .15s, background-color .15s, border-color .15s; }
 .vp-doc a:hover, .vp-doc a:focus-visible { color: var(--accent-2); text-decoration: underline; }
 .vp-doc blockquote { color: var(--text-2); }
 
@@ -254,7 +254,7 @@ body { font: var(--body); color: var(--text); background: var(--bg); }
 .vp-doc .custom-block p:first-child { margin: 0; }
 /* Status colour stays on the rule: code and links inside a callout read as everywhere else. */
 .vp-doc .custom-block code { color: var(--text); }
-.vp-doc .custom-block a { color: var(--accent); font-weight: 400; text-decoration: none; }
+.vp-doc .custom-block a { color: var(--accent); font-weight: 400; text-decoration: underline; text-underline-offset: 0.15em; text-decoration-thickness: 1px; }
 .vp-doc .custom-block a:hover, .vp-doc .custom-block a:focus-visible { color: var(--accent-2); text-decoration: underline; opacity: 1; }
 .vp-doc .custom-block a:hover > code { color: var(--text); }
 
@@ -295,7 +295,7 @@ body { font: var(--body); color: var(--text); background: var(--bg); }
 .VPHome .VPHero .name, .VPHome .VPHero .text { font: var(--h1); letter-spacing: normal; max-width: none; }
 .VPHome .VPHero .clip { background: none; -webkit-text-fill-color: var(--text); }
 .VPHome .VPHero .tagline { font: var(--lead); color: var(--text-2); max-width: 65ch; padding-top: var(--s-3); }
-.VPHome .VPHero .tagline a { color: var(--accent); transition: color .15s, background-color .15s, border-color .15s; }
+.VPHome .VPHero .tagline a { color: var(--accent); text-decoration: underline; text-underline-offset: 0.15em; text-decoration-thickness: 1px; transition: color .15s, background-color .15s, border-color .15s; }
 .VPHome .VPHero .tagline a:hover, .VPHome .VPHero .tagline a:focus-visible { color: var(--accent-2); text-decoration: underline; }
 .VPHome .VPFeature { background-color: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); }
 .VPHome .VPFeature.link:hover { border-color: var(--control); }
