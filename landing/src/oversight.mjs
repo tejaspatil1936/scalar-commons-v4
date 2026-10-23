@@ -21,6 +21,10 @@ import { PULSE_NAV, mark, renderHead, wordmark } from './observatory.mjs';
 export const OVERSIGHT_NAV = { key: 'oversight', label: 'Oversight', href: 'oversight' };
 
 export const TITLE = 'Agent messaging — oversight sample';
+/** The page's heading and standfirst (brief §5.7); the `<title>` keeps TITLE. */
+export const HEADLINE = 'What an operator can and cannot read';
+export const STANDFIRST =
+  'Forty real messages from a development chain, decrypted by the operator with the keys it holds. This page signs nothing and submits nothing.';
 
 /**
  * The three sentences at the top, in order. The brief asked for exactly three
@@ -36,7 +40,7 @@ export const EXPLANATION = [
 /** The summary figures, in reading order: key into the sample's summary, label. */
 export const FIGURES = [
   ['selfCheck', 'Operator keys matching the chain'],
-  ['decryptedCount', 'Messages decrypted'],
+  ['decryptedCount', 'Decrypted by the operator'],
   ['noKeyHeldCount', 'Sealed, no key held'],
   ['signaturesVerified', 'Signatures verified'],
 ];
@@ -274,8 +278,8 @@ ${statusBar(provenance)}<noscript><p class="noscript frame">The live re-read and
     <div class="frame ov-hero-grid">
       <div class="ov-hero-text">
         <p class="eyebrow">${mark()} Oversight</p>
-        <h1 id="ov-h">${escapeHtml(TITLE)}</h1>
-${EXPLANATION.map((sentence) => `        <p class="dek">${sentence}</p>`).join('\n')}
+        <h1 id="ov-h">${escapeHtml(HEADLINE)}</h1>
+${rows.length === 40 ? `        <p class="dek ov-standfirst">${escapeHtml(STANDFIRST)}</p>\n` : ''}${EXPLANATION.map((sentence) => `        <p class="dek">${sentence}</p>`).join('\n')}
         <p class="ov-label" role="note"><strong>${escapeHtml(provenance.chainName)}</strong> — ${escapeHtml(provenance.networkNote)}</p>
       </div>
       <div class="readings ov-figures">

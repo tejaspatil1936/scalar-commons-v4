@@ -367,7 +367,8 @@ test('one URL: no ?sky and no ?present, and no three.js, GSAP or WebGL anywhere 
   // bundle, fetched only by the switch that shows it, never by the page.
   // (/pulse has its own one script, pulse.js, which this page never names; test/pulse.test.mjs holds it to the same rule.)
   const scripts = readdirSync(out).filter((name) => name.endsWith('.js')).sort();
-  assert.deepEqual(scripts, ['observatory-graph.js', 'observatory.js', 'pulse.js']);
+  // faucet.js and oversight.js are those pages' own one script each (scripts/pages/*.mjs); this page never names them.
+  assert.deepEqual(scripts, ['faucet.js', 'observatory-graph.js', 'observatory.js', 'oversight.js', 'pulse.js']);
   assert.deepEqual([...page.matchAll(/<script[^>]* src="([^"]+)"/g)].map((m) => m[1]), ['observatory.js'], 'the page loads one script');
   assert.ok(!page.includes('observatory-graph'), 'the page never names the graph bundle');
   assert.ok(!/from"\.\/observatory-/.test(bundle), 'observatory.js imports no chunk statically');
