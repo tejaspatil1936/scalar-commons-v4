@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
 import { createIndexerClient, createIndexerReader } from '../src/activity.js';
 import type { ExplorerChain } from '../src/chain.js';
-import { band, curvePaths, reading, tag, topBar, NAV } from '../src/chrome-templates.js';
+import { band, curve, curvePaths, reading, tag, topBar, NAV } from '../src/chrome-templates.js';
 import { renderAccount, renderActivity, renderBlock, renderError, renderExtrinsic, renderHome } from '../src/render.js';
 import { parseRoute, searchPath } from '../src/routes.js';
 import { createExplorerServer, readChromeStylesheet, defaultChromeDir } from '../src/server.js';
@@ -51,9 +51,24 @@ describe('chrome templates', () => {
     expect(html).toContain('fetched 2026-10-23 12:00:00 UTC · block 42');
   });
 
-  it('renders the built tag without a dot, and every other tag with its state dot', () => {
-    expect(tag({ state: 'built', text: 'AS OF 2026-10-23 12:00:00 UTC' })).not.toContain('nw-dot');
+  it('marks every tag with its state mark — the built AS OF tag included — and only a key without one', () => {
+    expect(tag({ state: 'built', text: 'AS OF 2026-10-23 12:00:00 UTC' })).toContain('<span class="nw-dot" aria-hidden="true"></span>AS OF');
     expect(tag({ state: 'dispute', text: 'IN DISPUTE' })).toContain('nw-dot');
+    expect(tag({ state: 'kbd', text: '⌘K' })).not.toContain('nw-dot');
+    expect(tag({ state: 'built', text: 'AS BUILT', detail: '2026-10-23' })).toContain('<span class="nw-tag-detail"> · 2026-10-23</span>');
+  });
+
+  it('wraps Sources and ⌘K in the bar controls, inside the right of the bar', () => {
+    const html = topBar({ current: 'explorer' });
+    expect(html).toMatch(/<div class="nw-bar-right">[\s\S]*<div class="nw-bar-controls">[\s\S]*nw-sources[\s\S]*⌘K<\/span>\s*<\/div>\s*<\/div>/);
+  });
+
+  it('draws curve ticks without hue: a dispute dashed, a slash an X, each with its word', () => {
+    const html = curve({ id: 't', width: 100, height: 40, pathLine: 'M0,0L100,40', pathArea: 'M0,0L100,40L0,40Z', ticks: [{ x: 10, state: 'dispute' }, { x: 50, state: 'slash' }], alt: 'test' });
+    expect(html).toContain('<line class="nw-curve-tick" data-state="dispute" x1="10" x2="10"');
+    expect(html.match(/data-state="slash"/g)?.length).toBe(2);
+    expect(html).toContain('<text class="nw-curve-word" x="16" y="39">dispute</text>');
+    expect(html).toContain('<text class="nw-curve-word" x="56" y="39">slash</text>');
   });
 
   it('links the nav to the site absolutely, with the explorer current and the wordmark to the site root', () => {
@@ -115,7 +130,7 @@ describe('renderHome in the chrome', () => {
     expect(html).toContain('href="/fonts/ibm-plex-mono-latin-400-normal.woff2" as="font"');
     expect(html).toContain('class="nw-bar"');
     expect(html).toContain('data-lamp data-state="normal" data-lit="true"');
-    expect(html).toContain('block 42 · finality 2 · normal');
+    expect(html).toContain('block 42 · fin 2</span>');
     expect(html).toContain('Testnet — the token has no value and the chain may be reset.');
     expect(html).not.toContain('<script');
   });

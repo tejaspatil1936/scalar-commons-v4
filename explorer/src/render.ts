@@ -63,13 +63,14 @@ import type {
 } from './types.js';
 
 /**
- * Layout glue the chrome does not carry yet: the explorer Spine spans its grid
- * column instead of the margin form's 96 px, and the search form, the raw
- * disclosure and the share bar get their spacing. Layout only — no colour,
- * no face, no size outside the chrome's scale — and a request for the chrome
+ * Layout glue the chrome does not carry yet, in the Ledger's terms: blocks on
+ * the 12-column grid (x-col-n), the explorer Spine spanning its columns, the
+ * search form, the raw disclosure and the share bar. Layout only — no colour,
+ * no face, no size and no spacing off the chrome's scales (every length is a
+ * --s-n step or a calc of them) — and a request for the chrome
  * (landing/src/chrome/README.md, "Asking for a change") rather than a theme.
  */
-const EXPLORER_LAYOUT_CSS = `.x-col-4{grid-column:1/span 4}.x-col-8{grid-column:5/span 8}.x-col-6{grid-column:span 6}.x-col-12{grid-column:1/-1}.x-wrap{grid-auto-flow:row;grid-template-columns:repeat(3,minmax(0,1fr));row-gap:var(--s-6)}.x-wide .nw-reading-figure{max-width:100%}.x-wide .nw-figure,.x-hash{overflow-wrap:anywhere;word-break:break-all}.nw-ledger-row>span{min-width:0;overflow-wrap:anywhere}.nw-ledger-row .nw-tag{white-space:normal}.nw-spine--explorer .nw-spine-tick{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,.6fr) minmax(0,2fr)}.nw-spine--explorer .nw-spine-tick>span{min-width:0}.nw-spine--explorer .nw-spine-tick>span:nth-child(-n+3){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}@media(max-width:390px){.x-col-4,.x-col-8,.x-col-6{grid-column:1/-1}.x-wrap{grid-template-columns:minmax(0,1fr)}.nw-spine--explorer .nw-spine-tick{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,.6fr)}.nw-spine--explorer .nw-spine-tick>span:nth-child(4){display:none}}.nw-spine--explorer{width:100%}.nw-search{margin-block:var(--s-5)}.nw-raw-details summary{cursor:pointer;list-style:none}.nw-raw-details[open] summary{margin-bottom:var(--s-2)}.nw-share{min-width:2px}.nw-section-head .nw-tag{margin-left:auto}.nw-section-head .nw-tag+.nw-tag{margin-left:0}@media(min-width:391px){.nw-ledger-row{grid-template-columns:minmax(48px,auto) minmax(0,2fr) minmax(0,2fr) minmax(0,1fr) auto}.nw-ledger-row>:first-child{white-space:nowrap}}`;
+const EXPLORER_LAYOUT_CSS = `.x-col-4{grid-column:1/span 4}.x-col-8{grid-column:5/span 8}.x-col-6{grid-column:span 6}.x-col-12{grid-column:1/-1}.x-wrap{grid-auto-flow:row;grid-template-columns:repeat(3,minmax(0,1fr));row-gap:var(--s-6)}.x-wide .nw-reading-figure{max-width:100%}.x-wide .nw-figure,.x-hash{overflow-wrap:anywhere;word-break:break-all}.nw-ledger-row>span{min-width:0;overflow-wrap:anywhere}.nw-ledger-row .nw-tag{white-space:normal}.nw-spine--explorer .nw-spine-tick{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,.6fr) minmax(0,2fr)}.nw-spine--explorer .nw-spine-tick>span{min-width:0}.nw-spine--explorer .nw-spine-tick>span:nth-child(-n+3){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}@media(max-width:390px){.x-col-4,.x-col-8,.x-col-6{grid-column:1/-1}.x-wrap{grid-template-columns:minmax(0,1fr)}.nw-spine--explorer .nw-spine-tick{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,.6fr)}.nw-spine--explorer .nw-spine-tick>span:nth-child(4){display:none}}.nw-spine--explorer{width:100%}.nw-search{margin-block:var(--s-5)}.nw-raw-details summary{cursor:pointer;list-style:none}.nw-raw-details[open] summary{margin-bottom:var(--s-2)}.nw-share{min-width:calc(var(--s-1) / 2)}.nw-section-head .nw-tag{margin-left:auto}.nw-section-head .nw-tag+.nw-tag{margin-left:0}@media(min-width:391px){.nw-ledger-row{grid-template-columns:minmax(var(--s-7),auto) minmax(0,2fr) minmax(0,2fr) minmax(0,1fr) auto}.nw-ledger-row>:first-child{white-space:nowrap}}`;
 
 /** The source a view carries for a figure it did not read: a leader to nothing, with the reason. */
 const NOT_READ: Source = { method: 'RPC', url: 'not read in this view', fetchedAt: null, block: null, raw: null };
@@ -98,8 +99,9 @@ function lampFor(frame: Frame): string {
     const minutes = Math.floor(frame.headAgeMs / 60_000);
     return lampFilled({ state: 'stalled', lit: false, text: `last block ${formatInt(frame.best)} · ${minutes} min ago · stalled` });
   }
-  const finality = frame.finalized === null ? 'finality —' : `finality ${formatInt(frame.best - frame.finalized)}`;
-  return lampFilled({ state: 'normal', lit: true, text: `block ${formatInt(frame.best)} · ${finality} · normal` });
+  // The lamp's words, as the landing's lamp prints them: `block n · fin k`.
+  const finality = frame.finalized === null ? 'fin —' : `fin ${formatInt(frame.best - frame.finalized)}`;
+  return lampFilled({ state: 'normal', lit: true, text: `block ${formatInt(frame.best)} · ${finality}` });
 }
 
 /**
