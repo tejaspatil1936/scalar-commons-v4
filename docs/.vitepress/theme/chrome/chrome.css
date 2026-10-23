@@ -38,15 +38,16 @@
 *,
 *::before,
 *::after { box-sizing: border-box; }
+/* The body font is set on body, not html: on the root element a rem-sized
+   font would make 1 rem 18 px and lift every token 12.5 % off the scale. */
 html {
   background: var(--paper);
   color: var(--ink);
-  font: var(--body);
   font-optical-sizing: auto;
   -webkit-text-size-adjust: 100%;
   scroll-padding-top: calc(var(--bar) + var(--s-5));
 }
-body { margin: 0; }
+body { margin: 0; font: var(--body); }
 em, i, cite, dfn, address { font-style: normal; }
 h1, h2, h3, p, ul, ol, dl, figure, pre { margin: 0; }
 ul, ol { padding: 0; list-style: none; }
