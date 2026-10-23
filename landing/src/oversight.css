@@ -36,7 +36,7 @@
 .ov-join .nw-leader { width: 2px; height: calc(var(--s-6) + var(--s-2)); flex: none; margin: 0; top: 0; background-size: 2px 6px; background-repeat: repeat-y; }
 .ov-join .nw-leader--arrow::after { right: 0; top: auto; bottom: calc(-1 * var(--s-1)); width: 10px; height: calc(var(--s-1) / 2); background-size: 6px 2px; background-repeat: repeat-x; }
 /* A message: a ledger entry under a 1 px rule; the last one closes with a rule. */
-.ov-row { position: relative; display: grid; gap: var(--s-4); padding-block: var(--s-5); border-top: 1px solid var(--rule); transition: opacity var(--t-ui) var(--ease-ui); }
+.ov-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-4); padding-block: var(--s-5); border-top: 1px solid var(--rule); transition: opacity var(--t-ui) var(--ease-ui); }
 .ov-rows > .ov-row:last-child { border-bottom: 1px solid var(--rule); }
 .ov-row.is-quiet { opacity: 0.72; }
 /* A disagreement: a dotted ink rule down the left and the word, never a colour. */
@@ -94,3 +94,6 @@
    hash or address breaks wherever it must — a record is read, not scrolled. */
 .ov-status { white-space: normal; height: auto; min-height: var(--s-6); }
 .ov code.nw-mono { overflow-wrap: anywhere; word-break: break-all; }
+
+/* Round 3's 12 px labels: a check's badge may wrap rather than widen its row. */
+.ov-check .ov-badge { white-space: normal; height: auto; min-height: var(--s-6); padding-block: var(--s-1); }

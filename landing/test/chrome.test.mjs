@@ -39,18 +39,19 @@ export const PRINT_PALETTE = {
 // and marks; the check-layout script holds computed colours to this set).
 export const LEDGER_COLOURS = Object.values(PALETTE);
 
+// Round 3: one size up — 96 px display, 20 px body, 80 px figures.
 const TYPE = {
-  '--display': '600 4.5rem/1.05 var(--font-serif)',
-  '--h2': '600 2.25rem/1.15 var(--font-serif)',
-  '--h3': '600 1.375rem/1.3 var(--font-serif)',
-  '--body': '400 1.125rem/1.6 var(--font-serif)',
-  '--small': '400 0.9375rem/1.5 var(--font-serif)',
-  '--figure-xl': '400 4rem/1 var(--font-mono)',
-  '--figure-l': '400 2.75rem/1 var(--font-mono)',
-  '--figure-m': '400 1.75rem/1 var(--font-mono)',
-  '--figure-s': '400 1.25rem/1 var(--font-mono)',
-  '--label': '500 0.6875rem/1 var(--font-mono)',
-  '--mono': '400 0.8125rem/1.5 var(--font-mono)',
+  '--display': '600 6rem/1.0 var(--font-serif)',
+  '--h2': '600 3rem/1.1 var(--font-serif)',
+  '--h3': '600 1.75rem/1.25 var(--font-serif)',
+  '--body': '400 1.25rem/1.55 var(--font-serif)',
+  '--small': '400 1.0625rem/1.5 var(--font-serif)',
+  '--figure-xl': '400 5rem/1 var(--font-mono)',
+  '--figure-l': '400 3.5rem/1 var(--font-mono)',
+  '--figure-m': '400 2.25rem/1 var(--font-mono)',
+  '--figure-s': '400 1.5rem/1 var(--font-mono)',
+  '--label': '500 0.75rem/1 var(--font-mono)',
+  '--mono': '400 0.9375rem/1.5 var(--font-mono)',
 };
 export const TYPE_TOKENS = Object.keys(TYPE).map((k) => k.slice(2));
 

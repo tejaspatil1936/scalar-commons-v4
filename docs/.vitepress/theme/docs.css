@@ -66,9 +66,11 @@ body { background: var(--paper); color: var(--ink); font: var(--body); overflow-
   column-gap: var(--gutter);
   padding-block: var(--s-7) 0;
 }
-.nw-index { grid-column: 1 / span 3; }
+/* Round 3: the 20 px body keeps its 60ch measure, so the reading column takes
+   seven columns (about 690 px) and the index gives up one; the margin keeps three. */
+.nw-index { grid-column: 1 / span 2; }
 .nw-onpage-sheet { grid-column: 1 / -1; }
-.nw-reading-col { grid-column: 4 / span 6; }
+.nw-reading-col { grid-column: 3 / span 7; }
 .nw-margin { grid-column: 10 / span 3; }
 .nw-index { position: sticky; top: calc(var(--bar) + var(--s-5)); align-self: start; max-height: calc(100vh - var(--bar) - var(--s-7)); overflow-y: auto; padding-right: var(--s-3); }
 .nw-index-group + .nw-index-group, .nw-onpage { margin-top: var(--s-6); }
@@ -156,9 +158,11 @@ body { background: var(--paper); color: var(--ink); font: var(--body); overflow-
 /* margin notes: in the margin (columns 10–12) above 1200 px, inline beneath. The
    reading column is six columns, so the margin's three are (100% - gutter) / 2
    of it, and the note floats one gutter past the column's right edge. */
+/* The note sits in the margin's three columns beside a seven-column reading
+   column: one column plus a gutter is (100% + gutter) / 7 of the reading width. */
 .nw-article-body .nw-note {
-  float: right; clear: right; width: calc((100% - var(--gutter)) / 2);
-  margin: 0 calc(-1 * ((100% - var(--gutter)) / 2) - var(--gutter)) var(--s-5) var(--s-5);
+  float: right; clear: right; width: calc((100% + var(--gutter)) * 3 / 7 - var(--gutter));
+  margin: 0 calc(-1 * (100% + var(--gutter)) * 3 / 7) var(--s-5) var(--s-5);
 }
 .nw-article-body .nw-note p { font: var(--small); margin-top: 0; max-width: none; }
 .nw-article-body .nw-note p + p { margin-top: var(--s-2); }

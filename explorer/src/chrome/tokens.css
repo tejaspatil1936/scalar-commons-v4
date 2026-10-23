@@ -22,17 +22,17 @@
   /* type — two families only */
   --font-serif: "Source Serif 4", Georgia, serif;
   --font-mono:  "IBM Plex Mono", ui-monospace, monospace;
-  --display: 600 4.5rem/1.05 var(--font-serif);   /* 72 px, letter-spacing -0.015em */
-  --h2:      600 2.25rem/1.15 var(--font-serif);  /* 36 px */
-  --h3:      600 1.375rem/1.3 var(--font-serif);  /* 22 px */
-  --body:    400 1.125rem/1.6 var(--font-serif);  /* 18 px, measure 62ch */
-  --small:   400 0.9375rem/1.5 var(--font-serif); /* 15 px */
-  --figure-xl: 400 4rem/1 var(--font-mono);       /* 64 px */
-  --figure-l:  400 2.75rem/1 var(--font-mono);    /* 44 px */
-  --figure-m:  400 1.75rem/1 var(--font-mono);    /* 28 px */
-  --figure-s:  400 1.25rem/1 var(--font-mono);    /* 20 px */
-  --label:   500 0.6875rem/1 var(--font-mono);    /* 11 px, uppercase, letter-spacing +0.12em */
-  --mono:    400 0.8125rem/1.5 var(--font-mono);  /* 13 px */
+  --display: 600 6rem/1.0 var(--font-serif);     /* 96 px, letter-spacing -0.02em */
+  --h2:      600 3rem/1.1 var(--font-serif);     /* 48 px */
+  --h3:      600 1.75rem/1.25 var(--font-serif); /* 28 px */
+  --body:    400 1.25rem/1.55 var(--font-serif); /* 20 px, measure 60ch */
+  --small:   400 1.0625rem/1.5 var(--font-serif);/* 17 px */
+  --figure-xl: 400 5rem/1 var(--font-mono);      /* 80 px */
+  --figure-l:  400 3.5rem/1 var(--font-mono);    /* 56 px */
+  --figure-m:  400 2.25rem/1 var(--font-mono);   /* 36 px */
+  --figure-s:  400 1.5rem/1 var(--font-mono);    /* 24 px */
+  --label:   500 0.75rem/1 var(--font-mono);     /* 12 px, uppercase, letter-spacing +0.12em */
+  --mono:    400 0.9375rem/1.5 var(--font-mono); /* 15 px */
   /* geometry */
   --radius: 2px;
   --bar: 72px;

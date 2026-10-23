@@ -206,11 +206,12 @@ function hero(content, facts) {
   <div class="nw-frame nw-grid">
     <div class="nw-hero-text">
       <p class="nw-label nw-eyebrow">${eyebrow}</p>
-      <h1 class="nw-display" id="hero-h">${fill(content.hero.headline, facts)}</h1>
+      <!-- Round 3: at 96 px the headline takes four lines in its seven columns, so this page sets it at --h2 (SITE-ROUND3.md §2). -->
+      <h1 class="nw-h2 nw-hero-headline" id="hero-h">${fill(content.hero.headline, facts)}</h1>
       <p class="nw-body">${fill(content.hero.sentence, facts)}</p>
     </div>
     <div class="nw-hero-readings nw-stack">
-${content.hero.readings.map((r) => buildReading(r, facts, { size: 'l' })).join('\n')}
+${content.hero.readings.map((r) => buildReading(r, facts, { size: 'm' })).join('\n')}
     </div>
   </div>
 </section>`;

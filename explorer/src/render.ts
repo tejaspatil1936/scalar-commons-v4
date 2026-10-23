@@ -91,7 +91,9 @@ const NOT_READ: Source = { method: 'RPC', url: 'not read in this view', fetchedA
  * also restates the chrome's phone sizes (1–2 → m, 3+ → s) at a specificity
  * that beats the desktop count rules, which otherwise outrank them.
  */
-const FIGURE_PX = { xl: 64, l: 44, m: 28, s: 20 } as const;
+const FIGURE_PX = { xl: 80, l: 56, m: 36, s: 24 } as const;
+/** --label's size in px (round 3: 12). */
+const LABEL_PX = 12;
 type FigureStep = keyof typeof FIGURE_PX;
 const sizeByCount = (count: number): FigureStep => (count <= 1 ? 'xl' : count === 2 ? 'l' : count <= 4 ? 'm' : 's');
 const phoneSizeByCount = (count: number): FigureStep => (count >= 3 ? 's' : 'm');
@@ -102,7 +104,7 @@ const PHONE_COLUMN_PX = 390 - 2 * 20;
 const decodeText = (html: string): string =>
   html.replace(/<[^>]*>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
 export const figureWidthPx = (text: string, unit: string | null, size: FigureStep): number =>
-  [...text].length * 0.6 * FIGURE_PX[size] + (unit ? 8 + [...unit].length * 0.72 * 11 : 0) + 8 + 20;
+  [...text].length * 0.6 * FIGURE_PX[size] + (unit ? 8 + [...unit].length * 0.72 * LABEL_PX : 0) + 8 + 20;
 
 const figureOfHtml = (html: string): { text: string; unit: string | null } => ({
   text: decodeText(/data-reading-value[^>]*>([\s\S]*?)(?:<span class="nw-unit">|<\/span>)/.exec(html)?.[1] ?? ''),

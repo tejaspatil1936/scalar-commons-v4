@@ -65,10 +65,10 @@ button, input { font: inherit; color: inherit; }
 }
 
 /* type: a serif for every word, a mono for every figure */
-.nw-display { font: var(--display); letter-spacing: -0.015em; max-width: 14ch; }
+.nw-display { font: var(--display); letter-spacing: -0.02em; max-width: 14ch; }
 .nw-h2 { font: var(--h2); }
 .nw-h3 { font: var(--h3); }
-.nw-body, .nw-prose p { font: var(--body); max-width: 62ch; }
+.nw-body, .nw-prose p { font: var(--body); max-width: 60ch; }
 .nw-small { font: var(--small); }
 .nw-dim { color: var(--ink-2); }
 .nw-sage { color: var(--ink-3); }
@@ -129,7 +129,9 @@ button, input { font: inherit; color: inherit; }
   display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); column-gap: var(--gutter);
   align-items: center;
 }
-.nw-wordmark { grid-column: 1 / span 2; font: var(--h3); color: var(--ink); white-space: nowrap; }
+/* The wordmark at 20 px, weight 600 (round 2's wordmark size, now the body step): at the
+   28 px heading step it no longer fits its two columns. */
+.nw-wordmark { grid-column: 1 / span 2; font: var(--body); font-weight: 600; color: var(--ink); white-space: nowrap; }
 .nw-nav { grid-column: 3 / span 5; display: flex; align-items: center; gap: var(--s-4); min-width: 0; }
 .nw-nav a { position: relative; padding-block: var(--s-2); color: var(--ink-2); white-space: nowrap; transition: color var(--t-ui) var(--ease-ui); }
 .nw-nav a:hover { color: var(--ink); }
@@ -510,6 +512,7 @@ html[data-sources] .nw-receipt-line { display: block; }
   .nw-lamp-text, .nw-sources-word, .nw-bar .nw-tag-detail, .nw-menu > span:first-child { position: absolute; width: 1px; height: calc(var(--s-1) / 4); margin: calc(-1 * var(--s-1) / 4); padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .nw-grid, .nw-row { grid-auto-flow: row; grid-template-columns: minmax(0, 1fr); row-gap: var(--s-5); }
   .nw-display { font: var(--h2); }
+  .nw-h2 { font: var(--h3); }
   .nw-figure--xl { font: var(--figure-l); }
   .nw-figure--l { font: var(--figure-m); }
   .nw-figure--m { font: var(--figure-s); }
@@ -551,7 +554,8 @@ html[data-sources] .nw-receipt-line { display: block; }
 .nw-hero .nw-grid { align-items: center; }
 .nw-hero-text { grid-column: 1 / span 7; }
 .nw-hero-text .nw-body { margin-top: var(--s-5); }
-/* The hero's three Readings: one column of three rows, one figure size. */
+/* The hero's three Readings: one column of three rows, one figure size (--figure-m:
+   the Era figure does not fit five columns at a larger step). */
 .nw-hero-readings { grid-column: 8 / span 5; display: grid; row-gap: var(--s-5); }
 .nw-hero-readings > * + * { margin-top: 0; }
 .nw-river { padding-block: 0; }
@@ -607,6 +611,5 @@ html[data-sources] .nw-receipt-line { display: block; }
   .nw-what-row { grid-template-columns: minmax(0, 1fr); row-gap: var(--s-2); }
   .nw-what-row > :nth-child(n) { grid-column: 1 / -1; }
   .nw-where { grid-template-columns: minmax(0, 1fr); }
-  .nw-hero-readings .nw-figure--l { font: var(--figure-m); }
   .nw-where .nw-figure--s { font: var(--figure-s); white-space: normal; overflow-wrap: anywhere; }
 }

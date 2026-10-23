@@ -4,10 +4,13 @@
 // (data-step="1"), so every figure in it stays on one baseline at one size.
 // Checked after each figure changes and on resize; nothing is measured on a
 // script-free page, whose as-built figures are sized to fit at build time.
+// A figure overflows when its line (figure, unit, stub) is wider than its
+// Reading's column, or when the figure itself has shrunk below its digits.
 const overflows = (row) =>
   [...row.querySelectorAll('.nw-reading-figure')].some((fig) => {
     const column = fig.closest('.nw-reading') ?? fig.parentElement;
-    return fig.scrollWidth > column.clientWidth + 1;
+    const inner = fig.querySelector?.('.nw-figure');
+    return fig.scrollWidth > column.clientWidth + 1 || (inner ? inner.scrollWidth > inner.clientWidth + 1 : false);
   });
 
 export function fitRow(row) {

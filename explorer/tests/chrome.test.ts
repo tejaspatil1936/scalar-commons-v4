@@ -547,20 +547,24 @@ describe('layout faults seen at 1440 px against the public node', () => {
   });
 
   it('steps a row down at render when a figure would spill its column (Plex Mono is 0.6 em a glyph)', () => {
+    // Round 3's scale: three in a row sit at --figure-m (36 px); '172 · 311 / 3,600' is 17 × 21.6 + 28 = 395 px,
+    // more than a third of the frame (384 px), so the row steps down one size — the rule doing its job.
     expect(readingRow(['<span data-reading-value>1,163,615</span>', '<span data-reading-value>1,163,613</span>', '<span data-reading-value>172 · 311 / 3,600</span>'])).toBe(
-      '<div class="nw-row">\n<span data-reading-value>1,163,615</span>\n<span data-reading-value>1,163,613</span>\n<span data-reading-value>172 · 311 / 3,600</span>\n</div>',
+      '<div class="nw-row" data-step="1">\n<span data-reading-value>1,163,615</span>\n<span data-reading-value>1,163,613</span>\n<span data-reading-value>172 · 311 / 3,600</span>\n</div>',
     );
+    // Shorter figures in a row of three stay at --figure-m.
+    expect(readingRow(['1,163,615', '1,163,613', '8'].map((f) => `<span data-reading-value>${f}</span>`))).toContain('<div class="nw-row">');
     const wide = ['1,099.999891842778', '0', '0', '1,099.999891842778'].map((f) => `<span data-reading-value>${f}<span class="nw-unit">CMN</span></span>`);
     expect(readingRow(wide)).toContain('<div class="nw-row" data-step="1">');
-    // 18 glyphs at 28 px is 302 px, more than a quarter of the 1,200 px frame (282 px).
-    expect(figureWidthPx('1,099.999891842778', null, 'm')).toBeCloseTo(18 * 16.8 + 28);
+    // 18 glyphs at 36 px is 417 px, more than a quarter of the 1,200 px frame (282 px).
+    expect(figureWidthPx('1,099.999891842778', null, 'm')).toBeCloseTo(18 * 21.6 + 28);
     // Two in a row on a phone sit at --figure-m; a 21-glyph balance spills the 350 px column and drops to --figure-s.
     expect(readingRow(['1,000,000.12345678901', '0'].map((f) => `<span data-reading-value>${f}</span>`))).toContain('data-step-m="1"');
   });
 
   it('splits Readings into rows of half as many when a figure spills even a step down, never cutting a figure', () => {
     const fig = (f: string): string => `<span data-reading-value>${f}<span class="nw-unit">CMN</span></span>`;
-    // 22 glyphs at --figure-s with the unit and stub is 348 px: over a quarter of the frame (282 px).
+    // 22 glyphs at --figure-s (24 px) with the unit and stub is 379 px: over a quarter of the frame (282 px).
     const html = readingRows(['995,008,924.86145069865', '170', '10,000', '995,009,094.86145069865'].map(fig));
     expect(html.match(/<div class="nw-row"/g)?.length).toBe(2);
     expect(html.startsWith('<div class="x-rows">')).toBe(true);
