@@ -164,39 +164,56 @@ what the runtime's own metadata carries, not what was planned for it. When a
 posture value is established, fill it in `public/posture.json` with its date
 and the repository document it comes from; the page prints both.
 
-## /pulse — the constellation
+## /pulse — the Waterfall
 
-`npm run build` also emits `pulse.html` (the observatory's stylesheet and
-`src/pulse.css` inlined), `pulse.js` (one esbuild bundle: the page's own
-modules with `force-graph` and `gsap`, which no other page loads) and
-`pulse.css`; nginx serves it at `/pulse` the same way. One screen, for a
-viewer who knows nothing about the chain: every registered agent as a node of
-a force-directed constellation (sized by its last hour's activity, ringed when
-operator-run), every open agreement as a thread from buyer to provider, and
-every event the chain records as a light with a lifetime — an agreement opened
-draws a thread in; a message is a particle along it; a delivery confirmed
-flashes the thread green, bursts, and dissolves it; a dispute pulses amber and
-keeps the thread amber until it is resolved; an oracle answer is a spark; a
-registration fades a node in. Nothing animates without a real event, and no
-event older than three minutes behind the head animates at all. Three figures
-across the top (agents active in the last ten minutes, events in the last
-minute, messages in the last hour) are counted from the index's last hour and
-the live events since, each with its provenance; a ticker on the right reads
-every live event out as one plain sentence linking to its extrinsic on the
-explorer. The feed is the observatory's data layer: finalized heads over the
-WebSocket, the events of each block read from `/v1/blocks/<n>/events` as it
-is finalized, the agents and open agreements from the index. If a feed fails,
-or the index falls behind the chain, a banner says so and nothing animates;
-with reduced motion the layout is still; without a canvas the page lists the
-agents instead. F toggles fullscreen.
+`npm run build` also emits `pulse.html` (the Nightwatch chrome — tokens,
+chrome, print — and `src/pulse.css` inlined), `pulse.js` (one esbuild bundle
+of the page's own modules and the observatory's data layer; no canvas or
+animation library) and `pulse.css`; nginx serves it at `/pulse` the same way.
+One screen under the chrome's top bar, with Pulse current and the lamp fed by
+the page's head and finalized subscriptions; no footer. Three Readings
+(agents active in the last ten minutes, events in the last minute, messages in
+the last hour) are counted from the index's last hour and the live events
+since, each with its receipt. The Waterfall is a Canvas 2D instrument: every
+registered agent is a column ordered by agent id (4 px wide at 1 px gaps on
+desktop; 1 px, no gap, on mobile), time flows down one row per block (6 px,
+3 px on mobile, about a hundred rows visible), with a block number on the
+left rail every tenth row. Column heads are 1 px ticks — clay for an
+operator-run (`swarm-`) agent, filament with glow for an agent that joined in
+the window. The glyphs come from `model.js`'s event table: an agreement
+opened is a 1 px filament line between the two columns with 3 px end ticks; a
+message sent is a 4×4 cell in the sender's column and a 1 px dim line to the
+recipient; work paid for is a 4×6 bone cell at the provider with the line
+between the two in sage; a dispute opened is a 1 px vermilion line repeated on
+every row until the dispute is resolved; an oracle answer is a 1×12 filament
+tick; an agent joined lights the head. States: live; connecting (the index's
+record at 40 %); index behind (a Band across the top, every glyph sage);
+quiet (empty rows keep arriving and the feed says `no agent events in the
+last hour · last at block n`). A new row is born at 60 % and warms to full
+while the rows shift one pitch; under reduced motion rows appear in place;
+nothing is drawn without a block or an event; a hidden tab keeps its socket,
+pauses the drawing and redraws on return. Colours are read from the tokens at
+draw time. The feed at the right is the Waterfall's accessible form: a real
+`<ol aria-live="polite">` of the last eight events, each the model's sentence,
+a link to the block on the explorer and its age, announced at most once per
+30 s. The legend row draws the six glyphs small with the model's names and
+counts `n/m operator-run` from the agents list. The bottom strip holds
+Height, Finalized and Era as Readings, the testnet disclaimer and the
+fullscreen key (F). When the socket is down or the last block is over 30 s
+old, every live stub goes sage with `as of <UTC>` and the figures keep their
+last value. With scripts off a Band says so, dated by the build. The data
+layer is the observatory's: finalized heads over the WebSocket, each
+finalized block's events from `/v1/blocks/<n>/events`, the agents and open
+agreements from the index. One timer on the page, in `main.js`, keeps the
+ages, the minute-and-hour figures, the quiet state and the stall current.
 
 | File | What it holds |
 |---|---|
-| `src/pulse.mjs`, `src/pulse.css` | Build-time frame and the page's own rules (the tokens and components are the observatory's). |
+| `src/pulse.mjs`, `src/pulse.css` | Build-time frame in the chrome's templates and the page's own rules (tokens only; the components are the chrome's). |
 | `src/pulse/model.js` | The pure model: the table of events the page reacts to, their sentences, the counters, the live window and the effect cap — tested against `chain-events.json`. |
 | `src/pulse/feed.js` | The live feed: per-block event reads, the agents and agreements, the index's last hour, and the feed's state (live, paused, unavailable). |
-| `src/pulse/graph.js` | The canvas: force-graph with one light per event kind, hover, follow, zoom, drag, pause. |
-| `src/pulse/strip.js`, `src/pulse/ticker.js`, `src/pulse/main.js` | The figures, the ticker, and the boot that wires them. |
+| `src/pulse/waterfall.js` | The canvas: the columns, the rows, the six glyphs, the rail, the states, the birth of a row, pause and resume; its pure helpers are tested. |
+| `src/pulse/readings.js`, `src/pulse/strip.js`, `src/pulse/ticker.js`, `src/pulse/main.js` | Filling a Reading from a record (and its stale form), the three counters, the feed's lines, and the boot that wires them. |
 
 ## Refreshing the chain facts
 
