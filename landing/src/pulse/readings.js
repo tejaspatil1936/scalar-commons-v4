@@ -48,6 +48,35 @@ export function showValue(target, record, { value, block = null, computed = null
   setFigure(slot, typeof value === 'number' ? formatInteger(value) : String(value), { reduced });
   target.querySelector('.nw-stub')?.setAttribute('data-state', state);
   receipt(target, record, { block, computed });
+  // Remembered for setStale: when the figure was fetched, and the receipt line it printed.
+  if (record?.at !== undefined && record?.at !== null) target.dataset.at = String(record.at);
+  target.dataset.fetched = target.querySelector('[data-fetched]')?.textContent ?? '';
+  target.dataset.state = state;
+  if (target.dataset.stale === 'true') setStale(target, true);
+}
+
+/** `as of 2026-10-23 05:48:45 UTC`: what a live stub says once the chain has gone quiet or the socket is down (§4). */
+export const asOfText = (at) => `as of ${utc(at) ?? '—'}`;
+
+/**
+ * Stalled or disconnected (§4): nothing fades, the figure keeps its last
+ * value, and the live stub goes sage with `as of <UTC>` in its receipt —
+ * the instant the figure was fetched. Lit again, the stub and the receipt
+ * come back as they were. A reading that has no value yet is left alone.
+ */
+export function setStale(target, stale) {
+  if (!target || !target.dataset.at) return;
+  const stub = target.querySelector('.nw-stub');
+  const fetched = target.querySelector('[data-fetched]');
+  const at = /^\d+$/.test(target.dataset.at) ? Number(target.dataset.at) : target.dataset.at;
+  target.dataset.stale = String(Boolean(stale));
+  if (stale) {
+    stub?.setAttribute('data-state', 'record');
+    if (fetched) fetched.textContent = asOfText(at);
+  } else {
+    stub?.setAttribute('data-state', target.dataset.state ?? 'live');
+    if (fetched) fetched.textContent = target.dataset.fetched ?? '';
+  }
 }
 
 /** Shows that a figure cannot be had: the slot says so in sage, the stub goes sage, the reason is in the receipt. */

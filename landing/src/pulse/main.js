@@ -14,7 +14,7 @@ import { createFeed, headNumber, nameOf } from './feed.js';
 import { createWaterfall, drawLegendGlyph } from './waterfall.js';
 import { HOUR_MS, agreementKeyOf } from './model.js';
 import { bannerText } from './wiring.js';
-import { showValue } from './readings.js';
+import { setStale, showValue } from './readings.js';
 import * as strip from './strip.js';
 import * as ticker from './ticker.js';
 
@@ -47,7 +47,9 @@ function boot() {
 
   let lastEventAt = null; // the newest event's instant, live or from the hour
   let lastEventBlock = null;
+  let quietBlock = null; // the hour read's newest block when the hour held no event at all
   let seeded = false;
+  const readingKeys = [...strip.KEYS, 'bestBlock', 'finalizedBlock', 'era'];
 
   // ── the lamp and the strip's heads ──
   ctx.bus.on('socket', ({ state }) => lamp?.update({ open: state === 'open' }));
@@ -99,8 +101,10 @@ function boot() {
   });
 
   // ── the index's last hour seeds the feed's lines (history, with true ages; never animated) ──
-  feed.on('hour', ({ events, error }) => {
+  feed.on('hour', ({ events, hour, error }) => {
     if (error) return;
+    // A quiet network is a designed state: with no event in the hour, the feed says so from the hour's newest block.
+    if (events.length === 0 && hour && Number.isFinite(hour.to)) quietBlock = hour.to;
     for (const { event, at } of events) {
       if (lastEventAt === null || at > lastEventAt) {
         lastEventAt = at;
@@ -148,13 +152,17 @@ function boot() {
     }
   });
 
-  // The one timer on the page: ages, the minute-and-hour figures and the quiet state move with the clock, not only with events.
+  // The one timer on the page: ages, the minute-and-hour figures, the quiet state and the stall move with the clock, not only with events.
   setInterval(() => {
     if (document.hidden) return;
     figures.tick();
-    const quiet = lastEventAt !== null && ctx.now() - lastEventAt > HOUR_MS;
-    lines.quiet(quiet ? lastEventBlock : null);
+    if (lastEventAt === null) lines.quiet(quietBlock);
+    else lines.quiet(ctx.now() - lastEventAt > HOUR_MS ? lastEventBlock : null);
     lines.tick();
+    // Stalled or disconnected, as the lamp already judges it (socket open and the last block under 30 s old):
+    // every live stub goes sage with "as of <UTC>", figures keep their last value, nothing fades.
+    const lit = lampEl ? lampEl.getAttribute('data-lit') === 'true' : true;
+    for (const key of readingKeys) setStale(readingOf(key), !lit);
   }, TICK_MS);
 
   feed.start();
