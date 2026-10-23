@@ -20,7 +20,7 @@
 // Tags, Redactions, leaders and the Ledger; this file adds no colour or size.
 
 import { PULSE_NAV } from './observatory.mjs';
-import { escapeHtml, footer, formatInt, head, leader, ledger, reading, redaction, tag, topBar } from './chrome/templates.mjs';
+import { escapeHtml, footer, formatInt, head, leader, ledger, reading, redaction, tag, topBar } from './chrome-legacy/templates.mjs';
 
 export { PULSE_NAV };
 /** The nav entry for this page (the branch read it from observatory.mjs, which this checkout does not carry). */

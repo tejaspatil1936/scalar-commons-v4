@@ -440,7 +440,7 @@ describe('search and chrome routes', () => {
     expect(css).toContain('--paper:   #0b0b0b;');
     expect(css).toContain('.nw-reading');
     expect(css).toContain('@media print');
-    const landing = fileURLToPath(new URL('../../landing/src/chrome/chrome.css', import.meta.url));
+    const landing = fileURLToPath(new URL('../../landing/src/chrome-legacy/chrome.css', import.meta.url));
     expect(readFileSync(new URL('chrome.css', `file://${dir}`), 'utf8')).toBe(readFileSync(landing, 'utf8'));
   });
 });

@@ -4,7 +4,7 @@
 // it, the form opens and every Reading is filled from the answer; if it cannot
 // (today: no cross-origin permission on the faucet host), the Readings settle
 // as leaders to nothing with their receipts, and nothing else changes.
-import { initChrome, setFigure } from '../chrome/behaviour/index.js';
+import { initChrome, setFigure } from '../chrome-legacy/behaviour/index.js';
 import { decodeSs58 } from './address.js';
 import { formatInterval, formatPlancks } from './format.js';
 

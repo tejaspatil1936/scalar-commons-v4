@@ -1,5 +1,5 @@
 // The 404 page's one script: the path asked for, and the closest built route.
-import { initChrome } from '../chrome/behaviour/index.js';
+import { initChrome } from '../chrome-legacy/behaviour/index.js';
 import { closestRoute } from './routes.js';
 
 function fill(key, value, { href = null } = {}) {

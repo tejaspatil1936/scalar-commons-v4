@@ -12,7 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CURL, EYEBROW, LINE, NOT_READABLE, WHY, refusal, renderFaucet } from '../src/faucet.mjs';
-import { escapeHtml, DISCLAIMER } from '../src/chrome/templates.mjs';
+import { escapeHtml, DISCLAIMER } from '../src/chrome-legacy/templates.mjs';
 import { decodeSs58 } from '../src/faucet/address.js';
 import { formatInterval, formatPlancks } from '../src/faucet/format.js';
 

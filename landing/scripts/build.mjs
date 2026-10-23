@@ -23,7 +23,8 @@ import { renderPage } from '../src/render.mjs';
 import { renderObservatory } from '../src/observatory.mjs';
 import { renderPulse } from '../src/pulse.mjs';
 import { FONTS, observatoryCss } from '../src/observatory-assets.mjs';
-import { chromeCss } from '../src/chrome/assets.mjs';
+import { chromeCss } from '../src/chrome-legacy/assets.mjs';
+import { CHROME_FONTS } from '../src/chrome/assets.mjs';
 
 const here = (relative) => fileURLToPath(new URL(relative, import.meta.url));
 const readJson = (relative) => JSON.parse(readFileSync(here(relative), 'utf8'));
@@ -68,9 +69,13 @@ writeFileSync(join(outDir, 'pulse.html'), renderPulse({ css: pulseCss, facts }))
 writeFileSync(join(outDir, 'pulse.css'), pulseCss);
 
 mkdirSync(join(outDir, 'fonts'), { recursive: true });
-for (const [source, name] of FONTS) {
+// The chrome's two faces (Inter, JetBrains Mono) for every rebuilt page; FONTS
+// are the transitional Ledger faces the pages not yet rebuilt still load.
+for (const [source, name] of [...CHROME_FONTS, ...FONTS]) {
   copyFileSync(here(`../node_modules/${source}`), join(outDir, 'fonts', name));
 }
+// The favicon and the social preview image every page's head names.
+for (const name of ['favicon.svg', 'og.png']) copyFileSync(here(`../public/${name}`), join(outDir, name));
 
 const common = {
   bundle: true,

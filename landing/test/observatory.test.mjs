@@ -67,7 +67,8 @@ test('the build emits the observatory page, its bundle, stylesheet, fonts and re
   for (const face of ['source-serif-4', 'ibm-plex-mono']) {
     assert.ok(fonts.some((f) => f.startsWith(face) && f.endsWith('.woff2')), `no ${face} woff2 in dist/fonts`);
   }
-  assert.deepEqual(fonts.sort(), ['ibm-plex-mono-latin-400-normal.woff2', 'ibm-plex-mono-latin-500-normal.woff2', 'source-serif-4-latin-opsz-normal.woff2']);
+  // Transitional (SITE-REDESIGN.md phase 1): the plain chrome's faces ship beside the Ledger's until the old pages go.
+  assert.deepEqual(fonts.sort(), ['ibm-plex-mono-latin-400-normal.woff2', 'ibm-plex-mono-latin-500-normal.woff2', 'inter-latin-wght-normal.woff2', 'jetbrains-mono-latin-400-normal.woff2', 'source-serif-4-latin-opsz-normal.woff2']);
   assert.match(page, /^<!doctype html>/i);
   assert.match(page, /<script type="module" src="observatory\.js"><\/script>/);
   // The stylesheet is inlined for first paint; the same bytes ship as a file.
@@ -333,12 +334,12 @@ test('no instrument loops forever or ignores reduced motion', () => {
     const sheet = readFileSync(new URL(`../src/observatory/instruments/${name}`, import.meta.url), 'utf8');
     assert.ok(!/infinite|@keyframes/.test(sheet), `${name} declares an animation`);
   }
-  const chrome = readFileSync(new URL('../src/chrome/chrome.css', import.meta.url), 'utf8');
+  const chrome = readFileSync(new URL('../src/chrome-legacy/chrome.css', import.meta.url), 'utf8');
   const loops = [...chrome.matchAll(/animation:[^;]*infinite/g)];
   assert.equal(loops.length, 1, 'the chrome has one loop');
   assert.match(chrome, /\.nw-reading\.is-loading \.nw-leader::before \{[^}]*animation: nw-travel[^}]*infinite/);
   assert.match(chrome.slice(chrome.indexOf('@media (prefers-reduced-motion: reduce)')), /\.nw-reading\.is-loading \.nw-leader::before \{ display: none; \}/);
-  const chromeBehaviour = fileURLToPath(new URL('../src/chrome/behaviour/', import.meta.url));
+  const chromeBehaviour = fileURLToPath(new URL('../src/chrome-legacy/behaviour/', import.meta.url));
   for (const name of readdirSync(chromeBehaviour)) {
     const src = readFileSync(join(chromeBehaviour, name), 'utf8');
     assert.ok(!/requestAnimationFrame\(function loop|animation-iteration-count|infinite/.test(src), `${name} declares a loop`);
@@ -397,8 +398,8 @@ test('one URL: no ?sky and no ?present, and no three.js, GSAP or WebGL anywhere 
 });
 
 // ── the Nightwatch design contract (brief §2–§5.2) ────────────────────────────
-const tokensCss = readFileSync(new URL('../src/chrome/tokens.css', import.meta.url), 'utf8');
-const chromeCss = readFileSync(new URL('../src/chrome/chrome.css', import.meta.url), 'utf8');
+const tokensCss = readFileSync(new URL('../src/chrome-legacy/tokens.css', import.meta.url), 'utf8');
+const chromeCss = readFileSync(new URL('../src/chrome-legacy/chrome.css', import.meta.url), 'utf8');
 const tokens = Object.fromEntries([...tokensCss.matchAll(/(--[a-z0-9-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
 const barHtml = () => page.match(/<header class="nw-bar" data-bar>[\s\S]*?<\/header>/)?.[0] ?? '';
 const heroHtml = () => page.match(/<header class="hero"[\s\S]*?<\/header>/)?.[0] ?? '';
@@ -641,7 +642,7 @@ test('figures: tabular lining figures from the token; a live figure fills throug
   assert.match(readout, /\[data-raw\]/);
   assert.match(readout, /textContent = 'unavailable'/);
   // A live figure that changed (round 2 §1.2): only the changed digits warm, through the chrome's setFigure; no count-up tween.
-  assert.match(readout, /import \{ setFigure as warmFigure \} from '\.\.\/chrome\/behaviour\/digits\.js'/);
+  assert.match(readout, /import \{ setFigure as warmFigure \} from '\.\.\/chrome-legacy\/behaviour\/digits\.js'/);
   assert.match(readout, /if \(previous\) digits\.setAttribute\('data-text', previous\)/);
   assert.ok(!/motion\.tween\(/.test(readout), 'no figure counts up');
   assert.match(chromeCss, /\.nw-digit\.is-warm \{ font-weight: 500;/);
@@ -822,7 +823,8 @@ test('identity: the chrome’s wordmark in the bar, the chrome’s footer with t
   assert.ok(footer.includes(`against block ${facts.provenance.readAtBlock.toLocaleString('en-US')}`), 'the build’s block');
   assert.match(footer, /<p class="nw-foot-line">Testnet — the token has no value and the chain may be reset\.<\/p>/);
   assert.ok(!/rel="icon"/.test(page) && !/rel="icon"/.test(index));
-  assert.ok(!readdirSync(out).includes('favicon.svg'));
+  // The site now has a favicon (SITE-REDESIGN.md §5); this page does not link it until its phase rebuilds it.
+  assert.ok(readdirSync(out).includes('favicon.svg'));
   assert.ok(!/class="merge"|howto|wordmark-text|<svg class="mark"/.test(page), 'the old footer is gone');
 });
 

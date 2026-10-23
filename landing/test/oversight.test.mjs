@@ -202,7 +202,7 @@ test('oversight.css draws in the Ledger: no hue; a message is a ruled entry, not
   assert.ok(!/\.ov-row \{[^}]*background/.test(css), 'and is not a card');
   assert.match(css, /\.ov-row\[data-disagrees\]::before \{[^}]*radial-gradient\(circle, var\(--ink\) 1px, transparent 1px\)/, 'a disagreement is a dotted ink rule');
   assert.match(html, /<span class="nw-tag ov-disagree" data-state="dispute" hidden><span class="nw-dot" aria-hidden="true"><\/span>DISAGREES WITH THE RECORD<\/span>/, 'and its word');
-  const chrome = readFileSync(fileURLToPath(new URL('../src/chrome/chrome.css', import.meta.url)), 'utf8');
+  const chrome = readFileSync(fileURLToPath(new URL('../src/chrome-legacy/chrome.css', import.meta.url)), 'utf8');
   assert.match(chrome, /\.nw-redaction \{[^}]*background: var\(--ink\); color: var\(--paper\);/, 'sealed: a solid ink bar, the words in paper');
   assert.match(chrome, /\.nw-redaction\.is-lifted \{ transform: translateY\(-8px\); opacity: 0\.25; \}/, 'lifted: ink at 25 %, raised 8 px');
   assert.match(chrome, /\.nw-redaction--hash span \{ background: var\(--rule-2\); \}/);

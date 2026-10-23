@@ -2,9 +2,9 @@
 // no network — everything the page says is a function of chain-facts.json and
 // src/content.mjs, which is what makes the honesty tests meaningful. The layout
 // is Nightwatch (src/chrome); every figure is a Reading with its source.
-import { escapeHtml } from './chrome/html.mjs';
-import { band, code, copy, curve, footer, formatInt, leader, reading, tag, topBar, utc, utcDay } from './chrome/templates.mjs';
-import { curvePaths, sample } from './chrome/curve.mjs';
+import { escapeHtml } from './chrome-legacy/html.mjs';
+import { band, code, copy, curve, footer, formatInt, leader, reading, tag, topBar, utc, utcDay } from './chrome-legacy/templates.mjs';
+import { curvePaths, sample } from './chrome-legacy/curve.mjs';
 import { ledgerRows as ledgerOf } from './source-claims.mjs';
 
 export { escapeHtml };

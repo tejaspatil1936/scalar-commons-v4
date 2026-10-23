@@ -5,7 +5,7 @@
 // worth less.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { chromeCss } from './chrome/assets.mjs';
+import { chromeCss } from './chrome-legacy/assets.mjs';
 
 export function oversightCss() {
   return `${chromeCss()}\n/* ── oversight.css ── */\n${readFileSync(fileURLToPath(new URL('./oversight.css', import.meta.url)), 'utf8')}`;

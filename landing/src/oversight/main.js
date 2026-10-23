@@ -16,7 +16,7 @@
 // and the page says "offline — showing recorded values". The hash check still
 // runs: it is arithmetic on bytes that are already here.
 
-import { initChrome } from '../chrome/behaviour/index.js';
+import { initChrome } from '../chrome-legacy/behaviour/index.js';
 import { createRpc } from './rpc.js';
 import { decodeSendCall, verifyRow } from './verify.js';
 

@@ -9,11 +9,11 @@
     "metadataVersion": 15,
     "genesisHash": "0xff6882b49ad61dd3128a6e834b4f81704a3824ce358f2f69fe765ca07cf803d1",
     "ss58Format": 42,
-    "readAtBlock": 1161243,
-    "readAtBlockHash": "0x3f6b160b12899e7d3f3853b118c17d2c281ba2090aaa193b6671b7de1a466735",
-    "finalizedAtRead": 1161242,
+    "readAtBlock": 1166072,
+    "readAtBlockHash": "0x9ed1be710564ba25e7eb38de011fe4e7531e6fde01cdf406055c0acc15b0dd5f",
+    "finalizedAtRead": 1166071,
     "nodeVersion": "4.0.0-5f5e3c9439f",
-    "fetchedAt": "2026-10-23T11:32:11.060Z"
+    "fetchedAt": "2026-10-23T19:35:11.368Z"
   },
   "token": {
     "symbol": "CMN",
@@ -134,213 +134,213 @@
     "registeredAgents": 204,
     "operatorRunAgents": 140,
     "openDisputes": 399,
-    "eraStartBlock": 1160932,
-    "eraElapsedBlocks": 311,
+    "eraStartBlock": 1164639,
+    "eraElapsedBlocks": 1433,
     "recentBlocks": [
       {
-        "number": 1161243,
+        "number": 1166072,
         "extrinsics": 1,
         "final": false
       },
       {
-        "number": 1161242,
+        "number": 1166071,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161241,
+        "number": 1166070,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161240,
+        "number": 1166069,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161239,
+        "number": 1166068,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161238,
+        "number": 1166067,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161237,
+        "number": 1166066,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161236,
+        "number": 1166065,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161235,
+        "number": 1166064,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161234,
+        "number": 1166063,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161233,
+        "number": 1166062,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161232,
+        "number": 1166061,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161231,
+        "number": 1166060,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161230,
+        "number": 1166059,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161229,
+        "number": 1166058,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161228,
+        "number": 1166057,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161227,
+        "number": 1166056,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161226,
+        "number": 1166055,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161225,
+        "number": 1166054,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161224,
+        "number": 1166053,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161223,
+        "number": 1166052,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161222,
+        "number": 1166051,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161221,
+        "number": 1166050,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161220,
+        "number": 1166049,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161219,
+        "number": 1166048,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161218,
+        "number": 1166047,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161217,
+        "number": 1166046,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161216,
+        "number": 1166045,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161215,
+        "number": 1166044,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161214,
+        "number": 1166043,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161213,
+        "number": 1166042,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161212,
+        "number": 1166041,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161211,
+        "number": 1166040,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161210,
+        "number": 1166039,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161209,
+        "number": 1166038,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161208,
+        "number": 1166037,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161207,
+        "number": 1166036,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161206,
+        "number": 1166035,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161205,
+        "number": 1166034,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161204,
+        "number": 1166033,
         "extrinsics": 1,
         "final": true
       }
     ],
-    "totalIssuancePlancks": "6054836317054727360198",
-    "eraNumber": 172,
-    "lastSettledEra": "171",
+    "totalIssuancePlancks": "6054836317051050017125",
+    "eraNumber": 173,
+    "lastSettledEra": "172",
     "alpha": 8000,
     "beta": 5000,
     "floorBps": 1000,

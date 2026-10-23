@@ -166,7 +166,7 @@ test('the Ledger’s glyphs (SITE-ROUND2.md §1.2): ink marks, lighter lines, a 
 
 test('readTokens: every colour and the timings come off :root at draw time; nothing is a literal in the module', () => {
   // The values a browser would return; spelled as tokens.css spells them, read from that file, never typed here.
-  const tokensCss = readFileSync(new URL('../../src/chrome/tokens.css', import.meta.url), 'utf8');
+  const tokensCss = readFileSync(new URL('../../src/chrome-legacy/tokens.css', import.meta.url), 'utf8');
   const declared = (name) => tokensCss.match(new RegExp(`--${name}:\\s*([^;]+);`))?.[1].trim();
   const values = { '--ink': ` ${declared('ink')} `, '--rule-2': declared('rule-2'), '--t-shift': '240ms', '--t-cool': '1800ms', '--font-mono': declared('font-mono') };
   const win = { document: { documentElement: {} }, getComputedStyle: () => ({ getPropertyValue: (name) => values[name] ?? '' }) };
@@ -182,7 +182,7 @@ test('readTokens: every colour and the timings come off :root at draw time; noth
 });
 
 test('the Waterfall draws in the Ledger’s inks only: every glyph on a mock canvas is one of the tokens, the dispute is dashed 2/2 down the rows, and nothing glows', () => {
-  const tokensCss = readFileSync(new URL('../../src/chrome/tokens.css', import.meta.url), 'utf8');
+  const tokensCss = readFileSync(new URL('../../src/chrome-legacy/tokens.css', import.meta.url), 'utf8');
   const declared = (name) => tokensCss.match(new RegExp(`--${name}:\\s*([^;]+);`))?.[1].trim();
   const win = {
     document: { hidden: false, documentElement: {} },

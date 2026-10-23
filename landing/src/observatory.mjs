@@ -13,7 +13,7 @@
 import { readFileSync } from 'node:fs';
 import { escapeHtml, renderNav } from './render.mjs';
 import { storageKey } from './observatory/scale.js';
-import * as T from './chrome/templates.mjs';
+import * as T from './chrome-legacy/templates.mjs';
 import { SOURCES, API_ORIGIN, RPC_URL } from './observatory/data.js';
 
 /** The second live page, /pulse, linked from this page's nav (its own module imports this one, so the item lives here). */

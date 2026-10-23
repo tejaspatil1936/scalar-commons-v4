@@ -8,7 +8,7 @@
 // Waterfall is paused with it and rebuilt from the index on return.
 
 import { createContext } from '../observatory/context.js';
-import { createLamp, initChrome } from '../chrome/behaviour/index.js';
+import { createLamp, initChrome } from '../chrome-legacy/behaviour/index.js';
 import { isOperatorRun } from '../observatory/instruments/agent-field.js';
 import { createFeed, headNumber, nameOf } from './feed.js';
 import { createWaterfall, drawLegendGlyph } from './waterfall.js';

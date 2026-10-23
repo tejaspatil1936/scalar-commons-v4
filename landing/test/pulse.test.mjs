@@ -15,7 +15,7 @@ import { DISCLAIMER, FIGURES, LEGEND, SCRIPTS_OFF, STRIP } from '../src/pulse.mj
 import { KEYS } from '../src/pulse/strip.js';
 import { FEED_LINES, ANNOUNCE_MS } from '../src/pulse/ticker.js';
 import { SOURCES, API_ORIGIN, blockEventsSource } from '../src/observatory/data.js';
-import { DISCLAIMER as CHROME_DISCLAIMER } from '../src/chrome/templates.mjs';
+import { DISCLAIMER as CHROME_DISCLAIMER } from '../src/chrome-legacy/templates.mjs';
 
 const landingDir = fileURLToPath(new URL('..', import.meta.url));
 const readRepoFile = (relative) => readFileSync(new URL(`../../${relative}`, import.meta.url), 'utf8');
@@ -178,9 +178,9 @@ test('pulse.css draws in the Ledger: tokens only, no hue, the eleven fonts, rule
   // The Waterfall is a paper field between two hairlines; the feed's lamp dot is the chrome's, not restated here.
   assert.match(body, /\.pulse-waterfall \{[^}]*background: var\(--paper\);[^}]*border-top: 1px solid var\(--rule\);[^}]*border-bottom: 1px solid var\(--rule\);/);
   assert.ok(!/\.nw-lamp-dot\[data-lit/.test(body), 'the lit dot is the chrome’s rule, not a page override');
-  const chromeCss = readFileSync(new URL('../src/chrome/chrome.css', import.meta.url), 'utf8');
+  const chromeCss = readFileSync(new URL('../src/chrome-legacy/chrome.css', import.meta.url), 'utf8');
   assert.match(chromeCss, /\.nw-lamp-dot\[data-lit="true"\] \{ background: var\(--ink\); border-color: var\(--ink\); \}/, 'the chrome lights a lamp dot outside the lamp in ink');
-  assert.ok(!existsSync(fileURLToPath(new URL('../src/chrome/requests/phase4.css', import.meta.url))), 'the phase-4 request was merged and is gone');
+  assert.ok(!existsSync(fileURLToPath(new URL('../src/chrome-legacy/requests/phase4.css', import.meta.url))), 'the phase-4 request was merged and is gone');
   // On the page's grid (round-2 contract §2.3): 1200 px, twelve columns; the Waterfall 1–9, the feed 10–12; the strip's three in 1–7.
   assert.match(body, /\.pulse \{[^}]*max-width: calc\(var\(--content\) \+ 2 \* var\(--gutter\)\);[^}]*margin-inline: auto;/);
   assert.match(body, /\.pulse-stage \{[^}]*grid-template-columns: repeat\(12, minmax\(0, 1fr\)\);/);

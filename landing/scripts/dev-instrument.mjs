@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { renderHarness } from '../src/observatory.mjs';
 import { FONTS, observatoryCss } from '../src/observatory-assets.mjs';
-import { chromeCss } from '../src/chrome/assets.mjs';
+import { chromeCss } from '../src/chrome-legacy/assets.mjs';
 
 const here = (relative) => fileURLToPath(new URL(relative, import.meta.url));
 const readJson = (relative) => JSON.parse(readFileSync(here(relative), 'utf8'));

@@ -3,7 +3,7 @@
 // time, block and raw bytes. The observatory's readout targets its own older
 // markup; this is the same contract on the chrome's `nw-reading`.
 
-import { setFigure } from '../chrome/behaviour/index.js';
+import { setFigure } from '../chrome-legacy/behaviour/index.js';
 import { snapshotUrl } from '../observatory/readout.js';
 import { formatInteger } from '../observatory/format.js';
 

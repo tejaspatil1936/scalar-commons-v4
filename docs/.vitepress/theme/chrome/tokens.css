@@ -1,48 +1,59 @@
 /*
- * The Ledger — the tokens. Light ink on a dark page (round 3: the palette is
- * inverted; print.css turns it back to paper for paper): the single source for every
- * colour, face, size, step and timing on the site (SITE-ROUND2.md §1.1); every
- * other stylesheet — the chrome, the page sheets, the instruments, the docs
- * theme, the explorer's shell — consumes these and defines none of its own.
- * Nothing is coloured. State is carried by ink weight, outline, hatching and
- * the word beside it, never by hue. test/chrome.test.mjs holds the palette,
- * the contrast pairs and the type and spacing scales closed.
+ * Scalar Commons — design tokens. The only colours, sizes and steps any
+ * surface may use: the landing site, the explorer and the docs theme read
+ * these and define none of their own (SITE-REDESIGN.md §2). One theme, light.
  */
 :root {
-  /* paper — now the night */
-  --paper:   #0b0b0b;  /* page */
-  --paper-2: #141414;  /* sheet, band, code */
-  --paper-3: #1d1d1d;  /* field, pressed, selected */
-  /* ink — now light */
-  --ink:   #f2f2f2;    /* text, figures, live marks       17.6:1 on paper, 15.1:1 on paper-3 */
-  --ink-2: #bdbdbd;    /* secondary text                  10.5:1 on paper,  9.0:1 on paper-3 */
-  --ink-3: #8f8f8f;    /* labels, captions, settled marks  6.1:1 on paper,  5.2:1 on paper-3 */
-  --rule:  #2a2a2a;    /* hairlines, leaders, rails */
-  --rule-2:#3d3d3d;    /* stronger rules, outlines */
-  /* type — two families only */
-  --font-serif: "Source Serif 4", Georgia, serif;
-  --font-mono:  "IBM Plex Mono", ui-monospace, monospace;
-  --display: 600 6rem/1.0 var(--font-serif);     /* 96 px, letter-spacing -0.02em */
-  --h2:      600 3rem/1.1 var(--font-serif);     /* 48 px */
-  --h3:      600 1.75rem/1.25 var(--font-serif); /* 28 px */
-  --body:    400 1.25rem/1.55 var(--font-serif); /* 20 px, measure 60ch */
-  --small:   400 1.0625rem/1.5 var(--font-serif);/* 17 px */
-  --figure-xl: 400 5rem/1 var(--font-mono);      /* 80 px */
-  --figure-l:  400 3.5rem/1 var(--font-mono);    /* 56 px */
-  --figure-m:  400 2.25rem/1 var(--font-mono);   /* 36 px */
-  --figure-s:  400 1.5rem/1 var(--font-mono);    /* 24 px */
-  --label:   500 0.75rem/1 var(--font-mono);     /* 12 px, uppercase, letter-spacing +0.12em */
-  --mono:    400 0.9375rem/1.5 var(--font-mono); /* 15 px */
-  /* geometry */
-  --radius: 2px;
-  --bar: 72px;
-  --content: 1200px;
+  /* colour */
+  --bg:        #ffffff;   /* page */
+  --bg-2:      #f6f7f9;   /* subtle surface: table header, code, hero band if any */
+  --border:    #e3e6ea;   /* hairlines, card and table borders */
+  --control:   #8a919a;   /* input and control outlines (3.2:1 on white) */
+  --text:      #1a1c1e;   /* primary text, 17:1 */
+  --text-2:    #5c6370;   /* secondary text, 6:1 */
+  --text-3:    #6b727c;   /* captions, placeholders, 4.9:1 — never below 13px */
+  --accent:    #1457d6;   /* links, primary buttons, focus ring, 6.2:1 on white */
+  --accent-2:  #0f46b0;   /* hover/pressed */
+  --ok:        #188038;   /* status text: finalized, live, healthy */
+  --warn:      #9a5b00;   /* status text: stale, pending, testnet notice */
+  --bad:       #c62828;   /* status text: error, dispute, slashed */
+  --ok-bg:     #ecfdf3;  --warn-bg: #fef7e6;  --bad-bg: #fdecec;  /* badge fills only */
+
+  /* type: Inter for everything, JetBrains Mono for hashes, addresses and code */
+  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --display: 600 3.5rem/1.1 var(--font-sans);    /* 56 px, tracking -0.02em; home hero only */
+  --h1:      600 2.5rem/1.2 var(--font-sans);    /* 40 px, page titles */
+  --h2:      600 1.75rem/1.25 var(--font-sans);  /* 28 px, section titles */
+  --h3:      600 1.25rem/1.35 var(--font-sans);  /* 20 px, card and panel titles */
+  --lead:    400 1.125rem/1.6 var(--font-sans);  /* 18 px, hero sentence, page intros */
+  --body:    400 1rem/1.6 var(--font-sans);      /* 16 px, measure 65ch */
+  --small:   400 0.875rem/1.5 var(--font-sans);  /* 14 px, nav, table cells, buttons, captions */
+  --caption: 400 0.8125rem/1.5 var(--font-sans); /* 13 px, table headers, footnotes, timestamps */
+  --stat:    600 2rem/1.1 var(--font-sans);      /* 32 px, stat values, tabular figures */
+  --mono:    400 0.875rem/1.5 var(--font-mono); /* 14 px, hashes, addresses, code */
+
+  /* space: the only values for margin, padding and gap */
+  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px;
+  --s-6: 32px; --s-7: 48px; --s-8: 64px; --s-9: 96px;
+
+  /* shape and layout */
+  --radius: 8px;          /* buttons, inputs, cards, callouts */
+  --radius-sm: 4px;       /* badges, code, table thumbnails */
+  --container: 1120px;
   --gutter: 24px;
-  --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px; --s-5: 24px; --s-6: 32px;
-  --s-7: 48px; --s-8: 64px; --s-9: 96px; --s-10: 160px;
-  /* motion (unchanged semantics: fast attack, long cool) */
-  --t-attack: 120ms; --t-cool: 1800ms; --t-ui: 240ms; --t-shift: 240ms;
-  --ease-attack: cubic-bezier(0.1, 0.9, 0.2, 1);
-  --ease-cool: cubic-bezier(0.2, 0.6, 0.4, 1);
-  --ease-ui: cubic-bezier(0.2, 0, 0, 1);
+  --reading: 720px;
+  --header: 64px;
+  --menu-shadow: 0 2px 8px rgba(0, 0, 0, .12); /* the only shadow: an open menu or dropdown */
+}
+
+/* At 640 px and under the headings and stats take their mobile sizes. */
+@media (max-width: 640px) {
+  :root {
+    --display: 600 2.5rem/1.15 var(--font-sans);  /* 40 px */
+    --h1:      600 2rem/1.2 var(--font-sans);     /* 32 px */
+    --h2:      600 1.5rem/1.25 var(--font-sans);  /* 24 px */
+    --h3:      600 1.125rem/1.35 var(--font-sans);/* 18 px */
+    --stat:    600 1.75rem/1.1 var(--font-sans);  /* 28 px */
+  }
 }

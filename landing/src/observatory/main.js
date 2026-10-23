@@ -9,7 +9,7 @@
 // instrument. Presenter mode (the P key or the Present button — never a URL
 // flag) is wired last, once every section exists.
 
-import { initChrome, createLamp } from '../chrome/behaviour/index.js';
+import { initChrome, createLamp } from '../chrome-legacy/behaviour/index.js';
 import { createContext } from './context.js';
 import * as pulse from './instruments/pulse.js';
 import * as agentField from './instruments/agent-field.js';

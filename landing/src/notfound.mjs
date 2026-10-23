@@ -3,7 +3,7 @@
 // built page by edit distance (from the route list the build embeds; omitted
 // when nothing is close), and the way out. The words are the brief's; every
 // figure is a Reading with its source.
-import { band, footer, head, reading, tag, topBar, utc, utcDay } from './chrome/templates.mjs';
+import { band, footer, head, reading, tag, topBar, utc, utcDay } from './chrome-legacy/templates.mjs';
 
 export const SENTENCE = 'Nothing is logged at this address.';
 

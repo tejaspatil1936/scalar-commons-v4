@@ -5,7 +5,7 @@
 // what a browser on scalarnet.io sees today, because the faucet's answers carry
 // no cross-origin permission — and the script opens the form only after a
 // successful read of /health, so the page never promises a form it cannot work.
-import { DISCLAIMER, button, code, escapeHtml, field, footer, head, leader, reading, tag, topBar, utc, utcDay } from './chrome/templates.mjs';
+import { DISCLAIMER, button, code, escapeHtml, field, footer, head, leader, reading, tag, topBar, utc, utcDay } from './chrome-legacy/templates.mjs';
 
 export const FAUCET_ORIGIN = 'https://faucet.scalarnet.io';
 export const HEALTH_URL = `${FAUCET_ORIGIN}/health`;
@@ -37,7 +37,7 @@ export function renderFaucet({ facts, css }) {
   const drip = source('POST', DRIP_URL);
   const slot = (key, label) => reading({ key, label, figure: null, live: true, size: 'l', state: 'connecting', source: health, className: 'fc-title-slot' });
   const live = (key, label, src = health, size = 'm') => reading({ key, label, figure: null, live: true, size, state: 'connecting', source: src });
-  // The chrome's field() has no `disabled` (see src/chrome/requests/phase7.css); the attribute is added here.
+  // The chrome's field() has no `disabled` (see src/chrome-legacy/requests/phase7.css); the attribute is added here.
   const addressField = field({ name: 'address', label: 'Address', placeholder: '' }).replace('<input class="nw-field"', '<input class="nw-field" disabled aria-describedby="fc-why"');
   const send = button({ text: 'Send', type: 'submit', className: 'fc-send', disabled: true }).replace('<button class="nw-button fc-send"', '<button class="nw-button fc-send" aria-describedby="fc-why"');
 

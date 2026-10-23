@@ -6,7 +6,7 @@
 // Reading the script fills with its provenance; the page ships no number of
 // its own, and every sentence on it is the brief's, model.js's or the chain's.
 
-import { DISCLAIMER, band, head, reading, topBar, utc, escapeHtml } from './chrome/templates.mjs';
+import { DISCLAIMER, band, head, reading, topBar, utc, escapeHtml } from './chrome-legacy/templates.mjs';
 import { API_ORIGIN, SOURCES } from './observatory/data.js';
 import { EVENTS } from './pulse/model.js';
 import { EXTRA } from './pulse/strip.js';

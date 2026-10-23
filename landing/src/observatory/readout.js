@@ -7,7 +7,7 @@
 // previous value standing.
 
 import { formatInteger, utcTime } from './format.js';
-import { setFigure as warmFigure } from '../chrome/behaviour/digits.js';
+import { setFigure as warmFigure } from '../chrome-legacy/behaviour/digits.js';
 
 /** Object URLs for raw responses, so a figure can link to the bytes it came from. */
 const snapshots = new WeakMap();

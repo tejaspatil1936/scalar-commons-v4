@@ -95,9 +95,9 @@ function redirect(response: ServerResponse, location: string): void {
  * `./chrome/` beside this file.
  */
 export function defaultChromeDir(): string {
-  const beside = fileURLToPath(new URL('./chrome/', import.meta.url));
+  const beside = fileURLToPath(new URL('./chrome-legacy/', import.meta.url));
   if (existsSync(beside)) return beside;
-  return fileURLToPath(new URL('../src/chrome/', import.meta.url));
+  return fileURLToPath(new URL('../src/chrome-legacy/', import.meta.url));
 }
 
 /** The chrome stylesheet as one file: tokens, then the components, then the print face. */
