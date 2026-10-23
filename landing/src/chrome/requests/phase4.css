@@ -1,0 +1,9 @@
+/* Requests from phase 4 (site: pulse). Each rule is also in src/pulse.css so
+   the page works now; the main thread merges them into chrome.css and
+   deletes this file. */
+
+/* Pulse's feed heading is `LIVE` with the lamp dot but no lamp text: the
+   chrome lights the dot only inside `.nw-lamp[data-lit="true"]`. A dot that
+   can stand alone and be lit by `data-lit` on itself lets a heading, a tag
+   or a legend carry the live state with the same 8 px of filament. */
+.nw-lamp-dot[data-lit="true"] { background: var(--filament); box-shadow: var(--glow); }

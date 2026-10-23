@@ -56,12 +56,12 @@ copyFileSync(here('../runtime-history.json'), join(outDir, 'runtime-history.json
 copyFileSync(here('../public/posture.json'), join(outDir, 'posture.json'));
 copyFileSync(here('../public/status.json'), join(outDir, 'status.json'));
 
-// /pulse: the same design system (the observatory's stylesheet, then the
-// page's own), inlined the same way, written out the same way.
+// /pulse: the Nightwatch chrome (tokens, chrome, print), then the page's own
+// rules, inlined the same way, written out the same way.
 const pulseCss = (
-  await transform(`${observatoryCss()}\n${readFileSync(here('../src/pulse.css'), 'utf8')}`, { loader: 'css', minify: true })
+  await transform(`${chromeCss()}\n${readFileSync(here('../src/pulse.css'), 'utf8')}`, { loader: 'css', minify: true })
 ).code.trim();
-writeFileSync(join(outDir, 'pulse.html'), renderPulse({ css: pulseCss }));
+writeFileSync(join(outDir, 'pulse.html'), renderPulse({ css: pulseCss, facts }));
 writeFileSync(join(outDir, 'pulse.css'), pulseCss);
 
 mkdirSync(join(outDir, 'fonts'), { recursive: true });
