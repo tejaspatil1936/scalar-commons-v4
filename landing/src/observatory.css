@@ -164,11 +164,9 @@ html[data-present] [data-present-screen][data-present-active] { display: block; 
 html[data-present] .section .nw-figure, html[data-present] .hero .nw-figure--xl { font: var(--figure-xl); font-size: 160px; }
 html[data-present] .hero-spine { display: none; }
 
-/* ── motion: colour, opacity, translateY only; nothing idle ───────────────── */
-html.reveal-ready [data-reveal]:not(.is-in) { opacity: 0; transform: translateY(12px); }
-[data-reveal] { transition: opacity var(--t-ui) var(--ease-ui), transform var(--t-ui) var(--ease-ui); }
+/* ── motion: nothing moves on its own except the chain (brief §4); no scroll reveal ── */
 @media (prefers-reduced-motion: reduce) {
-  [data-reveal] { opacity: 1; transform: none; transition: none; }
+  .nw-daybar-seg.is-current .nw-daybar-fill { transition: none; }
 }
 
 /* Hit targets on touch: 40 px for every control (also requested of the chrome in chrome/requests/phase3.css). */

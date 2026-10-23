@@ -508,7 +508,7 @@ test('the river under the first screen: a titled strip at 140 px across the cont
 });
 
 test('sections: a numbered label, the instrument, then the Readings in a row — the Day Bar over Economy, eight points for Validators, four strips for History, the Rail, the commands as code blocks', () => {
-  const sections = [...page.matchAll(/<section id="([a-z]+)" class="section nw-section" data-instrument="([a-z-]+)" data-present-screen data-reveal aria-labelledby="\1-h">([\s\S]*?)<\/section>/g)];
+  const sections = [...page.matchAll(/<section id="([a-z]+)" class="section nw-section" data-instrument="([a-z-]+)" data-present-screen aria-labelledby="\1-h">([\s\S]*?)<\/section>/g)];
   assert.deepEqual(sections.map((m) => m[1]), ['chain', 'economy', 'validators', 'history', 'upgrades', 'verify']);
   const names = ['Chain', 'Economy', 'Validators', 'History', 'Upgrades', 'Verify'];
   sections.forEach(([, id, , body], i) => {
@@ -699,7 +699,7 @@ test('provenance: every Reading wears a stub that tears to a receipt — request
   assert.ok(page.indexOf('<noscript>') < page.indexOf('<main>'));
 });
 
-test('motion: attack and cool on colour, opacity, translateY and shadow only; the reveal once by IntersectionObserver; nothing loops; reduced motion honoured', () => {
+test('motion: attack and cool on colour, opacity, translateY and shadow only; no scroll reveal — nothing moves on its own except the chain; nothing loops; reduced motion honoured', () => {
   assert.ok(!/@keyframes|animation:/.test(allCss), 'this page declares no keyframe animation: the chrome’s loading leader is the one loop');
   for (const [selector, body] of blocks(allCss)) {
     for (const [, value] of body.matchAll(/transition:\s*([^;]+);/g)) {
@@ -707,11 +707,13 @@ test('motion: attack and cool on colour, opacity, translateY and shadow only; th
     }
     for (const [, value] of body.matchAll(/transform:\s*([^;]+);/g)) assert.match(value, /^(?:none|translateY\()/, `${selector} transforms with ${value}`);
   }
-  assert.match(css, /html\.reveal-ready \[data-reveal\]:not\(\.is-in\) \{ opacity: 0; transform: translateY\(12px\); \}/);
-  assert.match(css, /\[data-reveal\] \{ transition: opacity var\(--t-ui\) var\(--ease-ui\), transform var\(--t-ui\) var\(--ease-ui\); \}/);
-  assert.ok(bundle.includes('IntersectionObserver'));
+  // No scroll reveal: brief §4's table has none, and a section hidden until an observer fires is a page that hides itself.
+  assert.ok(!/data-reveal|reveal-ready/.test(page), 'no section waits on a reveal');
+  assert.ok(!/reveal-ready|data-reveal/.test(allCss), 'no reveal rule');
+  assert.ok(!/reveal-ready/.test(bundle), 'the bundle sets no reveal class');
+  assert.ok(!/opacity: 0/.test(css), 'nothing on this page starts invisible');
   const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
-  assert.match(reduced, /\[data-reveal\] \{ opacity: 1; transform: none; transition: none; \}/);
+  assert.match(reduced, /\.nw-daybar-seg\.is-current \.nw-daybar-fill \{ transition: none; \}/);
   // The chrome's warm/cool: the timings are tokens, honoured under reduced motion.
   assert.match(chromeCss, /var\(--t-attack\)/);
   assert.match(chromeCss, /var\(--t-cool\)/);
@@ -722,6 +724,7 @@ test('motion: attack and cool on colour, opacity, translateY and shadow only; th
   const main = readFileSync(new URL('../src/observatory/main.js', import.meta.url), 'utf8');
   assert.match(main, /ctx\.bus\.on\('head', \(\{ number \}\) => handle\.update/);
   assert.match(main, /ctx\.bus\.on\('socket'/);
+  assert.ok(!/reveal/.test(main), 'main.js wires no reveal');
   assert.equal((main.match(/setInterval\(/g) ?? []).length, 1, 'main.js holds the one interval, for the river’s stall check');
   const pulse = readFileSync(new URL('../src/observatory/instruments/pulse.js', import.meta.url), 'utf8');
   assert.match(pulse, /animateArrival/);

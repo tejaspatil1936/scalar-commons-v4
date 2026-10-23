@@ -129,7 +129,7 @@ export function nwReading({ key, label, size = 'm', sub = null, className = '', 
 
 /** One section below the first screen: the number and the name as a label, then its instrument and its Readings. */
 function section({ id, name, number, title, instrument = '', readings = '', notes = '' }) {
-  return `  <section id="${id}" class="section nw-section" data-instrument="${name}" data-present-screen data-reveal aria-labelledby="${id}-h">
+  return `  <section id="${id}" class="section nw-section" data-instrument="${name}" data-present-screen aria-labelledby="${id}-h">
     <div class="nw-frame section-grid">
       <h2 class="nw-label section-head" id="${id}-h">${number} · ${escapeHtml(title)}</h2>
 ${instrument ? `      <div class="instrument">\n${instrument}\n      </div>\n` : ''}${readings ? `      <div class="readings nw-row">\n${readings}\n      </div>\n` : ''}${notes ? `      <div class="notes">\n${notes}\n      </div>\n` : ''}    </div>
