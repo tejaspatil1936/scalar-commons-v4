@@ -1,3 +1,19 @@
+---
+receipts:
+  - claim: 'SessionsPerEra'
+    file: runtime/src/lib.rs
+    line: 816
+  - claim: 'BondingDuration'
+    file: runtime/src/lib.rs
+    line: 817
+  - claim: 'SessionKeys'
+    file: runtime/src/lib.rs
+    line: 170
+  - claim: 'EraPayout = ()'
+    file: runtime/src/lib.rs
+    line: 943
+---
+
 # Testnet tester guide
 
 Everything on this page was performed against the public endpoints, from a throwaway

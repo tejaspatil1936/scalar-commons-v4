@@ -1,3 +1,10 @@
+---
+receipts:
+  - claim: 'pallet-orchestrator::claim_orchestrator'
+    file: pallets/orchestrator/src/lib.rs
+    line: 642
+---
+
 # Token model
 
 CMN is the native token of Scalar Commons. This page covers the unit, the supply cap, the
