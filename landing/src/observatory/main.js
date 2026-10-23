@@ -91,7 +91,7 @@ function lamp(ctx) {
   );
   ctx.bus.on('socket', ({ state }) => {
     handle.update({ open: state === 'open' });
-    // Disconnected: every live stub goes sage with `as of <UTC>`; the next read relights it.
+    // Disconnected: every live stub turns to a record's outline with `as of <UTC>`; the next read relights it.
     if (state !== 'open') ctx.readout.markStale(document);
   });
   return handle;

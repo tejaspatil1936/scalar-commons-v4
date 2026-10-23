@@ -1,7 +1,7 @@
 // The margin Spine: one horizontal tick per block, newest on top, on the
 // chrome's dotted rail. Fed by the page bus — a head as it arrives (live or
 // polled) and the finalized head — and redrawn on nothing else. The newest
-// tick is the one lit thing; ticks at or below the finalized head turn sage;
+// tick is the one lit thing; ticks at or below the finalized head turn rule-2;
 // every tenth block carries its number. A hidden tab adds nothing; on return
 // the next head rebuilds the top of the column.
 //

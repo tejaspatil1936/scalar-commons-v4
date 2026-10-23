@@ -28,7 +28,7 @@ That is enforced, not aspirational:
 | `src/content.mjs` | The words. Prose may contain **no literal digits** — figures appear only as `{{path.into.chain-facts\|filter}}` placeholders. |
 | `src/source-claims.mjs` | Each descriptive claim (`weight starts from the square root of stake`) with the `file` + `snippet` that backs it. Rendered into the page's verification table. |
 | `src/render.mjs` | Pure `facts + content -> HTML`, on the chrome. Throws on an unresolved placeholder, so the build fails rather than ship a figure no node reported; every figure is a Reading, and a Reading without a source throws too. |
-| `src/chrome/` | Nightwatch: `tokens.css` (the single source of every colour, face, size and timing), `chrome.css`, `print.css`, `templates.mjs` and `behaviour/`. Shared verbatim with `docs/` and `explorer/` by `scripts/sync-chrome.mjs`; `test/chrome.test.mjs` holds the copies byte-identical, the CSS token-only and every text pair at WCAG AA. See `src/chrome/README.md`. |
+| `src/chrome/` | The Ledger: `tokens.css` (the single source of every colour, face, size, spacing step and timing — ink on paper, no hue), `chrome.css`, `print.css`, `templates.mjs` and `behaviour/`. Shared verbatim with `docs/` and `explorer/` by `scripts/sync-chrome.mjs`; `test/chrome.test.mjs` holds the copies byte-identical, no colour literal outside the tokens anywhere on the site, every spacing value and font on the scales, and the ink/paper pairs at the brief's contrast. `scripts/check-layout.mjs` holds the rendered pages to the alignment contract with live data. See `src/chrome/README.md`. |
 | `src/notfound.mjs`, `scripts/pages/` | `404.html` and every page built by its own module (`scripts/pages/*.mjs`), after the core build. |
 
 `npm test` (`node --test`) checks that every placeholder resolves, that prose
@@ -166,7 +166,7 @@ and the repository document it comes from; the page prints both.
 
 ## /pulse — the Waterfall
 
-`npm run build` also emits `pulse.html` (the Nightwatch chrome — tokens,
+`npm run build` also emits `pulse.html` (the Ledger chrome — tokens,
 chrome, print — and `src/pulse.css` inlined), `pulse.js` (one esbuild bundle
 of the page's own modules and the observatory's data layer; no canvas or
 animation library) and `pulse.css`; nginx serves it at `/pulse` the same way.
@@ -178,16 +178,16 @@ since, each with its receipt. The Waterfall is a Canvas 2D instrument: every
 registered agent is a column ordered by agent id (4 px wide at 1 px gaps on
 desktop; 1 px, no gap, on mobile), time flows down one row per block (6 px,
 3 px on mobile, about a hundred rows visible), with a block number on the
-left rail every tenth row. Column heads are 1 px ticks — clay for an
-operator-run (`swarm-`) agent, filament with glow for an agent that joined in
-the window. The glyphs come from `model.js`'s event table: an agreement
-opened is a 1 px filament line between the two columns with 3 px end ticks; a
-message sent is a 4×4 cell in the sender's column and a 1 px dim line to the
-recipient; work paid for is a 4×6 bone cell at the provider with the line
-between the two in sage; a dispute opened is a 1 px vermilion line repeated on
-every row until the dispute is resolved; an oracle answer is a 1×12 filament
-tick; an agent joined lights the head. States: live; connecting (the index's
-record at 40 %); index behind (a Band across the top, every glyph sage);
+left rail every tenth row. The Ledger has no hue, so a glyph's kind is its
+shape and its state its ink (colours read from the tokens at draw time): column
+heads are 1 px ticks, printed in ink for an agent that joined in the window; an
+agreement opened is a 1 px ink line between the two columns with end ticks; a
+message sent is a 4×4 ink-3 cell in the sender's column with a 1 px rule-2 line
+to the recipient; work paid for is a 4×6 ink cell at the provider with the line
+between the two in ink-3; a dispute opened is a 1 px dashed line (2 on, 2 off,
+the hatch's language for a line) repeated on every row until the dispute is
+resolved; an oracle answer is a 1×12 tick; an agent joined prints the head. States: live; connecting (the index's
+record at 40 %); index behind (a Band across the top, every glyph rule-2);
 quiet (empty rows keep arriving and the feed says `no agent events in the
 last hour · last at block n`). A new row is born at 60 % and warms to full
 while the rows shift one pitch; under reduced motion rows appear in place;
@@ -200,7 +200,7 @@ a link to the block on the explorer and its age, announced at most once per
 counts `n/m operator-run` from the agents list. The bottom strip holds
 Height, Finalized and Era as Readings, the testnet disclaimer and the
 fullscreen key (F). When the socket is down or the last block is over 30 s
-old, every live stub goes sage with `as of <UTC>` and the figures keep their
+old, every live stub turns to a record's outline with `as of <UTC>` and the figures keep their
 last value. With scripts off a Band says so, dated by the build. The data
 layer is the observatory's: finalized heads over the WebSocket, each
 finalized block's events from `/v1/blocks/<n>/events`, the agents and open

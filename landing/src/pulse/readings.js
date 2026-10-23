@@ -60,7 +60,7 @@ export const asOfText = (at) => `as of ${utc(at) ?? '—'}`;
 
 /**
  * Stalled or disconnected (§4): nothing fades, the figure keeps its last
- * value, and the live stub goes sage with `as of <UTC>` in its receipt —
+ * value, and the live stub turns to a record's outline with `as of <UTC>` in its receipt —
  * the instant the figure was fetched. Lit again, the stub and the receipt
  * come back as they were. A reading that has no value yet is left alone.
  */
@@ -79,7 +79,7 @@ export function setStale(target, stale) {
   }
 }
 
-/** Shows that a figure cannot be had: the slot says so in sage, the stub goes sage, the reason is in the receipt. */
+/** Shows that a figure cannot be had: the slot says so in ink-3, the stub turns to a record's outline, the reason is in the receipt. */
 export function showUnavailable(target, record, reason) {
   if (!target) return;
   const slot = target.querySelector('[data-reading-value]');

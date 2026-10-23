@@ -1,5 +1,5 @@
-// The Day Bar (02 · Economy): the last three settled eras in sage and the
-// current one filling with filament by elapsed blocks, and the "Time to
+// The Day Bar (02 · Economy): the last three settled eras in rule-2 and the
+// current one filling with ink by elapsed blocks, and the "Time to
 // settlement" Reading beside it. Fed by the two era reads the page already
 // makes — /v1/eras/current and /v1/eras — through ctx.watch, so it pauses
 // with a hidden tab and polls on the scheduler's clock, never its own.

@@ -95,7 +95,7 @@ function markState(target, state) {
 
 /**
  * Stalled or disconnected (brief §4): nothing fades, every live stub goes
- * sage with `as of <UTC>` — the figure's own fetch time — and the figure keeps
+ * to a record's outline with `as of <UTC>` — the figure's own fetch time — and the figure keeps
  * its last value until the next read marks it live again.
  */
 export function markStale(root) {
