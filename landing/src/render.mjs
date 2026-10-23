@@ -58,6 +58,14 @@ const blockSeconds = (blocks, facts) => (BigInt(blocks) * BigInt(facts.constants
 const FILTERS = {
   cmn: (value, facts) => formatTokens(value, facts.token.decimals),
   cmnFloor: (value, facts) => formatTokens(value, facts.token.decimals, { truncate: true }),
+  /** Whole tokens in thousands, millions or billions, e.g. 100,000,000,000 → "100 B": a figure that fits a narrow column; the full figure goes in its receipt. */
+  cmnCompact: (value, facts) => {
+    const whole = BigInt(value) / 10n ** BigInt(facts.token.decimals);
+    for (const [step, suffix] of [[1_000_000_000n, 'B'], [1_000_000n, 'M'], [1_000n, 'K']]) {
+      if (whole >= step && whole % step === 0n) return `${groups.format(whole / step)} ${suffix}`;
+    }
+    return groups.format(whole);
+  },
   pct: (value) => formatPercent(value),
   percent: (value) => formatPercent(value),
   commas: (value) => groups.format(BigInt(value)),
@@ -188,7 +196,7 @@ function buildReading(r, facts, { size = 'm', state = 'record', stack = false } 
     sub: r.sub ? text(r.sub, facts) : null,
     size,
     state: r.state ?? state,
-    source: recordSource(facts, r.path ? `${r.path} from the runtime metadata` : null),
+    source: recordSource(facts, r.path ? `${r.full ? `${text(r.full, facts)} · ` : ''}${r.path} from the runtime metadata` : null),
   });
 }
 
@@ -202,7 +210,7 @@ function hero(content, facts) {
       <p class="nw-body">${fill(content.hero.sentence, facts)}</p>
     </div>
     <div class="nw-hero-readings nw-stack">
-${content.hero.readings.map((r) => buildReading(r, facts)).join('\n')}
+${content.hero.readings.map((r) => buildReading(r, facts, { size: 'l' })).join('\n')}
     </div>
   </div>
 </section>`;
@@ -215,20 +223,25 @@ function river(content, facts) {
   const height = 140;
   const pitch = width / blocks.length;
   const max = Math.max(1, ...blocks.map((b) => b.extrinsics));
+  const newest = blocks.length - 1;
   const bars = blocks
     .map((b, i) => {
       const h = Math.max(2, Math.round((b.extrinsics / max) * (height - 28)));
-      return `<rect x="${(i * pitch + pitch / 2 - 1.5).toFixed(1)}" y="${height - 16 - h}" width="3" height="${h}" fill="${b.final ? 'var(--sage)' : 'var(--bone)'}"><title>block ${formatInt(b.number)} · ${b.extrinsics} extrinsics${b.final ? ' · final' : ''}</title></rect>`;
+      return `<rect class="nw-river-bar${i === newest ? ' is-newest' : ''}" x="${(i * pitch + pitch / 2 - 1.5).toFixed(1)}" y="${height - 16 - h}" width="3" height="${h}"><title>block ${formatInt(b.number)} · ${b.extrinsics} extrinsics${b.final ? ' · final' : ''}</title></rect>`;
     })
     .join('');
   const lastFinal = blocks.map((b) => b.final).lastIndexOf(true);
+  const x = (lastFinal + 1) * pitch;
+  // The label sits right of the rule, or left of it when the rule is near the strip's end.
+  const label = lastFinal >= 0 ? `FINAL · ${formatInt(blocks[lastFinal].number)}` : '';
+  const leftOf = x + 8 + label.length * 8 > width;
   const marker =
     lastFinal >= 0
-      ? `<line x1="${((lastFinal + 1) * pitch).toFixed(1)}" x2="${((lastFinal + 1) * pitch).toFixed(1)}" y1="0" y2="${height - 16}" stroke="var(--leader)" stroke-dasharray="1 3"></line><text x="${((lastFinal + 1) * pitch + 8).toFixed(1)}" y="12" class="nw-curve-value">FINAL · ${formatInt(blocks[lastFinal].number)}</text>`
+      ? `<line class="nw-river-final" x1="${x.toFixed(1)}" x2="${x.toFixed(1)}" y1="0" y2="${height - 16}"></line><text x="${(leftOf ? x - 8 : x + 8).toFixed(1)}" y="12"${leftOf ? ' text-anchor="end"' : ''} class="nw-curve-value">${label}</text>`
       : '';
   return `<figure class="nw-frame nw-river" aria-labelledby="river-h">
   <figcaption><h2 class="nw-label" id="river-h">${fill(content.river.title, facts)}</h2></figcaption>
-  <svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="The last ${blocks.length} blocks as built, one bar per block, as tall as its extrinsic count; the final ones in sage">${bars}${marker}</svg>
+  <svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="The last ${blocks.length} blocks as built, one bar per block, as tall as its extrinsic count; the newest in full ink, the final marker a rule">${bars}${marker}</svg>
   <p class="nw-receipt-line nw-river-caption">${fill(content.river.caption, facts)}</p>
 </figure>`;
 }
@@ -236,11 +249,11 @@ function river(content, facts) {
 function manifesto(content, facts) {
   const sqrt = curvePaths(sample(Math.sqrt, 0, 100, 40), { width: 1200, height: 240 });
   return `<section class="nw-section nw-manifesto" aria-labelledby="manifesto-h">
-  <div class="nw-frame nw-sheet-surface nw-manifesto-sheet">
-    <svg class="nw-manifesto-curve" viewBox="0 0 1200 240" preserveAspectRatio="none" aria-hidden="true"><path d="${sqrt.pathLine}" fill="none" stroke="var(--filament)" stroke-width="2"></path></svg>
+  <div class="nw-frame"><div class="nw-manifesto-sheet">
+    <svg class="nw-manifesto-curve" viewBox="0 0 1200 240" preserveAspectRatio="none" aria-hidden="true"><path d="${sqrt.pathLine}" fill="none" stroke="var(--ink)" stroke-width="2"></path></svg>
     <p class="nw-display" id="manifesto-h">${fill(content.manifesto.display, facts)}</p>
     <p class="nw-body">${fill(content.manifesto.text, facts)}</p>
-  </div>
+  </div></div>
 </section>`;
 }
 
@@ -261,7 +274,7 @@ function whatSection(section, facts, number) {
       return `      <li class="nw-what-row">
         <h3 class="nw-h3">${escapeHtml(row.name)}</h3>
         <p class="nw-body">${fill(row.text, facts)}</p>
-        <details class="nw-calls"><summary class="nw-quiet">${formatInt(calls.length)} calls ›</summary><ul class="nw-mono nw-dim">${calls.map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul></details>
+        <details class="nw-calls"><summary class="nw-quiet">${formatInt(calls.length)} ${calls.length === 1 ? 'call' : 'calls'} ›</summary><ul class="nw-mono nw-dim">${calls.map((c) => `<li>${escapeHtml(c)}</li>`).join('')}</ul></details>
       </li>`;
     })
     .join('\n');
@@ -354,7 +367,7 @@ function whereSection(content, facts, number) {
       const shown = link.url.replace(/^https:\/\//, '').replace(/\/$/, '');
       const planned = link.status === 'planned';
       return `      <div data-link="${escapeHtml(link.key)}" data-status="${escapeHtml(link.status)}">
-${reading({ key: `link-${link.key}`, label: text(link.label, facts), figure: shown, size: 'body', stack: true, href: link.url, state: 'record', source: { method: 'LINK', url: link.url, fetchedAt: facts.provenance.fetchedAt, block: facts.provenance.readAtBlock, raw: null } })}
+${reading({ key: `link-${link.key}`, label: text(link.label, facts), figure: shown, size: 's', href: link.url, state: 'record', source: { method: 'LINK', url: link.url, fetchedAt: facts.provenance.fetchedAt, block: facts.provenance.readAtBlock, raw: null } })}
         ${planned ? tag({ state: 'record', text: 'planned' }) : ''}
       </div>`;
     })
@@ -362,7 +375,7 @@ ${reading({ key: `link-${link.key}`, label: text(link.label, facts), figure: sho
   return `<section class="nw-section" id="links" aria-labelledby="links-h">
   <div class="nw-frame">
     ${sectionHead(number, content.where.heading).replace('<h2 class="nw-h2">', '<h2 class="nw-h2" id="links-h">')}
-    <div class="nw-row nw-where">
+    <div class="nw-where">
 ${items}
     </div>
   </div>
