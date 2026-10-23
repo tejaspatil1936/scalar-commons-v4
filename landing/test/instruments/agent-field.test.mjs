@@ -34,7 +34,7 @@ import {
   spanWords,
 } from '../../src/observatory/instruments/agent-field.js';
 import { hourCount, FIGURES } from '../../src/observatory/instruments/last-hour.js';
-import { indexHour, lagNote } from '../../src/observatory/hour.js';
+import { indexHour, lagNote, indexBehind } from '../../src/observatory/hour.js';
 import { field } from '../../src/observatory/data.js';
 
 const agent = (i, extra = {}) => ({
@@ -256,4 +256,12 @@ test('the EmberBank: 24×3 embers in rows of up to 24 at 4 px gaps and a 24 px p
   assert.equal(emberAt(panel, below.x + 1, below.y + 1), panel.cols);
   assert.equal(emberAt(panel, -5, 0), -1);
   assert.equal(emberAt(bankLayout(0, 540), 10, 10), -1);
+});
+
+test('the lamp’s index-behind figure: finalized blocks the index has not synced, from one /v1/status body', () => {
+  const status = (finalizedBlock, syncedHeight, bestBlock = finalizedBlock + 2) => ({ chain: { bestBlock, finalizedBlock }, indexer: { syncedHeight } });
+  assert.equal(indexBehind(status(1_163_379, 1_163_379), field), 0, 'in step: the best block’s finality lag is not the index’s');
+  assert.equal(indexBehind(status(1_163_400, 1_163_379), field), 21);
+  assert.equal(indexBehind(status(1_163_379, 1_163_380), field), 0, 'never negative');
+  assert.throws(() => indexBehind({ chain: {} }, field), 'a body without the heights is an error, not a zero');
 });

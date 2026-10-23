@@ -767,6 +767,9 @@ test('motion: attack and cool on colour, opacity, translateY and shadow only; no
   const main = readFileSync(new URL('../src/observatory/main.js', import.meta.url), 'utf8');
   assert.match(main, /ctx\.bus\.on\('head', \(\{ number \}\) => handle\.update/);
   assert.match(main, /ctx\.bus\.on\('socket'/);
+  // The lamp's index-behind state is fed from the indexer's own /v1/status (an endpoint the indexer serves), shared with the hour's poll.
+  assert.match(main, /ctx\.watch\(\s*'status',[\s\S]*?handle\.update\(\{ indexBehind: indexBehind\(record\.data, ctx\.field\) \}\)/);
+  assert.match(readRepoFile('indexer/src/api.ts'), /path: '\/v1\/status'[\s\S]*?syncedHeight: context\.indexer\.syncedHeight/);
   assert.ok(!/reveal/.test(main), 'main.js wires no reveal');
   assert.equal((main.match(/setInterval\(/g) ?? []).length, 1, 'main.js holds the one interval, for the river’s stall check');
   const pulse = readFileSync(new URL('../src/observatory/instruments/pulse.js', import.meta.url), 'utf8');
