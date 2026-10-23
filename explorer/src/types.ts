@@ -17,6 +17,8 @@ export interface ChainInfo {
   readonly tokenDecimals: number;
   readonly ss58Format: number;
   readonly genesisHash: string;
+  /** The node's version string from `system_version`, read at connect time; absent in a reduced view. */
+  readonly nodeVersion?: string;
 }
 
 /**

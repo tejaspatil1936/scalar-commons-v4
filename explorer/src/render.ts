@@ -69,7 +69,7 @@ import type {
  * no face, no size outside the chrome's scale — and a request for the chrome
  * (landing/src/chrome/README.md, "Asking for a change") rather than a theme.
  */
-const EXPLORER_LAYOUT_CSS = `.x-col-4{grid-column:1/span 4}.x-col-8{grid-column:5/span 8}.x-col-6{grid-column:span 6}@media(max-width:390px){.x-col-4,.x-col-8,.x-col-6{grid-column:1/-1}}.nw-spine--explorer{width:100%}.nw-search{margin-block:24px}.nw-raw-details summary{cursor:pointer;list-style:none}.nw-raw-details[open] summary{margin-bottom:8px}.nw-share{min-width:2px}.nw-section-head .nw-tag{margin-left:auto}.nw-section-head .nw-tag+.nw-tag{margin-left:0}`;
+const EXPLORER_LAYOUT_CSS = `.x-col-4{grid-column:1/span 4}.x-col-8{grid-column:5/span 8}.x-col-6{grid-column:span 6}.x-col-12{grid-column:1/-1}.x-wrap{grid-auto-flow:row;grid-template-columns:repeat(3,minmax(0,1fr));row-gap:32px}.x-wide .nw-reading-figure{max-width:100%}.x-wide .nw-figure,.x-hash{overflow-wrap:anywhere;word-break:break-all}.nw-ledger-row>span{min-width:0;overflow-wrap:anywhere}.nw-ledger-row .nw-tag{white-space:normal}.nw-spine--explorer .nw-spine-tick{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,.6fr) minmax(0,2fr)}.nw-spine--explorer .nw-spine-tick>span{min-width:0}.nw-spine--explorer .nw-spine-tick>span:nth-child(-n+3){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}@media(max-width:390px){.x-col-4,.x-col-8,.x-col-6{grid-column:1/-1}.x-wrap{grid-template-columns:minmax(0,1fr)}.nw-spine--explorer .nw-spine-tick{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,.6fr)}.nw-spine--explorer .nw-spine-tick>span:nth-child(4){display:none}}.nw-spine--explorer{width:100%}.nw-search{margin-block:24px}.nw-raw-details summary{cursor:pointer;list-style:none}.nw-raw-details[open] summary{margin-bottom:8px}.nw-share{min-width:2px}.nw-section-head .nw-tag{margin-left:auto}.nw-section-head .nw-tag+.nw-tag{margin-left:0}`;
 
 /** The source a view carries for a figure it did not read: a leader to nothing, with the reason. */
 const NOT_READ: Source = { method: 'RPC', url: 'not read in this view', fetchedAt: null, block: null, raw: null };
@@ -111,7 +111,7 @@ function layout(title: string, frame: Frame, body: string): string {
   const facts = {
     genesisHash: frame.chain?.genesisHash ?? '—',
     specVersion: frame.chain?.specVersion ?? '—',
-    nodeVersion: frame.chain ? frame.chain.specName : null,
+    nodeVersion: frame.chain?.nodeVersion ?? null,
     builtAt: frame.renderedAt,
     block: frame.best,
   };
@@ -150,13 +150,15 @@ function readingOf<T>(
   label: string,
   read: Read<T> | undefined,
   format: (value: T) => string,
-  options: { size?: 'xl' | 'l' | 'm' | 'body'; href?: string | null; state?: State; figureHtml?: (value: T) => string; sub?: string | null } = {},
+  options: { size?: 'xl' | 'l' | 'm' | 'body'; href?: string | null; state?: State; figureHtml?: (value: T) => string; sub?: string | null; stack?: boolean; wide?: boolean } = {},
 ): string {
+  const stack = options.stack ?? true;
+  const className = options.wide ? 'x-wide' : '';
   if (read === undefined) {
-    return reading({ label, figure: 'unavailable', size: 'body', className: 'is-unavailable nw-sage', sub: 'not read in this view', source: NOT_READ });
+    return reading({ label, figure: 'unavailable', size: 'body', stack, className: `is-unavailable nw-sage ${className}`, sub: 'not read in this view', source: NOT_READ });
   }
   if (read.value === null && read.reason !== null) {
-    return reading({ label, figure: 'unavailable', size: 'body', className: 'is-unavailable nw-sage', sub: read.reason, source: read.source });
+    return reading({ label, figure: 'unavailable', size: 'body', stack, className: `is-unavailable nw-sage ${className}`, sub: read.reason, source: read.source });
   }
   const value = read.value as T;
   return reading({
@@ -167,14 +169,30 @@ function readingOf<T>(
     href: options.href ?? null,
     state: options.state ?? 'record',
     sub: options.sub ?? null,
+    stack,
+    className,
     source: read.source,
   });
 }
 
 /** A reading whose value the view already holds (a header field, a balance), with its source. */
-function fact(label: string, figure: string, source: Source, options: { size?: 'xl' | 'l' | 'm' | 'body'; href?: string | null; figureHtml?: string | null; state?: State } = {}): string {
-  return reading({ label, figure, size: options.size ?? 'body', href: options.href ?? null, figureHtml: options.figureHtml ?? null, state: options.state ?? 'record', source });
+function fact(label: string, figure: string, source: Source, options: { size?: 'xl' | 'l' | 'm' | 'body'; href?: string | null; figureHtml?: string | null; state?: State; stack?: boolean; wide?: boolean } = {}): string {
+  return reading({ label, figure, size: options.size ?? 'body', href: options.href ?? null, figureHtml: options.figureHtml ?? null, state: options.state ?? 'record', stack: options.stack ?? true, className: options.wide ? 'x-wide' : '', source });
 }
+
+/** A hash-bearing Reading: stacked, full-width, wrapping anywhere — a 66-character hash never sets the page's width. */
+const hashFact = (label: string, figure: string, source: Source, options: { href?: string | null; figureHtml?: string | null } = {}): string =>
+  `<div class="x-col-12">${fact(label, figure, source, { ...options, stack: true, wide: true })}</div>`;
+
+/** Whole tokens with grouping, for the figure of a balance; the exact plancks go on the receipt's computation line. */
+const wholeTokens = (plancks: bigint, decimals: number, symbol: string): string => `${formatInt(plancks / 10n ** BigInt(decimals))} ${symbol}`;
+
+/** Clock time `HH:MM:SS` of a block's timestamp for a dense row; the full UTC goes on the title. */
+const clockTime = (timestampMs: bigint | null): string => {
+  const iso = formatTimestamp(timestampMs);
+  const match = /T(\d\d:\d\d:\d\d)/.exec(iso);
+  return match?.[1] ?? iso;
+};
 
 const sourceAt = (method: string, url: string, block: number | null, fetchedAt: string | null, computed: string | null = null): Source => ({
   method,
@@ -272,13 +290,13 @@ export function renderHome(view: HomeView): string {
     placeholder: 'block number, hash, extrinsic, address, agent name',
   })}</form>`;
 
-  const readings = `<div class="nw-row">
+  const readings = `<div class="nw-row x-wrap">
 ${fact('Best', formatInt(view.head.number), headSource, { size: 'm', href: blockPath({ kind: 'number', number: view.head.number }), state: r && r.headAgeMs !== null && r.headAgeMs < 30_000 ? 'live' : 'record' })}
 ${readingOf('Finalized', r?.finalized, (f) => formatInt(f.number), { href: r?.finalized.value ? blockPath({ kind: 'number', number: r.finalized.value.number }) : null })}
 ${readingOf('Era', r?.era, (e) => `${formatInt(e.number)} · ${formatInt(e.elapsed)} / ${formatInt(e.length)}`)}
 ${readingOf('Session', r?.session, (s) => `${formatInt(s.index)} · ${formatInt(s.elapsed)} / ${formatInt(s.length)}`)}
 ${readingOf('Validators', r?.validators, (n) => formatInt(n))}
-${readingOf('Issuance', r?.issuance, balance)}
+${readingOf('Issuance', r === undefined ? undefined : r.issuance.value === null ? r.issuance : { ...r.issuance, source: { ...r.issuance.source, computed: `${r.issuance.value.toString()} plancks · whole ${view.chain.tokenSymbol}` } }, (value) => wholeTokens(value, view.chain.tokenDecimals, view.chain.tokenSymbol))}
 </div>`;
 
   const recent = r?.recent.value ?? [];
@@ -293,9 +311,9 @@ ${readingOf('Issuance', r?.issuance, balance)}
             number: block.number,
             newest: position === 0 && r.headAgeMs !== null && r.headAgeMs < 30_000,
             final: finalizedNumber !== null && block.number <= finalizedNumber,
-            html: `<span class="nw-mono">${blockLinkByNumber(block.number)}</span><span class="nw-label">${escapeHtml(
+            html: `<span class="nw-mono">${blockLinkByNumber(block.number)}</span><span class="nw-mono" title="${escapeHtml(
               block.timestampMs === null ? 'no timestamp' : (utc(formatTimestamp(block.timestampMs)) ?? ''),
-            )}</span><span class="nw-mono">${block.extrinsics.length} ex</span><span class="nw-mono">${
+            )}">${escapeHtml(block.timestampMs === null ? 'no timestamp' : clockTime(block.timestampMs))}</span><span class="nw-mono">${block.extrinsics.length} ex</span><span class="nw-mono">${
               block.author ? addressChip(block.author, { href: accountPath(block.author) }) : '<span class="nw-sage">author —</span>'
             } · ${block.events.length} ev</span>`,
           })),
@@ -376,10 +394,10 @@ export function renderBlock(view: BlockView, chain: ChainInfo): string {
 
   const col = (html: string): string => `<div class="x-col-6">${html}</div>`;
   const receipts = `<div class="nw-grid">
-${col(fact('Hash', view.hash, headerSource, { figureHtml: hashWithCopy(view.hash) }))}
-${col(fact('Parent', view.parentHash, headerSource, { href: blockPath({ kind: 'hash', hash: view.parentHash }) }))}
-${col(fact('State root', view.stateRoot, headerSource))}
-${col(fact('Extrinsics root', view.extrinsicsRoot, headerSource))}
+${hashFact('Hash', view.hash, headerSource, { figureHtml: hashWithCopy(view.hash) })}
+${hashFact('Parent', view.parentHash, headerSource, { href: blockPath({ kind: 'hash', hash: view.parentHash }) })}
+${hashFact('State root', view.stateRoot, headerSource)}
+${hashFact('Extrinsics root', view.extrinsicsRoot, headerSource)}
 ${col(fact('Time', formatTimestamp(view.timestampMs), sourceAt('STORAGE', 'timestamp.now', best, renderedAt)))}
 ${col(readingOf('Author', d?.author, (author) => author ?? 'not in the pre-digest', { size: 'body', figureHtml: (author) => (author ? addressChip(author, { href: accountPath(author) }) : '<span class="nw-sage">not in the pre-digest</span>') }))}
 ${col(readingOf('Slot', d?.slot, (slot) => slot ?? 'not in the pre-digest', { size: 'body' }))}
@@ -449,7 +467,7 @@ export function renderExtrinsic(view: ExtrinsicView, chain: ChainInfo): string {
 
   const receipts = `<div class="nw-grid">
 ${col(fact('Block', formatInt(view.block.number), src, { href: blockPath({ kind: 'number', number: view.block.number }) }))}
-${col(fact('Block hash', view.block.hash, src))}
+${hashFact('Block hash', view.block.hash, src)}
 ${col(fact('Index', `${formatInt(view.block.number)}-${view.index}`, src))}
 ${col(fact('Signer', '', src, { figureHtml: signerCell(view.isSigned, view.signer, 'unsigned (inherent)') }))}
 ${col(fact('Nonce', view.nonce === null ? '—' : String(view.nonce), src))}
@@ -477,7 +495,7 @@ ${col(fact('Length', `${formatInt(view.lengthBytes)} bytes`, src))}
   const next =
     terms === undefined
       ? ''
-      : `${sectionHead('What happens next')}<div class="nw-row">
+      : `${sectionHead('What happens next')}<div class="nw-row x-wrap">
 ${readingOf('Dispute bounty', terms.bountyBps, (bps) => `${bps / 100}% · ${formatInt(bps)} bps`)}
 ${readingOf('Burned on dispute', terms.burnBps, (bps) => `${bps / 100}% · ${formatInt(bps)} bps`)}
 ${readingOf('Settled by', terms.settles, (who) => who, { size: 'body' })}
@@ -485,7 +503,7 @@ ${readingOf('Settled by', terms.settles, (who) => who, { size: 'body' })}
 
   const body = `<section class="nw-section nw-stack">
 <div class="nw-section-head"><h1 class="nw-h2">${escapeHtml(callName)}</h1>${outcomeTag(view.outcome)}${asOfTag(renderedAt)}</div>
-<p class="nw-mono">${hashWithCopy(view.hash)}</p>
+<p class="nw-mono x-hash">${hashWithCopy(view.hash)}</p>
 ${receipts}
 ${callBlock}
 ${sectionHead('Accounts touched', view.accounts.length)}
@@ -517,7 +535,7 @@ export function renderAccount(view: AccountView, chain: ChainInfo): string {
     operator ? tag({ state: 'operator', text: 'OPERATOR-RUN' }) : '',
   ].join('');
 
-  const balances = `<div class="nw-row">
+  const balances = `<div class="nw-row x-wrap">
 ${fact('Free', balance(view.free), balanceSource, { size: 'm' })}
 ${fact('Reserved', balance(view.reserved), balanceSource, { size: 'm' })}
 ${fact('Frozen', balance(view.frozen), balanceSource, { size: 'm' })}
@@ -553,13 +571,13 @@ ${col(readingOf('Validator', roles?.validator, (v) => (v ? 'in session.validator
 
   const body = `<section class="nw-section nw-stack">
 <div class="nw-section-head"><h1 class="nw-h2">${name === null ? escapeHtml(view.address) : agentName({ name, operator })}</h1>${tags}${asOfTag(renderedAt)}</div>
-<p class="nw-mono">${hashWithCopy(view.address)}</p>
+<p class="nw-mono x-hash">${hashWithCopy(view.address)}</p>
 ${balances}
 ${roleReadings}
 <div class="nw-grid">
-${col(fact('Public key', view.publicKey, balanceSource))}
+${hashFact('Public key', view.publicKey, balanceSource)}
 ${col(fact('Nonce', String(view.nonce), balanceSource))}
-${col(fact('State read at', `${formatInt(view.at.number)}`, sourceAt('RPC', 'chain_getHeader', view.at.number, renderedAt), { href: blockPath({ kind: 'number', number: view.at.number }), figureHtml: `${formatInt(view.at.number)} <span class="nw-mono">${escapeHtml(view.at.hash)}</span>` }))}
+${hashFact('State read at', `${formatInt(view.at.number)}`, sourceAt('RPC', 'chain_getHeader', view.at.number, renderedAt), { href: blockPath({ kind: 'number', number: view.at.number }), figureHtml: `${formatInt(view.at.number)} <span class="nw-mono">${escapeHtml(view.at.hash)}</span>` })}
 </div>
 ${sectionHead('History', null, filter([{ href: accountPath(view.address), label: 'all', current: true }, { href: activityPath(view.address), label: 'agent activity' }]))}
 ${historyHtml}
@@ -693,7 +711,7 @@ ${receiptLine}
     const name = a.name;
     const operator = name !== null && name.startsWith('swarm-');
     const stateTags = [a.decayed ? tag({ state: 'record', text: 'DECAYED' }) : '', a.cooldown ? tag({ state: 'record', text: 'COOLDOWN' }) : ''].join('');
-    const readings = `<div class="nw-row">
+    const readings = `<div class="nw-row x-wrap">
 ${readingOf('Earned all time', a.earnedAllTime, (v) => (v === null ? '' : balance(v)))}
 ${readingOf('Earned this era', a.earnedThisEra, (v) => (v === null ? '' : balance(v)))}
 ${readingOf('Agreements open', a.agreementsOpen, (v) => (v === null ? '' : formatInt(v)))}
