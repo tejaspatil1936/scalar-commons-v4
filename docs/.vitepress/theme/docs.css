@@ -170,6 +170,10 @@ body { background: var(--paper); color: var(--ink); font: var(--body); overflow-
 }
 .nw-prose [class*="language-"] pre { margin: 0; white-space: pre; background: none; overflow: visible; }
 .nw-prose [class*="language-"] code { font: var(--mono); color: var(--ink); background: none; padding: 0; display: block; width: fit-content; min-width: 100%; }
+/* Shiki's spans carry token variables only (theme/code-theme.ts): keywords are
+   ink at weight 500 — the one mark code gets — comments and strings ink-2. */
+.nw-prose [class*="language-"] { --nw-code-keyword: var(--ink); }
+.nw-prose [class*="language-"] span[style*="--nw-code-keyword"] { font-weight: 500; }
 .nw-prose [class*="language-"] .line { display: inline; }
 .nw-prose [class*="language-"] .lang, .nw-prose .line-numbers-wrapper { display: none; }
 .nw-prose [class*="language-"] .copy {
