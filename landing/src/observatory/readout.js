@@ -60,6 +60,8 @@ export function provenance(target, record, extra = '') {
  * bytes, and the inline receipt line. The request line is the build's.
  */
 export function receipt(target, record, extra = '') {
+  // The fetch time stays on the reading, so a disconnection can say `as of <UTC>` for this figure.
+  if (record.at) target.dataset.at = new Date(record.at).toISOString();
   const fetched = target.querySelector('[data-fetched]');
   const block = record.block ?? record.atBlock ?? null;
   if (fetched) fetched.textContent = `fetched ${utcTime(record.at)}${Number.isFinite(block) ? ` · block ${formatInteger(block)}` : ''}${extra ? ` · ${extra}` : ''}`;
@@ -81,7 +83,36 @@ export function receipt(target, record, extra = '') {
 /** The Reading's stub takes the figure's state; the loading leader stops. */
 function markState(target, state) {
   target.classList.remove('is-loading');
-  target.querySelector('.nw-stub')?.setAttribute('data-state', state);
+  const stub = target.querySelector('.nw-stub');
+  if (stub) {
+    stub.setAttribute('data-state', state);
+    stub.setAttribute('aria-label', `${state === 'live' ? 'LIVE' : 'RECORD'} · show the source`);
+  }
+  // A fresh read ends the stale state a disconnection put on the figure.
+  target.querySelector('[data-stale]')?.remove();
+}
+
+/**
+ * Stalled or disconnected (brief §4): nothing fades, every live stub goes
+ * sage with `as of <UTC>` — the figure's own fetch time — and the figure keeps
+ * its last value until the next read marks it live again.
+ */
+export function markStale(root) {
+  for (const target of root.querySelectorAll('.nw-reading')) {
+    const stub = target.querySelector('.nw-stub[data-state="live"]');
+    if (!stub || !target.dataset.at) continue;
+    const asOf = `as of ${utcTime(new Date(target.dataset.at))}`;
+    stub.setAttribute('data-state', 'record');
+    stub.setAttribute('aria-label', `${asOf} · show the source`);
+    let sub = target.querySelector('[data-stale]');
+    if (!sub) {
+      sub = document.createElement('p');
+      sub.className = 'nw-reading-sub';
+      sub.setAttribute('data-stale', '');
+      target.querySelector('.nw-reading-line')?.after(sub);
+    }
+    sub.textContent = asOf;
+  }
 }
 
 /**

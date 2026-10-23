@@ -7,7 +7,7 @@
 // (the network graph is fetched only when its switch is turned on); the rest
 // yield to the browser between them so the page never blocks on an
 // instrument. Presenter mode (the P key or the Present button — never a URL
-// flag) and the scroll reveal are wired last, once every section exists.
+// flag) is wired last, once every section exists.
 
 import { initChrome, createLamp } from '../chrome/behaviour/index.js';
 import { createContext } from './context.js';
@@ -15,7 +15,7 @@ import * as pulse from './instruments/pulse.js';
 import * as agentField from './instruments/agent-field.js';
 import * as lastHour from './instruments/last-hour.js';
 import * as messaging from './instruments/messaging.js';
-import * as era from './instruments/era-dial.js';
+import * as daybar from './daybar.js';
 import * as economy from './instruments/economy.js';
 import * as validators from './instruments/validator-ring.js';
 import * as history from './instruments/history.js';
@@ -27,7 +27,6 @@ import * as presenter from './presenter.js';
 import * as hero from './hero.js';
 import * as sources from './sources.js';
 import { STALL_CHECK_MS } from './statusbar.js';
-import { start as startReveal } from './reveal.js';
 
 /** Each instrument and the element it draws into, in boot order. */
 const INSTRUMENTS = [
@@ -35,7 +34,7 @@ const INSTRUMENTS = [
   ['agent-field', agentField, '.hero'],
   ['last-hour', lastHour, '.hero'],
   ['messaging', messaging, '.hero'],
-  ['era', era, '#economy'],
+  ['daybar', daybar, '#economy'],
   ['economy', economy, '#economy'],
   ['validators', validators, '#validators'],
   ['history', history, '#history'],
@@ -73,7 +72,11 @@ function lamp(ctx) {
   ctx.bus.on('head', ({ number }) => handle.update({ block: number }));
   ctx.bus.on('poll', ({ number, finalized }) => handle.update({ block: number, finalized: Number.isFinite(finalized) ? finalized : undefined }));
   ctx.bus.on('finalized', ({ number }) => handle.update({ finalized: number }));
-  ctx.bus.on('socket', ({ state }) => handle.update({ open: state === 'open' }));
+  ctx.bus.on('socket', ({ state }) => {
+    handle.update({ open: state === 'open' });
+    // Disconnected: every live stub goes sage with `as of <UTC>`; the next read relights it.
+    if (state !== 'open') ctx.readout.markStale(document);
+  });
   return handle;
 }
 
@@ -117,26 +120,7 @@ async function boot() {
 
   sources.init(document, ctx);
   presenter.init(document, ctx);
-  reveal(ctx);
 }
 
-/**
- * Sections fade up 12 px once as they are scrolled to — CSS and an
- * IntersectionObserver, no library. Nothing is hidden under reduced motion,
- * and turning it on mid-visit shows everything at once.
- */
-function reveal(ctx) {
-  const running = startReveal({
-    targets: [...document.querySelectorAll('[data-reveal]')],
-    html: document.documentElement,
-    IntersectionObserver: window.IntersectionObserver,
-    reduced: () => ctx.motion.reduced(),
-  });
-  if (running) {
-    ctx.motion.onChange((reduced) => {
-      if (reduced) running.stop();
-    });
-  }
-}
 
 boot();
