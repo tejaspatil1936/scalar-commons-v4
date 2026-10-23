@@ -265,6 +265,35 @@ export interface AccountRoles {
   readonly agentStake: Read<bigint | null>;
   readonly bonded: Read<string | null>;
   readonly validator: Read<boolean>;
+  /**
+   * The agent's heartbeat against the head (`agents.lastHeartbeat`), with the
+   * two runtime constants the decay rule reads (`heartbeatGracePeriod`,
+   * `heartbeatDecayPeriod`); null for an account that is not an agent.
+   * Optional: a view that did not read it renders no DECAYED tag.
+   */
+  readonly heartbeat?: Read<HeartbeatState | null>;
+}
+
+/** `pallets/agents/src/lib.rs` `heartbeat_multiplier`, as read at one head. */
+export interface HeartbeatState {
+  readonly lastHeartbeat: number;
+  readonly best: number;
+  readonly grace: number;
+  readonly decay: number;
+}
+
+/**
+ * The decay rule, line for line with `heartbeat_multiplier`
+ * (pallets/agents/src/lib.rs:1987): 100 % while `best − lastHeartbeat` is
+ * within the grace period, then falling linearly by 90 points over the decay
+ * period to a 10 % floor (integer division, as the pallet does it).
+ */
+export function heartbeatMultiplier(h: HeartbeatState): number {
+  const since = Math.max(0, h.best - h.lastHeartbeat);
+  if (since <= h.grace) return 100;
+  const decay = Math.max(1, h.decay);
+  const over = Math.min(since - h.grace, h.decay);
+  return Math.max(10, 100 - Math.floor((90 * over) / decay));
 }
 
 /** One row of an account's history, from the index's `/v1/accounts/:address/extrinsics`. */
@@ -290,3 +319,10 @@ export interface AgentReadings {
   readonly cooldown: boolean;
   readonly name: string | null;
 }
+
+/**
+ * Decayed: the head is past the last heartbeat by more than
+ * `HeartbeatGracePeriod`, the bound the pallet names as the point "before
+ * heartbeat decay begins" (pallets/agents/src/lib.rs:318). No other threshold.
+ */
+export const heartbeatDecayed = (h: HeartbeatState): boolean => h.best - h.lastHeartbeat > h.grace;

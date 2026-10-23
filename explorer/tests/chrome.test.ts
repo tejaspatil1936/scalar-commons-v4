@@ -7,11 +7,12 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
 import { createIndexerClient, createIndexerReader } from '../src/activity.js';
 import type { ExplorerChain } from '../src/chain.js';
-import { band, curvePaths, reading, tag, topBar, NAV } from '../src/chrome-templates.js';
-import { renderAccount, renderActivity, renderBlock, renderError, renderExtrinsic, renderHome } from '../src/render.js';
+import { band, curve, curvePaths, reading, tag, topBar, NAV } from '../src/chrome-templates.js';
+import { eventGlyphs, figureWidthPx, plainSentence, PULSE_EVENTS, readingRow, readingRows, renderAccount, renderActivity, renderBlock, renderError, renderExtrinsic, renderHome } from '../src/render.js';
 import { parseRoute, searchPath } from '../src/routes.js';
 import { createExplorerServer, readChromeStylesheet, defaultChromeDir } from '../src/server.js';
 import type { AccountView, ActivityView, BlockView, ChainInfo, ExtrinsicView, HomeView, Read } from '../src/types.js';
+import { heartbeatMultiplier } from '../src/types.js';
 
 /**
  * The Nightwatch chrome on the explorer: the shell, the stylesheet and font
@@ -51,9 +52,24 @@ describe('chrome templates', () => {
     expect(html).toContain('fetched 2026-10-23 12:00:00 UTC · block 42');
   });
 
-  it('renders the built tag without a dot, and every other tag with its state dot', () => {
-    expect(tag({ state: 'built', text: 'AS OF 2026-10-23 12:00:00 UTC' })).not.toContain('nw-dot');
+  it('marks every tag with its state mark — the built AS OF tag included — and only a key without one', () => {
+    expect(tag({ state: 'built', text: 'AS OF 2026-10-23 12:00:00 UTC' })).toContain('<span class="nw-dot" aria-hidden="true"></span>AS OF');
     expect(tag({ state: 'dispute', text: 'IN DISPUTE' })).toContain('nw-dot');
+    expect(tag({ state: 'kbd', text: '⌘K' })).not.toContain('nw-dot');
+    expect(tag({ state: 'built', text: 'AS BUILT', detail: '2026-10-23' })).toContain('<span class="nw-tag-detail"> · 2026-10-23</span>');
+  });
+
+  it('wraps Sources and ⌘K in the bar controls, inside the right of the bar', () => {
+    const html = topBar({ current: 'explorer' });
+    expect(html).toMatch(/<div class="nw-bar-right">[\s\S]*<div class="nw-bar-controls">[\s\S]*nw-sources[\s\S]*⌘K<\/span>\s*<\/div>\s*<\/div>/);
+  });
+
+  it('draws curve ticks without hue: a dispute dashed, a slash an X, each with its word', () => {
+    const html = curve({ id: 't', width: 100, height: 40, pathLine: 'M0,0L100,40', pathArea: 'M0,0L100,40L0,40Z', ticks: [{ x: 10, state: 'dispute' }, { x: 50, state: 'slash' }], alt: 'test' });
+    expect(html).toContain('<line class="nw-curve-tick" data-state="dispute" x1="10" x2="10"');
+    expect(html.match(/data-state="slash"/g)?.length).toBe(2);
+    expect(html).toContain('<text class="nw-curve-word" x="16" y="39">dispute</text>');
+    expect(html).toContain('<text class="nw-curve-word" x="56" y="39">slash</text>');
   });
 
   it('links the nav to the site absolutely, with the explorer current and the wordmark to the site root', () => {
@@ -115,7 +131,7 @@ describe('renderHome in the chrome', () => {
     expect(html).toContain('href="/fonts/ibm-plex-mono-latin-400-normal.woff2" as="font"');
     expect(html).toContain('class="nw-bar"');
     expect(html).toContain('data-lamp data-state="normal" data-lit="true"');
-    expect(html).toContain('block 42 · finality 2 · normal');
+    expect(html).toContain('block 42 · fin 2</span>');
     expect(html).toContain('Testnet — the token has no value and the chain may be reset.');
     expect(html).not.toContain('<script');
   });
@@ -129,7 +145,7 @@ describe('renderHome in the chrome', () => {
     expect(html).toContain('AS OF 2026-10-23 12:00:00 UTC');
     expect(html).toContain('7 · 120 / 3,600');
     expect(html).toContain('STORAGE agents.eraNumber · emissions.eraStartBlock · emissions.eraDuration');
-    expect(html).toContain('18,000,000,000 CMN');
+    expect(html).toContain('18,000,000,000<span class="nw-unit">CMN</span>');
     expect(html).toContain('STORAGE session.validators');
   });
 
@@ -300,6 +316,29 @@ describe('renderAccount in the chrome', () => {
     expect(html).toContain('OPERATOR-RUN');
     expect(html).not.toContain('VALIDATOR STASH');
     expect(html).toContain(`data-copy="${ALICE}"`);
+  });
+
+  it('tags DECAYED only once the head is past the last heartbeat by more than the runtime grace period', () => {
+    const at = (lastHeartbeat: number): string =>
+      renderAccount({ ...ACCOUNT, roles: { ...ACCOUNT.roles!, heartbeat: ok({ lastHeartbeat, best: 1_000, grace: 100, decay: 900 }, 'agents.lastHeartbeat · agents.heartbeatGracePeriod · agents.heartbeatDecayPeriod') } }, CHAIN);
+    expect(html).not.toContain('DECAYED');
+    // Exactly at the grace period the multiplier is still 100 %.
+    expect(at(900)).not.toContain('>DECAYED<');
+    expect(at(900)).toContain('multiplier 100 %');
+    const decayed = at(899);
+    expect(decayed).toContain('<span class="nw-dot" aria-hidden="true"></span>DECAYED</span>');
+    expect(decayed).toContain('best 1000 − 899 = 101 blocks · grace 100 · decay 900 · multiplier 100 %');
+    // Far past grace + decay the multiplier sits on its 10 % floor.
+    expect(at(0)).toContain('multiplier 10 %');
+    expect(at(0)).toContain('STORAGE agents.lastHeartbeat · agents.heartbeatGracePeriod · agents.heartbeatDecayPeriod');
+  });
+
+  it('computes the heartbeat multiplier as the pallet does (100 within grace, linear to a 10 % floor)', () => {
+    expect(heartbeatMultiplier({ lastHeartbeat: 0, best: 100, grace: 100, decay: 900 })).toBe(100);
+    expect(heartbeatMultiplier({ lastHeartbeat: 0, best: 101, grace: 100, decay: 900 })).toBe(100);
+    expect(heartbeatMultiplier({ lastHeartbeat: 0, best: 110, grace: 100, decay: 900 })).toBe(99);
+    expect(heartbeatMultiplier({ lastHeartbeat: 0, best: 550, grace: 100, decay: 900 })).toBe(55);
+    expect(heartbeatMultiplier({ lastHeartbeat: 0, best: 5_000, grace: 100, decay: 900 })).toBe(10);
   });
 
   it('renders four balance readings, the total derived with its computation named', () => {
@@ -497,20 +536,45 @@ describe('the chrome over HTTP', () => {
 });
 
 describe('layout faults seen at 1440 px against the public node', () => {
-  it('renders the six home readings stacked in a wrapping row, and issuance as whole CMN', () => {
+  it('renders the six home readings as two .nw-row rows of three (one figure size a row), issuance as whole CMN with the unit at label size', () => {
     const html = renderHome(HOME);
-    expect(html).toContain('<div class="nw-row x-wrap">');
+    const rows = html.match(/<div class="nw-row"[^>]*>/g) ?? [];
+    expect(rows.length).toBe(2);
+    expect(html).not.toContain('nw-row x-wrap');
     expect(html.match(/nw-reading nw-reading--stack/g)?.length).toBeGreaterThanOrEqual(6);
-    expect(html).toContain('18,000,000,000 CMN');
+    expect(html).toContain('18,000,000,000<span class="nw-unit">CMN</span>');
     expect(html).toContain('18000000000000000000000 plancks · whole CMN');
-    expect(html).toMatch(/\.x-wrap\{grid-auto-flow:row;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
   });
 
-  it('prints the spine row time as HH:MM:SS with the full UTC on the title, and sizes the spine columns to fit', () => {
+  it('steps a row down at render when a figure would spill its column (Plex Mono is 0.6 em a glyph)', () => {
+    expect(readingRow(['<span data-reading-value>1,163,615</span>', '<span data-reading-value>1,163,613</span>', '<span data-reading-value>172 · 311 / 3,600</span>'])).toBe(
+      '<div class="nw-row">\n<span data-reading-value>1,163,615</span>\n<span data-reading-value>1,163,613</span>\n<span data-reading-value>172 · 311 / 3,600</span>\n</div>',
+    );
+    const wide = ['1,099.999891842778', '0', '0', '1,099.999891842778'].map((f) => `<span data-reading-value>${f}<span class="nw-unit">CMN</span></span>`);
+    expect(readingRow(wide)).toContain('<div class="nw-row" data-step="1">');
+    // 18 glyphs at 28 px is 302 px, more than a quarter of the 1,200 px frame (282 px).
+    expect(figureWidthPx('1,099.999891842778', null, 'm')).toBeCloseTo(18 * 16.8 + 28);
+    // Two in a row on a phone sit at --figure-m; a 21-glyph balance spills the 350 px column and drops to --figure-s.
+    expect(readingRow(['1,000,000.12345678901', '0'].map((f) => `<span data-reading-value>${f}</span>`))).toContain('data-step-m="1"');
+  });
+
+  it('splits Readings into rows of half as many when a figure spills even a step down, never cutting a figure', () => {
+    const fig = (f: string): string => `<span data-reading-value>${f}<span class="nw-unit">CMN</span></span>`;
+    // 22 glyphs at --figure-s with the unit and stub is 348 px: over a quarter of the frame (282 px).
+    const html = readingRows(['995,008,924.86145069865', '170', '10,000', '995,009,094.86145069865'].map(fig));
+    expect(html.match(/<div class="nw-row"/g)?.length).toBe(2);
+    expect(html.startsWith('<div class="x-rows">')).toBe(true);
+    // Short figures stay in one row of four.
+    expect(readingRows(['1,000', '0', '0', '1,000'].map(fig)).match(/<div class="nw-row"/g)?.length).toBe(1);
+  });
+
+  it('prints the spine row time as HH:MM:SS with the full UTC on the title, and never truncates the block number', () => {
     const html = renderHome(HOME);
     expect(html).toContain('title="2026-08-18 21:01:00 UTC">21:01:00</span>');
-    expect(html).toContain('.nw-spine--explorer .nw-spine-tick{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,.6fr) minmax(0,2fr)}');
-    expect(html).toContain('.nw-spine--explorer .nw-spine-tick>span:nth-child(4){display:none}');
+    // Number, time and extrinsic count at their full width; the author takes what is left (ellipsis); the event column keeps its count.
+    expect(html).toContain('.nw-spine--explorer .nw-spine-tick{grid-template-columns:max-content max-content max-content minmax(0,1fr) max-content;column-gap:var(--s-3)}');
+    expect(html).toContain('.nw-spine--explorer .nw-spine-tick>span{min-width:0;white-space:nowrap}');
+    expect(html).toContain('<div class="x-col-4">');
   });
 
   it('renders every hash-bearing reading stacked and full-width so a 66-character hash never sets the page width', () => {
@@ -518,7 +582,7 @@ describe('layout faults seen at 1440 px against the public node', () => {
     for (const label of ['Hash', 'Parent', 'State root', 'Extrinsics root']) {
       expect(block).toMatch(new RegExp(`<div class="x-col-12"><div class="nw-reading nw-reading--stack x-wide">\\s*<div class="nw-reading-line"><span class="nw-label">${label}</span>`));
     }
-    expect(block).toContain('.x-wide .nw-figure,.x-hash{overflow-wrap:anywhere;word-break:break-all}');
+    expect(block).toContain('.nw-reading.x-wide .nw-reading-figure .nw-figure,.x-hash{white-space:normal;overflow-wrap:anywhere;word-break:break-all}');
     expect(renderExtrinsic(EXTRINSIC, CHAIN)).toContain('<p class="nw-mono x-hash">');
     expect(renderAccount(ACCOUNT, CHAIN)).toMatch(/<div class="x-col-12"><div class="nw-reading nw-reading--stack x-wide">\s*<div class="nw-reading-line"><span class="nw-label">Public key<\/span>/);
   });
@@ -528,5 +592,61 @@ describe('layout faults seen at 1440 px against the public node', () => {
     expect(html).toContain('spec 309 · node 4.0.0-5f5e3c9439f');
     expect(renderHome(HOME)).toContain('spec 309 · node —');
     expect(renderHome(HOME)).not.toContain('node scalar-commons');
+  });
+});
+
+describe("the Spine's event column: the pulse model's kinds as glyphs", () => {
+  it('mirrors landing/src/pulse/model.js EVENTS row for row (section, method, kind, word)', () => {
+    const model = readFileSync(fileURLToPath(new URL('../../landing/src/pulse/model.js', import.meta.url)), 'utf8');
+    const rows = [...model.matchAll(/\{ section: '([^']+)', method: '([^']+)', kind: '([^']+)', lifetimeMs: \d+, describe: '([^']+)' \}/g)].map((m) => ({ section: m[1], method: m[2], kind: m[3], describe: m[4] }));
+    expect(rows.length).toBe(8);
+    expect(PULSE_EVENTS).toEqual(rows);
+  });
+
+  it('draws one glyph per kind present, in the legend order, named by the model word; resolved and system events draw none', () => {
+    const html = eventGlyphs([
+      { section: 'system', method: 'ExtrinsicSuccess' },
+      { section: 'oracle', method: 'BatchResponseSubmitted' },
+      { section: 'escrow', method: 'AgreementCreated' },
+      { section: 'escrow', method: 'AgreementCreated' },
+      { section: 'escrow', method: 'DisputeResolved' },
+    ]);
+    expect(html).toBe(
+      '<span class="x-glyph" data-kind="agreement" role="img" aria-label="agreement opened" title="agreement opened"></span>' +
+        '<span class="x-glyph" data-kind="oracle" role="img" aria-label="oracle answer" title="oracle answer"></span>',
+    );
+    expect(eventGlyphs([{ section: 'system', method: 'ExtrinsicSuccess' }])).toBe('');
+  });
+
+  it('prints the glyphs before the event count in the home Spine, in ink and rule tokens only', () => {
+    const html = renderHome(HOME);
+    expect(html).toMatch(/\.x-glyph\[data-kind="dispute"\]::before\{[^}]*border-top:1px dashed var\(--ink\)\}/);
+    expect(html).not.toMatch(/\.x-glyph[^{]*\{[^}]*(?:#|rgb|hsl)/);
+  });
+});
+
+describe('the plain extrinsic sentence', () => {
+  const ev = (section: string, method: string, fields: Record<string, string>) => ({ index: 0, section, method, fields: Object.entries(fields).map(([name, value]) => ({ name, value })) });
+
+  it("says what happened in the pulse model's words, from the decoded event fields", () => {
+    const html = plainSentence([ev('system', 'ExtrinsicSuccess', {}), ev('escrow', 'AgreementCreated', { buyer: ALICE, provider: BOB, seq: '3', amount: '12,500,000,000,000' })], CHAIN);
+    expect(html).toContain(' opened an agreement with ');
+    expect(html).toContain(`href="/account/${ALICE}"`);
+    expect(html).toContain(`href="/account/${BOB}"`);
+    expect(html).toMatch(/ for 12\.5 CMN$/);
+    expect(plainSentence([ev('oracle', 'BatchResponseSubmitted', { agent: BOB, accepted: '1', skipped: '0' })], CHAIN)).toMatch(/ answered 1 oracle question$/);
+    expect(plainSentence([ev('agents', 'AgentRegistered', { who: ALICE, stake: '1', fee: '0' })], CHAIN)).toMatch(/ joined the network$/);
+  });
+
+  it('prints no sentence for an extrinsic with none of those events, or a field that did not decode as expected', () => {
+    expect(plainSentence([ev('system', 'ExtrinsicSuccess', {})], CHAIN)).toBeNull();
+    expect(plainSentence([ev('escrow', 'AgreementCreated', { buyer: ALICE, provider: BOB, amount: '12.5 kCMN' })], CHAIN)).toBeNull();
+    expect(plainSentence([ev('escrow', 'DisputeOpened', { buyer: '0', provider: BOB })], CHAIN)).toBeNull();
+    expect(renderExtrinsic(EXTRINSIC, CHAIN)).not.toContain('data-sentence');
+  });
+
+  it('puts the sentence under the hash on the extrinsic page', () => {
+    const html = renderExtrinsic({ ...EXTRINSIC, outcome: { kind: 'success' }, events: [ev('escrow', 'DisputeOpened', { buyer: ALICE, provider: BOB, seq: '1', request_id: '0x00' })] }, CHAIN);
+    expect(html).toMatch(/<p class="nw-mono x-hash">[\s\S]*<\/p>\n<p class="nw-body" data-sentence>.* disputed a delivery from .*\.<\/p>/);
   });
 });

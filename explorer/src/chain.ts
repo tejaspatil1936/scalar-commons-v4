@@ -718,6 +718,26 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
           const validators = fromMetadata(apiAt.query.session?.validators, 'runtime exposes no session.validators storage');
           return collectAccounts((await validators()) as unknown as Codec[], ss58Format).includes(normalized);
         }),
+        heartbeat: await attempt(
+          source('STORAGE', 'agents.lastHeartbeat · agents.heartbeatGracePeriod · agents.heartbeatDecayPeriod', headNumber, at),
+          async () => {
+            // Only an agent has a heartbeat: lastHeartbeat is a ValueQuery, so a
+            // non-agent reads 0, which would look like a decayed agent.
+            const stake = fromMetadata(apiAt.query.agents?.agentStake, 'runtime exposes no agents.agentStake storage');
+            const metadata = fromMetadata(apiAt.query.agents?.agentMetadata, 'runtime exposes no agents.agentMetadata storage');
+            const staked = optionValue(await stake(normalized));
+            const meta = optionValue(await metadata(normalized));
+            const isAgent = (staked !== null && (toBigInt(staked) ?? 0n) > 0n) || meta !== null;
+            if (!isAgent) return null;
+            const last = fromMetadata(apiAt.query.agents?.lastHeartbeat, 'runtime exposes no agents.lastHeartbeat storage');
+            return {
+              lastHeartbeat: toNumber(await last(normalized)),
+              best: headNumber,
+              grace: toNumber(fromMetadata(api.consts.agents?.heartbeatGracePeriod, 'runtime exposes no agents.heartbeatGracePeriod constant')),
+              decay: toNumber(fromMetadata(api.consts.agents?.heartbeatDecayPeriod, 'runtime exposes no agents.heartbeatDecayPeriod constant')),
+            };
+          },
+        ),
       };
 
       return {

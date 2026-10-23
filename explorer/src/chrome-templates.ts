@@ -51,7 +51,7 @@ export const STATE_WORDS: Readonly<Record<string, string>> = {
   built: 'AS BUILT',
 };
 
-export type State = 'live' | 'record' | 'sealed' | 'connecting' | 'dispute' | 'slashed' | 'operator' | 'built';
+export type State = 'live' | 'record' | 'sealed' | 'connecting' | 'dispute' | 'slashed' | 'operator' | 'built' | 'kbd';
 
 type AttrValue = string | number | boolean | null | undefined;
 
@@ -121,7 +121,7 @@ export interface ReadingOptions {
   readonly label: string;
   /** Already formatted; null renders an empty figure (a leader to nothing). */
   readonly figure?: string | null;
-  readonly size?: 'xl' | 'l' | 'm' | 'body';
+  readonly size?: 'xl' | 'l' | 'm' | 's' | 'body';
   readonly state?: State;
   readonly sealed?: boolean;
   readonly source: Source;
@@ -139,7 +139,7 @@ export interface ReadingOptions {
 /**
  * The Reading. `figure` is a string already formatted (or null when the read
  * failed or the index does not carry the field — a leader to nothing), `size`
- * one of xl | l | m | body, `state` the stub's state, `source` the origin —
+ * one of xl | l | m | s | body (inside an `.nw-row` the row's count sets it), `state` the stub's state, `source` the origin —
  * required. `sub` is the optional sub-line, `href` wraps the figure in a link.
  */
 export function reading({
@@ -181,9 +181,16 @@ export function reading({
 </div>`;
 }
 
-export function tag({ state = 'record', text }: { state?: State; text: string }): string {
-  const dot = state === 'built' ? '' : '<span class="nw-dot" aria-hidden="true"></span>';
-  return `<span class="nw-tag" data-state="${escapeHtml(state)}">${dot}${escapeHtml(text)}</span>`;
+/**
+ * A tag: the state word on paper-2, with the stub's mark before it (solid,
+ * outline, hatch, X, double ring) for every state but a key — AS BUILT and
+ * AS OF included, so a state is never carried by the word's colour alone.
+ */
+export function tag({ state = 'record', text, detail = null }: { state?: State; text: string; detail?: string | null }): string {
+  const dot = state === 'kbd' ? '' : '<span class="nw-dot" aria-hidden="true"></span>';
+  // The detail (a time, a block) is the part a narrow bar may hide; the word stays.
+  const tail = detail === null ? '' : `<span class="nw-tag-detail"> · ${escapeHtml(detail)}</span>`;
+  return `<span class="nw-tag" data-state="${escapeHtml(state)}">${dot}${escapeHtml(text)}${tail}</span>`;
 }
 
 /** The lamp, unlit and connecting — the landing's form, where the client fills it. */
@@ -192,10 +199,10 @@ export function lamp({ rpc = RPC_WSS }: { rpc?: string } = {}): string {
 }
 
 /**
- * The lamp as the server fills it at request time: `block n · finality k ·
- * normal`. Lit only when the newest block was authored under 30 s before the
- * render (the lamp rule); otherwise unlit, and `stalled` names the last block's
- * time. `alarmHtml` is the pre-escaped vermilion part (index −n).
+ * The lamp as the server fills it at request time: `block n · fin k`. Lit
+ * only when the newest block was authored under 30 s before the render (the
+ * lamp rule); otherwise unlit, and `stalled` names the last block's time.
+ * `alarm` is the part printed in ink at weight 500 (index −n).
  */
 export function lampFilled({
   state,
@@ -413,9 +420,9 @@ export function spine({
 
 /**
  * The Curve, as an SVG string. The explorer has no d3, so `pathLine` and
- * `pathArea` are computed by `curvePaths` below (straight segments). The
- * pooled light's gradient is the site's one permitted gradient; its stop
- * colour is the filament token's value, as in the landing's template.
+ * `pathArea` are computed by `curvePaths` below (straight segments). In the
+ * Ledger the pool beneath the line is a flat ink tint (no gradient), drawn by
+ * chrome.css, as in the landing's template.
  */
 export function curve({
   id,
@@ -446,11 +453,18 @@ export function curve({
         `<text class="nw-curve-value" x="0" y="${12 + i * ((height - 12) / Math.max(1, labels.length - 1))}">${escapeHtml(l)}</text>`,
     )
     .join('');
+  // Event ticks on the baseline: a dispute is a dashed tick, a slash an X,
+  // each with its word beside it — the state is never a colour.
   const tickHtml = ticks
-    .map(
-      (t) =>
-        `<line class="nw-curve-tick" data-state="${escapeHtml(t.state ?? 'settled')}" x1="${t.x}" x2="${t.x}" y1="${height - 6}" y2="${height}"></line>`,
-    )
+    .map((t) => {
+      const st = escapeHtml(t.state ?? 'settled');
+      const word = t.state === 'dispute' ? 'dispute' : t.state === 'slash' ? 'slash' : null;
+      const mark =
+        t.state === 'slash'
+          ? `<line class="nw-curve-tick" data-state="slash" x1="${t.x - 3}" x2="${t.x + 3}" y1="${height - 6}" y2="${height}"></line><line class="nw-curve-tick" data-state="slash" x1="${t.x - 3}" x2="${t.x + 3}" y1="${height}" y2="${height - 6}"></line>`
+          : `<line class="nw-curve-tick" data-state="${st}" x1="${t.x}" x2="${t.x}" y1="${height - 6}" y2="${height}"></line>`;
+      return word ? `${mark}<text class="nw-curve-word" x="${t.x + 6}" y="${height - 1}">${word}</text>` : mark;
+    })
     .join('');
   const endHtml = end ? `<circle class="nw-curve-end" cx="${end[0]}" cy="${end[1]}" r="3"></circle>` : '';
   const tableHtml = table
@@ -511,9 +525,10 @@ export function topBar({
     <button type="button" class="nw-menu nw-label" aria-expanded="false" aria-controls="nw-nav" data-menu><span>${escapeHtml(currentLabel)}</span><span>Menu</span></button>
     <div class="nw-bar-right">
       ${lampHtml ?? lamp()}
-      ${sourcesSwitch()}
-      <span class="nw-tag nw-tag--kbd" data-palette-open role="button" tabindex="0">⌘K</span>
-
+      <div class="nw-bar-controls">
+        ${sourcesSwitch()}
+        <span class="nw-tag nw-tag--kbd" data-palette-open role="button" tabindex="0">⌘K</span>
+      </div>
     </div>
   </div>
   <nav class="nw-nav-row nw-label" aria-label="Site, small screens">${items}</nav>
