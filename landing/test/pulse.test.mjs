@@ -1,4 +1,4 @@
-// /pulse as built, in the Nightwatch chrome: the page, its one script, its
+// /pulse as built, in the Ledger chrome: the page, its one script, its
 // stylesheet, and the rules the observatory's modules are held to, applied
 // to the pulse's modules the same way. The build runs once into a temporary
 // directory.

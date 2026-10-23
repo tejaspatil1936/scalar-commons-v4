@@ -25,7 +25,7 @@ const text = (markup) => markup.replace(/<[^>]+>/g, ' ');
 test('the frame: chrome bar with Faucet current, eyebrow, the one line, the footer disclaimer', () => {
   assert.match(html, /<title>Faucet — Scalar Commons<\/title>/);
   assert.match(html, /<a href="faucet" aria-current="page">Faucet<\/a>/);
-  assert.ok(html.includes(`data-state="operator">`) && html.includes(EYEBROW), 'the clay-dot eyebrow');
+  assert.ok(html.includes(`data-state="operator">`) && html.includes(EYEBROW), 'the operator-run eyebrow (a double-ring mark)');
   assert.ok(html.includes(escapeHtml(LINE)));
   assert.ok(html.includes(DISCLAIMER));
   assert.ok(html.includes(`spec ${facts.provenance.specVersion}`), 'footer facts from chain-facts.json');
