@@ -26,6 +26,10 @@ const CONSTANT_PALLETS = [
   'autoParams',
   'orchestrator',
   'constitution',
+  // Runtime 309 added the messages pallet; its constants (fees, size caps)
+  // are the home page's to quote, so it joins the list. Absent on an older
+  // runtime, it is skipped like any other missing pallet.
+  'messages',
   'balances',
   'babe',
   'timestamp',

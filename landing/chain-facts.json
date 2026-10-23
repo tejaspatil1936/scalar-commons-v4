@@ -2,16 +2,16 @@
   "provenance": {
     "source": "live-runtime-metadata",
     "note": "Read from a running node with @polkadot/api; see scripts/fetch-chain-facts.mjs.",
-    "rpc": "ws://127.0.0.1:9944",
+    "rpc": "wss://rpc.scalarnet.io",
     "chain": "Scalar Commons Local Testnet",
     "specName": "scalar-commons",
-    "specVersion": 304,
+    "specVersion": 309,
     "metadataVersion": 15,
     "genesisHash": "0xff6882b49ad61dd3128a6e834b4f81704a3824ce358f2f69fe765ca07cf803d1",
     "ss58Format": 42,
-    "readAtBlock": 433638,
-    "readAtBlockHash": "0x5400148f53befa5466e24058109062ce8a37d2af9add621c9c70cc72c1556a2a",
-    "fetchedAt": "2026-09-02T20:07:42.223Z"
+    "readAtBlock": 1157819,
+    "readAtBlockHash": "0xaeb668ef07bd5b3c66406df76d48500efd40106fa7dacdd2c349b2f4efdc031a",
+    "fetchedAt": "2026-10-23T05:48:45.503Z"
   },
   "token": {
     "symbol": "CMN",
@@ -81,6 +81,7 @@
       "initialBeta": "5000",
       "initialFloorBps": "1000",
       "initialMinScoreEligible": "5",
+      "initialEmissionVolumeAlphaBps": "10000",
       "ringRatioThreshold": "3000",
       "oracleParticipationLowThreshold": "4000",
       "oracleParticipationHighThreshold": "9000",
@@ -103,6 +104,12 @@
       "minRegistrationBurn": "10000000000000",
       "capWarningBuffer": "1000000000000000000000"
     },
+    "messages": {
+      "baseFee": "20000000000",
+      "perByteFee": "100000000",
+      "maxPerBlock": "4",
+      "maxPayloadLen": "2048"
+    },
     "balances": {
       "existentialDeposit": "10000000000",
       "maxLocks": "50",
@@ -120,12 +127,12 @@
     }
   },
   "state": {
-    "validators": 5,
-    "registeredAgents": 3,
-    "totalIssuancePlancks": "6047320283354253295031",
-    "eraNumber": 0,
-    "lastSettledEra": null,
-    "alpha": 1500,
+    "validators": 8,
+    "registeredAgents": 204,
+    "totalIssuancePlancks": "6054836317056241560214",
+    "eraNumber": 171,
+    "lastSettledEra": "170",
+    "alpha": 8000,
     "beta": 5000,
     "floorBps": 1000,
     "completionFeeBps": 25
@@ -361,15 +368,19 @@
       "index": 26,
       "calls": [
         "addStake",
+        "clearMessagingKey",
         "completeUnstake",
         "delegateVoting",
         "executeSlash",
         "heartbeat",
+        "linkFundingLineage",
         "recordGovVote",
         "register",
         "requestUnstake",
         "setCapability",
+        "setMessagingKey",
         "slashAppeal",
+        "unlinkFundingLineage",
         "updateMetadata"
       ]
     },
@@ -377,12 +388,16 @@
       "name": "escrow",
       "index": 27,
       "calls": [
+        "acceptAgreement",
+        "cancelPending",
         "claimRefund",
         "confirmDelivery",
         "createAgreement",
         "disputeDelivery",
+        "expireAgreement",
         "extendDeadline",
-        "recordDelivery"
+        "recordDelivery",
+        "rejectAgreement"
       ]
     },
     {
@@ -574,6 +589,13 @@
         "refundSubmissionDeposit",
         "setMetadata",
         "submit"
+      ]
+    },
+    {
+      "name": "messages",
+      "index": 42,
+      "calls": [
+        "send"
       ]
     },
     {
