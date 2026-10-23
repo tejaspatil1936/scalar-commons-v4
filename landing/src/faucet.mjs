@@ -5,7 +5,7 @@
 // what a browser on scalarnet.io sees today, because the faucet's answers carry
 // no cross-origin permission — and the script opens the form only after a
 // successful read of /health, so the page never promises a form it cannot work.
-import { DISCLAIMER, button, code, escapeHtml, field, footer, head, leader, reading, tag, topBar } from './chrome/templates.mjs';
+import { DISCLAIMER, button, code, escapeHtml, field, footer, head, leader, reading, tag, topBar, utc } from './chrome/templates.mjs';
 
 export const FAUCET_ORIGIN = 'https://faucet.scalarnet.io';
 export const HEALTH_URL = `${FAUCET_ORIGIN}/health`;
@@ -54,7 +54,7 @@ ${head({
 })}
 </head>
 <body>
-${topBar({ current: 'faucet' })}
+${topBar({ current: 'faucet', lampHtml: tag({ state: 'built', text: `AS BUILT · ${utc(facts.provenance.fetchedAt)}` }) })}
 <main class="nw-frame fc" aria-labelledby="faucet-h" data-faucet data-health="${escapeHtml(HEALTH_URL)}" data-drip="${escapeHtml(DRIP_URL)}" data-balance="${escapeHtml(`${FAUCET_ORIGIN}/balance/`)}" data-prefix="${escapeHtml(p.ss58Format)}" data-refusal="${escapeHtml(refusal(p.ss58Format))}" data-state="closed">
   <section class="nw-section fc-head">
     <span class="nw-eyebrow">${tag({ state: 'operator', text: EYEBROW })}</span>

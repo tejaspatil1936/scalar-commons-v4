@@ -142,7 +142,7 @@ button, input { font: inherit; color: inherit; }
 
 /* ── reading: label · leader · figure · stub · receipt ─────────────────────── */
 .nw-reading { position: relative; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.nw-reading-line { display: flex; align-items: baseline; gap: 0; min-width: 0; }
+.nw-reading-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px 0; min-width: 0; }
 .nw-reading-line .nw-label { flex: none; }
 .nw-leader {
   flex: 1 1 24px; min-width: 24px; height: 2px; margin-inline: 12px;
@@ -162,6 +162,8 @@ button, input { font: inherit; color: inherit; }
 .nw-reading:hover { background: var(--pine-1); box-shadow: 0 0 0 12px var(--pine-1); transition: box-shadow var(--t-ui) var(--ease-ui); }
 .nw-reading-figure { display: inline-flex; align-items: baseline; gap: 8px; flex: none; min-width: 0; }
 .nw-reading-figure .nw-figure { overflow-wrap: anywhere; }
+/* A number never breaks inside itself: a figure that does not fit drops, whole, to the next line. */
+.nw-reading-figure .nw-figure--xl, .nw-reading-figure .nw-figure--l, .nw-reading-figure .nw-figure--m { overflow-wrap: normal; white-space: nowrap; }
 .nw-figure .nw-unit { font: var(--label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--bone-dim); margin-left: 8px; }
 .nw-reading-sub { font: var(--small); color: var(--bone-dim); }
 .nw-reading--stack .nw-reading-line { flex-direction: column; align-items: flex-start; gap: 8px; }

@@ -426,7 +426,7 @@ export function renderPage({ facts, content, sourceClaims, builtAt = null }) {
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-${topBar({ current: 'home' })}
+${topBar({ current: 'home', lampHtml: tag({ state: 'built', text: `AS BUILT · ${utc(facts_.builtAt)}` }) })}
 <main>
 ${hero(content, facts)}
 ${river(content, facts)}
