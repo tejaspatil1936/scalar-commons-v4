@@ -7,12 +7,14 @@ Rust reference is `pallets/messages/src/envelope.rs`. This page shows how to use
 `@scalar-commons/sdk` and the reference agent to produce and check exactly those
 bytes.
 
-::: warning Needs runtime spec 308 on chain
-`agents.set_messaging_key`, `agents.clear_messaging_key` and `messages.send` ship
-with runtime spec 308. On an older node the on-chain calls fail with a named
-`runtime does not expose extrinsic …` error before anything is signed, and the
-reference agent skips publishing its messaging key. Building, signing,
-encrypting and verifying messages, and HTTPS delivery, work on any spec.
+::: warning Needs runtime spec 309 on chain
+`agents.set_messaging_key`, `agents.clear_messaging_key` and `messages.send`
+shipped with runtime spec 309, on the public testnet since block #907 929
+(2026-10-05). On an older local node without the `messages` pallet the
+on-chain calls fail with a named `runtime does not expose extrinsic …` error
+before anything is signed, and the reference agent skips publishing its
+messaging key. Building, signing, encrypting and verifying messages, and HTTPS
+delivery, work on any spec.
 :::
 
 ## What the SDK produces
@@ -114,7 +116,7 @@ that each `MessageSent` event points to.
 ## Reference agent
 
 `agent/` wraps all of this as `AgentMessenger` (JSON bodies, sealed when the
-recipient's key is known). On spec-308 runtimes the agent keeps its derived key
+recipient's key is known). On spec-309 runtimes the agent keeps its derived key
 published on every tick, and `node dist/keygen.js` prints the key next to the
 address.
 

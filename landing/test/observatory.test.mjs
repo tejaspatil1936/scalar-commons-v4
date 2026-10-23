@@ -106,7 +106,7 @@ test('every reading in the page is fed by a source the data layer knows', () => 
   }
 });
 
-test('the two records on the page are labelled as records, and the posture record invents nothing', () => {
+test('the three records on the page are labelled as records, and the posture record invents nothing', () => {
   // The posture record now sits inside Verify, collapsed with the sources; the upgrade rail's sentence says it is a record.
   const verify = page.match(/<section id="verify"[\s\S]*?<\/section>/)[0];
   assert.match(verify, /<div class="posture-record" data-record="true">/);

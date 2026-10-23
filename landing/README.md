@@ -2,8 +2,8 @@
 
 A static marketing page: what the chain is (coordination infrastructure for
 autonomous AI agents), the token model, and where to go next. No framework. The landing page itself
-ships no client-side JavaScript. The one script on the site belongs to
-`/observatory` (below).
+ships no client-side JavaScript. The only scripts this directory builds belong to
+`/observatory` and `/pulse` (below).
 
 ```sh
 npm ci --no-audit --no-fund
@@ -38,16 +38,16 @@ destinations — docs, explorer, faucet, repo — are all linked with anything
 unbuilt labelled `planned`.
 
 The landing page build is dependency-free. `@polkadot/api` is a devDependency
-used only by the two chain scripts, never by `npm run build`. The one bundler
-in the build is `esbuild`, used only for `/observatory` (below), whose
-instruments are drawn with `d3-force`, `d3-scale` and `d3-shape`.
+used only by the chain scripts, never by `npm run build`. The one bundler
+in the build is `esbuild`, used only for `/observatory` and `/pulse` (below);
+the observatory's instruments are drawn with `d3-force`, `d3-scale` and `d3-shape`.
 
 ## /observatory — the live instruments
 
 `npm run build` also emits `observatory.html` (with its stylesheet inlined),
 `observatory.js` (one esbuild bundle), `observatory-graph.js` (the network
 graph, a second self-contained bundle fetched only when its switch is turned
-on), `observatory.css`, `fonts/`, and the two records the page is built with. nginx serves it at `/observatory` through
+on), `observatory.css`, `fonts/`, and the three records the page is built with. nginx serves it at `/observatory` through
 `try_files $uri.html`. The landing page states figures that were read at build
 time. The observatory is its live counterpart: the build ships **no** figure in
 any reading slot, and the reader's browser fetches every value from
@@ -64,6 +64,7 @@ never the previous value.
 | `runtime-history.json` | The upgrade record. Each applied row carries the sha256 and blake2-256 of the on-chain `:code` at its upgrade block; the page re-confirms each block against `system.CodeUpdated` events live. A `summaryNote` says how a summary was checked against the chain. |
 | `chain-events.json` | The event names every pallet declares, read from a live node's runtime metadata (`npm run fetch:chain-events`), with the spec version, genesis hash and block. The tests check every event list the page counts against it. |
 | `public/posture.json` | The security-posture record, written by the operators. Each recorded value names the document in this repository it was taken from (`source`) and the date it was true (`asOf`); a `null` value renders as "not yet recorded"; nothing here is ever read from the chain. |
+| `public/status.json` | The operator-written status record: who runs the validators, and where — the one thing about the validator set the chain cannot say. Like `posture.json`, each value carries the date it was true (`asOf`) and the repository document it was taken from (`source`), plus the names it uses, so `test/status.test.mjs` can hold every page to printing no host or operator outside it. Rendered with the Validators section's notes as a record, and quoted verbatim by `docs/guide/run-a-node.md` through the docs lint, so it is typed in one place. The counts — the active set, the seats — are never written here: they are read from the chain. |
 
 **One URL.** `/observatory` is the only entry point: nothing on the page is
 switched by the address. It loads one script, `observatory.js`; the network
@@ -100,10 +101,11 @@ list beside the plate. "The same agents as a list" is paginated, 50 to a page.
 Directly under the hero, the river as a titled 140 px strip ("Blocks arriving
 now") the content's width, with its axis and its FINAL marker labelled.
 
-**At scale.** The public network carries about 200 operator-run agents, and
-every figure here is that network's, read from chain: "Operator-run: N of M"
-counts the agents in the live agent list whose on-chain name starts with
-`swarm-`, nothing else. The sizing below is headroom well past that: one cell
+**At scale.** The public network's agent count is in `chain-facts.json` at the
+block it was read, not typed here, and every figure here is that network's,
+read from chain: "Operator-run: N of M" counts the agents in the live agent
+list whose on-chain name starts with `swarm-`, nothing else. The sizing below
+is headroom well past that count: one cell
 per agent up to 800 agents (one per bucket above that), 2,000 agents read,
 2,400 registrations. The field is a grid of dots on one canvas, redrawn only
 when something changes, so 2,000 agents cost a few hundred arcs. The agents-over-time
@@ -147,8 +149,8 @@ node --test test/instruments/era-dial.test.mjs              # its unit tests
 
 `test/observatory.test.mjs` checks that no reading ships with a value, that
 every instrument opens with a sentence, that every indexer route, field and
-event the client reads exists in `indexer/src` and the pallets, that the two
-records are labelled as records and agree with the files they cite, that no
+event the client reads exists in `indexer/src` and the pallets, that the upgrade
+and posture records are labelled as records and agree with the files they cite, that no
 instrument polls with `setInterval` or animates forever, and that the page
 shares this site's palette. `test/observatory-lib.test.mjs` covers the SCALE
 and SS58 decoders, formatting, the data layer and the hero's stream model.
@@ -196,12 +198,15 @@ agents instead. F toggles fullscreen.
 
 ## Refreshing the chain facts
 
-Point at a node — the devnet RPC is loopback-bound, so run these on its host:
+Point the scripts at the public RPC (without an argument `fetch:chain-facts`
+looks for a local dev node on the loopback address, `verify:chain` uses the RPC
+the committed record names, and `fetch:chain-events` uses
+`https://rpc.scalarnet.io`):
 
 ```sh
-npm run fetch:chain-facts             # rewrite chain-facts.json from ws://127.0.0.1:9944
-npm run fetch:chain-facts -- ws://…   # or from another endpoint
-npm run verify:chain                  # re-check the committed facts against a live node
+npm run fetch:chain-facts -- wss://rpc.scalarnet.io   # rewrite chain-facts.json
+npm run verify:chain -- wss://rpc.scalarnet.io        # re-check the committed facts against the live node
+npm run fetch:chain-events                            # rewrite chain-events.json over HTTPS (https://rpc.scalarnet.io)
 ```
 
 `verify:chain` exits non-zero if any **metadata** fact drifted: that means the
@@ -209,19 +214,31 @@ page is stating something the runtime no longer does. Moving chain **state**
 (block height, agent count, issuance) is reported as drift but does not fail —
 the page labels those figures as a snapshot at a named block.
 
-If the node is unreachable, both scripts fail loudly. That is deliberate: an
+If the node is unreachable, all three scripts fail loudly. That is deliberate: an
 unreachable node is a finding, not a reason to guess at a number.
 
 ## Caveats the page carries on purpose
 
-The page discloses two things rather than glossing them:
+The page discloses three things rather than glossing them:
 
 - **The oracle-accuracy term is inert.** It is in the weight formula and can add
   up to the `oracleBonusBps` maximum, but the runtime wires
   `type OracleScoreProvider = ();`, so it contributes zero today. A test asserts
   the disclosure stays as long as that line does.
-- **The devnet RPC is loopback-only.** No public endpoint yet, so the explorer
-  link needs an endpoint the reader can reach, and the faucet is marked
-  `planned` with a link to the issue tracking it.
+- **The economic gate failed, and the re-measurement is pending.** The fix (an
+  era's pool bounded by the qualifying escrow volume it settled) is in the
+  running runtime, which the caveat names from the same live metadata as every
+  other figure; it is not the proof, and no re-measurement has been published.
+- **The chain may be reset, and pallet weights are hand-estimated** until
+  benchmarks land. The same caveat names the public RPC, `wss://rpc.scalarnet.io`.
 
-When either changes, update `src/content.mjs` — the tests will tell you.
+When any of them changes, update `src/content.mjs`; only the first is test-pinned.
+
+## The public endpoints
+
+Everything the pages link and read is public and live: the RPC at
+`wss://rpc.scalarnet.io` (JSON-RPC over HTTPS at `https://rpc.scalarnet.io`),
+the indexer at `https://api.scalarnet.io/v1`, the explorer at
+`https://explorer.scalarnet.io` and the faucet at `https://faucet.scalarnet.io`.
+The `planned` label the links test knows about is unused today; it stays so that
+a link to something unbuilt can never be labelled live.
