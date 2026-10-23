@@ -135,12 +135,9 @@ const walk = (dir, keep) => {
   visit(root);
   return out;
 };
-// TRANSITIONAL: the Ledger chrome kept for pages not yet rebuilt (deleted in
-// the oversight phase), and the page stylesheets each later phase replaces.
-// Each phase removes its own entries; the final phase empties both lists.
-export const LEGACY_DIRS = ['landing/src/chrome-legacy/', 'explorer/src/chrome-legacy/', 'docs/.vitepress/theme/chrome-legacy/'];
-export const NOT_YET_REBUILT = [
-];
+// Every stylesheet on every surface is held to the rules; nothing is exempt.
+export const LEGACY_DIRS = [];
+export const NOT_YET_REBUILT = [];
 const exempt = (path) => LEGACY_DIRS.some((d) => path.startsWith(d)) || NOT_YET_REBUILT.some((d) => path.startsWith(d));
 
 const COLOUR_FILES = () =>

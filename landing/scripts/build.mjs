@@ -8,8 +8,8 @@
 //
 // /network is the exception, and the one place a bundler is used: esbuild
 // bundles the page's own script (the chrome's copy behaviour, the data
-// readers, the SCALE and SS58 decoders — no library) into one file. The
-// landing page itself still ships no script at all.
+// readers, the SCALE and SS58 decoders — no library) into one file. The home
+// page ships one plain script, src/home/refresh.js, copied as written.
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,7 +18,6 @@ import { content } from '../src/content.mjs';
 import { sourceClaims } from '../src/source-claims.mjs';
 import { renderPage } from '../src/render.mjs';
 import { renderNetwork, renderRedirect } from '../src/network.mjs';
-import { chromeCss, CHROME_FONTS as FONTS } from '../src/chrome-legacy/assets.mjs';
 import { chromeCss as plainChromeCss, CHROME_FONTS } from '../src/chrome/assets.mjs';
 import { REFRESH_SCRIPT } from '../src/home/assets.mjs';
 
@@ -59,9 +58,8 @@ copyFileSync(here('../public/posture.json'), join(outDir, 'posture.json'));
 copyFileSync(here('../public/status.json'), join(outDir, 'status.json'));
 
 mkdirSync(join(outDir, 'fonts'), { recursive: true });
-// The chrome's two faces (Inter, JetBrains Mono) for every rebuilt page; FONTS
-// are the transitional Ledger faces the pages not yet rebuilt still load.
-for (const [source, name] of [...CHROME_FONTS, ...FONTS]) {
+// The chrome's two faces (Inter, JetBrains Mono), served beside the stylesheet.
+for (const [source, name] of CHROME_FONTS) {
   copyFileSync(here(`../node_modules/${source}`), join(outDir, 'fonts', name));
 }
 // The favicon and the social preview image every page's head names.
@@ -88,7 +86,7 @@ const bundleBytes = Object.values(bundle.metafile.outputs)[0]?.bytes ?? 0;
 // async function ({ outDir, here, readJson, facts, chromeCss, transform, build })
 // and emits its files into outDir. A page owns its module; nothing else in this
 // script changes when a page is added.
-const chrome = await transform(chromeCss(), { loader: 'css', minify: true });
+const chrome = await transform(plainChromeCss(), { loader: 'css', minify: true });
 const pagesDir = here('./pages/');
 for (const name of readdirSync(pagesDir).filter((n) => n.endsWith('.mjs')).sort()) {
   const page = await import(new URL(name, `file://${pagesDir}`).href);

@@ -13,7 +13,7 @@
 
 import { blake2b } from 'blakejs';
 
-import { bytesToHex, hexToBytes, readCompact } from '../observatory/scale.js';
+import { bytesToHex, hexToBytes, readCompact } from '../network/scale.js';
 
 export { bytesToHex, hexToBytes };
 

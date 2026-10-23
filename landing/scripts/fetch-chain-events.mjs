@@ -1,6 +1,6 @@
 // Reads the event names every pallet declares from a running node's runtime
 // metadata and writes them to chain-events.json, with the spec version,
-// genesis hash and block they were read at. The observatory's tests check
+// genesis hash and block they were read at. The network page's tests check
 // every event list it reads (`/v1/events?section=…&method=…`) against this
 // file, so a page can never count an event the runtime does not emit.
 //

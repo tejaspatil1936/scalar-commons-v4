@@ -48,7 +48,7 @@ import { CHIPS, accountFields, callWords, describeEvent, eventWords } from './wo
  * nothing else. No colour, no face, no size — every length is a --s-n step —
  * so the chrome test holds this sheet to the same scale as the chrome.
  */
-const EXPLORER_CSS = `.x-page{padding-block:var(--s-6) var(--s-7)}.x-page>*+*{margin-top:var(--s-7)}.x-page>.sc-page-head{padding-top:0}.x-page time{white-space:nowrap}.x-panel{display:grid;gap:var(--s-4);align-content:start}.x-panel>.sc-between{margin:0}`;
+const EXPLORER_CSS = `.x-page{padding-block:var(--s-6) var(--s-7)}.x-page>*+*{margin-top:var(--s-7)}.x-page>.sc-page-head{padding-top:0}.x-page time{white-space:nowrap}.x-panel{display:grid;gap:var(--s-4);align-content:start}.x-panel>.sc-between{margin:0}.sc-cols-2 .sc-table th,.sc-cols-2 .sc-table td{padding:var(--s-3)}`;
 
 const SEARCH_PLACEHOLDER = 'Search by block number, block hash, extrinsic (block-index) or address';
 const DESCRIPTION = 'Blocks, extrinsics, accounts and agent activity on the Scalar Commons testnet, read from the public node and the indexer.';
@@ -208,8 +208,8 @@ export function renderHome(view: HomeView): string {
     recent === undefined || recent.value === null
       ? unavailable('The latest blocks could not be read from the node.', recent?.reason ?? '')
       : table({
-          columns: [{ label: 'Block' }, { label: 'Age' }, { label: 'Author' }, { label: 'Extrinsics', align: 'right' }, { label: 'Finalized' }],
-          rows: recent.value.map((b) => [blockLink(b.number), timeCell(b.timestampMs, renderedAt), authorCell(b.author), formatInt(b.extrinsics.length), finalityBadge(finalized === null ? null : b.number <= finalized)]),
+          columns: [{ label: 'Block' }, { label: 'Age' }, { label: 'Author' }, { label: 'Finalized' }],
+          rows: recent.value.map((b) => [blockLink(b.number), timeCell(b.timestampMs, renderedAt), authorCell(b.author), finalityBadge(finalized === null ? null : b.number <= finalized)]),
           empty: 'No blocks were read.',
           caption: 'Latest blocks',
         });

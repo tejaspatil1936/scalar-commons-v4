@@ -78,8 +78,8 @@ describe('renderHome', () => {
     expect(html).toContain('<span class="sc-stat-label">Last era emission</span><span class="sc-stat-value"><span title="1,234.567 CMN">1,234.57 CMN</span></span><span class="sc-stat-caption">era 172</span>');
   });
 
-  it('lists the latest blocks (Block, Age, Author, Extrinsics, Finalized) with relative ages carrying the UTC time', () => {
-    expect(html).toContain('<caption class="sc-sr">Latest blocks</caption><thead><tr><th scope="col">Block</th><th scope="col">Age</th><th scope="col">Author</th><th scope="col" class="sc-r">Extrinsics</th><th scope="col">Finalized</th></tr></thead>');
+  it('lists the latest blocks (Block, Age, Author, Finalized) with relative ages carrying the UTC time', () => {
+    expect(html).toContain('<caption class="sc-sr">Latest blocks</caption><thead><tr><th scope="col">Block</th><th scope="col">Age</th><th scope="col">Author</th><th scope="col">Finalized</th></tr></thead>');
     expect(html).toContain('<a class="sc-mono" href="/block/1166072">1,166,072</a>');
     expect(html).toContain('title="23 Oct 2026, 11:56 UTC">4 min ago</time>');
     expect(html).toContain(`href="/account/${BOB}" title="${BOB}">5FHneW…94ty</a>`);

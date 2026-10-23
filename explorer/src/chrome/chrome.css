@@ -11,7 +11,7 @@
 /* ── base ─────────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 html { background: var(--bg); color: var(--text); -webkit-text-size-adjust: 100%; scroll-padding-top: calc(var(--header) + var(--s-4)); }
-body { margin: 0; font: var(--body); background: var(--bg); color: var(--text); }
+body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; font: var(--body); background: var(--bg); color: var(--text); }
 h1, h2, h3, p, ul, ol, dl, dd, figure, pre, blockquote { margin: 0; }
 ul, ol { padding: 0; list-style: none; }
 img, svg { display: block; max-width: 100%; }
@@ -59,7 +59,7 @@ a:hover, a:focus-visible { text-decoration: underline; }
 .sc-stack > * + * { margin-top: var(--s-4); }
 .sc-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); }
 .sc-between { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--s-3); }
-main { display: block; }
+main { display: block; flex: 1 0 auto; }
 
 /* ── header ───────────────────────────────────────────────────────────────── */
 .sc-header { position: sticky; top: 0; z-index: 40; background: var(--bg); border-bottom: 1px solid var(--border); }
@@ -125,7 +125,7 @@ main { display: block; }
 .sc-stats-foot { margin-top: var(--s-3); font: var(--caption); color: var(--text-2); }
 
 /* ── table ────────────────────────────────────────────────────────────────── */
-.sc-table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.sc-table-wrap { position: relative; width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
 .sc-table { width: 100%; border-collapse: collapse; font: var(--small); }
 .sc-table th { font: var(--caption); font-weight: 500; color: var(--text-2); background: var(--bg-2); text-align: left; padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--border); white-space: nowrap; }
 .sc-table td { padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--border); vertical-align: top; }

@@ -1,6 +1,6 @@
 // The live read: JSON-RPC over HTTP, straight at a node, with provenance.
 //
-// /observatory reads the indexer's REST API because the public chain has one.
+// /network reads the indexer's REST API because the public chain has one.
 // This page reads a devnet, which does not, so it POSTs JSON-RPC to the node
 // itself. Three methods are enough — `chain_getBlockHash`, `chain_getBlock`
 // and `chain_getHeader` — and none of them needs state, which matters because
@@ -12,8 +12,7 @@
 // silent fall back to the file: `offline` is a state the page displays.
 
 // The endpoint is the one in the record and nothing else. The site's rule is
-// one URL per page with no flags in it (test/observatory.test.mjs holds the
-// observatory to that), and an endpoint a visitor could set from the address
+// one URL per page with no flags in it, and an endpoint a visitor could set from the address
 // bar would be both a mode switch and a way to point the page at a host of
 // their choosing. A demo on another machine edits the record instead.
 

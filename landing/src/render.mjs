@@ -153,20 +153,6 @@ function text(str, facts) {
   });
 }
 
-// TRANSITIONAL: the old site nav, kept only because src/observatory.mjs still
-// imports it; the network phase replaces that page and the integrator removes this.
-const NAV = [
-  { key: 'overview', label: 'Overview', href: './' },
-  { key: 'observatory', label: 'Observatory', href: 'observatory' },
-  { key: 'docs', label: 'Docs', href: 'https://scalarnet.io/docs/' },
-];
-export function renderNav(current, extra = []) {
-  const items = [...NAV, ...extra]
-    .map((item) => `<li><a href="${escapeHtml(item.href)}"${item.key === current ? ' aria-current="page"' : ''}>${escapeHtml(item.label)}</a></li>`)
-    .join('');
-  return `    <nav class="site-nav" aria-label="Site"><ul>${items}</ul></nav>`;
-}
-
 // ── the home page ────────────────────────────────────────────────────────────
 
 /** The words of the chrome's own labels on this page: the diagram's and the live row's. */

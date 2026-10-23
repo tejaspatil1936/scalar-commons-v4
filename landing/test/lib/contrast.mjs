@@ -1,6 +1,5 @@
-// WCAG 2.x relative luminance and contrast ratio for #rrggbb colours, shared
-// by the observatory's colour test and the Nightwatch token test so the two
-// never compute AA differently.
+// WCAG 2.x relative luminance and contrast ratio for #rrggbb colours, used
+// by the chrome's token test to hold every text pair to AA.
 
 /** Relative luminance of a `#rrggbb` colour, per WCAG 2.x. */
 export const luminance = (hex) => {

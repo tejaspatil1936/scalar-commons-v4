@@ -7,7 +7,7 @@
 //   - every plaintext in the checked-in sample is hashed and compared with the
 //     payload_hash the chain recorded for it;
 //   - the hash function is cross-checked against the site's OTHER, independent
-//     blake2b (the one src/observatory/ss58.js uses for SS58 checksums), so a
+//     blake2b (the one src/network/ss58.js uses for SS58 checksums), so a
 //     fault in either implementation shows up as a disagreement;
 //   - the live decoder runs on real extrinsics captured from the devnet, and
 //     the account it decodes is re-encoded to SS58 and compared with the
@@ -32,7 +32,7 @@ import {
   verifyRow,
 } from '../../src/oversight/verify.js';
 import { createRpc } from '../../src/oversight/rpc.js';
-import { blake2b as ss58Blake2b, encodeSs58 } from '../../src/observatory/ss58.js';
+import { blake2b as ss58Blake2b, encodeSs58 } from '../../src/network/ss58.js';
 
 const readJson = (relative) => JSON.parse(readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8'));
 const sample = readJson('../../public/oversight-sample.json');

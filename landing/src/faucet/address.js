@@ -1,8 +1,8 @@
-// SS58 decoding for /faucet, the inverse of src/observatory/ss58.js (which
+// SS58 decoding for /faucet, the inverse of src/network/ss58.js (which
 // only encodes): base58 → prefix · 32-byte key · 2-byte checksum, the checksum
 // recomputed with the same blake2b-512 the encoder uses. The chain's prefix is
 // 42 and arrives from chain-facts.json, never typed here.
-import { blake2b } from '../observatory/ss58.js';
+import { blake2b } from '../network/ss58.js';
 
 const ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 const SS58_PREFIX = new TextEncoder().encode('SS58PRE');
