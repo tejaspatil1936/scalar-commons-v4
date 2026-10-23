@@ -54,7 +54,6 @@ function build() {
 
 const out = build();
 const page = readFileSync(join(out, 'observatory.html'), 'utf8');
-const index = readFileSync(join(out, 'index.html'), 'utf8');
 const bundle = readFileSync(join(out, 'observatory.js'), 'utf8');
 
 test('the build emits the observatory page, its bundle, stylesheet, fonts and records', () => {
@@ -82,10 +81,8 @@ test('the build emits the observatory page, its bundle, stylesheet, fonts and re
   assert.ok(!/from\s+["']d3/.test(bundle), 'the bundle must not leave bare d3 imports unresolved');
 });
 
-test('the site nav links the observatory, and the landing page stays script-free', () => {
-  assert.match(index, /<nav[^>]*>[\s\S]*<a href="observatory">Observatory<\/a>[\s\S]*<\/nav>/);
+test('the site nav links the observatory', () => {
   assert.match(page, /<nav[^>]*>[\s\S]*<a href="observatory" aria-current="page">Observatory<\/a>[\s\S]*<\/nav>/);
-  assert.ok(!/<script/i.test(index), 'index.html must stay script-free');
 });
 
 test('no reading ships with a value: every figure on the page is fetched, not built in', () => {
@@ -808,7 +805,6 @@ test('presenter mode: the Present button and P, the first screen then the six se
   const presenter = readFileSync(new URL('../src/observatory/presenter.js', import.meta.url), 'utf8');
   assert.match(presenter, /querySelector\('\.nw-present, \.sb-present'\)/);
   for (const key of ['Escape', 'aria-pressed']) assert.ok(bundle.includes(key), `the bundle does not handle ${key}`);
-  assert.ok(!/<script/i.test(index), 'index.html stays script-free');
 });
 
 test('identity: the chrome’s wordmark in the bar, the chrome’s footer with the build’s facts and the disclaimer; no favicon; no second wordmark', () => {
@@ -822,7 +818,7 @@ test('identity: the chrome’s wordmark in the bar, the chrome’s footer with t
   assert.ok(footer.includes(`<span>spec ${facts.provenance.specVersion} · node ${facts.provenance.nodeVersion ?? '—'}</span>`), 'spec and node come from the record, a missing node version printed as a dash');
   assert.ok(footer.includes(`against block ${facts.provenance.readAtBlock.toLocaleString('en-US')}`), 'the build’s block');
   assert.match(footer, /<p class="nw-foot-line">Testnet — the token has no value and the chain may be reset\.<\/p>/);
-  assert.ok(!/rel="icon"/.test(page) && !/rel="icon"/.test(index));
+  assert.ok(!/rel="icon"/.test(page));
   // The site now has a favicon (SITE-REDESIGN.md §5); this page does not link it until its phase rebuilds it.
   assert.ok(readdirSync(out).includes('favicon.svg'));
   assert.ok(!/class="merge"|howto|wordmark-text|<svg class="mark"/.test(page), 'the old footer is gone');

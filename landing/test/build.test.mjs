@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,16 +20,28 @@ test('npm run build emits a self-contained static site', () => {
   });
 
   const files = readdirSync(out);
-  assert.ok(files.includes('index.html'), `build produced no index.html (got: ${files.join(', ')})`);
-  assert.ok(files.includes('styles.css'), `build produced no styles.css (got: ${files.join(', ')})`);
+  for (const name of ['index.html', 'styles.css', 'refresh.js', 'favicon.svg', 'og.png']) {
+    assert.ok(files.includes(name), `build produced no ${name} (got: ${files.join(', ')})`);
+  }
+  for (const font of ['inter-latin-wght-normal.woff2', 'jetbrains-mono-latin-400-normal.woff2']) {
+    assert.ok(statSync(join(out, 'fonts', font)).size > 0, `the chrome's font ${font} is copied out`);
+  }
 
+  // The home page: the plain chrome's stylesheet, its own rules inlined, and
+  // exactly one script — the refresh, served as written (SITE-REDESIGN.md §7).
   const indexHtml = readFileSync(join(out, 'index.html'), 'utf8');
   assert.match(indexHtml, /^<!doctype html>/i);
-  assert.match(indexHtml, /<link rel="stylesheet" href="styles\.css">/);
-  // A static marketing page has no reason to ship script: no script tag means
-  // nothing on the page can drift from what the build verified.
-  assert.ok(!/<script/i.test(indexHtml), 'the page must stay script-free');
+  assert.match(indexHtml, /<link rel="stylesheet" href="\/styles\.css">/);
+  assert.deepEqual([...indexHtml.matchAll(/<script[^>]*>/g)].map((m) => m[0]), ['<script type="module" src="/refresh.js">'], 'one plain module script, no bundle');
+  assert.ok(!/nw-|chrome-legacy/.test(indexHtml), 'nothing of the Ledger chrome is on the home page');
 
   const css = readFileSync(join(out, 'styles.css'), 'utf8');
   assert.ok(css.length > 0, 'styles.css is empty');
+  assert.match(css, /--font-sans:\s*"Inter Variable"/, 'styles.css is the plain chrome');
+  assert.ok(!/\.nw-|Source Serif|IBM Plex/.test(css), 'styles.css carries nothing of the Ledger');
+
+  const refresh = readFileSync(join(out, 'refresh.js'));
+  assert.ok(refresh.equals(readFileSync(join(landingDir, 'src/home/refresh.js'))), 'refresh.js is copied as it is, not bundled');
+  assert.ok(refresh.length <= 6 * 1024, `refresh.js is ${refresh.length} bytes; the budget is 6 KB`);
+  assert.ok(indexHtml.length + css.length + refresh.length < 150 * 1024, 'the home page stays within its 150 KB budget before fonts');
 });

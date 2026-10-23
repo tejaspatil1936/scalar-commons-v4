@@ -1,40 +1,46 @@
-// The descriptive claims the pages make, each pinned to the line of runtime
-// source that backs it — the brief's ledger (section 7) first, then the older
-// rows the docs still cite.
+// The descriptive claims the home page makes, each pinned to the line of
+// runtime source that backs it.
 //
 // Numbers on the page are covered by chain-facts.json: they come out of live
-// metadata and `npm run verify:chain` re-checks them. Sentences like "stake
-// counts sub-linearly" have no metadata equivalent, so they are pinned here
-// instead: the test suite asserts every `snippet` (and every `also` snippet)
-// below is still present, verbatim and contiguous, in its `file`. If someone
-// changes the mechanism, the claim on the page breaks the build instead of
-// quietly becoming a lie. `line` is the line in the checkout the row was
-// verified against; the test asserts the snippet sits on that line, so a tree
-// that moves fails the build until the line, never the claim, is corrected.
+// metadata and `npm run verify:chain` re-checks them. Sentences like "the
+// emissions module pays for verified work, not for stake" have no metadata
+// equivalent, so they are pinned here instead: every sentence in
+// src/content.mjs that describes a mechanism names the rows that back it in
+// `sources`, and test/claims.test.mjs asserts every `snippet` (and every
+// `also` snippet) below is still present, verbatim, in its `file`, on its
+// `line`. If someone changes the mechanism, the claim on the page breaks the
+// build instead of quietly becoming a lie; if a tree moves, the line, never
+// the claim, is corrected.
 export const sourceClaims = [
   {
-    ledger: 1,
-    claim: 'The supply cap is 100 B CMN; 18 B were minted at genesis',
+    key: 'min-stake',
+    claim: 'An agent stakes at least the minimum stake to register',
     file: 'runtime/src/lib.rs',
-    line: 83,
-    snippet: 'pub const SUPPLY_CAP: Balance = 100_000_000_000 * CMN;',
-    also: [{ file: 'runtime/src/lib.rs', line: 84, snippet: 'pub const GENESIS_MINT: Balance = 18_000_000_000 * CMN;' }],
+    line: 1232,
+    snippet: 'pub const AgentsMinStake:             Balance = 1_000 * CMN;',
+    also: [{ file: 'runtime/src/lib.rs', line: 1257, snippet: 'type MinStake = AgentsMinStake;' }],
   },
   {
-    ledger: 2,
-    claim: 'An era is 3,600 blocks, about six hours',
+    key: 'registration-fee',
+    claim: 'Registering costs a fee',
     file: 'runtime/src/lib.rs',
-    line: 102,
-    snippet: 'pub const ERA_BLOCKS: BlockNumber = HOURS * 6;',
-    also: [{ file: 'runtime/src/lib.rs', line: 1347, snippet: 'pub const EmissionsEraDuration:      BlockNumber = ERA_BLOCKS;' }],
+    line: 1236,
+    snippet: 'pub const AgentsBaseRegistrationFee:  Balance = 50 * CMN;',
   },
-  { ledger: 3, claim: 'Validators are not paid', file: 'runtime/src/lib.rs', line: 952, snippet: 'type EraPayout = ();' },
-  { ledger: 4, claim: 'An agent stakes at least 1,000 CMN', file: 'runtime/src/lib.rs', line: 1232, snippet: 'pub const AgentsMinStake:             Balance = 1_000 * CMN;' },
-  { ledger: 5, claim: 'Unstaking takes 7 days', file: 'runtime/src/lib.rs', line: 1235, snippet: 'pub const AgentsUnstakeCooldown:      BlockNumber = 7 * DAYS;' },
-  { ledger: 6, claim: 'Registering costs 50 CMN', file: 'runtime/src/lib.rs', line: 1236, snippet: 'pub const AgentsBaseRegistrationFee:  Balance = 50 * CMN;' },
   {
-    ledger: 7,
-    claim: 'A heartbeat is good for 18 h; then weight decays over 90 days to a 10 % floor',
+    key: 'heartbeat-clock',
+    claim: 'Registering starts the heartbeat clock; a heartbeat resets it',
+    file: 'pallets/agents/src/lib.rs',
+    line: 1005,
+    snippet: 'LastHeartbeat::<T>::insert(&who, now);',
+    also: [
+      { file: 'pallets/agents/src/lib.rs', line: 1174, snippet: 'pub fn heartbeat(origin: OriginFor<T>) -> DispatchResult {' },
+      { file: 'pallets/agents/src/lib.rs', line: 1180, snippet: 'LastHeartbeat::<T>::insert(&who, now);' },
+    ],
+  },
+  {
+    key: 'heartbeat-decay',
+    claim: 'A heartbeat is good for the grace period; then the agent’s weight decays to a floor',
     file: 'runtime/src/lib.rs',
     line: 1243,
     snippet: 'pub const AgentsHeartbeatGrace:       BlockNumber = HOURS * 18;',
@@ -43,57 +49,34 @@ export const sourceClaims = [
       { file: 'pallets/agents/src/lib.rs', line: 1987, snippet: 'pub fn heartbeat_multiplier(' },
       { file: 'pallets/agents/src/lib.rs', line: 2003, snippet: 'let pct = 100u128.saturating_sub(90u128 * over / decay_u128);' },
       { file: 'pallets/agents/src/lib.rs', line: 2004, snippet: 'pct.max(10)' },
+      { file: 'pallets/emissions/src/lib.rs', line: 682, snippet: 'let hb = agents_pallet::Pallet::<T>::heartbeat_multiplier(who);' },
     ],
   },
   {
-    ledger: 8,
-    claim: 'An orchestrator takes at most 5 % and cannot link to itself',
+    key: 'min-agreement',
+    claim: 'An agreement escrows at least the minimum amount',
     file: 'runtime/src/lib.rs',
-    line: 1250,
-    snippet: 'pub const OrchestratorMaxFeeBps:       u32 = 500;',
-    also: [{ file: 'pallets/orchestrator/src/lib.rs', line: 392, snippet: 'ensure!(orchestrator != sub_agent, Error::<T>::SelfLink);' }],
-  },
-  { ledger: 9, claim: 'An agreement escrows at least 10 CMN', file: 'runtime/src/lib.rs', line: 1292, snippet: 'pub const EscrowMinAmount:         Balance = 10 * CMN;' },
-  {
-    ledger: 10,
-    claim: 'A correct dispute earns 2 % of the escrow, at least 1 CMN; nothing is burned',
-    file: 'runtime/src/lib.rs',
-    line: 1297,
-    snippet: 'pub const EscrowDisputeBountyBps:  u32 = 200;',
-    also: [
-      { file: 'runtime/src/lib.rs', line: 1298, snippet: 'pub const EscrowMinDisputeBounty:  Balance = CMN;' },
-      { file: 'runtime/src/lib.rs', line: 1299, snippet: 'pub const EscrowDisputeBurnBps:    u32 = 0;' },
-    ],
+    line: 1292,
+    snippet: 'pub const EscrowMinAmount:         Balance = 10 * CMN;',
+    also: [{ file: 'runtime/src/lib.rs', line: 1306, snippet: 'type MinAgreementAmount = EscrowMinAmount;' }],
   },
   {
-    ledger: 11,
-    claim: 'The oracle bonus is 20 % on paper and inert in practice',
-    file: 'runtime/src/lib.rs',
-    line: 1348,
-    snippet: 'pub const EmissionsOracleBonusBps:   u32 = 2_000;',
-    also: [{ file: 'runtime/src/lib.rs', line: 1382, snippet: 'type OracleScoreProvider = ();' }],
+    key: 'dispute-to-oracle',
+    claim: 'A disputed delivery becomes an oracle question',
+    file: 'pallets/escrow/src/lib.rs',
+    line: 598,
+    snippet: 'let request_id = T::DisputeOracle::post_dispute_question(',
   },
   {
-    ledger: 12,
-    claim: 'Under 50 CMN of settled volume in an era earns nothing; the velocity bonus is 30 %',
+    key: 'era-length',
+    claim: 'An era is a fixed number of blocks, about six hours',
     file: 'runtime/src/lib.rs',
-    line: 1356,
-    snippet: 'EmissionsMinQualifyingVol: Balance = 50 * CMN;',
-    also: [{ file: 'runtime/src/lib.rs', line: 1362, snippet: 'EmissionsVelocityBonusBps: u32 = 3_000;' }],
+    line: 102,
+    snippet: 'pub const ERA_BLOCKS: BlockNumber = HOURS * 6;',
+    also: [{ file: 'runtime/src/lib.rs', line: 1347, snippet: 'pub const EmissionsEraDuration:      BlockNumber = ERA_BLOCKS;' }],
   },
   {
-    ledger: 13,
-    claim: 'A message costs 0.02 CMN plus 0.0001 CMN per byte; four per block',
-    file: 'runtime/src/lib.rs',
-    line: 1403,
-    snippet: 'pub const MessagesBaseFee:    Balance = CMN / 50;',
-    also: [
-      { file: 'runtime/src/lib.rs', line: 1407, snippet: 'MessagesPerByteFee: Balance = CMN / 10_000;' },
-      { file: 'runtime/src/lib.rs', line: 1410, snippet: 'MessagesMaxPerBlock: u32 = 4;' },
-    ],
-  },
-  {
-    ledger: 14,
+    key: 'settle-era',
     claim: 'Anyone may settle an era, once, when it is due',
     file: 'pallets/emissions/src/lib.rs',
     line: 246,
@@ -105,83 +88,82 @@ export const sourceClaims = [
     ],
   },
   {
-    ledger: 15,
-    claim: 'Weight is √stake × rank × log₂ volume × buyer diversity; governance counts only with work; the first ten completions carry a boost',
+    key: 'work-not-stake',
+    claim: 'Emissions pay for verified work; stake enters as a square root and earns nothing without work this era',
     file: 'pallets/emissions/src/lib.rs',
-    line: 673,
-    snippet: 'let sqrt_stake = integer_sqrt(stake_u128);',
+    line: 702,
+    snippet: 'let did_work_this_era = vol_u128 > 0;',
     also: [
-      { file: 'pallets/emissions/src/lib.rs', line: 676, snippet: 'let rank_bps' },
-      { file: 'pallets/emissions/src/lib.rs', line: 677, snippet: '0 | 1 => 10_000' },
-      { file: 'pallets/emissions/src/lib.rs', line: 678, snippet: '2 => 12_000' },
-      { file: 'pallets/emissions/src/lib.rs', line: 679, snippet: '_ => 15_000' },
-      { file: 'pallets/emissions/src/lib.rs', line: 688, snippet: 'let raw_vol = log2_scaled(vol_u128, unit_u128);' },
-      { file: 'pallets/emissions/src/lib.rs', line: 691, snippet: 'let work_score = if raw_vol == 0 || diversity_bps == 0 {' },
+      { file: 'pallets/emissions/src/lib.rs', line: 673, snippet: 'let sqrt_stake = integer_sqrt(stake_u128);' },
+      { file: 'pallets/emissions/src/lib.rs', line: 711, snippet: 'let qualifies_for_floor = is_active && (min_qual == 0 || vol_u128 >= min_qual);' },
       { file: 'pallets/emissions/src/lib.rs', line: 723, snippet: 'let gov_contribution = if work_score > 0 {' },
-      { file: 'pallets/emissions/src/lib.rs', line: 802, snippet: 'fn diversity_score_bps' },
-      { file: 'pallets/emissions/src/lib.rs', line: 805, snippet: '1_000' },
-      { file: 'pallets/emissions/src/lib.rs', line: 806, snippet: '3_000' },
-      { file: 'pallets/emissions/src/lib.rs', line: 807, snippet: '6_000' },
-      { file: 'pallets/emissions/src/lib.rs', line: 808, snippet: '8_000' },
-      { file: 'pallets/emissions/src/lib.rs', line: 336, snippet: 'let onboarding_boost: u128 = if completions < 10 {' },
     ],
   },
   {
-    ledger: 16,
-    claim: 'An era can never mint past the cap; genesis is accounted to the token',
-    file: 'pallets/emissions/src/lib.rs',
-    line: 635,
-    snippet: 'let mintable = supply_cap.saturating_sub(total_issued).min(pending_u128);',
-    also: [{ file: 'node/src/chain_spec.rs', line: 41, snippet: 'FOUNDERS_ALLOC + RESEARCHERS_ALLOC + TREASURY_ALLOC + BOOTSTRAP_ALLOC == 18_000_000_000 * CMN,' }],
-  },
-
-  // ── the older rows: still true, still pinned, cited by the docs ────────────
-  {
-    claim: 'Volume is multiplied by a buyer-diversity score, so one repeat counterparty is worth less.',
-    file: 'pallets/emissions/src/lib.rs',
-    snippet: 'let diversity_bps = diversity_score_bps(unique_buyers);',
+    key: 'oracle-bounty',
+    claim: 'An oracle question carries a bounty of at least the minimum',
+    file: 'runtime/src/lib.rs',
+    line: 1322,
+    snippet: 'pub const OracleMinBounty:          Balance = CMN;',
+    also: [{ file: 'runtime/src/lib.rs', line: 1332, snippet: 'type MinOracleBounty = OracleMinBounty;' }],
   },
   {
-    claim: 'A missing heartbeat decays an agent’s weight.',
-    file: 'pallets/emissions/src/lib.rs',
-    snippet: 'agents_pallet::Pallet::<T>::heartbeat_multiplier(who)',
+    key: 'orchestrator-fee',
+    claim: 'An orchestrator keeps at most the fee cap, hires a bounded number of sub-agents and cannot link to itself',
+    file: 'runtime/src/lib.rs',
+    line: 1250,
+    snippet: 'pub const OrchestratorMaxFeeBps:       u32 = 500;',
+    also: [
+      { file: 'runtime/src/lib.rs', line: 1392, snippet: 'type MaxSubAgentsPerOrchestrator = ConstU32<50>;' },
+      { file: 'pallets/orchestrator/src/lib.rs', line: 392, snippet: 'ensure!(orchestrator != sub_agent, Error::<T>::SelfLink);' },
+    ],
   },
   {
-    claim: 'An era cannot mint more than alpha times the qualifying escrow volume it settled.',
+    key: 'supply-cap',
+    claim: 'An era can never mint past the supply cap',
+    file: 'runtime/src/lib.rs',
+    line: 83,
+    snippet: 'pub const SUPPLY_CAP: Balance = 100_000_000_000 * CMN;',
+    also: [{ file: 'pallets/emissions/src/lib.rs', line: 635, snippet: 'let mintable = supply_cap.saturating_sub(total_issued).min(pending_u128);' }],
+  },
+  {
+    key: 'message-fee',
+    claim: 'A message costs a base fee plus a per-byte fee; a sender gets a bounded number per block',
+    file: 'runtime/src/lib.rs',
+    line: 1403,
+    snippet: 'pub const MessagesBaseFee:    Balance = CMN / 50;',
+    also: [
+      { file: 'runtime/src/lib.rs', line: 1407, snippet: 'MessagesPerByteFee: Balance = CMN / 10_000;' },
+      { file: 'runtime/src/lib.rs', line: 1410, snippet: 'MessagesMaxPerBlock: u32 = 4;' },
+    ],
+  },
+  {
+    key: 'constitution-floor',
+    claim: 'The constitution fixes the supply cap and a minimum unstake cooldown that self-tuning parameters cannot cross',
+    file: 'runtime/src/lib.rs',
+    line: 798,
+    snippet: 'pub const ConstitutionMinCooldown: BlockNumber = 7 * DAYS;',
+    also: [
+      { file: 'runtime/src/lib.rs', line: 808, snippet: 'type MinUnstakeCooldown = ConstitutionMinCooldown;' },
+      { file: 'pallets/constitution/src/lib.rs', line: 181, snippet: 'proposed >= T::MinUnstakeCooldown::get(),' },
+    ],
+  },
+  {
+    key: 'oracle-bonus-inert',
+    claim: 'The oracle bonus exists on paper and is inert: no score provider is wired',
+    file: 'runtime/src/lib.rs',
+    line: 1348,
+    snippet: 'pub const EmissionsOracleBonusBps:   u32 = 2_000;',
+    also: [{ file: 'runtime/src/lib.rs', line: 1382, snippet: 'type OracleScoreProvider = ();' }],
+  },
+  {
+    key: 'volume-bound',
+    claim: 'An era cannot mint more than alpha times the qualifying escrow volume it settled',
     file: 'pallets/emissions/src/lib.rs',
+    line: 415,
     snippet: 'let alpha_bps = T::AutoParams::emission_volume_alpha_bps() as u128;',
-  },
-  {
-    claim: 'Volume from a ring-flagged provider does not count toward what an era may mint.',
-    file: 'pallets/agents/src/lib.rs',
-    snippet: 'if is_established && EraUniqueBuyers::<T>::get(agent) <= 1 {',
-  },
-  {
-    claim: 'Escrow between two accounts that traded in both directions in one era does not qualify.',
-    file: 'pallets/agents/src/lib.rs',
-    snippet: 'if rev_era == this_era && rev_vol > Zero::zero() {',
-  },
-  {
-    claim: 'Volume that can size an era’s emission is capped by the provider’s own locked stake.',
-    file: 'pallets/agents/src/lib.rs',
-    snippet: 'total.min(stake_ceiling)',
-  },
-  {
-    claim: 'Registering as an agent starts the heartbeat clock.',
-    file: 'pallets/agents/src/lib.rs',
-    snippet: 'LastHeartbeat::<T>::insert(&who, now);',
-  },
-  {
-    claim: 'The minimum qualifying volume gates the activity floor.',
-    file: 'pallets/emissions/src/lib.rs',
-    snippet: 'let qualifies_for_floor = is_active && (min_qual == 0 || vol_u128 >= min_qual);',
-  },
-  {
-    claim: 'The devnet faucet only moves funds that already exist — it transfers, and has no mint path.',
-    file: 'faucet/src/chain.ts',
-    snippet: 'transferKeepAlive(dest, amountPlancks)',
   },
 ];
 
-/** The brief's ledger, in its order. */
-export const ledgerRows = sourceClaims.filter((row) => row.ledger).sort((a, b) => a.ledger - b.ledger);
+/** The rows by key, for the sentences that cite them. */
+export const sourceClaimsByKey = Object.fromEntries(sourceClaims.map((row) => [row.key, row]));

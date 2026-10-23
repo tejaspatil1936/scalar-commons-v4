@@ -24,7 +24,8 @@ import { renderObservatory } from '../src/observatory.mjs';
 import { renderPulse } from '../src/pulse.mjs';
 import { FONTS, observatoryCss } from '../src/observatory-assets.mjs';
 import { chromeCss } from '../src/chrome-legacy/assets.mjs';
-import { CHROME_FONTS } from '../src/chrome/assets.mjs';
+import { CHROME_FONTS, chromeCss as plainChromeCss } from '../src/chrome/assets.mjs';
+import { REFRESH_SCRIPT } from '../src/home/assets.mjs';
 
 const here = (relative) => fileURLToPath(new URL(relative, import.meta.url));
 const readJson = (relative) => JSON.parse(readFileSync(here(relative), 'utf8'));
@@ -39,9 +40,11 @@ const html = renderPage({ facts, content, sourceClaims, builtAt });
 const outDir = process.env.LANDING_OUT_DIR ?? here('../dist');
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'index.html'), html);
-// styles.css is the chrome: tokens, chrome and print, minified — the one
-// stylesheet the script-free home page links.
-writeFileSync(join(outDir, 'styles.css'), (await transform(chromeCss(), { loader: 'css', minify: true })).code.trim());
+// styles.css is the plain chrome (tokens, fonts, chrome), minified — the one
+// stylesheet the home page links; its own small sheet is inlined in the page,
+// and its one script is copied as it is (no bundling).
+writeFileSync(join(outDir, 'styles.css'), (await transform(plainChromeCss(), { loader: 'css', minify: true })).code.trim());
+copyFileSync(REFRESH_SCRIPT, join(outDir, 'refresh.js'));
 
 // /observatory: a static frame whose live figures the reader's browser fetches.
 // The two sets of figures it is built with are checked-in records, and both

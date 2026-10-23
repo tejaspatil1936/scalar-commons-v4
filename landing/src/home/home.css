@@ -1,0 +1,27 @@
+/*
+ * The home page's own rules (SITE-REDESIGN.md §5.1): the hero's spacing, the
+ * three steps, the one static diagram and the endpoint lines. Everything else
+ * on the page is the shared chrome. Tokens only; test/chrome.test.mjs holds
+ * this sheet to the same rules as chrome.css.
+ */
+.home-hero { display: grid; gap: var(--s-5); }
+.home-hero .sc-actions { margin-top: var(--s-2); }
+.home-hero-caption { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); }
+.home-live { display: grid; gap: var(--s-4); }
+.home-step { display: grid; gap: var(--s-2); align-content: start; }
+.home-endpoints { display: grid; gap: var(--s-2); }
+.home-endpoints li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-3); font: var(--small); }
+
+/* The flow diagram: three boxes and two arrows, drawn in CSS pixels (no
+   viewBox, so the words never scale down). The row is shown from 641 px up,
+   the column at 640 px and under; both carry the same words. */
+.home-flow { display: block; width: 576px; height: 64px; max-width: 100%; margin: var(--s-6) auto 0; overflow: visible; }
+.home-flow text { font: var(--small); font-weight: 500; fill: currentColor; }
+.home-flow rect { fill: var(--bg); stroke: var(--border); }
+.home-flow path { fill: none; stroke: var(--text-2); }
+.home-flow-column { display: none; }
+@media (max-width: 640px) {
+  .home-flow { width: 100%; height: 226px; margin-top: var(--s-5); }
+  .home-flow-row { display: none; }
+  .home-flow-column { display: block; }
+}
