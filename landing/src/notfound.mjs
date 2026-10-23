@@ -1,38 +1,50 @@
-// /404 — "Nothing is logged at this address." Three Readings: the path the
-// reader asked for (filled in the browser from location.pathname), the closest
-// built page by edit distance (from the route list the build embeds; omitted
-// when nothing is close), and the way out. The words are the brief's; every
-// figure is a Reading with its source.
-import { band, footer, head, reading, tag, topBar, utc, utcDay } from './chrome-legacy/templates.mjs';
+// /404 (SITE-REDESIGN.md §5.4): "Page not found", one sentence naming the
+// path, two links (Home, Docs) and the docs search field. Nothing else.
+//
+// nginx serves this file for every unknown path (error_page 404 /404.html),
+// so the address bar holds the path that was asked for and every URL the page
+// uses is absolute. The sentence names the path in the browser; with scripts
+// off it reads "There's nothing at this address." The search field is a GET
+// form to the docs: with scripts on it lists the docs pages that match, from
+// an index of the docs' titles and headings taken at build time
+// (src/notfound/docs-index.mjs); with scripts off it opens the docs home,
+// which lists every page.
+import { button, escapeHtml, page, searchField } from './chrome/templates.mjs';
 
-export const SENTENCE = 'Nothing is logged at this address.';
+export const TITLE = 'Page not found';
+export const DESCRIPTION = 'There is no page at this address on scalarnet.io.';
+export const SENTENCE_BEFORE = 'There’s nothing at ';
+export const PATH_FALLBACK = 'this address';
+export const SEARCH_LABEL = 'Search the docs';
 
-/** Every path the build serves, for the closest-page reading. */
-export const ROUTES = ['/', '/observatory', '/pulse', '/faucet', '/oversight', '/docs/', '/status.json', '/posture.json'];
-
-export function renderNotFound({ facts, css, routes = ROUTES }) {
-  const now = facts.provenance.fetchedAt;
-  const client = { method: 'CLIENT', url: 'location.pathname', fetchedAt: null, block: null, raw: null };
-  const built = { method: 'BUILD', url: 'the built route list', fetchedAt: now, block: facts.provenance.readAtBlock, raw: null, computed: 'the nearest route by edit distance' };
-  return `<!doctype html>
-<html lang="en">
-<head>
-${head({ title: 'Not found — Scalar Commons', description: SENTENCE, css, scripts: ['404.js'], boot: true })}
-</head>
-<body>
-${topBar({ current: 'none', lampHtml: tag({ state: 'built', text: 'AS BUILT', detail: utcDay(now) }) })}
-<main class="nw-frame nw-section" data-routes="${routes.join(' ')}">
-  <p class="nw-figure nw-figure--xl nw-dim">404</p>
-  <p class="nw-h3">${SENTENCE}</p>
-  <div class="nw-stack nw-notfound">
-${reading({ key: 'askedFor', label: 'You asked for', figure: null, live: true, size: 'body', state: 'live', source: client })}
-${reading({ key: 'closest', label: 'Closest page', figure: null, live: true, size: 'body', state: 'record', source: built })}
-${reading({ key: 'or', label: 'Or', figure: 'search the docs · ⌘K', size: 'body', href: 'https://scalarnet.io/docs/', state: 'record', source: { method: 'LINK', url: 'https://scalarnet.io/docs/', fetchedAt: now, block: facts.provenance.readAtBlock, raw: null } })}
+export function renderNotFound({ facts, css, builtAt, docs = [] }) {
+  const index = JSON.stringify(docs.map(({ title, path, description, headings }) => ({ title, path, description, headings }))).replace(/</g, '\\u003c');
+  const body = `<div class="sc-container">
+  <div class="nf sc-reading">
+    <div class="sc-page-head">
+      <h1 class="sc-h1">${escapeHtml(TITLE)}</h1>
+      <p class="sc-lead">${escapeHtml(SENTENCE_BEFORE)}<span class="nf-path" data-path>${escapeHtml(PATH_FALLBACK)}</span>.</p>
+    </div>
+    <div class="nf-body">
+      <div class="sc-actions">${button({ text: 'Home', href: '/' })}${button({ text: 'Docs', href: '/docs/', variant: 'secondary' })}</div>
+      <div class="nf-search" data-docs-search>
+        ${searchField({ action: '/docs/', name: 'q', placeholder: SEARCH_LABEL, label: SEARCH_LABEL })}
+        <div class="nf-results" data-results aria-live="polite" hidden></div>
+      </div>
+    </div>
   </div>
-  <noscript>${band({ text: `Scripts are off. Every figure on this page is from the build, ${now}, and carries its source. Nothing will move.` })}</noscript>
-</main>
-${footer({ facts: { genesisHash: facts.provenance.genesisHash, specVersion: facts.provenance.specVersion, nodeVersion: facts.provenance.nodeVersion ?? null, builtAt: now, block: facts.provenance.readAtBlock } })}
-</body>
-</html>
-`;
+</div>
+<script type="application/json" id="nf-docs">${index}</script>`;
+  return page({
+    title: TITLE,
+    description: DESCRIPTION,
+    path: '/404',
+    current: null,
+    facts,
+    builtAt,
+    body,
+    css,
+    scripts: ['/404.js'],
+    extraHead: '\n<meta name="robots" content="noindex">',
+  });
 }

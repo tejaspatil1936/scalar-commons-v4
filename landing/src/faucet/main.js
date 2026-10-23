@@ -1,178 +1,148 @@
-// Boot for /faucet. The frame arrives CLOSED (the curl commands, the field and
-// the button disabled with the reason). This script tries the one read the
-// page depends on, `GET faucet.scalarnet.io/health`; if the browser can read
-// it, the form opens and every Reading is filled from the answer; if it cannot
-// (today: no cross-origin permission on the faucet host), the Readings settle
-// as leaders to nothing with their receipts, and nothing else changes.
-import { initChrome, setFigure } from '../chrome-legacy/behaviour/index.js';
-import { decodeSs58 } from './address.js';
-import { formatInterval, formatPlancks } from './format.js';
+// The faucet page's one script. On load it reads the faucet's `GET /health`:
+// the drip amount fills the sentence, or — if the read fails (today: the
+// faucet's answers carry no cross-origin permission) — the sentence stays
+// without a figure and the warning callout appears. The form checks the
+// address as SS58 under the field, then sends `POST /drip` and shows the
+// faucet's answer: a success callout with the amount, the extrinsic hash
+// linked to the explorer and when the address can ask again, or the faucet's
+// own message in an error callout.
+import { initChrome } from '../chrome/behaviour/index.js';
+import { callout, escapeHtml, skeleton, truncateMiddle } from '../chrome/templates.mjs';
+import { addressError } from './address.js';
+import { formatPlancks, formatWait, sentence } from './format.js';
 
 const root = document.querySelector('[data-faucet]');
-const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const utcNow = () => new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
-const readingEl = (key) => root.querySelector(`[data-reading="${key}"]`);
+const BLOCK_HASH = /^0x[0-9a-f]{64}$/i;
+const STATUS_WORDS = { 400: 'bad request', 404: 'not found', 429: 'too many requests', 500: 'internal error', 502: 'bad gateway', 503: 'service unavailable', 504: 'gateway timeout' };
 
-/** Fill a Reading with a figure read just now; the stub goes `state` (live by default). */
-function fill(key, text, { state = 'live', note = null } = {}) {
-  const el = readingEl(key);
-  if (!el) return;
-  el.classList.remove('is-loading', 'is-unavailable');
-  const value = el.querySelector('[data-reading-value]');
-  if (value) setFigure(value, text, { reduced });
-  el.querySelector('.nw-stub')?.setAttribute('data-state', state);
-  const fetched = el.querySelector('[data-fetched]');
-  if (fetched) fetched.textContent = `fetched ${utcNow()} · block —`;
-  const line = el.querySelector('[data-receipt-line]');
-  if (line) line.textContent = `${el.querySelector('[data-request]')?.textContent ?? ''} · ${utcNow()}`;
-  const computed = el.querySelector('[data-computed]');
-  if (computed) computed.textContent = note ?? '';
-}
+if (root) {
+  const $ = (selector) => root.querySelector(selector);
+  const form = $('[data-faucet-form]');
+  const input = form.querySelector('input[name="address"]');
+  const submit = form.querySelector('button[type="submit"]');
+  const fieldError = $('[data-field-error]');
+  const result = $('[data-result]');
+  const unavailable = $('[data-unavailable]');
+  const amountSlot = $('[data-drip-amount]');
+  const prefix = Number(root.dataset.prefix);
+  const faucetHost = new URL(root.dataset.drip).host;
+  // From chain-facts.json; replaced by the faucet's own figures when /health answers.
+  let decimals = Number(root.dataset.decimals);
+  let symbol = root.dataset.symbol;
 
-/** A Reading that could not be read: the leader runs to nothing and the receipt says why. */
-function unavailable(key, why) {
-  const el = readingEl(key);
-  if (!el) return;
-  el.classList.remove('is-loading');
-  el.classList.add('is-unavailable');
-  el.querySelector('.nw-stub')?.setAttribute('data-state', 'record');
-  const fetched = el.querySelector('[data-fetched]');
-  if (fetched) fetched.textContent = why;
-}
+  const setUnavailable = (on) => {
+    unavailable.hidden = !on;
+  };
+  const showResult = (html) => {
+    result.innerHTML = html ?? '';
+    result.hidden = !html;
+  };
+  const showFieldError = (text) => {
+    fieldError.textContent = text;
+    fieldError.hidden = false;
+    input.setAttribute('aria-invalid', 'true');
+  };
+  const clearFieldError = () => {
+    fieldError.textContent = '';
+    fieldError.hidden = true;
+    input.removeAttribute('aria-invalid');
+  };
+  /** Checks the field; true when the address is one this chain accepts. */
+  const check = () => {
+    const error = addressError(input.value, prefix);
+    if (error) showFieldError(error);
+    else clearFieldError();
+    return !error;
+  };
 
-const KEYS = ['title-amount', 'title-interval', 'amount', 'next-drip', 'faucet-address', 'faucet-balance'];
-
-function closed() {
-  root.dataset.state = 'closed';
-  for (const key of KEYS) unavailable(key, 'not readable from this origin');
-}
-
-/** The interval, only if /health exposes a limit; otherwise the title drops the clause. */
-const intervalMs = (h) => h.dripIntervalMs ?? h.rateLimit?.perAddressMs ?? h.perAddressMs ?? null;
-
-function open(h) {
-  root.dataset.state = 'open';
-  const symbol = h.tokenSymbol ?? '';
-  const decimals = h.tokenDecimals ?? 12;
-  const amount = `${formatPlancks(h.dripAmountPlancks, decimals)} ${symbol}`;
-  fill('title-amount', amount);
-  fill('amount', amount);
-  const ms = intervalMs(h);
-  if (ms) fill('title-interval', formatInterval(ms));
-  else {
-    readingEl('title-interval')?.setAttribute('hidden', '');
-    root.querySelector('[data-title-comma]')?.setAttribute('hidden', '');
-  }
-  if (h.faucetAddress) fill('faucet-address', h.faucetAddress);
-  if (h.faucetFreePlancks !== undefined) fill('faucet-balance', `${formatPlancks(h.faucetFreePlancks, decimals)} ${symbol}`);
-  unavailable('next-drip', '—');
-  for (const el of root.querySelectorAll('[data-drip-form] [disabled]')) el.removeAttribute('disabled');
-  root.querySelector('[data-drip-form]')?.addEventListener('submit', (event) => submit(event, h));
-}
-
-function showError(text) {
-  const input = root.querySelector('input[name="address"]');
-  const error = root.querySelector('[data-field-error]');
-  input?.setAttribute('aria-invalid', 'true');
-  if (error) {
-    error.textContent = text;
-    error.hidden = false;
-  }
-}
-function clearError() {
-  const input = root.querySelector('input[name="address"]');
-  const error = root.querySelector('[data-field-error]');
-  input?.removeAttribute('aria-invalid');
-  if (error) {
-    error.textContent = '';
-    error.hidden = true;
-  }
-}
-
-/** The receipt for a sent drip: the extrinsic hash, where it went, and the explorer's activity page for that address. */
-function sent(result, address) {
-  const box = root.querySelector('[data-sent]');
-  if (!box) return;
-  box.hidden = false;
-  box.replaceChildren();
-  const wrap = document.createElement('div');
-  wrap.className = 'nw-reading is-torn';
-  const line = document.createElement('div');
-  line.className = 'nw-reading-line';
-  const label = document.createElement('span');
-  label.className = 'nw-label';
-  label.textContent = 'Sent';
-  const leader = document.createElement('span');
-  leader.className = 'nw-leader';
-  const figure = document.createElement('span');
-  figure.className = 'nw-reading-figure';
-  const link = document.createElement('a');
-  link.className = 'nw-figure nw-figure--body nw-mono';
-  link.href = `https://explorer.scalarnet.io/activity?agent=${encodeURIComponent(address)}`;
-  link.textContent = result.txHash ?? '';
-  const stub = document.createElement('span');
-  stub.className = 'nw-stub';
-  stub.dataset.state = 'live';
-  figure.append(link, stub);
-  line.append(label, leader, figure);
-  const receipt = document.createElement('div');
-  receipt.className = 'nw-receipt';
-  for (const text of [`POST ${root.dataset.drip.replace(/^https?:\/\//, '')}`, `fetched ${utcNow()} · block ${result.blockHash ?? '—'}`, `extrinsic ${result.txHash ?? '—'}`]) {
-    const row = document.createElement('div');
-    row.textContent = text;
-    receipt.append(row);
-  }
-  wrap.append(line, receipt);
-  box.append(wrap);
-}
-
-async function submit(event, h) {
-  event.preventDefault();
-  const input = root.querySelector('input[name="address"]');
-  const button = root.querySelector('.fc-send');
-  const address = (input?.value ?? '').trim();
-  const check = decodeSs58(address, { prefix: Number(root.dataset.prefix) });
-  if (!check.ok) {
-    showError(root.dataset.refusal);
-    return;
-  }
-  clearError();
-  button.classList.add('is-loading');
-  button.disabled = true;
-  try {
-    const response = await fetch(root.dataset.drip, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ address }) });
-    const body = await response.json().catch(() => ({}));
-    if (response.ok && body.ok) {
-      sent(body, address);
-      unavailable('next-drip', `after ${utcNow()}`);
-      // The faucet's balance moved: read it again from the same place.
-      const again = await fetch(root.dataset.health).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-      if (again?.faucetFreePlancks !== undefined) fill('faucet-balance', `${formatPlancks(again.faucetFreePlancks, again.tokenDecimals ?? h.tokenDecimals ?? 12)} ${again.tokenSymbol ?? h.tokenSymbol ?? ''}`);
-    } else if (body.code === 'RATE_LIMITED' || response.status === 429) {
-      const seconds = Number(response.headers.get('retry-after')) || (body.retryAfterMs ? Math.ceil(body.retryAfterMs / 1000) : null);
-      if (seconds) fill('next-drip', formatInterval(seconds * 1000).replace(/^once every /, 'in '), { state: 'record' });
-      showError(body.error ?? 'rate limited');
-    } else {
-      showError(body.error ?? `HTTP ${response.status}`);
+  async function readHealth() {
+    amountSlot.innerHTML = `${skeleton('4ch')} `;
+    try {
+      const response = await fetch(root.dataset.health, { cache: 'no-store' });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const health = await response.json();
+      if (Number.isInteger(health.tokenDecimals)) decimals = health.tokenDecimals;
+      if (health.tokenSymbol) symbol = health.tokenSymbol;
+      // A figure only when the faucet states one; otherwise the sentence reads without it.
+      amountSlot.textContent = /^\d+$/.test(String(health.dripAmountPlancks ?? '')) ? `${formatPlancks(health.dripAmountPlancks, decimals)} ` : '';
+      setUnavailable(false);
+    } catch {
+      amountSlot.textContent = '';
+      setUnavailable(true);
     }
-  } catch (error) {
-    showError(error.message);
-  } finally {
-    button.classList.remove('is-loading');
-    button.disabled = false;
   }
-}
 
-async function boot() {
+  function success(body, address) {
+    const amount = /^\d+$/.test(String(body.amountPlancks ?? '')) ? `${formatPlancks(body.amountPlancks, decimals)} ${symbol}` : `test ${symbol}`;
+    const hash = String(body.txHash ?? '');
+    const block = String(body.blockHash ?? '');
+    const hashHtml = BLOCK_HASH.test(hash)
+      ? BLOCK_HASH.test(block)
+        ? `<a class="sc-mono" href="${escapeHtml(`${root.dataset.explorer}/block/${block}`)}" title="${escapeHtml(hash)}">${escapeHtml(truncateMiddle(hash))}</a> (opens its block in the explorer)`
+        : `<span class="sc-mono" title="${escapeHtml(hash)}">${escapeHtml(truncateMiddle(hash))}</span>`
+      : null;
+    // The address as the faucet confirmed it (or as sent), linked to its account page in the explorer.
+    const to = String(body.address ?? address);
+    const toHtml = `<a class="sc-mono" href="${escapeHtml(`${root.dataset.explorer}/account/${to}`)}" title="${escapeHtml(to)}">${escapeHtml(truncateMiddle(to, 5, 6))}</a>`;
+    const lines = [
+      `<strong>Sent ${escapeHtml(amount)} to ${toHtml}.</strong>`,
+      hashHtml ? `<span>Extrinsic ${hashHtml}</span>` : null,
+      `<span>Next request for this address: ${escapeHtml(root.dataset.wait)} from now.</span>`,
+    ].filter(Boolean);
+    showResult(callout({ variant: 'ok', body: lines.join('') }));
+  }
+
+  function failure(response, body) {
+    const message = body?.error
+      ? sentence(body.error)
+      : `The faucet answered HTTP ${response.status}${STATUS_WORDS[response.status] ? ` (${STATUS_WORDS[response.status]})` : ''} with no message.`;
+    const lines = [`<span>${escapeHtml(message)}</span>`];
+    if (body?.code === 'RATE_LIMITED' && Number.isFinite(Number(body.retryAfterMs))) {
+      const who = body.scope === 'ip' ? 'IP address' : 'address';
+      lines.push(`<span>Next request for this ${who}: ${escapeHtml(formatWait(body.retryAfterMs))} from now.</span>`);
+    }
+    showResult(callout({ variant: 'error', body: lines.join('') }));
+  }
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!check()) {
+      input.focus();
+      return;
+    }
+    const address = input.value.trim();
+    showResult(null);
+    submit.disabled = true;
+    form.setAttribute('aria-busy', 'true');
+    try {
+      let response;
+      try {
+        response = await fetch(root.dataset.drip, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ address }) });
+      } catch {
+        setUnavailable(true);
+        showResult(callout({ variant: 'error', body: `<span>${escapeHtml(`The request did not reach the faucet: this page could not read ${faucetHost}. Use the API below.`)}</span>` }));
+        return;
+      }
+      const body = await response.json().catch(() => null);
+      if (response.ok && body?.ok) {
+        setUnavailable(false);
+        success(body, address);
+      } else {
+        failure(response, body);
+      }
+    } finally {
+      submit.disabled = false;
+      form.removeAttribute('aria-busy');
+    }
+  });
+  // Checked when the visitor leaves the field, and again as they correct it.
+  input.addEventListener('blur', () => {
+    if (input.value.trim()) check();
+  });
+  input.addEventListener('input', () => {
+    if (!fieldError.hidden) check();
+  });
+
   initChrome();
-  if (!root) return;
-  try {
-    const response = await fetch(root.dataset.health, { mode: 'cors', cache: 'no-cache' });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    open(await response.json());
-  } catch {
-    closed();
-  }
+  readHealth();
 }
-
-boot();
