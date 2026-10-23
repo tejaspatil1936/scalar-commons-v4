@@ -141,6 +141,9 @@ button, input { font: inherit; color: inherit; }
 /* Present (the Observatory only) widens the controls leftward into column 10;
    the lamp's words end before column 10 begins, so nothing meets. */
 .nw-bar-controls:has(.nw-present) { grid-column: 10 / span 3; }
+/* Every bar item sits on the one row: an item whose columns overlap another's would
+   otherwise be auto-placed onto a second row. */
+.nw-bar-inner > *, .nw-bar-right > * { grid-row: 1; }
 .nw-menu { display: none; }
 .nw-nav-row { display: none; }
 
