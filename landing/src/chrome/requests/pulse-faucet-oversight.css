@@ -1,0 +1,26 @@
+/*
+ * Requests from round 2 · /pulse, /faucet, /oversight (branch wt/r2-pulse)
+ * to the chrome. Nothing here ships: the main thread merges it into
+ * chrome.css / templates.mjs by hand, then deletes this file.
+ *
+ * 1. head() writes <meta name="color-scheme" content="dark"> on every page.
+ *    The Ledger is one light theme; the dark hint draws the UA's scrollbars
+ *    and any unstyled control dark. Request: content="light".
+ * 2. A stacked Reading's label is white-space: nowrap. In a row of five
+ *    (/oversight's summary at 1440) "OPERATOR KEYS MATCHING THE CHAIN" ran
+ *    into the next column, and check-layout's (a)/(b) measure readings and
+ *    figures, not labels, so it passed. Request: the rule below in
+ *    chrome.css (a wrapped label keeps a two-line box so a row's labels
+ *    still share a top line and its figures a baseline), and a check-layout
+ *    case for a label wider than its column. /oversight carries the rule
+ *    page-scoped meanwhile.
+ * 3. `.nw-section .nw-code { margin-top: var(--s-7); }` (the home page's
+ *    block) applies to every code block in every page's section: /faucet's
+ *    three curl commands stood 64 px apart. Request: scope it to the home
+ *    page. /faucet sets it to 0 page-scoped meanwhile.
+ * 4. Still open from requests/phase7.css: field() and button() take
+ *    `disabled` and `describedBy` (/faucet adds both by string replacement),
+ *    and reading() takes an `unavailable` word. Its item 4 (the bar wider
+ *    than 390 px) is resolved: /faucet's scrollWidth is 390.
+ */
+.nw-row .nw-reading--stack .nw-reading-line > .nw-label { white-space: normal; min-height: var(--s-5); }
