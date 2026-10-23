@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { escapeHtml } from '../src/render.mjs';
+import { formatDate } from '../src/chrome/templates.mjs';
 
 const landingDir = fileURLToPath(new URL('../', import.meta.url));
 const repoRoot = new URL('../../', import.meta.url);
@@ -35,7 +36,7 @@ function build() {
 
 const out = build();
 const pages = Object.fromEntries(
-  ['index.html', 'observatory.html', 'pulse.html'].map((name) => [name, readFileSync(join(out, name), 'utf8')]),
+  ['index.html', 'network.html', 'observatory.html', 'pulse.html'].map((name) => [name, readFileSync(join(out, name), 'utf8')]),
 );
 const names = Object.values(status.fields).flatMap((entry) => entry.names);
 const count = (text, name) => (text.match(new RegExp(`\\b${name}\\b`, 'g')) ?? []).length;
@@ -63,18 +64,13 @@ test('every status value carries the date it was true, the document it came from
   }
 });
 
-test('the Observatory prints the hosts record with the Validators notes, labelled a record, dated and sourced, and ships the file', () => {
-  const page = pages['observatory.html'];
-  const section = page.match(/<section id="validators"[\s\S]*?<\/section>/)?.[0] ?? '';
-  const record = section.match(/<p class="instrument-note status-record" data-record="true" data-status="hosts">([\s\S]*?)<\/p>/)?.[1];
-  assert.ok(record, 'the Validators section carries the status record in its notes');
-  assert.ok(section.indexOf('class="instrument-note ring-note"') < section.indexOf('status-record'), 'after the live note');
-  assert.match(record, /Record, not live/);
-  assert.ok(record.includes(escapeHtml(hosts.value)), 'the value is printed word for word');
-  assert.ok(record.includes(`as of ${hosts.asOf}`), 'the date is printed');
-  assert.ok(record.includes(escapeHtml(hosts.source)), 'the source is printed');
-  assert.match(record, /<a href="status\.json" class="mono">landing\/public\/status\.json<\/a>/);
-  assert.ok(!/data-reading=|reading-value/.test(record), 'the record is never a reading slot');
+test('the Network page links the record for download from its sources table, dated, and ships the file byte for byte', () => {
+  const page = pages['network.html'];
+  const sources = page.match(/<section class="sc-section" id="sources"[\s\S]*?<\/section>/)?.[0] ?? '';
+  assert.ok(sources, 'the page has a sources section');
+  assert.match(sources, /<td>Validator hosts<\/td><td><a href="status\.json" download="status\.json">status\.json \(download\)<\/a><\/td>/, 'the record is linked with the download attribute');
+  assert.ok(sources.includes(`Operator record, updated ${escapeHtml(formatDate(`${status.updated}T00:00:00Z`))}`), 'the record’s date is printed');
+  assert.ok(!page.includes(escapeHtml(hosts.value)), 'the value itself is not printed on the page: the file is the record');
   assert.equal(readFileSync(join(out, 'status.json'), 'utf8'), statusText, 'dist/status.json is the record byte for byte');
 });
 

@@ -1,0 +1,7 @@
+/*
+ * /network — the one rule the chrome lacks. A cell of prose (an upgrade's
+ * note, an event's details, a figure's source) keeps a readable measure on a
+ * phone: the table scrolls inside its container instead of wrapping the
+ * sentence one word to a line. Tokens only; no colour, no size of its own.
+ */
+.nk-note { display: block; min-width: 24ch; max-width: 65ch; }
