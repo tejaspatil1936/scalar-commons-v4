@@ -42,6 +42,48 @@ export const GRAPH_BUNDLE = 'observatory-graph.js';
 /** The four states, least urgent first. */
 export const STATES = ['idle', 'working', 'disputed', 'slashed'];
 export const STATE_COLOUR = { idle: 'idle', working: 'active', disputed: 'disputed', slashed: 'slash' };
+
+/**
+ * One cell in the Ledger's marks, never a hue: working is solid ink (live),
+ * idle an ink-3 outline (settled), in dispute a 45° hatch of 1 px ink lines
+ * at 4 px pitch inside an ink outline, slashed an ink outline with an X.
+ * `inks` are read from the tokens at draw time by the caller.
+ */
+export function markCell(g, state, x, y, r, { ink, settled, ground }) {
+  g.lineWidth = 1;
+  g.beginPath();
+  g.arc(x, y, r - 0.5, 0, Math.PI * 2);
+  if (state === 'working') {
+    g.fillStyle = ink;
+    g.fill();
+    return;
+  }
+  g.fillStyle = ground;
+  g.fill();
+  g.strokeStyle = state === 'idle' ? settled : ink;
+  g.stroke();
+  if (state === 'disputed') {
+    g.save();
+    g.clip();
+    g.strokeStyle = ink;
+    for (let d = -2 * r; d <= 2 * r; d += 4) {
+      g.beginPath();
+      g.moveTo(x + d - r, y + r);
+      g.lineTo(x + d + r, y - r);
+      g.stroke();
+    }
+    g.restore();
+  } else if (state === 'slashed') {
+    const k = r * 0.6;
+    g.strokeStyle = ink;
+    g.beginPath();
+    g.moveTo(x - k, y - k);
+    g.lineTo(x + k, y + k);
+    g.moveTo(x + k, y - k);
+    g.lineTo(x - k, y + k);
+    g.stroke();
+  }
+}
 export const STATE_WORD = { idle: 'idle', working: 'working', disputed: 'in dispute', slashed: 'slashed in the last hour' };
 
 const AGENTS_INTERVAL_MS = 60_000;
@@ -395,7 +437,7 @@ export function init(root, ctx) {
 
   // ── drawing ──
   function drawEmpty(g, width, height, lines) {
-    g.font = `400 14px ${ctx.theme.font('sans')}`;
+    g.font = `400 14px ${ctx.theme.font('serif')}`;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     g.fillStyle = colour('text-dim');
@@ -424,20 +466,17 @@ export function init(root, ctx) {
     layout = { ...inner, x0: inner.x0 + PLATE_PAD, y0: inner.y0 + PLATE_PAD };
     const r = dotRadius(layout.pitch);
     const ring = ringRadius(layout.pitch);
-    const inks = Object.fromEntries(STATES.map((s) => [s, colour(STATE_COLOUR[s])]));
-    const ringInk = colour('text-dim');
+    const ink = colour('text');
+    const settled = colour('settled');
+    const ground = colour('field');
     model.cells.forEach((cell, i) => {
       const e = shown.get(cell.key);
       const { x, y } = cellCentre(layout, i);
       g.globalAlpha = e?.alpha ?? 1;
-      g.fillStyle = e && e.mix < 1 ? mixColour(inks[e.from], inks[cell.state], e.mix) : inks[cell.state];
-      g.beginPath();
-      g.arc(x, y, r, 0, Math.PI * 2);
-      g.fill();
+      markCell(g, cell.state, x, y, r, { ink, settled, ground });
       if (cell.ring) {
-        // Subtle: a hairline at half strength, enough to tell an operator-run cell from an external one.
-        g.globalAlpha = (e?.alpha ?? 1) * 0.55;
-        g.strokeStyle = ringInk;
+        // Operator-run: a second outline 2 px outside the mark (the stub's double outline).
+        g.strokeStyle = ink;
         g.lineWidth = 1;
         g.beginPath();
         g.arc(x, y, ring, 0, Math.PI * 2);

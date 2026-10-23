@@ -1,11 +1,16 @@
-/* /observatory — Nightwatch.
+/* /observatory — the Ledger.
    The chrome (src/chrome/tokens.css + chrome.css) is inlined before this
    file; this file lays the page out and names nothing of its own: no colour
-   that is not a token, no font-size outside the scale, a border only where
-   the brief allows one, no gradient, no shadow but --glow. One theme. */
+   that is not a token, no font-size at all (every font is one of the eleven
+   styles), every space a step of the --s scale, no gradient, no shadow.
+   Nothing is coloured: state is carried by fill, outline, hatching and the
+   word beside it. One theme, light. */
 
 /* The instruments' canvases read their colours by these names (context.js
-   THEME_NAMES); each is a token, so the page has one palette. */
+   THEME_NAMES) at draw time; each is a Ledger token, so the page has one
+   palette and a canvas never holds a literal. A state is never a hue: live is
+   solid ink, settled an ink-3 or rule-2 outline, dispute a 45° hatch of ink,
+   slashed an X, operator-run a double outline or a tick at the left. */
 :root {
   --bg: var(--paper);
   --surface: var(--paper-2);
@@ -21,7 +26,7 @@
   --slash: var(--ink);
   --idle: var(--ink-3);
   --paid: var(--ink);
-  --font-serif: var(--font-serif);
+  --field: var(--paper-2);
 }
 
 .mono,
@@ -59,24 +64,14 @@ pre {
 .hour-title { display: block; margin: 0 0 var(--s-4); }
 .hour-note { margin: 0 0 var(--s-4); }
 .hour-figures { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: var(--s-5); }
-.is-vermilion .nw-figure { color: var(--ink); }
-.is-ice .nw-figure { color: var(--ink); }
-.is-vermilion .nw-stub, .is-ice .nw-stub { opacity: 1; }
 
-/* The agent panel: the field on pine-2, the graph behind its switch. */
+/* The agent panel: the field on paper-2, the graph behind its switch. */
 .panel { margin: 0; padding: var(--s-5); background: var(--paper-2); border-radius: var(--radius); min-width: 0; }
 .panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s-4); margin: 0 0 var(--s-4); }
 .panel-title { margin: 0; }
 .legend { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4); margin: 0 0 var(--s-4); padding: 0; list-style: none; color: var(--ink-2); }
-.legend li { display: inline-flex; align-items: center; gap: var(--s-2); }
-.dot, .swatch { display: inline-block; width: 8px; height: var(--s-2); border-radius: 50%; background: currentColor; }
-.swatch { width: 16px; height: calc(var(--s-1) / 2); border-radius: 0; }
-.dot-idle { color: var(--ink-3); }
-.dot-working, .swatch-active { color: var(--ink); }
-.dot-disputed, .swatch-disputed { color: var(--ink); }
-.dot-slashed { color: var(--ink); }
-.dot-ring { color: var(--ink-2); }
-.swatch-settled { color: var(--ink-3); }
+/* The legend's marks are the chrome's tags: each state's mark before its word (solid, outline, hatch, X, double ring). */
+.legend .nw-tag { color: var(--ink-2); }
 .field-host, .constellation-host { position: relative; }
 .field-canvas, .constellation-canvas { display: block; width: 100%; height: calc(var(--s-10) + var(--s-10)); }
 .graph-legend, .graph-host, .graph-note,
@@ -162,7 +157,8 @@ html[data-present] .nw-nav, html[data-present] .nw-nav-row, html[data-present] .
 html[data-present] .river-strip, html[data-present] .nw-receipt-line, html[data-present] .notes { display: none; }
 html[data-present] [data-present-screen] { display: none; }
 html[data-present] [data-present-screen][data-present-active] { display: block; min-height: 100vh; }
-html[data-present] .section .nw-figure, html[data-present] .hero .nw-figure--xl { font: var(--figure-xl); font: var(--figure-xl); }
+/* The type scale is closed: the room's figures are the largest style, --figure-xl, never a size of their own. */
+html[data-present] .section .nw-figure, html[data-present] .hero .nw-figure { font: var(--figure-xl); }
 html[data-present] .hero-spine { display: none; }
 
 /* ── motion: nothing moves on its own except the chain (brief §4); no scroll reveal ── */

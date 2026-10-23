@@ -35,9 +35,9 @@ const THEME_NAMES = [
   'slash',
   'idle',
   'paid',
+  'field',
   'font-mono',
   'font-serif',
-  'font-sans',
 ];
 
 function createTheme(win, bus) {

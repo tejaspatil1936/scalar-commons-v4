@@ -426,7 +426,7 @@ test('the top bar: the chrome’s bar before the first screen — wordmark, nav 
   assert.match(chromeCss, /\.nw-bar\.is-scrolled/);
 });
 
-test('the first screen: Observatory in the display face, the one sentence, four Readings at figure-xl with live stubs, the operator-run note verbatim, the last hour at figure-m, the margin Spine', () => {
+test('the first screen: Observatory in the display face, the one sentence, four Readings at figure-xl with live stubs, the operator-run note verbatim, the last hour as a row sized by its count, the margin Spine', () => {
   const hero = heroHtml();
   assert.match(hero, /<header class="hero" data-instrument="hero" data-present-screen aria-labelledby="hero-h">/);
   assert.ok(!/nw-wordmark|Scalar Commons<\//.test(hero), 'the wordmark lives in the top bar only');
@@ -447,17 +447,17 @@ test('the first screen: Observatory in the display face, the one sentence, four 
   assert.match(hero, /<p class="hero-note nw-small nw-dim" id="operator-note">Agents run by the Scalar Commons team to exercise the network\. Identified on-chain by the swarm- prefix\.<\/p>/);
   assert.ok(hero.indexOf('data-reading="operatorRun"') < hero.indexOf('id="operator-note"') && hero.indexOf('id="operator-note"') < hero.indexOf('data-reading="activeAgreements"'));
   assert.ok(!/<details[^>]*>[\s\S]*operator-note/.test(hero), 'the note is never behind a disclosure');
-  // Activity in the last hour: the label, then the figure-m row; disputes in vermilion, slashes in ice, each colour with its word.
+  // Activity in the last hour: the label, then one row of Readings whose figure size the chrome takes from the count; disputes and slashes carried by their words, never a hue.
   const hour = hero.match(/<section class="hour" aria-labelledby="hour-h">[\s\S]*?<\/section>/)?.[0] ?? '';
   assert.match(hour, /<h2 class="nw-label hour-title" id="hour-h">Activity in the last hour<\/h2>/);
   assert.match(chromeCss, /\.nw-label \{[^}]*text-transform: uppercase/);
   assert.match(hour, /<p class="hour-note nw-small nw-dim" hidden><\/p>/, 'the index-behind sentence has its slot');
   assert.deepEqual([...hour.matchAll(/data-reading="([^"]+)"/g)].map((m) => m[1]), ['hourOracle', 'hourSettled', 'hourDisputes', 'hourSlashes', 'hourMessages']);
-  for (const key of ['hourOracle', 'hourSettled', 'hourDisputes', 'hourSlashes', 'hourMessages']) assert.match(hour, new RegExp(`data-reading="${key}"[\\s\\S]*?nw-figure nw-figure--m`), `${key} is not figure-m`);
-  assert.match(hour, /class="nw-reading nw-reading--stack is-loading is-vermilion" data-reading="hourDisputes"/);
-  assert.match(hour, /class="nw-reading nw-reading--stack is-loading is-ice" data-reading="hourSlashes"/);
-  assert.match(css, /\.is-vermilion \.nw-figure \{ color: var\(--vermilion\); \}/);
-  assert.match(css, /\.is-ice \.nw-figure \{ color: var\(--ice\); \}/);
+  assert.match(hour, /<div class="readings nw-row hour-figures">/, 'the hour is a chrome row: its figure size follows the count');
+  assert.match(chromeCss, /\.nw-row:has\(> :nth-child\(5\)\) \.nw-reading-figure \.nw-figure \{ font: var\(--figure-s\); \}/, 'five in a row print at figure-s');
+  assert.match(hour, /class="nw-reading nw-reading--stack is-loading is-dispute" data-reading="hourDisputes"[\s\S]*?<span class="nw-label reading-label">Disputes opened/);
+  assert.match(hour, /class="nw-reading nw-reading--stack is-loading is-slashed" data-reading="hourSlashes"[\s\S]*?<span class="nw-label reading-label">Slashes/);
+  assert.ok(!/\.is-(?:dispute|slashed)[^{]*\{[^}]*color:/.test(css), 'a state is never a hue: the word carries it');
   // The spec-309 fence stays on the message figures.
   for (const key of ['messagesSent', 'hourMessages']) assert.match(hero, new RegExp(`data-reading="${key}" data-min-spec="309" hidden`));
   // The layout: the Spine's 96 px, five columns, seven columns; nothing viewport-tall.
@@ -474,12 +474,12 @@ test('the first screen: Observatory in the display face, the one sentence, four 
 test('the agent activity panel: the title as a label, the Network graph switch, one legend, the field on canvas, one live line, one footnote, the list behind its disclosure', () => {
   const panel = heroHtml().match(/<figure class="panel hero-panel instrument"[\s\S]*?<\/figure>/)?.[0] ?? '';
   assert.match(panel, /<figcaption class="panel-head">\s*<h2 class="nw-label panel-title" id="panel-h">Agent activity<\/h2>\s*<button type="button" class="nw-quiet graph-toggle" role="switch" aria-checked="false">Network graph<\/button>/);
-  const legend = panel.match(/<ul class="legend field-legend nw-label"[^>]*>([\s\S]*?)<\/ul>/)?.[1] ?? '';
+  const legend = panel.match(/<ul class="legend field-legend"[^>]*>([\s\S]*?)<\/ul>/)?.[1] ?? '';
   assert.deepEqual([...legend.matchAll(/<\/span>([^<]+)<\/li>/g)].map((m) => m[1]), ['Idle', 'Working', 'In dispute', 'Slashed, last hour', 'Operator-run']);
-  // The legend's marks are the state tokens, each beside its word.
-  for (const [cls, token] of [['dot-working', 'filament'], ['dot-disputed', 'vermilion'], ['dot-slashed', 'ice'], ['dot-ring', 'clay'], ['dot-idle', 'sage']]) {
-    assert.match(css, new RegExp(`\\.${cls}[^{]*\\{ color: var\\(--${token}\\); \\}`), `${cls} is not ${token}`);
-  }
+  // The legend's marks are the chrome's tag marks, each beside its word: outline, solid, hatch, X, double ring — never a hue.
+  assert.deepEqual([...legend.matchAll(/<li class="nw-tag" data-state="([a-z]+)"><span class="nw-dot" aria-hidden="true"><\/span>/g)].map((m) => m[1]), ['settled', 'live', 'dispute', 'slashed', 'operator']);
+  for (const state of ['live', 'dispute', 'slashed', 'operator']) assert.match(chromeCss, new RegExp(`\\.nw-tag\\[data-state="${state}"\\] \\.nw-dot`), `the chrome has no ${state} mark`);
+  assert.ok(!/\.dot-|\.swatch/.test(css), 'no colour-swatch legend is left');
   assert.match(panel, /<canvas class="field-canvas" role="img" aria-label="[^"]+"><\/canvas>\s*<div class="tooltip field-tip nw-tag" role="tooltip" hidden><\/div>/);
   assert.match(panel, /<p class="field-live nw-receipt-line" role="status" aria-live="off">/);
   assert.equal((panel.match(/class="panel-foot /g) ?? []).length, 2, 'one footnote per view');
@@ -492,21 +492,27 @@ test('the agent activity panel: the title as a label, the Network graph switch, 
   const field = readFileSync(new URL('../src/observatory/instruments/agent-field.js', import.meta.url), 'utf8');
   assert.ok(!/from ['"]d3-force|forceSimulation\(/.test(field), 'no physics in the field');
   assert.match(field, /import\(new URL\(GRAPH_BUNDLE, import\.meta\.url\)\.href\)/, 'the graph is fetched on first use');
-  // The panel sits on pine-2 with the one radius; no border, no shadow.
-  assert.match(css, /\.panel \{[^}]*background: var\(--pine-2\); border-radius: var\(--radius\)/);
+  // The panel sits on paper-2 with the one radius; no border, no shadow.
+  assert.match(css, /\.panel \{[^}]*background: var\(--paper-2\); border-radius: var\(--radius\)/);
+  // The canvas draws state as marks read from the tokens: hatch for dispute, an X for slashed, a second outline for operator-run.
+  assert.match(field, /export function markCell/);
+  assert.match(field, /state === 'disputed'[\s\S]*?g\.clip\(\)/, 'dispute is hatched');
+  assert.match(field, /state === 'slashed'[\s\S]*?moveTo\(x - k, y - k\)[\s\S]*?lineTo\(x \+ k, y \+ k\)/, 'slashed is an X');
+  assert.match(field, /Operator-run: a second outline/);
 });
 
-test('the river under the first screen: a titled strip at 140 px across the content width, newest filament, final sage', () => {
+test('the river under the first screen: a titled strip at 140 px across the content width, newest ink, the rest ink-3', () => {
   const after = page.slice(page.indexOf('</header>', page.indexOf('<header class="hero"')));
   const strip = after.match(/<figure class="nw-frame river-strip" aria-labelledby="river-h">[\s\S]*?<\/figure>/)?.[0] ?? '';
   assert.ok(strip, 'the strip follows the hero directly, inside the content frame');
   assert.ok(after.indexOf('river-strip') < after.indexOf('<main>'));
   assert.match(strip, /<h2 class="nw-label" id="river-h">Blocks arriving now<\/h2>/);
   assert.match(strip, /<canvas class="hero-river" role="img" aria-label="[^"]+"><\/canvas>/);
-  assert.match(css, /\.hero-river, \.pulse-canvas \{ display: block; width: 100%; height: 140px; \}/);
-  // The canvas reads its colours by the names context.js resolves, each an alias of a token: live is filament, settled is sage.
-  assert.match(css, /--live: var\(--filament\);/);
-  assert.match(css, /--settled: var\(--sage\);/);
+  // 140 px, on the spacing scale: 96 + 32 + 12.
+  assert.match(css, /\.hero-river, \.pulse-canvas \{ display: block; width: 100%; height: calc\(var\(--s-9\) \+ var\(--s-6\) \+ var\(--s-3\)\); \}/);
+  // The canvas reads its colours by the names context.js resolves, each an alias of a Ledger token: live is ink, settled is ink-3.
+  assert.match(css, /--live: var\(--ink\);/);
+  assert.match(css, /--settled: var\(--ink-3\);/);
   const pulse = readFileSync(new URL('../src/observatory/instruments/pulse.js', import.meta.url), 'utf8');
   assert.ok(!/compact: true/.test(pulse), 'the strip is drawn with its labels, like the full river');
   assert.match(pulse, /FINAL ·/);
@@ -537,15 +543,16 @@ test('sections: a numbered label, the instrument, then the Readings in a row —
   assert.equal((economy.match(/nw-daybar-seg/g) ?? []).length, 4);
   assert.equal((economy.match(/nw-daybar-seg is-current/g) ?? []).length, 1);
   for (const [, label] of economy.matchAll(/<span class="nw-label" data-daybar-label>([^<]*)<\/span>/g)) assert.equal(label, '', 'a Day Bar label is the browser’s to fill');
-  assert.match(css, /\.nw-daybar \{ position: sticky; top: 12px;/);
+  assert.match(css, /\.nw-daybar \{ position: sticky; top: var\(--s-3\);/);
   assert.ok(!/data-role="dial"/.test(economy), 'the era dial is gone: the Day Bar and its module own the era');
   assert.match(readFileSync(new URL('../src/observatory/daybar.js', import.meta.url), 'utf8'), /ctx\.watch\(\s*'era'/);
-  // 03 · Validators: the ring on a 240 px circle, the list, the ring note, the hosts record.
+  // 03 · Validators: the ring on a 240 px circle (its height on the spacing scale: 160 + 64 + 16), the authoring point solid ink and the rest an ink-3 outline, the list, the ring note, the hosts record.
   const validators = section('validators');
   assert.match(validators, /<svg class="ring" role="img" aria-label="[^"]+"><\/svg>/);
-  assert.match(css, /\.ring \{ width: 240px; height: 240px;/);
-  assert.match(allCss, /\.ring \.ring-node\.is-authoring \{ fill: var\(--filament\); \}/);
-  assert.match(allCss, /\.ring \.ring-node \{ fill: var\(--bone\); \}/);
+  assert.match(css, /\.ring \{ width: 240px; height: calc\(var\(--s-10\) \+ var\(--s-8\) \+ var\(--s-4\)\);/);
+  assert.match(allCss, /\.ring \.ring-point\.is-authoring \{ fill: var\(--ink\); stroke: var\(--ink\); \}/);
+  assert.match(allCss, /\.ring \.ring-point \{ fill: var\(--paper\); stroke: var\(--ink-3\); stroke-width: 1; \}/);
+  assert.match(allCss, /\.ring \.ring-point\.is-queued \{ stroke-dasharray: 2 2; \}/);
   assert.ok(validators.indexOf('class="instrument-note ring-note"') < validators.indexOf('status-record'));
   // 04 · History: four strips, each a labelled plot with its figure and receipt line.
   const strips = [...section('history').matchAll(/<figure class="strip reading" data-reading="([^"]+)">([\s\S]*?)<\/figure>/g)];
@@ -555,7 +562,7 @@ test('sections: a numbered label, the instrument, then the Readings in a row —
     assert.match(block, /<div class="strip-plot" data-plot><\/div>/, `${key} has no plot`);
     assert.match(block, /<span class="nw-receipt-line" data-receipt-line>GET api\.scalarnet\.io\/v1\//, `${key} names no source`);
   }
-  assert.match(allCss, /\.strip-plot \.plot-label \{[^}]*fill: var\(--bone-dim\)/);
+  assert.match(allCss, /\.strip-plot \.plot-label \{[^}]*fill: var\(--ink-2\)/);
   const history = readFileSync(new URL('../src/observatory/instruments/history.js', import.meta.url), 'utf8');
   assert.equal((history.match(/'plot-zero'/g) ?? []).length, 4, 'one zero line per strip');
   // 06 · Verify: the commands as the chrome's code blocks with Copy; the posture rows under the record label; no badge.
@@ -607,22 +614,22 @@ test('figures: tabular lining figures from the token; a live figure fills throug
   assert.match(readout, /`as of \$\{utcTime\(new Date\(target\.dataset\.at\)\)\}`/);
   assert.match(readout, /target\.dataset\.at = new Date\(record\.at\)\.toISOString\(\)/);
   assert.match(readFileSync(new URL('../src/observatory/main.js', import.meta.url), 'utf8'), /if \(state !== 'open'\) ctx\.readout\.markStale\(document\)/);
-  assert.match(css, /\.nw-reading-sub\[data-stale\] \{ color: var\(--sage\); \}/);
+  assert.match(css, /\.nw-reading-sub\[data-stale\] \{ color: var\(--ink-3\); \}/);
   assert.match(bundle, /raw (?:↗|\\u2197)/);
 });
 
-test('type scale: every font size in this page’s stylesheets is a token from tokens.css (presenter’s 160 px room figure is the stated exception)', () => {
-  const faces = Object.keys(tokens).filter((name) => /^--(display|h2|h3|body|small|figure-(xl|l|m)|label|mono)$/.test(name));
-  assert.equal(faces.length, 10, 'the closed scale has ten faces');
+test('type scale: every font in this page’s stylesheets is one of the eleven styles in tokens.css, presenter included (the scale is closed: the room’s figures are --figure-xl)', () => {
+  const faces = Object.keys(tokens).filter((name) => /^--(display|h2|h3|body|small|figure-(xl|l|m|s)|label|mono)$/.test(name));
+  assert.equal(faces.length, 11, 'the closed scale has eleven styles');
   for (const [selector, body] of blocks(allCss)) {
-    if (selector.startsWith('html[data-present]') || selector.startsWith(':root')) continue;
-    for (const [, value] of body.matchAll(/font-size:\s*([^;]+);/g)) assert.match(value, /^inherit$/, `${selector} sets font-size: ${value}, off the scale`);
+    if (selector.startsWith(':root')) continue;
+    assert.ok(!/font-size:/.test(body), `${selector} sets a font-size: nothing on this page does`);
     for (const [, value] of body.matchAll(/(?:^|;)\s*font:\s*([^;]+);/g)) {
       const name = value.match(/^var\((--[a-z0-9-]+)\)$/)?.[1];
       assert.ok(name && faces.includes(name), `${selector} sets font: ${value}, off the scale`);
     }
   }
-  assert.match(css, /html\[data-present\] \.section \.nw-figure, html\[data-present\] \.hero \.nw-figure--xl \{ font: var\(--figure-xl\); font-size: 160px; \}/);
+  assert.match(css, /html\[data-present\] \.section \.nw-figure, html\[data-present\] \.hero \.nw-figure \{ font: var\(--figure-xl\); \}/);
   // The display, the labels and the figures take their faces from the chrome's classes.
   assert.match(page, /<h1 class="nw-display" id="hero-h">/);
   assert.match(chromeCss, /\.nw-display \{ font: var\(--display\)/);
@@ -630,8 +637,8 @@ test('type scale: every font size in this page’s stylesheets is a token from t
   assert.match(chromeCss, /\.nw-label \{[^}]*font: var\(--label\)/);
 });
 
-test('colour: one theme from the tokens — no hex in this page’s stylesheets, every pair at WCAG AA, filament only on what is live, vermilion and ice with their words, no gradient, no shadow but the glow', () => {
-  assert.ok(!/#[0-9a-f]{3,8}\b/i.test(allCss.replace(/\/\*[\s\S]*?\*\//g, '')), 'observatory.css names a colour that is not a token');
+test('colour: one theme from the tokens — no colour literal in this page’s stylesheets or canvases, every pair at WCAG AA, no hue: state by fill, outline, hatch, X and the word; no gradient, no shadow', () => {
+  assert.ok(!/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i.test(allCss.replace(/\/\*[\s\S]*?\*\//g, '')), 'observatory.css names a colour that is not a token');
   assert.ok(!/prefers-color-scheme/.test(allCss), 'one theme');
   const used = new Set([...allCss.matchAll(/var\((--[a-z0-9-]+)\)/g)].map((m) => m[1]));
   const aliases = new Set([...(css.match(/:root \{([^}]*)\}/)?.[1] ?? '').matchAll(/(--[a-z0-9-]+):/g)].map((m) => m[1]));
@@ -639,28 +646,22 @@ test('colour: one theme from the tokens — no hex in this page’s stylesheets,
   for (const name of aliases) {
     const value = css.match(new RegExp(`${name}: var\\((--[a-z0-9-]+)\\);`))?.[1];
     assert.ok(value && value in tokens, `alias ${name} does not resolve to a token`);
+    assert.match(value, /^--(?:paper(?:-2|-3)?|ink(?:-2|-3)?|rule(?:-2)?)$/, `alias ${name} is not one of the Ledger's eight`);
   }
-  // Contrast, computed from tokens.css.
-  for (const ground of ['--pine-0', '--pine-1', '--pine-2']) {
-    for (const ink of ['--bone', '--bone-dim']) assert.ok(contrast(tokens[ink], tokens[ground]) >= 4.5, `${ink} on ${ground} is under AA`);
+  // Contrast, computed from tokens.css: every ink on every paper it is set on.
+  for (const ground of ['--paper', '--paper-2']) {
+    for (const ink of ['--ink', '--ink-2', '--ink-3']) assert.ok(contrast(tokens[ink], tokens[ground]) >= 4.5, `${ink} on ${ground} is under AA`);
   }
-  for (const ground of ['--pine-0', '--pine-1']) {
-    assert.ok(contrast(tokens['--sage'], tokens[ground]) >= 3, `sage on ${ground} is under 3:1`);
-    for (const ink of ['--filament', '--vermilion', '--ice', '--clay']) assert.ok(contrast(tokens[ink], tokens[ground]) >= 4.5, `${ink} on ${ground} is under AA as text`);
-  }
-  // State colours sit only where their word does: vermilion on disputes, ice on slashes, clay on operator-run.
-  for (const [selector, body] of blocks(css)) {
-    if (selector === ':root') continue; // the instruments' aliases, each a token
-    if (/var\(--vermilion\)/.test(body)) assert.match(selector, /vermilion|disput|failed/, `vermilion outside a dispute: ${selector}`);
-    if (/var\(--ice\)/.test(body)) assert.match(selector, /ice|slash/, `ice outside a slash: ${selector}`);
-    if (/var\(--clay\)/.test(body)) assert.match(selector, /ring|hero-sub/, `clay outside operator-run: ${selector}`);
-  }
-  assert.match(page, /class="nw-reading nw-reading--stack is-loading is-vermilion" data-reading="hourDisputes"[\s\S]*?<span class="nw-label reading-label">Disputes opened/);
-  assert.match(page, /class="nw-reading nw-reading--stack is-loading is-ice" data-reading="hourSlashes"[\s\S]*?<span class="nw-label reading-label">Slashes/);
-  // No gradient, no shadow but the glow token, no blur, no glass.
-  assert.ok(!/gradient\(|text-shadow|backdrop-filter|blur\(/.test(allCss), 'no gradient, blur or glass');
-  for (const [, value] of allCss.matchAll(/box-shadow:\s*([^;]+);/g)) assert.equal(value.trim(), 'var(--glow)', `a shadow that is not the glow: ${value}`);
-  for (const [file, src] of clientSources()) assert.ok(!/createLinearGradient|createRadialGradient/.test(src), `${file} draws a gradient`);
+  for (const ink of ['--ink', '--ink-2']) assert.ok(contrast(tokens[ink], tokens['--paper-3']) >= 4.5, `${ink} on paper-3 is under AA`);
+  // No hue anywhere: the Nightwatch state colours are gone, and the dispute and slash Readings are carried by their words.
+  assert.ok(!/--(?:filament|vermilion|ice|clay|sage|bone|pine)/.test(allCss), 'a Nightwatch colour name is left');
+  assert.match(page, /class="nw-reading nw-reading--stack is-loading is-dispute" data-reading="hourDisputes"[\s\S]*?<span class="nw-label reading-label">Disputes opened/);
+  assert.match(page, /class="nw-reading nw-reading--stack is-loading is-slashed" data-reading="hourSlashes"[\s\S]*?<span class="nw-label reading-label">Slashes/);
+  // The canvases read every colour from the tokens at draw time: no literal in any client source.
+  for (const [file, src] of clientSources()) assert.ok(!/['"`]#[0-9a-f]{3,8}\b|['"`](?:rgb|hsl)a?\(\s*\d/i.test(src), `${file} holds a colour literal`);
+  // No gradient, no shadow, no blur, no glass.
+  assert.ok(!/gradient\(|text-shadow|backdrop-filter|blur\(|box-shadow/.test(allCss), 'no gradient, shadow, blur or glass');
+  for (const [file, src] of clientSources()) assert.ok(!/createLinearGradient|createRadialGradient|shadowBlur/.test(src), `${file} draws a gradient or a glow`);
   // Borders: none on this page but the three the brief allows, which the chrome draws.
   assert.ok(!/border(?:-[a-z]+)?:\s*(?!0|none)/.test(allCss.replace(/border-radius/g, '').replace(/--border:/g, '')), 'observatory.css draws a border');
 });
@@ -671,17 +672,17 @@ test('components: the chrome’s controls only — every button is a chrome cont
   assert.ok(buttons.every((c) => /\bnw-(?:stub|sources|menu|quiet|copy|button)\b/.test(c)), `a button outside the chrome: ${buttons.filter((c) => !/\bnw-/.test(c)).join(' | ')}`);
   assert.ok(!/\bbtn\b/.test(page), 'the old button class is gone');
   for (const [, cls] of page.matchAll(/<details class="([^"]*)"/g)) assert.match(cls, /\bdisclosure\b/, `a disclosure outside the one style: ${cls}`);
-  assert.match(chromeCss, /:focus-visible \{ outline: 1px solid var\(--filament\); outline-offset: 4px; \}/);
+  assert.match(chromeCss, /:focus-visible \{ outline: 2px solid var\(--ink\); outline-offset: calc\(var\(--s-1\) \/ 2\); \}/);
   assert.ok(!/:focus-visible/.test(css), 'this page draws no focus ring of its own');
   // The field's and the graph's tips are tags.
   assert.match(page, /<div class="tooltip field-tip nw-tag" role="tooltip" hidden>/);
   assert.match(page, /<div class="tooltip constellation-tip nw-tag" role="tooltip" hidden>/);
   assert.match(css, /\.tooltip \{ position: absolute; pointer-events: none;/);
-  // Copy is the chrome's: "Copy" on hover, "Copied" in filament for 1.2 s.
+  // Copy is the chrome's: "Copy" on hover, "Copied" in ink for 1.2 s.
   assert.ok(bundle.includes("'Copied'") || bundle.includes('"Copied"'));
-  assert.match(chromeCss, /\.nw-copy\.is-copied \{ color: var\(--filament\)/);
+  assert.match(chromeCss, /\.nw-copy\.is-copied \{ color: var\(--ink\)/);
   // Hit targets stay 40 px on touch: requested of the chrome (chrome/requests/phase3.css) and, once merged, the chrome's rule.
-  const coarse = /\.nw-stub, \.nw-quiet, \.nw-copy, \.nw-sources, \.nw-menu \{ min-height: 40px; \}/;
+  const coarse = /\.nw-stub, \.nw-quiet, \.nw-copy, \.nw-sources, \.nw-menu \{ min-height: calc\(var\(--s-6\) \+ var\(--s-2\)\); \}/;
   assert.match(chromeCss.slice(chromeCss.indexOf('@media (pointer: coarse)')), coarse, 'the chrome carries the 40 px touch targets');
 });
 
@@ -741,14 +742,15 @@ test('motion: attack and cool on colour, opacity, translateY and shadow only; no
   assert.match(pulse, /animateArrival/);
 });
 
-test('presenter mode: the Present button and P, the first screen then the six sections, figures at 160 px, the Spine and receipts hidden', () => {
+test('presenter mode: the Present button and P, the first screen then the six sections, figures at --figure-xl (the closed scale’s largest), the Spine and receipts hidden', () => {
   assert.ok(!page.includes('data-present=""') && !/present=1/.test(page), 'nothing in the page turns it on from the URL');
   const screens = [...page.matchAll(/<(header|section)(?: id="([a-z]+)")?[^>]*data-present-screen/g)].map((m) => m[2] ?? 'hero');
   assert.deepEqual(screens, ['hero', 'chain', 'economy', 'validators', 'history', 'upgrades', 'verify']);
   for (const selector of ['html[data-present] .nw-nav', 'html[data-present] .nw-receipt-line', 'html[data-present] .nw-foot', 'html[data-present] [data-present-screen][data-present-active]', 'html[data-present] .river-strip']) {
     assert.ok(css.includes(selector), `observatory.css has no rule for ${selector}`);
   }
-  assert.match(css, /font-size: 160px/);
+  assert.match(css, /html\[data-present\] \.section \.nw-figure, html\[data-present\] \.hero \.nw-figure \{ font: var\(--figure-xl\); \}/);
+  assert.ok(!/160px/.test(css), 'no size outside the scale, not even in the room');
   const presenter = readFileSync(new URL('../src/observatory/presenter.js', import.meta.url), 'utf8');
   assert.match(presenter, /querySelector\('\.nw-present, \.sb-present'\)/);
   for (const key of ['Escape', 'aria-pressed']) assert.ok(bundle.includes(key), `the bundle does not handle ${key}`);

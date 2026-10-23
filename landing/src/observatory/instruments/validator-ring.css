@@ -1,6 +1,10 @@
-/* 03 · validator ring — eight points on a 240 px circle: the authoring validator filament, the rest bone. Tokens only. */
-.ring .ring-node { fill: var(--ink); }
-.ring .ring-node.is-authoring { fill: var(--ink); }
+/* 03 · validator ring — eight points on a 240 px circle, in the Ledger's marks:
+   the authoring validator solid ink (live), the rest an ink-3 outline on paper
+   (settled), a validator joining next session a dashed outline. Tokens only. */
+.ring .ring-node { fill: var(--ink-2); }
+.ring .ring-point { fill: var(--paper); stroke: var(--ink-3); stroke-width: 1; }
+.ring .ring-point.is-queued { stroke-dasharray: 2 2; }
+.ring .ring-point.is-authoring { fill: var(--ink); stroke: var(--ink); }
 .ring .ring-latest { fill: var(--ink); }
 .ring .ring-halo { fill: none; stroke: var(--rule-2); }
 .ring .ring-tick, .ring .ring-vote-tick { stroke: var(--rule-2); }

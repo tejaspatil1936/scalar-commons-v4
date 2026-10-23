@@ -10,10 +10,11 @@ export function init(root, ctx) {
       if (!/^0x[0-9a-f]{64}$/.test(hash)) throw new Error('genesis hash is not a 32-byte hash');
       ctx.readout.showValue(target, record, { value: hash });
       const dd = target.querySelector('dd');
-      if (dd && !dd.querySelector('.copy')) {
+      if (dd && !dd.querySelector('.nw-copy')) {
         const button = document.createElement('button');
         button.type = 'button';
-        button.className = 'copy';
+        // The chrome's Copy control (behaviour/copy.js handles every [data-copy]).
+        button.className = 'nw-copy nw-label';
         button.dataset.copy = hash;
         button.setAttribute('aria-label', 'Copy genesis hash');
         button.textContent = 'Copy';

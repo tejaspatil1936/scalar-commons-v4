@@ -1,5 +1,5 @@
 // Renders /observatory — the static frame the live instruments draw into,
-// in the Nightwatch chrome (src/chrome).
+// in the Ledger chrome (src/chrome).
 //
 // The landing page states figures read off a node at build time. The
 // observatory states nothing at build time except three checked-in records,
@@ -405,8 +405,8 @@ ${nwReading({ key: 'messagesSent', label: 'Messages sent', size: 'xl', minSpec: 
         <div class="readings nw-row hour-figures">
 ${nwReading({ key: 'hourOracle', label: 'Oracle answers' })}
 ${nwReading({ key: 'hourSettled', label: 'Agreements settled' })}
-${nwReading({ key: 'hourDisputes', label: 'Disputes opened', className: 'is-vermilion' })}
-${nwReading({ key: 'hourSlashes', label: 'Slashes', className: 'is-ice' })}
+${nwReading({ key: 'hourDisputes', label: 'Disputes opened', className: 'is-dispute' })}
+${nwReading({ key: 'hourSlashes', label: 'Slashes', className: 'is-slashed' })}
 ${nwReading({ key: 'hourMessages', label: 'Messages sent', minSpec: 309 })}
         </div>
       </section>
@@ -416,20 +416,20 @@ ${nwReading({ key: 'hourMessages', label: 'Messages sent', minSpec: 309 })}
         <h2 class="nw-label panel-title" id="panel-h">Agent activity</h2>
         <button type="button" class="nw-quiet graph-toggle" role="switch" aria-checked="false">Network graph</button>
       </figcaption>
-      <ul class="legend field-legend nw-label" aria-label="Cell colours">
-        <li><span class="dot dot-idle" aria-hidden="true"></span>Idle</li>
-        <li><span class="dot dot-working" aria-hidden="true"></span>Working</li>
-        <li><span class="dot dot-disputed" aria-hidden="true"></span>In dispute</li>
-        <li><span class="dot dot-slashed" aria-hidden="true"></span>Slashed, last hour</li>
-        <li><span class="dot dot-ring" aria-hidden="true"></span>Operator-run</li>
+      <ul class="legend field-legend" aria-label="Cell marks">
+        <li class="nw-tag" data-state="settled"><span class="nw-dot" aria-hidden="true"></span>Idle</li>
+        <li class="nw-tag" data-state="live"><span class="nw-dot" aria-hidden="true"></span>Working</li>
+        <li class="nw-tag" data-state="dispute"><span class="nw-dot" aria-hidden="true"></span>In dispute</li>
+        <li class="nw-tag" data-state="slashed"><span class="nw-dot" aria-hidden="true"></span>Slashed, last hour</li>
+        <li class="nw-tag" data-state="operator"><span class="nw-dot" aria-hidden="true"></span>Operator-run</li>
       </ul>
-      <ul class="legend graph-legend nw-label" aria-label="Line colours">
-        <li><span class="swatch swatch-active" aria-hidden="true"></span>Open</li>
-        <li><span class="swatch swatch-disputed" aria-hidden="true"></span>Disputed</li>
-        <li><span class="swatch swatch-settled" aria-hidden="true"></span>Settled</li>
+      <ul class="legend graph-legend" aria-label="Line marks">
+        <li class="nw-tag" data-state="live"><span class="nw-dot" aria-hidden="true"></span>Open</li>
+        <li class="nw-tag" data-state="dispute"><span class="nw-dot" aria-hidden="true"></span>Disputed</li>
+        <li class="nw-tag" data-state="settled"><span class="nw-dot" aria-hidden="true"></span>Settled</li>
       </ul>
       <div class="field-host">
-        <canvas class="field-canvas" role="img" aria-label="Agent activity: one cell per registered agent, coloured by what it is doing now"></canvas>
+        <canvas class="field-canvas" role="img" aria-label="Agent activity: one cell per registered agent, marked by what it is doing now"></canvas>
         <div class="tooltip field-tip nw-tag" role="tooltip" hidden></div>
       </div>
       <div class="graph-host">
