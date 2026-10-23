@@ -1,585 +1,398 @@
 /**
- * Nightwatch — the chrome's templates, ported to TypeScript for the explorer.
+ * The shared chrome as string templates, ported to TypeScript for the explorer.
  *
- * A line-for-line mirror of `landing/src/chrome/templates.mjs`: the same
- * markup and the same class names, so `chrome.css` (the synced, byte-identical
- * copy under `src/chrome/`) draws the explorer exactly as it draws the landing.
- * Pure functions returning strings: no DOM, no clock, no network. Every figure
- * is a Reading, and a Reading without a `source` throws at render time, so the
- * server fails a request rather than ship a figure that names no origin.
+ * A line-for-line mirror of `landing/src/chrome/templates.mjs` (SITE-REDESIGN.md
+ * §3): the same markup and the same class names, so `chrome.css` (the synced,
+ * byte-identical copy under `src/chrome/`) draws the explorer exactly as it
+ * draws the landing site. Pure functions returning strings: no DOM, no clock,
+ * no network. Nothing here types a figure: every count, date or hash is a
+ * parameter that comes from data.
  *
- * The one deliberate difference from the landing: the explorer is a server
- * that renders at request time, so the head links the stylesheet it serves at
- * `/chrome.css` instead of inlining it, and font preloads are absolute (a page
- * lives under `/block/…`, so a relative `fonts/…` would miss).
+ * The explorer is served from its own origin, so the nav, the footer and the
+ * wordmark point at the site absolutely (`site: SITE_ORIGIN`), the stylesheet is
+ * linked from `/chrome.css` rather than inlined, and the footer line carries one
+ * more sentence than the landing's: what the page read, and when.
  */
 
-import { escapeHtml } from './format.js';
-import type { Source } from './types.js';
-
-export { escapeHtml };
-export type { Source };
-
-export const SITE_NAME = 'Scalar Commons';
-export const DISCLAIMER = 'Testnet — the token has no value and the chain may be reset.';
-export const SITE_ORIGIN = 'https://scalarnet.io/';
+export const SITE_ORIGIN = 'https://scalarnet.io';
 export const EXPLORER_ORIGIN = 'https://explorer.scalarnet.io';
-export const DOCS_URL = 'https://scalarnet.io/docs/';
-export const REPO_URL = 'https://github.com/tejaspatil1936/scalar-commons-v4';
-export const API_HOST = 'api.scalarnet.io';
+export const REPO = 'https://github.com/tejaspatil1936/scalar-commons-v4';
 export const RPC_WSS = 'wss://rpc.scalarnet.io';
+export const API_V1 = 'https://api.scalarnet.io/v1';
+export const DISCLAIMER = 'Testnet — tokens have no value and the chain may be reset.';
 
-/** The site nav, in the brief's order. The explorer is served from its own origin, so every href is absolute. */
-export const NAV: readonly { readonly key: string; readonly label: string; readonly href: string }[] = [
-  { key: 'observatory', label: 'Observatory', href: `${SITE_ORIGIN}observatory` },
-  { key: 'pulse', label: 'Pulse', href: `${SITE_ORIGIN}pulse` },
-  { key: 'explorer', label: 'Explorer', href: EXPLORER_ORIGIN },
-  { key: 'docs', label: 'Docs', href: DOCS_URL },
-  { key: 'oversight', label: 'Oversight', href: `${SITE_ORIGIN}oversight` },
-  { key: 'faucet', label: 'Faucet', href: `${SITE_ORIGIN}faucet` },
-];
-
-/** The states a stub, a tag or a reading can be in, each with the word the brief pairs it with. */
-export const STATE_WORDS: Readonly<Record<string, string>> = {
-  live: 'LIVE',
-  record: 'RECORD',
-  sealed: 'SEALED',
-  connecting: 'CONNECTING',
-  dispute: 'IN DISPUTE',
-  slashed: 'SLASHED',
-  operator: 'OPERATOR-RUN',
-  built: 'AS BUILT',
-};
-
-export type State = 'live' | 'record' | 'sealed' | 'connecting' | 'dispute' | 'slashed' | 'operator' | 'built' | 'kbd';
+export const escapeHtml = (value: unknown): string =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 
 type AttrValue = string | number | boolean | null | undefined;
 
-/** Attribute string from an object; `null`/`false` omit the attribute, `true` renders it bare. */
-export const attrs = (object: Record<string, AttrValue>): string =>
-  Object.entries(object)
+/** ` name="value"` pairs; null, undefined and false are left out, true is a bare attribute. */
+export const attrs = (map: Record<string, AttrValue>): string =>
+  Object.entries(map)
     .filter(([, v]) => v !== null && v !== undefined && v !== false)
-    .map(([k, v]) => (v === true ? ` ${k}` : ` ${k}="${escapeHtml(String(v))}"`))
+    .map(([k, v]) => (v === true ? ` ${k}` : ` ${k}="${escapeHtml(v)}"`))
     .join('');
-
-// ── atoms ────────────────────────────────────────────────────────────────────
-
-export function leader({ arrow = false }: { arrow?: boolean } = {}): string {
-  return `<span class="nw-leader${arrow ? ' nw-leader--arrow' : ''}" aria-hidden="true"></span>`;
-}
-
-/** `GET api.scalarnet.io/v1/status` style request line for a source. */
-export function requestLine(source: Source): string {
-  const url = String(source.url).replace(/^https?:\/\//, '').replace(/^wss?:\/\//, '');
-  return `${source.method} ${url}`;
-}
-
-/** UTC to the second, the way every receipt prints time. */
-export const utc = (iso: string | null | undefined): string | null =>
-  iso ? String(iso).replace('T', ' ').replace(/\.\d+Z$/, 'Z').replace(/Z$/, ' UTC') : null;
 
 const groups = new Intl.NumberFormat('en-US');
-export const formatInt = (n: number | bigint | string): string =>
-  groups.format(typeof n === 'bigint' ? n : Number(n));
+/** 1234567 → "1,234,567" (BigInt-safe). */
+export const formatInt = (value: number | bigint | string | null | undefined): string =>
+  value === null || value === undefined || value === '' ? '' : groups.format(BigInt(value));
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** An ISO instant → "23 Oct 2026, 11:32 UTC". */
+export const formatUtc = (iso: string | null | undefined): string => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}, ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`;
+};
+/** An ISO instant → "23 Oct 2026". */
+export const formatDate = (iso: string | null | undefined): string => formatUtc(iso).replace(/, .*$/, '');
+
+/** "0x1234…abcd" / "5FxmB…8GduiA": the first and last characters, the full value goes in a title. */
+export const truncateMiddle = (value: unknown, head = 6, tail = 4): string => {
+  const s = String(value ?? '');
+  return s.length <= head + tail + 1 ? s : `${s.slice(0, head)}…${s.slice(-tail)}`;
+};
+
+// ── icons: one set, 20 px, 1.5 px stroke, currentColor ─────────────────────
+const ICON_PATHS: Readonly<Record<string, string>> = {
+  search: '<circle cx="9" cy="9" r="5.5"/><path d="M13 13l4 4"/>',
+  menu: '<path d="M3 6h14M3 10h14M3 14h14"/>',
+  close: '<path d="M5 5l10 10M15 5L5 15"/>',
+  'external-link': '<path d="M11 4h5v5M16 4l-7 7M14 11v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h4"/>',
+  copy: '<rect x="7" y="7" width="9" height="9" rx="1.5"/><path d="M13 7V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h2"/>',
+  check: '<path d="M4 10.5l4 4 8-9"/>',
+  'chevron-right': '<path d="M8 5l5 5-5 5"/>',
+  'chevron-down': '<path d="M5 8l5 5 5-5"/>',
+  'arrow-right': '<path d="M4 10h12M11 5l5 5-5 5"/>',
+  warning: '<path d="M10 3l8 14H2z"/><path d="M10 8v4M10 14.5v.5"/>',
+  info: '<circle cx="10" cy="10" r="7"/><path d="M10 9v5M10 6.5v.5"/>',
+};
+export const ICONS: readonly string[] = Object.keys(ICON_PATHS);
+/** An inline icon from the set. Decorative unless given a label. */
+export function icon(name: string, { label = null, className = '' }: { label?: string | null; className?: string } = {}): string {
+  const paths = ICON_PATHS[name];
+  if (!paths) throw new Error(`no icon "${name}"`);
+  const a11y = label ? ` role="img" aria-label="${escapeHtml(label)}"` : ' aria-hidden="true" focusable="false"';
+  return `<svg class="sc-icon sc-icon-${name}${className ? ` ${className}` : ''}" viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"${a11y}>${paths}</svg>`;
+}
+
+// ── links ────────────────────────────────────────────────────────────────────
+const isExternal = (href: string): boolean => /^https?:\/\//.test(href) && !href.startsWith(SITE_ORIGIN);
+/** A link; an external one carries the external-link icon and rel="noopener" and opens in the same tab. */
+export function link({ href, text, className = '', title = null, download = null }: { href: string; text: string; className?: string; title?: string | null; download?: string | null }): string {
+  const ext = isExternal(href);
+  return `<a${attrs({ class: className || null, href, rel: ext ? 'noopener' : null, title, download })}>${escapeHtml(text)}${ext ? icon('external-link', { className: 'sc-icon-sm' }) : ''}</a>`;
+}
+
+// ── head ─────────────────────────────────────────────────────────────────────
+export interface HeadOptions {
+  readonly title: string;
+  readonly description: string;
+  readonly path?: string;
+  readonly css?: string | null;
+  readonly cssHref?: string | null;
+  readonly scripts?: readonly string[];
+  readonly assets?: string;
+  readonly origin?: string;
+  readonly extraHead?: string;
+}
 
 /**
- * The receipt under a figure: the request, when and at which block it was
- * fetched, the raw bytes, and the computation when the figure is derived.
+ * The document head: title "Page — Scalar Commons", description, canonical,
+ * Open Graph, favicon, the font preload and the stylesheet (inlined `css`, or
+ * a `cssHref`). `assets` is the URL prefix of the fonts, favicon and og image on
+ * this surface.
  */
-export function receipt(source: Source): string {
-  const fetched = source.fetchedAt ? utc(source.fetchedAt) : '—';
-  const block = source.block === null || source.block === undefined ? '—' : `block ${formatInt(source.block)}`;
-  const raw = source.raw ? `<a href="${escapeHtml(source.raw)}" data-raw>raw ↗</a>` : '<span data-raw>raw —</span>';
-  const computed = source.computed ? `<div data-computed>${escapeHtml(source.computed)}</div>` : '';
-  return `<div class="nw-receipt" data-receipt><div data-request>${escapeHtml(requestLine(source))}</div><div data-fetched>fetched ${escapeHtml(fetched ?? '—')} · ${escapeHtml(block)}</div><div>${raw}</div>${computed}</div>`;
+export function head({ title, description, path = '/', css = null, cssHref = null, scripts = [], assets = '/', origin = SITE_ORIGIN, extraHead = '' }: HeadOptions): string {
+  if (!title || !description) throw new Error('every page needs a title and a description');
+  const fullTitle = `${title} — Scalar Commons`;
+  const canonical = `${origin}${path}`;
+  const style = css ? `<style>${css}</style>` : `<link rel="stylesheet" href="${escapeHtml(cssHref ?? `${assets}styles.css`)}">`;
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(fullTitle)}</title>
+<meta name="description" content="${escapeHtml(description)}">
+<link rel="canonical" href="${escapeHtml(canonical)}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Scalar Commons">
+<meta property="og:title" content="${escapeHtml(fullTitle)}">
+<meta property="og:description" content="${escapeHtml(description)}">
+<meta property="og:url" content="${escapeHtml(canonical)}">
+<meta property="og:image" content="${escapeHtml(`${SITE_ORIGIN}/og.png`)}">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="${escapeHtml(`${assets}favicon.svg`)}" type="image/svg+xml">
+<link rel="preload" href="${escapeHtml(`${assets}fonts/inter-latin-wght-normal.woff2`)}" as="font" type="font/woff2" crossorigin>
+${style}
+${scripts.map((src) => `<script type="module" src="${escapeHtml(src)}"></script>`).join('\n')}${extraHead}
+</head>`;
 }
 
-export function receiptLine(source: Source): string {
-  const fetched = source.fetchedAt ? utc(source.fetchedAt) : '—';
-  const block = source.block === null || source.block === undefined ? '' : ` · block ${formatInt(source.block)}`;
-  return `<span class="nw-receipt-line" data-receipt-line>${escapeHtml(requestLine(source))} · ${escapeHtml(fetched ?? '—')}${escapeHtml(block)}</span>`;
-}
-
-export function stub({
-  state = 'record',
-  sealed = false,
-  label = null,
-}: { state?: State; sealed?: boolean; label?: string | null } = {}): string {
-  const word = STATE_WORDS[state] ?? state;
-  const tag = sealed ? 'span' : 'button';
-  return `<${tag} class="nw-stub"${attrs({
-    type: sealed ? null : 'button',
-    'data-state': state,
-    'data-sealed': sealed ? 'true' : null,
-    'aria-label': label ?? `${word} · show the source`,
-    'aria-expanded': sealed ? null : 'false',
-  })}></${tag}>`;
-}
-
-export interface ReadingOptions {
-  readonly key?: string | null;
+// ── header ───────────────────────────────────────────────────────────────────
+export interface NavItem {
+  readonly key: string;
   readonly label: string;
-  /** Already formatted; null renders an empty figure (a leader to nothing). */
-  readonly figure?: string | null;
-  readonly size?: 'xl' | 'l' | 'm' | 's' | 'body';
-  readonly state?: State;
-  readonly sealed?: boolean;
-  readonly source: Source;
-  readonly sub?: string | null;
-  readonly href?: string | null;
-  readonly live?: boolean;
-  readonly className?: string;
-  readonly unit?: string | null;
-  readonly stack?: boolean;
-  readonly id?: string | null;
-  /** Pre-escaped markup for the figure, when it is a link or an address rather than text. */
-  readonly figureHtml?: string | null;
+  readonly href: string;
 }
+/** The primary navigation, in order, and nothing else (§4). `site` is '' on scalarnet.io and the origin elsewhere. */
+export const navItems = (site = ''): NavItem[] => [
+  { key: 'network', label: 'Network', href: `${site}/network` },
+  { key: 'explorer', label: 'Explorer', href: `${EXPLORER_ORIGIN}/` },
+  { key: 'docs', label: 'Docs', href: `${site}/docs/` },
+  { key: 'faucet', label: 'Faucet', href: `${site}/faucet` },
+];
+export const GET_STARTED = '/docs/guide/run-an-agent';
 
-/**
- * The Reading. `figure` is a string already formatted (or null when the read
- * failed or the index does not carry the field — a leader to nothing), `size`
- * one of xl | l | m | s | body (inside an `.nw-row` the row's count sets it), `state` the stub's state, `source` the origin —
- * required. `sub` is the optional sub-line, `href` wraps the figure in a link.
- */
-export function reading({
-  key = null,
-  label,
-  figure = null,
-  size = 'm',
-  state = 'record',
-  sealed = false,
-  source,
-  sub = null,
-  href = null,
-  live = false,
-  className = '',
-  unit = null,
-  stack = false,
-  id = null,
-  figureHtml = null,
-}: ReadingOptions): string {
-  if (!source || !source.method || !source.url) {
-    throw new Error(
-      `Reading "${label ?? key}" has no source: every figure names its origin {method, url, fetchedAt, block, raw}`,
-    );
-  }
-  const loading = live && figure === null;
-  const classes = ['nw-reading', stack ? 'nw-reading--stack' : '', loading ? 'is-loading' : '', className]
-    .filter(Boolean)
-    .join(' ');
-  const figureText = figureHtml ?? (figure === null ? '' : escapeHtml(figure));
-  const unitHtml = unit ? `<span class="nw-unit">${escapeHtml(unit)}</span>` : '';
-  const figureInner = `<span class="nw-figure nw-figure--${escapeHtml(size)}" data-reading-value${
-    live ? ' aria-live="polite" aria-atomic="true"' : ''
-  }>${figureText}${unitHtml}</span>`;
-  const figureMarkup = href ? `<a href="${escapeHtml(href)}">${figureInner}</a>` : figureInner;
-  return `<div class="${classes}"${attrs({ 'data-reading': key, 'data-sealed': sealed ? 'true' : null, id })}>
-  <div class="nw-reading-line"><span class="nw-label">${escapeHtml(label)}</span>${leader()}<span class="nw-reading-figure">${figureMarkup}${stub({ state, sealed })}</span></div>
-  ${sub ? `<p class="nw-reading-sub" data-reading-sub>${escapeHtml(sub)}</p>` : ''}${receiptLine(source)}
-  ${receipt(source)}
-</div>`;
-}
-
-/**
- * A tag: the state word on paper-2, with the stub's mark before it (solid,
- * outline, hatch, X, double ring) for every state but a key — AS BUILT and
- * AS OF included, so a state is never carried by the word's colour alone.
- */
-export function tag({ state = 'record', text, detail = null }: { state?: State; text: string; detail?: string | null }): string {
-  const dot = state === 'kbd' ? '' : '<span class="nw-dot" aria-hidden="true"></span>';
-  // The detail (a time, a block) is the part a narrow bar may hide; the word stays.
-  const tail = detail === null ? '' : `<span class="nw-tag-detail"> · ${escapeHtml(detail)}</span>`;
-  return `<span class="nw-tag" data-state="${escapeHtml(state)}">${dot}${escapeHtml(text)}${tail}</span>`;
-}
-
-/** The lamp, unlit and connecting — the landing's form, where the client fills it. */
-export function lamp({ rpc = RPC_WSS }: { rpc?: string } = {}): string {
-  return `<span class="nw-lamp" data-lamp data-state="connecting" data-lit="false" role="status" aria-live="off"><span class="nw-lamp-dot" aria-hidden="true"></span><span class="nw-lamp-text nw-label">connecting · ${escapeHtml(rpc)}</span></span>`;
-}
-
-/**
- * The lamp as the server fills it at request time: `block n · fin k`. Lit
- * only when the newest block was authored under 30 s before the render (the
- * lamp rule); otherwise unlit, and `stalled` names the last block's time.
- * `alarm` is the part printed in ink at weight 500 (index −n).
- */
-export function lampFilled({
-  state,
-  lit,
-  text,
-  alarm = null,
-}: {
-  state: 'normal' | 'connecting' | 'lagging' | 'stalled' | 'behind';
-  lit: boolean;
-  text: string;
-  alarm?: string | null;
-}): string {
-  const alarmHtml = alarm ? ` · <span class="nw-alarm">${escapeHtml(alarm)}</span>` : '';
-  return `<span class="nw-lamp" data-lamp data-state="${escapeHtml(state)}" data-lit="${lit ? 'true' : 'false'}" role="status" aria-live="off"><span class="nw-lamp-dot" aria-hidden="true"></span><span class="nw-lamp-text nw-label">${escapeHtml(text)}${alarmHtml}</span></span>`;
-}
-
-export function sourcesSwitch(): string {
-  return `<button type="button" class="nw-sources nw-label" role="switch" aria-checked="false" data-sources-switch><span class="nw-sources-word">Sources</span><span class="nw-switch" aria-hidden="true"></span></button>`;
-}
-
-export function button({
-  text,
-  type = 'button',
-  className = '',
-  disabled = false,
-  name = null,
-}: {
-  text: string;
-  type?: 'button' | 'submit';
-  className?: string;
-  disabled?: boolean;
-  name?: string | null;
-}): string {
-  return `<button class="nw-button ${className}"${attrs({ type, disabled, name })}>${escapeHtml(text)}<span class="nw-dots" aria-hidden="true" hidden><span></span><span></span><span></span></span></button>`;
-}
-
-export const quiet = ({
-  text,
-  href = null,
-  className = '',
-  attrsExtra = {},
-}: {
-  text: string;
-  href?: string | null;
-  className?: string;
-  attrsExtra?: Record<string, AttrValue>;
-}): string =>
-  href
-    ? `<a class="nw-quiet ${className}" href="${escapeHtml(href)}"${attrs(attrsExtra)}>${escapeHtml(text)}</a>`
-    : `<button type="button" class="nw-quiet ${className}"${attrs(attrsExtra)}>${escapeHtml(text)}</button>`;
-
-export function field({
-  name,
-  label,
-  placeholder = '',
-  value = '',
-  type = 'text',
-  autocomplete = 'off',
-}: {
-  name: string;
-  label: string;
-  placeholder?: string;
-  value?: string;
-  type?: string;
-  autocomplete?: string;
-}): string {
-  return `<label class="nw-label" for="field-${escapeHtml(name)}">${escapeHtml(label)}</label><input class="nw-field"${attrs(
-    { id: `field-${name}`, name, type, placeholder, value, autocomplete, spellcheck: 'false' },
-  )}><span class="nw-field-error" data-field-error hidden></span>`;
-}
-
-export const filter = (items: readonly { href: string; label: string; current?: boolean }[]): string =>
-  `<nav class="nw-filter nw-label">${items
-    .map((i) => `<a href="${escapeHtml(i.href)}"${i.current ? ' aria-current="true"' : ''}>${escapeHtml(i.label)}</a>`)
-    .join('')}</nav>`;
-
-export const pager = ({
-  from,
-  to,
-  total,
-  nextHref = null,
-  prevHref = null,
-}: {
-  from: number;
-  to: number;
-  total: number;
-  nextHref?: string | null;
-  prevHref?: string | null;
-}): string =>
-  `<nav class="nw-pager nw-label" aria-label="Pages">${
-    prevHref ? `<a href="${escapeHtml(prevHref)}">← previous</a>` : ''
-  }<span>${formatInt(from)}–${formatInt(to)} of ${formatInt(total)}</span>${
-    nextHref ? `<a href="${escapeHtml(nextHref)}">next →</a>` : ''
-  }</nav>`;
-
-export const copy = (value: string, label = 'Copy'): string =>
-  `<button type="button" class="nw-copy nw-label" data-copy="${escapeHtml(value)}" aria-label="${escapeHtml(label)}">Copy</button>`;
-
-// ── compounds ────────────────────────────────────────────────────────────────
-
-export function code({ text, copyable = true, lang = null }: { text: string; copyable?: boolean; lang?: string | null }): string {
-  return `<figure class="nw-code nw-copyable"${attrs({ 'data-lang': lang })}><pre><code>${escapeHtml(text)}</code></pre>${
-    copyable ? copy(text, 'Copy this block') : ''
-  }</figure>`;
-}
-
-export const raw = (json: unknown): string =>
-  `<pre class="nw-raw">${escapeHtml(typeof json === 'string' ? json : JSON.stringify(json, null, 1))}</pre>`;
-
-export function address(full: string, { href = null }: { href?: string | null } = {}): string {
-  const short = `${full.slice(0, 6)}…${full.slice(-4)}`;
-  const inner = `<span class="nw-address-full nw-mono">${escapeHtml(full)}${copy(full, 'Copy address')}</span>`;
-  return href
-    ? `<a class="nw-address" href="${escapeHtml(href)}">${escapeHtml(short)}${inner}</a>`
-    : `<span class="nw-address">${escapeHtml(short)}${inner}</span>`;
-}
-
-export function agentName({
-  name,
-  href = null,
-  operator = false,
-  dispute = false,
-}: {
-  name: string;
-  href?: string | null;
-  operator?: boolean;
-  dispute?: boolean;
-}): string {
-  const classes = ['nw-agent', operator ? 'is-operator' : '', dispute ? 'is-dispute' : ''].filter(Boolean).join(' ');
-  return href
-    ? `<a class="${classes}" href="${escapeHtml(href)}">${escapeHtml(name)}</a>`
-    : `<span class="${classes}">${escapeHtml(name)}</span>`;
-}
-
-export interface LedgerRow {
-  /** Pre-escaped cell markup: [index, hash, call, signer, state]. */
-  readonly cells: readonly string[];
-  readonly selected?: boolean;
-  readonly id?: string | null;
-}
-
-/** `rows`: [{cells: [index, hash, call, signer, state], selected?}]; `head`: column words. */
-export function ledger({
-  rows,
-  head = null,
-  sheet = false,
-  className = '',
-}: {
-  rows: readonly LedgerRow[];
-  head?: readonly string[] | null;
-  sheet?: boolean;
-  className?: string;
-}): string {
-  const headHtml = head
-    ? `<li class="nw-ledger-row nw-ledger-head nw-label" role="row">${head.map((h) => `<span>${escapeHtml(h)}</span>`).join('')}</li>`
-    : '';
-  const cellClasses = ['nw-ledger-index nw-label', 'nw-mono', 'nw-ledger-call', 'nw-ledger-signer nw-mono', ''];
-  const body = rows
-    .map(
-      (row) =>
-        `<li class="nw-ledger-row"${attrs({ 'aria-selected': row.selected ? 'true' : null, 'data-id': row.id })}>${row.cells
-          .map((c, i) => `<span class="${cellClasses[i] ?? ''}">${c}</span>`)
-          .join('')}</li>`,
-    )
-    .join('\n');
-  return `<ol class="nw-ledger${sheet ? ' nw-ledger--sheet' : ''} ${className}" role="table">${headHtml}${body}</ol>`;
-}
-
-export interface RailEntry {
-  readonly time: string;
-  readonly text?: string;
-  /** Pre-escaped markup, used instead of `text` when given. */
-  readonly html?: string;
-  readonly state?: 'newest' | 'final' | 'dispute' | 'slash' | null;
-}
-
-/** `entries`: [{time, text|html, state}] newest first. */
-export function rail({ entries, className = '' }: { entries: readonly RailEntry[]; className?: string }): string {
-  return `<ol class="nw-rail ${className}">${entries
-    .map(
-      (e) =>
-        `<li class="nw-rail-entry"><span class="nw-rail-tick${e.state ? ` is-${escapeHtml(e.state)}` : ''}" aria-hidden="true"></span><span class="nw-rail-time nw-label">${escapeHtml(e.time)}</span><div>${e.html ?? escapeHtml(e.text ?? '')}</div></li>`,
-    )
-    .join('')}</ol>`;
-}
-
-export interface SpineTick {
-  readonly number: number;
-  readonly final?: boolean;
-  readonly newest?: boolean;
-  readonly label?: string | null;
-  /** Pre-escaped markup for the explorer form's columns. */
-  readonly html?: string;
-}
-
-/** The Spine: `ticks` newest first. `form`: margin | explorer | comb. */
-export function spine({
-  ticks,
-  form = 'margin',
-  ariaLabel = null,
-}: {
-  ticks: readonly SpineTick[];
-  form?: 'margin' | 'explorer' | 'comb';
-  ariaLabel?: string | null;
-}): string {
-  return `<ol class="nw-spine nw-spine--${escapeHtml(form)}" data-spine role="img"${attrs({ 'aria-label': ariaLabel })}>${ticks
-    .map(
-      (t) =>
-        `<li class="nw-spine-tick${t.final ? ' is-final' : ''}${t.newest ? ' is-newest' : ''}"${attrs({ 'data-block': t.number })}>${
-          t.label ? `<span class="nw-spine-number nw-label">${escapeHtml(t.label)}</span>` : ''
-        }${t.html ?? ''}</li>`,
-    )
-    .join('')}</ol>`;
-}
-
-/**
- * The Curve, as an SVG string. The explorer has no d3, so `pathLine` and
- * `pathArea` are computed by `curvePaths` below (straight segments). In the
- * Ledger the pool beneath the line is a flat ink tint (no gradient), drawn by
- * chrome.css, as in the landing's template.
- */
-export function curve({
-  id,
-  width = 400,
-  height = 120,
-  pathLine,
-  pathArea,
-  labels = [],
-  end = null,
-  ticks = [],
-  alt,
-  table = null,
-}: {
-  id: string;
-  width?: number;
-  height?: number;
-  pathLine: string;
-  pathArea: string;
-  labels?: readonly string[];
-  end?: readonly [number, number] | null;
-  ticks?: readonly { x: number; state?: string }[];
-  alt: string;
-  table?: readonly (readonly string[])[] | null;
-}): string {
-  const labelHtml = labels
-    .map(
-      (l, i) =>
-        `<text class="nw-curve-value" x="0" y="${12 + i * ((height - 12) / Math.max(1, labels.length - 1))}">${escapeHtml(l)}</text>`,
-    )
+/** Skip link + sticky header: wordmark, nav, GitHub, Get started; a native disclosure menu under 960 px. */
+export function header({ current = null, site = '' }: { current?: string | null; site?: string } = {}): string {
+  const items = navItems(site);
+  const nav = items.map((i) => `<a href="${escapeHtml(i.href)}"${i.key === current ? ' aria-current="page"' : ''}>${escapeHtml(i.label)}</a>`).join('');
+  const menuLinks = [...items, { key: 'github', label: 'GitHub', href: REPO }]
+    .map((i) => `<a href="${escapeHtml(i.href)}"${i.key === current ? ' aria-current="page"' : ''}${i.key === 'github' ? ' rel="noopener"' : ''}>${escapeHtml(i.label)}${i.key === 'github' ? icon('external-link', { className: 'sc-icon-sm' }) : ''}</a>`)
     .join('');
-  // Event ticks on the baseline: a dispute is a dashed tick, a slash an X,
-  // each with its word beside it — the state is never a colour.
-  const tickHtml = ticks
-    .map((t) => {
-      const st = escapeHtml(t.state ?? 'settled');
-      const word = t.state === 'dispute' ? 'dispute' : t.state === 'slash' ? 'slash' : null;
-      const mark =
-        t.state === 'slash'
-          ? `<line class="nw-curve-tick" data-state="slash" x1="${t.x - 3}" x2="${t.x + 3}" y1="${height - 6}" y2="${height}"></line><line class="nw-curve-tick" data-state="slash" x1="${t.x - 3}" x2="${t.x + 3}" y1="${height}" y2="${height - 6}"></line>`
-          : `<line class="nw-curve-tick" data-state="${st}" x1="${t.x}" x2="${t.x}" y1="${height - 6}" y2="${height}"></line>`;
-      return word ? `${mark}<text class="nw-curve-word" x="${t.x + 6}" y="${height - 1}">${word}</text>` : mark;
-    })
-    .join('');
-  const endHtml = end ? `<circle class="nw-curve-end" cx="${end[0]}" cy="${end[1]}" r="3"></circle>` : '';
-  const tableHtml = table
-    ? `<table><tbody>${table.map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`
-    : '';
-  return `<figure class="nw-curve" data-curve="${escapeHtml(id)}"><svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${escapeHtml(alt)}"><path class="nw-curve-pool" d="${pathArea}"></path><path class="nw-curve-line" d="${pathLine}"></path>${labelHtml}${tickHtml}${endHtml}</svg>${tableHtml}</figure>`;
-}
-
-/**
- * Straight-segment line and area paths for the Curve from `values` (one per
- * x step, oldest first), scaled into `width` × `height` with the baseline at
- * the bottom. Returns null for fewer than two values: no line can be drawn.
- */
-export function curvePaths(
-  values: readonly number[],
-  width: number,
-  height: number,
-): { pathLine: string; pathArea: string; end: readonly [number, number] } | null {
-  if (values.length < 2) return null;
-  const max = Math.max(...values, 0);
-  const stepX = width / (values.length - 1);
-  const y = (v: number): number => (max === 0 ? height : height - (v / max) * (height - 12));
-  const points = values.map((v, i) => [Number((i * stepX).toFixed(2)), Number(y(v).toFixed(2))] as const);
-  const pathLine = points.map(([px, py], i) => `${i === 0 ? 'M' : 'L'}${px},${py}`).join('');
-  const last = points[points.length - 1] ?? [0, height];
-  const pathArea = `${pathLine}L${last[0]},${height}L0,${height}Z`;
-  return { pathLine, pathArea, end: last };
-}
-
-export const band = ({ text, receipt: line = null, alarm = false }: { text: string; receipt?: string | null; alarm?: boolean }): string =>
-  `<div class="nw-band${alarm ? ' nw-band--alarm' : ''}" role="status">${escapeHtml(text)}${
-    line ? `<span class="nw-receipt-line">${escapeHtml(line)}</span>` : ''
-  }</div>`;
-
-// ── frame ────────────────────────────────────────────────────────────────────
-
-/**
- * The top bar. `current` names the page; `lampHtml` is the lamp the server
- * filled at request time; the wordmark links to the site root.
- */
-export function topBar({
-  current,
-  lampHtml = null,
-  wordmarkHref = SITE_ORIGIN,
-}: {
-  current: string;
-  lampHtml?: string | null;
-  wordmarkHref?: string;
-}): string {
-  const items = NAV.map(
-    (item) => `<a href="${escapeHtml(item.href)}"${item.key === current ? ' aria-current="page"' : ''}>${escapeHtml(item.label)}</a>`,
-  ).join('');
-  const currentLabel = NAV.find((i) => i.key === current)?.label ?? 'Home';
-  return `<header class="nw-bar" data-bar>
-  <div class="nw-frame nw-bar-inner">
-    <a class="nw-wordmark" href="${escapeHtml(wordmarkHref)}">${SITE_NAME}</a>
-    <nav class="nw-nav nw-label" aria-label="Site" id="nw-nav">${items}</nav>
-    <button type="button" class="nw-menu nw-label" aria-expanded="false" aria-controls="nw-nav" data-menu><span>${escapeHtml(currentLabel)}</span><span>Menu</span></button>
-    <div class="nw-bar-right">
-      ${lampHtml ?? lamp()}
-      <div class="nw-bar-controls">
-        ${sourcesSwitch()}
-        <span class="nw-tag nw-tag--kbd" data-palette-open role="button" tabindex="0">⌘K</span>
-      </div>
+  return `<a class="sc-skip" href="#main">Skip to content</a>
+<header class="sc-header">
+  <div class="sc-container sc-header-inner">
+    <a class="sc-wordmark" href="${escapeHtml(`${site}/`)}">Scalar Commons</a>
+    <nav class="sc-nav" aria-label="Primary">${nav}</nav>
+    <div class="sc-header-end">
+      <a class="sc-header-link" href="${REPO}" rel="noopener">GitHub${icon('external-link', { className: 'sc-icon-sm' })}</a>
+      <a class="sc-btn sc-btn-primary" href="${escapeHtml(`${site}${GET_STARTED}`)}">Get started</a>
+      <details class="sc-menu">
+        <summary aria-label="Menu">${icon('menu')}${icon('close')}<span>Menu</span></summary>
+        <nav class="sc-menu-panel" aria-label="Menu">${menuLinks}</nav>
+      </details>
     </div>
   </div>
-  <nav class="nw-nav-row nw-label" aria-label="Site, small screens">${items}</nav>
 </header>`;
 }
 
+// ── footer ───────────────────────────────────────────────────────────────────
+/** The figures the footer line states: the runtime and the block the page was built from. */
 export interface FooterFacts {
-  readonly genesisHash: string;
-  readonly specVersion: number | string;
-  readonly nodeVersion?: string | null;
-  /** The render time: the explorer is built at request time. */
-  readonly builtAt: string | null;
-  /** The best block at render; null before a connection exists. */
-  readonly block: number | null;
+  readonly provenance?: {
+    readonly specName?: string | null;
+    readonly specVersion?: number | string | null;
+    readonly readAtBlock?: number | null;
+  };
 }
 
-/** The footer. `facts`: {genesisHash, specVersion, nodeVersion, builtAt, block}; every value from the node at render. `extraLine` is the explorer's indexer line (pre-escaped). */
-export function footer({ facts, extraLine = null }: { facts: FooterFacts; extraLine?: string | null }): string {
-  const link = (label: string, href: string): string => `<a href="${escapeHtml(href)}">${escapeHtml(label)}</a>`;
-  const short = `${String(facts.genesisHash).slice(0, 6)}…${String(facts.genesisHash).slice(-4)}`;
-  return `<footer class="nw-foot" data-footer>
-  <div class="nw-frame nw-foot-inner">
-    <div class="nw-foot-col"><span class="nw-label">Chain</span>${link('Observatory', `${SITE_ORIGIN}observatory`)}${link('Pulse', `${SITE_ORIGIN}pulse`)}${link('Explorer', EXPLORER_ORIGIN)}${link('Status', `${SITE_ORIGIN}status.json`)}</div>
-    <div class="nw-foot-col"><span class="nw-label">Build</span>${link('Docs', DOCS_URL)}${link('SDK', `${DOCS_URL}guide/sdk`)}${link('Faucet', `${SITE_ORIGIN}faucet`)}${link('GitHub', REPO_URL)}</div>
-    <div class="nw-foot-col"><span class="nw-label">Govern</span>${link('Constitution', `${REPO_URL}/blob/master/pallets/constitution/src/lib.rs`)}${link('Evidence', `${REPO_URL}/tree/master/evidence`)}${link('Changelog', `${REPO_URL}/releases`)}${link('Disclosures', `${SITE_ORIGIN}posture.json`)}</div>
-    <div class="nw-foot-facts"><span>genesis ${escapeHtml(short)}</span><span>spec ${escapeHtml(String(facts.specVersion))} · node ${escapeHtml(facts.nodeVersion ?? '—')}</span><span>site built ${escapeHtml(utc(facts.builtAt) ?? '—')} against block ${facts.block === null ? '—' : escapeHtml(formatInt(facts.block))}</span>${extraLine ? `<span data-indexer-line>${extraLine}</span>` : ''}</div>
-    <p class="nw-foot-line">${DISCLAIMER}</p>
-    <p class="nw-print-foot" data-print-foot></p>
+/**
+ * The four link columns and the one caption line; every figure in it comes
+ * from the node at render. `read` is the explorer's one addition to the line:
+ * what the page read and when ("Read from the node at block n.").
+ */
+export function footer({ facts, builtAt, site = '', read = null }: { facts: FooterFacts | null | undefined; builtAt: string | null; site?: string; read?: string | null }): string {
+  const p = facts?.provenance ?? {};
+  const col = (title: string, items: readonly string[]): string =>
+    `<div class="sc-footer-col"><h2>${escapeHtml(title)}</h2><ul>${items.map((i) => `<li>${i}</li>`).join('')}</ul></div>`;
+  const a = (text: string, href: string, extra: { download?: string | null } = {}): string => link({ text, href, ...extra });
+  const value = (label: string, v: string): string => `<li class="sc-footer-value"><span>${escapeHtml(label)}</span><code>${escapeHtml(v)}</code></li>`;
+  const line = `${DISCLAIMER} Runtime ${p.specName ?? ''} ${p.specVersion ?? ''}. Page built ${formatUtc(builtAt)} from block ${formatInt(p.readAtBlock)}.${read ? ` ${read}` : ''}`;
+  return `<footer class="sc-footer">
+  <div class="sc-container">
+    <div class="sc-footer-cols">
+      ${col('Product', [a('Home', `${site}/`), a('Network', `${site}/network`), a('Explorer', `${EXPLORER_ORIGIN}/`), a('Faucet', `${site}/faucet`)])}
+      ${col('Developers', [a('Docs', `${site}/docs/`), a('Run a node', `${site}/docs/guide/run-a-node`), a('Run an agent', `${site}/docs/guide/run-an-agent`), a('Run a validator', `${site}/docs/guide/run-a-validator`), a('SDK', `${site}/docs/guide/sdk`), a('Privacy demo', `${site}/oversight`)])}
+      ${col('Project', [a('GitHub', REPO), a('Releases', `${REPO}/releases`), a('Constitution', `${site}/docs/reference/constitution`), a('Security', `${REPO}/blob/master/SECURITY.md`)])}
+      <div class="sc-footer-col"><h2>Network</h2><ul>${value('Public RPC', RPC_WSS)}${value('REST API', API_V1)}<li>${a('Chain spec (download)', `${site}/docs/chainspec.json`, { download: 'chainspec.json' })}</li></ul></div>
+    </div>
+    <p class="sc-footer-line">${escapeHtml(line)}</p>
   </div>
 </footer>`;
 }
 
-/** The document head. The chrome is linked from `/chrome.css`; fonts preloaded from `/fonts/`; no third party. */
-export function head({
-  title,
-  description,
-  cssHref = '/chrome.css',
-  extraHead = '',
-}: {
-  title: string;
-  description: string;
-  cssHref?: string;
-  extraHead?: string;
-}): string {
-  return `<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escapeHtml(title)}</title>
-<meta name="description" content="${escapeHtml(description)}">
-<meta name="color-scheme" content="dark">
-<link rel="preload" href="/fonts/source-serif-4-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="/fonts/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="${escapeHtml(cssHref)}">
-${extraHead}`;
+// ── components ───────────────────────────────────────────────────────────────
+export type ButtonVariant = 'primary' | 'secondary' | 'text';
+/** Button: primary, secondary or text (text carries arrow-right). As a link when given href. */
+export function button({ text, href = null, variant = 'primary', type = 'button', disabled = false, attrsExtra = {} }: { text: string; href?: string | null; variant?: ButtonVariant; type?: 'button' | 'submit'; disabled?: boolean; attrsExtra?: Record<string, AttrValue> }): string {
+  const cls = `sc-btn sc-btn-${variant}`;
+  const arrow = variant === 'text' ? icon('arrow-right', { className: 'sc-icon-sm' }) : '';
+  if (href) {
+    const ext = isExternal(href);
+    return `<a${attrs({ class: cls, href, rel: ext ? 'noopener' : null, 'aria-disabled': disabled ? 'true' : null, ...attrsExtra })}>${escapeHtml(text)}${arrow}</a>`;
+  }
+  return `<button${attrs({ class: cls, type, disabled, ...attrsExtra })}>${escapeHtml(text)}${arrow}</button>`;
 }
+
+/** Card: title, body, optional text button. */
+export function card({ title, body, action = null }: { title: string; body: string; action?: { text: string; href: string } | null }): string {
+  return `<article class="sc-card"><h3>${escapeHtml(title)}</h3><p>${body}</p>${action ? `<div>${button({ ...action, variant: 'text' })}</div>` : '<div></div>'}</article>`;
+}
+
+export interface Stat {
+  readonly label: string;
+  /** The value as HTML; null renders a skeleton. */
+  readonly value?: string | null;
+  readonly caption?: string | null;
+  readonly key?: string | null;
+}
+/** A stat: label, value (HTML), optional caption; `key` names it for the live refresh. */
+export const stat = ({ label, value, caption = null, key = null }: Stat): string =>
+  `<div class="sc-stat"${key ? ` data-stat="${escapeHtml(key)}"` : ''}><span class="sc-stat-label">${escapeHtml(label)}</span><span class="sc-stat-value"${key ? ' data-value' : ''}>${value ?? skeleton()}</span>${caption !== null ? `<span class="sc-stat-caption"${key ? ' data-caption' : ''}>${caption}</span>` : ''}</div>`;
+/** Stats in a 4-column grid (2 on mobile) with hairlines between cells. */
+export const stats = (items: readonly Stat[], { id = null, label = null }: { id?: string | null; label?: string | null } = {}): string =>
+  `<div class="sc-stats"${attrs({ id, role: label ? 'group' : null, 'aria-label': label })}>${items.map(stat).join('')}</div>`;
+
+export interface Column {
+  readonly label: string;
+  readonly align?: 'left' | 'right';
+}
+/** A table. `columns`: [{ label, align }]; `rows`: arrays of cell HTML; `empty`: the sentence when there are none. */
+export function table({ columns, rows, empty = 'Nothing to show.', caption = null, id = null, className = '' }: { columns: readonly Column[]; rows: readonly (readonly string[])[]; empty?: string; caption?: string | null; id?: string | null; className?: string }): string {
+  const th = columns.map((c) => `<th scope="col"${c.align === 'right' ? ' class="sc-r"' : ''}>${escapeHtml(c.label)}</th>`).join('');
+  const body = rows.length
+    ? rows.map((r) => `<tr>${r.map((cell, i) => `<td${columns[i]?.align === 'right' ? ' class="sc-r"' : ''}>${cell}</td>`).join('')}</tr>`).join('')
+    : `<tr><td class="sc-empty-cell" colspan="${columns.length}">${escapeHtml(empty)}</td></tr>`;
+  return `<div class="sc-table-wrap"${id ? ` id="${escapeHtml(id)}"` : ''}><table class="sc-table${className ? ` ${className}` : ''}">${caption ? `<caption class="sc-sr">${escapeHtml(caption)}</caption>` : ''}<thead><tr>${th}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+
+/** A key/value table: rows of [label, value HTML]. */
+export function kvTable(rows: readonly (readonly [string, string])[], { caption = null }: { caption?: string | null } = {}): string {
+  return `<div class="sc-table-wrap"><table class="sc-table sc-kv">${caption ? `<caption class="sc-sr">${escapeHtml(caption)}</caption>` : ''}<tbody>${rows.map(([k, v]) => `<tr><th scope="row">${escapeHtml(k)}</th><td>${v}</td></tr>`).join('')}</tbody></table></div>`;
+}
+
+/** The status words a badge may carry, and their tone. */
+export const BADGES: Readonly<Record<string, 'ok' | 'warn' | 'bad' | 'neutral'>> = { Live: 'ok', Finalized: 'ok', Active: 'ok', Succeeded: 'ok', Pending: 'warn', Stale: 'warn', Testnet: 'warn', Queued: 'warn', Dispute: 'bad', Slashed: 'bad', Failed: 'bad', 'Operator-run': 'neutral' };
+export type BadgeWord = keyof typeof BADGES;
+export function badge(word: string): string {
+  const tone = BADGES[word];
+  if (!tone) throw new Error(`"${word}" is not a status word`);
+  return `<span class="sc-badge${tone === 'neutral' ? '' : ` sc-badge-${tone}`}">${escapeHtml(word)}</span>`;
+}
+
+export interface Tab {
+  readonly label: string;
+  readonly href: string;
+  readonly current?: boolean;
+}
+/** Tabs whose active tab is in the URL. items: [{ label, href, current }] */
+export function tabs(items: readonly Tab[], { label = 'Sections' }: { label?: string } = {}): string {
+  return `<div class="sc-tabs" role="tablist" aria-label="${escapeHtml(label)}">${items.map((t) => `<a role="tab" href="${escapeHtml(t.href)}" aria-selected="${t.current ? 'true' : 'false'}">${escapeHtml(t.label)}</a>`).join('')}</div>`;
+}
+
+export interface Chip {
+  readonly label: string;
+  readonly href?: string;
+  readonly value?: string;
+  readonly current?: boolean;
+}
+/** Filter chips as links (each a URL) or buttons (data-filter). */
+export function chips(items: readonly Chip[], { label = 'Filter' }: { label?: string } = {}): string {
+  return `<div class="sc-chips" role="group" aria-label="${escapeHtml(label)}">${items
+    .map((c) => (c.href ? `<a class="sc-chip" href="${escapeHtml(c.href)}"${c.current ? ' aria-current="page"' : ''}>${escapeHtml(c.label)}</a>` : `<button type="button" class="sc-chip" data-filter="${escapeHtml(c.value)}" aria-pressed="${c.current ? 'true' : 'false'}">${escapeHtml(c.label)}</button>`))
+    .join('')}</div>`;
+}
+
+/** The search field (44 px, icon, placeholder), in a GET form. */
+export function searchField({ action, name = 'q', placeholder, label, value = '', button: withButton = true }: { action: string; name?: string; placeholder: string; label: string; value?: string; button?: boolean }): string {
+  return `<form class="sc-search-row" role="search" action="${escapeHtml(action)}" method="get"><label class="sc-search"><span class="sc-sr">${escapeHtml(label)}</span>${icon('search')}<input class="sc-input" type="search" name="${escapeHtml(name)}" value="${escapeHtml(value)}" placeholder="${escapeHtml(placeholder)}" autocomplete="off" spellcheck="false"></label>${withButton ? '<button class="sc-btn sc-btn-secondary" type="submit">Search</button>' : ''}</form>`;
+}
+
+/** A copy button for a value. */
+export const copyButton = (value: string, label = 'Copy'): string =>
+  `<button type="button" class="sc-copy" data-copy="${escapeHtml(value)}" aria-label="${escapeHtml(`${label} ${value}`)}">${icon('copy', { className: 'sc-icon-sm' })}<span>Copy</span></button>`;
+
+/** Code block: bg-2, mono, a copy button top-right, no syntax colours. */
+export const codeBlock = (code: string, { label = 'Copy code' }: { label?: string } = {}): string =>
+  `<div class="sc-code"><pre><code>${escapeHtml(code)}</code></pre>${copyButton(code, label)}</div>`;
+
+export type CalloutVariant = 'info' | 'warning' | 'error' | 'ok';
+/** Callout: info, warning, error (or ok for a success message). */
+export function callout({ variant = 'info', title = null, body }: { variant?: CalloutVariant; title?: string | null; body: string }): string {
+  const ico = { info: 'info', warning: 'warning', error: 'warning', ok: 'check' }[variant];
+  return `<div class="sc-callout sc-callout-${variant}" role="${variant === 'error' || variant === 'warning' ? 'alert' : 'note'}">${icon(ico)}<div class="sc-callout-body">${title ? `<strong>${escapeHtml(title)}</strong>` : ''}<div>${body}</div></div></div>`;
+}
+
+/** Pagination: Previous / Next and "Showing a–b of n". */
+export function pagination({ prevHref = null, nextHref = null, from, to, total }: { prevHref?: string | null; nextHref?: string | null; from: number; to: number; total: number | null }): string {
+  const b = (text: string, href: string | null): string => (href ? button({ text, href, variant: 'secondary' }) : `<span class="sc-btn sc-btn-secondary" aria-disabled="true">${escapeHtml(text)}</span>`);
+  return `<nav class="sc-pagination" aria-label="Pagination">${b('Previous', prevHref)}${b('Next', nextHref)}<span class="sc-caption">Showing ${formatInt(from)}–${formatInt(to)}${total !== null && total !== undefined ? ` of ${formatInt(total)}` : ''}</span></nav>`;
+}
+
+/** Empty state: one sentence in text-2. */
+export const emptyState = (sentence: string): string => `<p class="sc-empty">${escapeHtml(sentence)}</p>`;
+/** Loading: a neutral skeleton bar the size of the value it replaces. */
+export const skeleton = (width = '6ch'): string => `<span class="sc-skeleton" style="width:${escapeHtml(width)}" aria-hidden="true"></span><span class="sc-sr">Loading</span>`;
+
+/** An address or hash: mono, truncated, full value in title, a copy button, linked when href is given. */
+export function address(value: string | null | undefined, { href = null, head = 6, tail = 4 }: { href?: string | null; head?: number; tail?: number } = {}): string {
+  if (!value) return '';
+  const short = escapeHtml(truncateMiddle(value, head, tail));
+  const text = href ? `<a href="${escapeHtml(href)}" title="${escapeHtml(value)}">${short}</a>` : `<span title="${escapeHtml(value)}">${short}</span>`;
+  return `<span class="sc-addr">${text}${copyButton(value)}</span>`;
+}
+
+/** Breadcrumb: [{ text, href }], the last is the current page. */
+export function breadcrumb(items: readonly { text: string; href?: string }[]): string {
+  return `<nav class="sc-crumbs" aria-label="Breadcrumb">${items
+    .map((c, i) => (i === items.length - 1 ? `<span aria-current="page">${escapeHtml(c.text)}</span>` : `<a href="${escapeHtml(c.href ?? '/')}">${escapeHtml(c.text)}</a>${icon('chevron-right', { className: 'sc-icon-sm' })}`))
+    .join('')}</nav>`;
+}
+
+/** A section with an h2 and an optional intro sentence. */
+export const section = ({ id = null, title, intro = null, body }: { id?: string | null; title: string; intro?: string | null; body: string }): string =>
+  `<section class="sc-section"${id ? ` id="${escapeHtml(id)}"` : ''}${id ? ` aria-labelledby="${escapeHtml(id)}-h"` : ''}><div class="sc-container"><div class="sc-section-head"><h2 class="sc-h2"${id ? ` id="${escapeHtml(id)}-h"` : ''}>${escapeHtml(title)}</h2>${intro ? `<p>${intro}</p>` : ''}</div>${body}</div></section>`;
+
+export interface PageOptions extends HeadOptions {
+  readonly current?: string | null;
+  readonly facts: FooterFacts | null | undefined;
+  readonly builtAt: string | null;
+  readonly body: string;
+  readonly site?: string;
+  /** The explorer's footer sentence: what the page read. */
+  readonly read?: string | null;
+}
+/** A whole page: head, header, <main id="main">, footer. */
+export function page({ title, description, path, current = null, facts, builtAt, body, css = null, cssHref = null, scripts = [], assets = '/', site = '', origin = SITE_ORIGIN, extraHead = '', read = null }: PageOptions): string {
+  return `${head({ title, description, path, css, cssHref, scripts, assets, origin, extraHead })}
+<body>
+${header({ current, site })}
+<main id="main">
+${body}
+</main>
+${footer({ facts, builtAt, site, read })}
+</body>
+</html>
+`;
+}
+
+// ── explorer-only assets served beside the chrome ────────────────────────────
+/**
+ * The favicon, as `landing/public/favicon.svg` has it (tests hold the two
+ * equal). Served from a string because the explorer's build is `tsc` alone and
+ * copies no files.
+ */
+export const FAVICON_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#1457d6"/><path d="M21.5 11.2c-.9-1.6-2.8-2.7-5.3-2.7-3.2 0-5.4 1.7-5.4 4.1 0 2.3 1.6 3.4 4.9 4.1l1.3.3c2.1.4 2.9 1 2.9 2.1 0 1.3-1.4 2.3-3.5 2.3-2 0-3.5-.9-4.1-2.4" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"/></svg>\n';
+
+/**
+ * The one shared behaviour, as `landing/src/chrome/behaviour/copy.js` has it:
+ * a [data-copy] button puts its value on the clipboard and says "Copied" for a
+ * moment. The header menu is a native <details> and needs none.
+ */
+export const CHROME_JS = `document.addEventListener('click', async (event) => {
+  const btn = event.target.closest?.('[data-copy]');
+  if (!btn) return;
+  try {
+    await navigator.clipboard.writeText(btn.getAttribute('data-copy'));
+    const word = btn.querySelector('span');
+    if (word) {
+      word.textContent = 'Copied';
+      setTimeout(() => (word.textContent = 'Copy'), 1200);
+    }
+  } catch {
+    // Clipboard refused (insecure origin or permissions): the value stays visible in the title.
+  }
+});
+`;

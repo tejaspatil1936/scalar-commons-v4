@@ -1,19 +1,23 @@
 /**
  * The HTTP surface.
  *
- * A thin adapter: parse the URL into a route, ask the chain client for the view
- * model, render it. It is read-only by construction — the chain client it wraps
- * has no `tx` surface at all, so no request can change chain or server state.
+ * A thin adapter: parse the URL into a route, ask the chain client (single
+ * items) and the indexer (lists) for the view model, render it. It is read-only
+ * by construction — the chain client it wraps has no `tx` surface at all, so no
+ * request can change chain or server state.
  *
  * Every failure mode has a distinct status, because they mean different things
  * to a visitor: 400 for "that is not a block/address at all", 404 for "the chain
- * does not have it", 502 for "the node did not answer". Collapsing them would
- * make an unreachable node look like an empty chain.
+ * does not have it", 502 for "the node or the indexer did not answer".
+ * Collapsing them would make an unreachable node look like an empty chain. The
+ * sentence on an error page is written here from what the server knows; the
+ * upstream error's own text (which may name an internal address) goes to the
+ * log only.
  *
- * Besides the views it serves the chrome: `/chrome.css` (tokens + chrome +
- * print, read once at startup from the synced copy under `src/chrome/`) and
- * the two font files under `/fonts/`, which the stylesheet addresses as
- * `fonts/…` relative to its own URL.
+ * Besides the views it serves the chrome: `/chrome.css` (tokens + fonts +
+ * chrome, read once at startup from the synced copy under `src/chrome/`), the
+ * two font files under `/fonts/`, `/chrome.js` (the copy buttons) and
+ * `/favicon.svg`.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -22,44 +26,37 @@ import { fileURLToPath } from 'node:url';
 
 import {
   ACTIVITY_PAGE_SIZE,
+  HOME_ROWS,
+  IndexerNotFoundError,
   IndexerResponseError,
   IndexerUnavailableError,
-  findAgentByName,
-  isRecord,
+  accountEventsPath,
+  activityFeedPath,
+  agentEventsPath,
   toActivityView,
-  toHistory,
-  toIndexerStatus,
-  wideInteger,
-  type ActivitySource,
+  toAgentRecord,
+  toAgentsTotal,
+  toBlocksPage,
+  toEmissions,
+  toEventsPage,
+  toHistoryPage,
   type IndexerReader,
 } from './activity.js';
-import {
-  BlockNotFoundError,
-  ExtrinsicNotFoundError,
-  InvalidAddressError,
-  type ExplorerChain,
-} from './chain.js';
-import {
-  renderAccount,
-  renderActivity,
-  renderBlock,
-  renderError,
-  renderExtrinsic,
-  renderHome,
-} from './render.js';
-import { accountPath, activityPath, blockPath, extrinsicPath, FONT_FILES, HASH_64, isAddress, parseBlockRef, parseRoute } from './routes.js';
-import type { AgentReadings, Read, Source } from './types.js';
+import { BlockNotFoundError, ExtrinsicNotFoundError, InvalidAddressError, type ExplorerChain } from './chain.js';
+import { CHROME_JS, FAVICON_SVG } from './chrome-templates.js';
+import { renderAccount, renderActivity, renderBlock, renderBlocks, renderError, renderExtrinsic, renderHome, renderSearchMiss } from './render.js';
+import { accountPath, blockPath, extrinsicPath, FONT_FILES, HASH_64, isAddress, parseBlockRef, parseExtrinsicId, parseRoute } from './routes.js';
+import type { ActivityEntry, AgentRecord, BlockRow, ListPage, Read, Source } from './types.js';
 
 export interface ExplorerServerOptions {
   readonly chain: ExplorerChain;
-  /** Where the agent-activity page reads from — the indexer. */
-  readonly activity: ActivitySource;
   /**
-   * The indexer's other endpoints (status, account history, agent readings).
-   * Optional: without it those figures render as leaders to nothing.
+   * The indexer, for every list: blocks, activity, an account's history, the
+   * agent record and the home page's counts. Optional: without it the lists
+   * render as "not read" and the activity page cannot be served.
    */
   readonly indexer?: IndexerReader;
-  /** Where to report node failures. Defaults to stderr; tests can silence it. */
+  /** Where to report upstream failures. Defaults to stderr; tests can silence it. */
   readonly onError?: (error: unknown) => void;
   /** The synced chrome directory. Defaults to `src/chrome/` beside the sources (or `dist/`). */
   readonly chromeDir?: string;
@@ -90,87 +87,26 @@ function redirect(response: ServerResponse, location: string): void {
 
 /**
  * Where the synced chrome lives. The build emits `dist/` from `src/` only and
- * copies nothing else, so a process started from `dist/server.js` reads the
+ * copies nothing else, so a process started from `dist/index.js` reads the
  * copy at `../src/chrome/`; one started from the sources (vitest) reads
  * `./chrome/` beside this file.
  */
 export function defaultChromeDir(): string {
-  const beside = fileURLToPath(new URL('./chrome-legacy/', import.meta.url));
+  const beside = fileURLToPath(new URL('./chrome/', import.meta.url));
   if (existsSync(beside)) return beside;
-  return fileURLToPath(new URL('../src/chrome-legacy/', import.meta.url));
+  return fileURLToPath(new URL('../src/chrome/', import.meta.url));
 }
 
-/** The chrome stylesheet as one file: tokens, then the components, then the print face. */
+/** The chrome stylesheet as one file: tokens, then the faces, then the components. */
 export function readChromeStylesheet(dir: string): string {
-  return ['tokens.css', 'chrome.css', 'print.css'].map((name) => readFileSync(new URL(name, pathToDirUrl(dir)), 'utf8')).join('\n');
+  return ['tokens.css', 'fonts.css', 'chrome.css'].map((name) => readFileSync(new URL(name, pathToDirUrl(dir)), 'utf8')).join('\n');
 }
 
 const pathToDirUrl = (dir: string): URL => new URL(`file://${dir.endsWith('/') ? dir : `${dir}/`}`);
 
-/** The agent-scoped readings from the index's `/v1/agents/:address` and `/v1/agents/:address/escrows`. */
-async function readAgent(indexer: IndexerReader, agent: string, at: string): Promise<AgentReadings> {
-  const host = indexer.baseUrl.replace(/^https?:\/\//, '');
-  const src = (path: string, computed: string | null = null): Source => ({ method: 'GET', url: `${host}${path}`, fetchedAt: at, block: null, raw: null, computed });
-  const agentPath = `/v1/agents/${agent}`;
-  const escrowsPath = `${agentPath}/escrows`;
-
-  let record: Record<string, unknown> | null = null;
-  let agentReason: string | null = null;
-  try {
-    const raw = await indexer.getJson(agentPath);
-    if (!isRecord(raw)) throw new IndexerResponseError(`${agentPath} is not an object`);
-    record = raw;
-  } catch (error) {
-    agentReason = error instanceof Error ? error.message : String(error);
-  }
-
-  let escrows: Record<string, unknown>[] | null = null;
-  let escrowsReason: string | null = null;
-  try {
-    const raw = await indexer.getJson(escrowsPath);
-    if (!isRecord(raw) || !Array.isArray(raw.items)) throw new IndexerResponseError(`${escrowsPath} has no items list`);
-    escrows = raw.items.filter(isRecord);
-  } catch (error) {
-    escrowsReason = error instanceof Error ? error.message : String(error);
-  }
-
-  const fromRecord = <T>(path: string, field: string, pick: (r: Record<string, unknown>) => T | null, computed: string | null = null): Read<T> => {
-    const source = src(path, computed);
-    if (record === null) return { value: null, source, reason: agentReason ?? 'not read' };
-    const value = pick(record);
-    return value === null ? { value: null, source, reason: `${path} carries no ${field}` } : { value, source, reason: null };
-  };
-  const fromEscrows = <T>(pick: (rows: Record<string, unknown>[]) => T, computed: string | null = null): Read<T> => {
-    const source = src(escrowsPath, computed);
-    return escrows === null ? { value: null, source, reason: escrowsReason ?? 'not read' } : { value: pick(escrows), source, reason: null };
-  };
-
-  const counterparties = fromEscrows((rows) => {
-    const counts = new Map<string, number>();
-    for (const row of rows) {
-      const other = row.role === 'buyer' ? row.provider : row.buyer;
-      if (typeof other === 'string' && other !== agent) counts.set(other, (counts.get(other) ?? 0) + 1);
-    }
-    return [...counts.entries()].map(([address, count]) => ({ address, count })).sort((a, b) => b.count - a.count);
-  }, 'distinct other party over open agreements');
-
-  return {
-    renderedAt: at,
-    name: record !== null && typeof record.name === 'string' ? record.name : null,
-    earnedAllTime: { value: null, source: src(agentPath), reason: `${agentPath} carries no all-time earnings field` },
-    earnedThisEra: fromRecord(agentPath, 'eraVolumePlancks', (r) => wideInteger(r, 'eraVolumePlancks'), 'eraVolumePlancks · escrow volume this era'),
-    agreementsOpen: fromRecord(agentPath, 'activeEscrowCount', (r) => (typeof r.activeEscrowCount === 'number' ? r.activeEscrowCount : null)),
-    inDispute: fromEscrows((rows) => rows.filter((row) => row.status === 'Disputed').length, "count of status = 'Disputed'"),
-    counterparties,
-    earningsByEra: {
-      value: null,
-      source: src(escrowsPath),
-      reason: `${escrowsPath} carries open agreements only; the index has no settled earnings by era for an agent`,
-    },
-    decayed: false,
-    cooldown: record !== null && typeof record.unstakeAtBlock === 'number',
-  };
-}
+/** The sentence an error page shows for an upstream failure; the detail goes to the log. */
+const publicMessage = (error: unknown): string =>
+  error instanceof IndexerUnavailableError || error instanceof IndexerResponseError ? error.publicMessage : 'The node did not answer.';
 
 /** Builds the explorer HTTP server around an already-connected chain client. */
 export function createExplorerServer(options: ExplorerServerOptions): Server {
@@ -179,15 +115,34 @@ export function createExplorerServer(options: ExplorerServerOptions): Server {
   const info = chain.chainInfo();
   const chromeDir = options.chromeDir ?? defaultChromeDir();
   const stylesheet = Buffer.from(readChromeStylesheet(chromeDir), 'utf8');
+  const script = Buffer.from(CHROME_JS, 'utf8');
+  const favicon = Buffer.from(FAVICON_SVG, 'utf8');
   const fonts = new Map(FONT_FILES.map((name) => [name, readFileSync(new URL(`fonts/${name}`, pathToDirUrl(chromeDir)))]));
 
+  /** One indexer read as a `Read`: a failure is one unavailable figure with its public reason, never a 502 for the page. */
   async function indexerRead<T>(path: string, shape: (raw: unknown) => T): Promise<Read<T> | undefined> {
     if (indexer === undefined) return undefined;
-    const source: Source = { method: 'GET', url: `${indexer.baseUrl.replace(/^https?:\/\//, '')}${path}`, fetchedAt: new Date().toISOString(), block: null, raw: null };
+    const source: Source = { method: 'GET', url: path, fetchedAt: new Date().toISOString(), block: null, raw: null };
     try {
       return { value: shape(await indexer.getJson(path)), source, reason: null };
     } catch (error) {
-      return { value: null, source, reason: error instanceof Error ? error.message : String(error) };
+      onError(error);
+      return { value: null, source, reason: publicMessage(error) };
+    }
+  }
+
+  /**
+   * The events naming an address, one page: `/v1/agents/:address/events` for a
+   * registered agent, `/v1/events?account=` for any other account (the agent
+   * route answers 404 for those). Both are one paged query on the indexer.
+   */
+  async function eventsNaming(address: string, offset: number): Promise<unknown> {
+    if (indexer === undefined) throw new IndexerUnavailableError('no indexer configured', 'The indexer is not configured.');
+    try {
+      return await indexer.getJson(agentEventsPath(address, offset, ACTIVITY_PAGE_SIZE));
+    } catch (error) {
+      if (!(error instanceof IndexerNotFoundError)) throw error;
+      return indexer.getJson(accountEventsPath(address, offset, ACTIVITY_PAGE_SIZE));
     }
   }
 
@@ -196,6 +151,8 @@ export function createExplorerServer(options: ExplorerServerOptions): Server {
     if (query === '') return null;
     const ref = parseBlockRef(query);
     if (ref?.kind === 'number') return blockPath(ref);
+    const id = parseExtrinsicId(query);
+    if (id !== null) return extrinsicPath({ kind: 'number', number: id.number }, id.index);
     if (HASH_64.test(query)) {
       const hash = query.toLowerCase();
       try {
@@ -208,27 +165,38 @@ export function createExplorerServer(options: ExplorerServerOptions): Server {
       return found === null ? null : extrinsicPath({ kind: 'number', number: found.number }, found.index);
     }
     if (isAddress(query)) return accountPath(query);
-    if (indexer !== undefined) {
-      const agents = await indexer.getJson('/v1/agents?limit=200').catch(() => null);
-      const address = findAgentByName(agents, query);
-      if (address !== null) return activityPath(address);
-    }
     return null;
   }
 
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const route = parseRoute(request.url ?? '/');
+    const fieldTypes = (section: string, method: string) => chain.eventFieldTypes(section, method);
 
     switch (route.kind) {
       case 'home': {
-        const view = await chain.home();
-        const status = await indexerRead('/v1/status', toIndexerStatus);
-        send(response, 200, renderHome(status === undefined ? view : { ...view, indexer: status }));
+        const indexerReadAt = new Date().toISOString();
+        const [view, agents, emission, activity] = await Promise.all([
+          chain.home(),
+          indexerRead('/v1/agents?limit=1', toAgentsTotal),
+          indexerRead('/v1/emissions', toEmissions),
+          indexerRead(`/v1/activity?limit=${HOME_ROWS}`, (raw) => toActivityView(raw, fieldTypes, { agent: null, filter: null, offset: 0 }).entries as readonly ActivityEntry[]),
+        ]);
+        send(response, 200, renderHome({ ...view, ...(agents ? { agents } : {}), ...(emission ? { emission } : {}), ...(activity ? { activity } : {}), indexerReadAt }));
+        return;
+      }
+
+      case 'blocks': {
+        if (indexer === undefined) throw new IndexerUnavailableError('no indexer configured', 'The indexer is not configured.');
+        const renderedAt = new Date().toISOString();
+        const [page, heads] = await Promise.all([indexer.getJson(`/v1/blocks?limit=${ACTIVITY_PAGE_SIZE}&offset=${route.offset}`).then(toBlocksPage), chain.heads()]);
+        const authors = await chain.authors(page.items);
+        const rows: ListPage<BlockRow> = { ...page, items: page.items.map((b) => ({ ...b, author: authors.get(b.hash) ?? null })) };
+        send(response, 200, renderBlocks({ chain: info, best: heads.best, finalized: heads.finalized, page: rows, renderedAt }));
         return;
       }
 
       case 'block':
-        send(response, 200, renderBlock(await chain.block(route.ref), info));
+        send(response, 200, renderBlock(await chain.block(route.ref), info, route.tab));
         return;
 
       case 'extrinsic':
@@ -237,26 +205,34 @@ export function createExplorerServer(options: ExplorerServerOptions): Server {
 
       case 'account': {
         const view = await chain.account(route.address);
-        const history = await indexerRead(`/v1/accounts/${view.address}/extrinsics?limit=${ACTIVITY_PAGE_SIZE}`, toHistory);
-        send(response, 200, renderAccount(history === undefined ? view : { ...view, history }, info));
+        const agent = await readAgent(view.address);
+        const list =
+          route.tab === 'extrinsics'
+            ? { extrinsics: await indexerRead(`/v1/accounts/${encodeURIComponent(view.address)}/extrinsics?limit=${ACTIVITY_PAGE_SIZE}&offset=${route.offset}`, toHistoryPage) }
+            : { events: await indexerReadFrom(() => eventsNaming(view.address, route.offset), (raw) => toEventsPage(raw, fieldTypes)) };
+        send(response, 200, renderAccount({ ...view, ...(agent ? { agent } : {}), tab: route.tab, ...list }, info));
         return;
       }
 
       case 'activity': {
-        const query = { agent: route.agent, offset: route.offset };
-        // The agent's readings first, the feed last: the feed is the page's
-        // one required read, and its failure is the page's 502.
-        const agentReadings = route.agent !== null && indexer !== undefined ? await readAgent(indexer, route.agent, new Date().toISOString()) : undefined;
-        const raw = await options.activity.activity({ ...query, limit: ACTIVITY_PAGE_SIZE });
-        const view = toActivityView(raw, (section, method) => chain.eventFieldTypes(section, method), query);
-        send(response, 200, renderActivity(agentReadings === undefined ? view : { ...view, agentReadings }, info));
+        if (indexer === undefined) throw new IndexerUnavailableError('no indexer configured', 'The indexer is not configured.');
+        const query = { agent: route.agent, filter: route.filter, offset: route.offset };
+        const readAt = new Date().toISOString();
+        // One agent and no kind: the indexer's per-agent event route. Anything
+        // else: the activity feed with the indexer's own agent and kind filters.
+        const [raw, heads] = await Promise.all([
+          route.agent !== null && route.filter === null ? eventsNaming(route.agent, route.offset) : indexer.getJson(activityFeedPath(query, ACTIVITY_PAGE_SIZE)),
+          chain.heads(),
+        ]);
+        send(response, 200, renderActivity({ ...toActivityView(raw, fieldTypes, query, readAt), best: heads.best }, info));
         return;
       }
 
       case 'search': {
         const target = await resolveSearch(route.query);
         if (target === null) {
-          send(response, 404, renderError(404, `nothing is logged for: ${route.query}`, info));
+          const heads = await chain.heads();
+          send(response, 404, renderSearchMiss(route.query, info, heads.best, new Date().toISOString()));
           return;
         }
         redirect(response, target);
@@ -267,46 +243,70 @@ export function createExplorerServer(options: ExplorerServerOptions): Server {
         sendBytes(response, 200, 'text/css; charset=utf-8', stylesheet);
         return;
 
+      case 'script':
+        sendBytes(response, 200, 'text/javascript; charset=utf-8', script);
+        return;
+
+      case 'favicon':
+        sendBytes(response, 200, 'image/svg+xml', favicon);
+        return;
+
       case 'font':
         sendBytes(response, 200, 'font/woff2', fonts.get(route.name) ?? Buffer.alloc(0));
         return;
 
       case 'badRequest':
-        send(response, 400, renderError(400, route.message, info));
+        send(response, 400, renderError(400, `${capitalize(route.message)}.`, info));
         return;
 
       case 'notFound':
-        send(response, 404, renderError(404, `no such page: ${request.url ?? '/'}`, info));
+        send(response, 404, renderError(404, `There is nothing at ${new URL(request.url ?? '/', 'http://explorer.invalid').pathname}.`, info));
         return;
+    }
+  }
+
+  /** The indexer's agent record: null (an answer, not a failure) when the address is not a registered agent. */
+  async function readAgent(address: string): Promise<Read<AgentRecord | null> | undefined> {
+    if (indexer === undefined) return undefined;
+    const path = `/v1/agents/${encodeURIComponent(address)}`;
+    const source: Source = { method: 'GET', url: path, fetchedAt: new Date().toISOString(), block: null, raw: null };
+    try {
+      return { value: toAgentRecord(await indexer.getJson(path)), source, reason: null };
+    } catch (error) {
+      if (error instanceof IndexerNotFoundError) return { value: null, source, reason: null };
+      onError(error);
+      return { value: null, source, reason: publicMessage(error) };
+    }
+  }
+
+  /** As {@link indexerRead}, for a read that is not one fixed path. */
+  async function indexerReadFrom<T>(fetch: () => Promise<unknown>, shape: (raw: unknown) => T): Promise<Read<T> | undefined> {
+    if (indexer === undefined) return undefined;
+    const source: Source = { method: 'GET', url: 'indexer', fetchedAt: new Date().toISOString(), block: null, raw: null };
+    try {
+      return { value: shape(await fetch()), source, reason: null };
+    } catch (error) {
+      onError(error);
+      return { value: null, source, reason: publicMessage(error) };
     }
   }
 
   return createServer((request, response) => {
     handle(request, response).catch((error: unknown) => {
       if (error instanceof BlockNotFoundError || error instanceof ExtrinsicNotFoundError) {
-        send(response, 404, renderError(404, error.message, info));
+        send(response, 404, renderError(404, `${capitalize(error.message)}.`, info));
         return;
       }
       if (error instanceof InvalidAddressError) {
-        send(response, 400, renderError(400, error.message, info));
+        send(response, 400, renderError(400, `${capitalize(error.message.replace(/ \(.*\)$/, ''))}.`, info));
         return;
       }
-      // The activity page's upstream is the indexer, not the node, so its
-      // failures say so rather than blaming a node that was never asked.
-      if (error instanceof IndexerUnavailableError || error instanceof IndexerResponseError) {
-        onError(error);
-        send(response, 502, renderError(502, error.message, info));
-        return;
-      }
-      // Anything else is the node failing or the runtime not matching what the
-      // explorer read at connect time. Report it as an upstream failure rather
-      // than dressing it up as an empty page.
+      // The indexer's failures say so rather than blaming a node that was never
+      // asked; the node's failures say that. Neither sentence names an address.
       onError(error);
-      send(
-        response,
-        502,
-        renderError(502, `the node did not answer: ${error instanceof Error ? error.message : String(error)}`, info),
-      );
+      send(response, 502, renderError(502, publicMessage(error), info));
     });
   });
 }
+
+const capitalize = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);

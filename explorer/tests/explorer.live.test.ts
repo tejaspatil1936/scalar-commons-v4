@@ -8,7 +8,7 @@ import type { KeyringPair } from '@polkadot/keyring/types';
 import type { AccountInfo, EventRecord } from '@polkadot/types/interfaces';
 import { cryptoWaitReady, mnemonicGenerate } from '@polkadot/util-crypto';
 
-import { createIndexerClient } from '../src/activity.js';
+import { createIndexerReader } from '../src/activity.js';
 import { connectExplorerChain, type ExplorerChain } from '../src/chain.js';
 import { createExplorerServer } from '../src/server.js';
 
@@ -109,8 +109,8 @@ beforeAll(async () => {
   chain = await connectExplorerChain({ rpcEndpoint: RPC_ENDPOINT });
   server = createExplorerServer({
     chain,
-    // Only /activity reads it; this suite exercises the node-backed views.
-    activity: createIndexerClient({ baseUrl: process.env.EXPLORER_INDEXER_URL ?? 'http://127.0.0.1:8080' }),
+    // The lists read it; this suite exercises the node-backed views.
+    indexer: createIndexerReader({ baseUrl: process.env.EXPLORER_INDEXER_URL ?? 'http://127.0.0.1:8080' }),
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -162,7 +162,7 @@ describe('block view', () => {
     const headNumber = header.number.toNumber();
     const { status, body } = await get(`/block/${headNumber}`);
     expect(status).toBe(200);
-    expect(body).toContain(`<h1 class="nw-figure nw-figure--xl">${headNumber}</h1>`);
+    expect(body).toContain(`<h1 class="sc-h1">Block ${headNumber.toLocaleString('en-US')}</h1>`);
     expect(body).toContain(header.hash.toHex());
   });
 
@@ -172,7 +172,7 @@ describe('block view', () => {
     expect(byNumber.status).toBe(200);
     expect(byHash.status).toBe(200);
     expect(byNumber.body).toContain(transfer.blockHash);
-    expect(byHash.body).toContain(`Block ${transfer.blockNumber}`);
+    expect(byHash.body).toContain(`Block ${transfer.blockNumber.toLocaleString('en-US')}`);
   });
 
   it('lists exactly the extrinsics the node put in the block, each linked', async () => {
@@ -190,7 +190,7 @@ describe('block view', () => {
     const head = (await api.rpc.chain.getHeader()).number.toNumber();
     const { status, body } = await get(`/block/${head + 10_000_000}`);
     expect(status).toBe(404);
-    expect(body).toContain('not found');
+    expect(body).toContain('not found on this chain');
   });
 });
 
@@ -203,7 +203,7 @@ describe('extrinsic view', () => {
     expect(body).toContain(transfer.sender);
     expect(body).toContain(transfer.recipient);
     expect(body).toContain('balances.Transfer');
-    expect(body).toContain('SUCCEEDED');
+    expect(body).toContain('>Succeeded<');
     expect(body).toContain(`href="/block/${transfer.blockNumber}"`);
   });
 
@@ -221,9 +221,7 @@ describe('extrinsic view', () => {
     expect(positions.length).toBeGreaterThan(0);
 
     const { body } = await get(`/extrinsic/${transfer.blockNumber}/${transfer.extrinsicIndex}`);
-    const shown = [
-      ...body.matchAll(/<span class="nw-ledger-index nw-label">(\d+)<\/span><span class="nw-mono">[a-zA-Z]+\.[a-zA-Z]+<\/span>/g),
-    ].map((match) => Number(match[1]));
+    const shown = [...body.matchAll(/<tr><td>(\d+)<\/td><td><span title="[a-zA-Z]+\.[a-zA-Z]+">/g)].map((match) => Number(match[1]));
     expect(shown).toEqual(positions);
   });
 
@@ -263,7 +261,7 @@ describe('account view', () => {
     // The recipient was created by this suite's transfer, so its free balance is
     // exactly the drip — a value the page must print, not approximate.
     expect(onChain.data.free.toBigInt()).toBe(ONE_CMN);
-    expect(body).toContain('1 CMN');
+    expect(body).toContain('title="1 CMN">1.00 CMN');
     expect(body).toContain(transfer.recipient);
   });
 
@@ -284,7 +282,7 @@ describe('http surface', () => {
   it('404s a path that names no view', async () => {
     const { status, body } = await get('/not-a-view');
     expect(status).toBe(404);
-    expect(body).toContain('no such page');
+    expect(body).toContain('There is nothing at /not-a-view.');
   });
 
   it('400s a malformed URL rather than blaming the node for it', async () => {

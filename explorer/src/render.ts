@@ -1,304 +1,138 @@
 /**
- * Server-side HTML rendering, in the Nightwatch chrome.
+ * Server-side HTML rendering, in the shared chrome.
  *
- * Pure functions from view model to markup: no chain access, no JavaScript
- * shipped to the browser beyond the activity page's meta refresh, no
- * client-side framework. An explorer is read-only by nature, so a page that
- * arrives fully rendered is both the simplest thing that works and the one
- * that keeps working when a node is slow — there is no second round trip to
- * fail.
+ * Pure functions from view model to markup: no chain access, no client-side
+ * framework, one small script for the copy buttons. An explorer is read-only by
+ * nature, so a page that arrives fully rendered is both the simplest thing that
+ * works and the one that keeps working when a node is slow — there is no
+ * second round trip to fail.
  *
- * Every figure is a Reading filled from the node (or the index) at request
- * time and carries an `AS OF <UTC>` tag and a receipt naming the RPC or
- * storage item it came from; a read that failed renders `unavailable` and the
- * reason, never a guess. Every interpolated value goes through `escapeHtml`,
+ * Every page is built from the same components as the landing site
+ * (`chrome-templates.ts` mirrors `landing/src/chrome/templates.mjs`), says in
+ * plain words what each event and call is (`words.ts`), and names in its footer
+ * what it read and when. Every interpolated value goes through `escapeHtml`,
  * because every value on these pages came off a public chain and is therefore
  * attacker-supplied.
  */
 
 import {
-  address as addressChip,
-  agentName,
-  attrs,
-  band,
-  code,
-  copy,
-  curve,
-  curvePaths,
-  field,
-  filter,
-  footer,
+  EXPLORER_ORIGIN,
+  SITE_ORIGIN,
+  address,
+  badge,
+  breadcrumb,
+  button,
+  callout,
+  chips,
+  copyButton,
+  escapeHtml,
   formatInt,
-  head,
-  lampFilled,
-  ledger,
-  pager,
-  quiet,
-  rail,
-  raw,
-  reading,
-  spine,
-  tag,
-  topBar,
-  utc,
-  type LedgerRow,
-  type RailEntry,
-  type State,
+  formatUtc,
+  kvTable,
+  page,
+  pagination,
+  searchField,
+  stats,
+  table,
+  tabs,
 } from './chrome-templates.js';
-import { escapeHtml, formatBalance, formatTimestamp, shortHash } from './format.js';
-import { accountPath, activityPath, blockPath, extrinsicPath, SEARCH_PATH } from './routes.js';
-import { heartbeatDecayed, heartbeatMultiplier } from './types.js';
-import type {
-  AccountView,
-  ActivityEntry,
-  ActivityField,
-  ActivityView,
-  BlockView,
-  ChainInfo,
-  EventView,
-  ExtrinsicSummary,
-  ExtrinsicView,
-  HomeView,
-  Outcome,
-  Read,
-  Source,
-} from './types.js';
+import { ACTIVITY_PAGE_SIZE } from './activity.js';
+import { formatBalance, formatCmn, humanize, isoOf, relativeTime } from './format.js';
+import { accountPath, activityPath, blockPath, blocksPath, extrinsicPath, SEARCH_PATH, type AccountTab, type ActivityKind, type BlockTab } from './routes.js';
+import { heartbeatDecayed } from './types.js';
+import type { AccountView, ActivityEntry, ActivityView, BlockView, BlocksView, ChainInfo, EventView, ExtrinsicSummary, ExtrinsicView, HistoryEntry, HomeView, ListPage, Outcome, Read } from './types.js';
+import { CHIPS, accountFields, callWords, describeEvent, eventWords } from './words.js';
 
 /**
- * Layout glue the chrome does not carry yet, in the Ledger's terms: blocks on
- * the 12-column grid (x-col-n), the explorer Spine spanning its columns, the
- * search form, the raw disclosure and the share bar. Layout only — no colour,
- * no face, no size and no spacing off the chrome's scales (every length is a
- * --s-n step or a calc of them) — and a request for the chrome
- * (landing/src/chrome/README.md, "Asking for a change") rather than a theme.
+ * The explorer's own layout rules: the vertical rhythm of a page of panels,
+ * nothing else. No colour, no face, no size — every length is a --s-n step —
+ * so the chrome test holds this sheet to the same scale as the chrome.
  */
-const EXPLORER_LAYOUT_CSS = `.x-col-4{grid-column:1/span 4}.x-col-8{grid-column:5/span 8}.x-col-6{grid-column:span 6}.x-col-12{grid-column:1/-1}.x-wrap{grid-auto-flow:row;grid-template-columns:repeat(3,minmax(0,1fr));row-gap:var(--s-6)}.x-rows>.nw-row+.nw-row{margin-top:var(--s-6)}.x-wide .nw-reading-figure{max-width:100%}.nw-reading .nw-reading-figure .nw-figure--body{white-space:normal;overflow-wrap:anywhere}.nw-reading.x-wide .nw-reading-figure .nw-figure,.x-hash{white-space:normal;overflow-wrap:anywhere;word-break:break-all}.nw-section-head h1{min-width:0;max-width:100%;overflow-wrap:anywhere}.nw-ledger-row>span{min-width:0;overflow-wrap:anywhere}.nw-ledger-row .nw-tag{white-space:normal}.nw-spine--explorer{width:100%}.nw-spine--explorer .nw-spine-tick{grid-template-columns:max-content max-content max-content minmax(0,1fr) max-content;column-gap:var(--s-3)}.nw-spine--explorer .nw-spine-tick>span{min-width:0;white-space:nowrap}.nw-spine--explorer .nw-spine-tick>span:nth-child(4){overflow:hidden;text-overflow:ellipsis}.x-glyph{display:inline-block;position:relative;width:var(--s-3);height:var(--s-3);margin-right:var(--s-1);vertical-align:middle}.x-glyph::before,.x-glyph::after{content:"";position:absolute}.x-glyph[data-kind="agreement"]{height:var(--s-2);border-left:1px solid var(--ink);border-right:1px solid var(--ink)}.x-glyph[data-kind="agreement"]::before{left:0;right:0;top:calc(var(--s-1) - var(--s-1) / 8);border-top:1px solid var(--ink)}.x-glyph[data-kind="message"]::before{left:0;top:calc(var(--s-1));width:var(--s-1);height:var(--s-1);background:var(--ink-3)}.x-glyph[data-kind="message"]::after{left:var(--s-1);right:0;top:calc(var(--s-1) * 1.5);border-top:1px solid var(--rule-2)}.x-glyph[data-kind="settled"]::before{left:0;top:calc(var(--s-1) * 0.75);width:var(--s-1);height:calc(var(--s-1) * 1.5);background:var(--ink)}.x-glyph[data-kind="settled"]::after{left:var(--s-1);right:0;top:calc(var(--s-1) * 1.5);border-top:1px solid var(--ink-3)}.x-glyph[data-kind="dispute"]::before{left:0;right:0;top:calc(var(--s-1) * 1.5);border-top:1px dashed var(--ink)}.x-glyph[data-kind="oracle"]{width:0;border-left:1px solid var(--ink)}.x-glyph[data-kind="registered"]::before{left:0;right:0;top:0;border-top:2px solid var(--ink)}@media(max-width:480px){.x-col-4,.x-col-8,.x-col-6{grid-column:1/-1}.x-wrap{grid-template-columns:minmax(0,1fr)}.nw-row.nw-row.nw-row.nw-row .nw-reading-figure .nw-figure{font:var(--figure-m)}.nw-row.nw-row.nw-row:has(> :nth-child(3)) .nw-reading-figure .nw-figure,.nw-row.nw-row.nw-row[data-step-m="1"] .nw-reading-figure .nw-figure{font:var(--figure-s)}}.nw-search{margin-block:var(--s-5)}.nw-raw-details summary{cursor:pointer;list-style:none}.nw-raw-details[open] summary{margin-bottom:var(--s-2)}.nw-share{min-width:calc(var(--s-1) / 2)}.nw-section-head .nw-tag{margin-left:auto}.nw-section-head .nw-tag+.nw-tag{margin-left:0}@media(min-width:481px){.nw-ledger-row{grid-template-columns:minmax(var(--s-7),auto) minmax(0,2fr) minmax(0,2fr) minmax(0,1fr) auto}.nw-ledger-row>:first-child{white-space:nowrap}}`;
+const EXPLORER_CSS = `.x-page{padding-block:var(--s-6) var(--s-7)}.x-page>*+*{margin-top:var(--s-7)}.x-page>.sc-page-head{padding-top:0}.x-page time{white-space:nowrap}.x-panel{display:grid;gap:var(--s-4);align-content:start}.x-panel>.sc-between{margin:0}`;
 
-/** The source a view carries for a figure it did not read: a leader to nothing, with the reason. */
-const NOT_READ: Source = { method: 'RPC', url: 'not read in this view', fetchedAt: null, block: null, raw: null };
+const SEARCH_PLACEHOLDER = 'Search by block number, block hash, extrinsic (block-index) or address';
+const DESCRIPTION = 'Blocks, extrinsics, accounts and agent activity on the Scalar Commons testnet, read from the public node and the indexer.';
 
-/**
- * A row of Readings, sized as the chrome sizes it (one figure size per row by
- * count: 1 xl, 2 l, 3–4 m, 5–6 s; at 480 px and under one column, a step
- * down). The explorer ships no script, so behaviour/fit.js cannot drop an
- * overflowing row a step at render; the server does it instead, and it can,
- * exactly: IBM Plex Mono advances 0.6 em per glyph, so a figure's width is its
- * length × 0.6 × its size, plus its unit (--label, 0.72 em a glyph with the
- * tracking, 8 px after the figure) and the stub (20 px, 8 px after). A row
- * that would spill at 1440 px gets data-step="1" (the chrome's own step); one
- * that would spill in the 350 px phone column gets data-step-m="1", which the
- * page's layout CSS sets at --figure-s. At 480 px and under the layout CSS
- * also restates the chrome's phone sizes (1–2 → m, 3+ → s) at a specificity
- * that beats the desktop count rules, which otherwise outrank them.
- */
-const FIGURE_PX = { xl: 80, l: 56, m: 36, s: 24 } as const;
-/** --label's size in px (round 3: 12). */
-const LABEL_PX = 12;
-type FigureStep = keyof typeof FIGURE_PX;
-const sizeByCount = (count: number): FigureStep => (count <= 1 ? 'xl' : count === 2 ? 'l' : count <= 4 ? 'm' : 's');
-const phoneSizeByCount = (count: number): FigureStep => (count >= 3 ? 's' : 'm');
-/** The frame (--content), the gutter, and the phone column (390 px less two 20 px gutters). */
-const FRAME_PX = 1200;
-const GUTTER_PX = 24;
-const PHONE_COLUMN_PX = 390 - 2 * 20;
-const decodeText = (html: string): string =>
-  html.replace(/<[^>]*>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
-export const figureWidthPx = (text: string, unit: string | null, size: FigureStep): number =>
-  [...text].length * 0.6 * FIGURE_PX[size] + (unit ? 8 + [...unit].length * 0.72 * LABEL_PX : 0) + 8 + 20;
+/** The search field every page carries (the home page first, the error pages last). */
+const search = (value = ''): string => searchField({ action: SEARCH_PATH, placeholder: SEARCH_PLACEHOLDER, label: 'Search the chain', value });
 
-const figureOfHtml = (html: string): { text: string; unit: string | null } => ({
-  text: decodeText(/data-reading-value[^>]*>([\s\S]*?)(?:<span class="nw-unit">|<\/span>)/.exec(html)?.[1] ?? ''),
-  unit: /<span class="nw-unit">([^<]*)<\/span>/.exec(html)?.[1] ?? null,
-});
-
-/** Whether a row of these Readings spills at 1440 px even one step down. */
-const rowSpills = (readings: readonly string[]): boolean => {
-  const count = readings.length;
-  const column = (FRAME_PX - (count - 1) * GUTTER_PX) / count;
-  const stepped = DOWN[sizeByCount(count)];
-  return readings.map(figureOfHtml).some((f) => figureWidthPx(f.text, f.unit, stepped) > column);
-};
-const DOWN: Readonly<Record<FigureStep, FigureStep>> = { xl: 'l', l: 'm', m: 's', s: 's' };
-
-export function readingRow(readings: readonly string[], className = ''): string {
-  const count = readings.length;
-  const column = (FRAME_PX - (count - 1) * GUTTER_PX) / count;
-  const figures = readings.map(figureOfHtml);
-  const spills = (size: FigureStep, width: number): boolean => figures.some((f) => figureWidthPx(f.text, f.unit, size) > width);
-  const phone = phoneSizeByCount(count);
-  return `<div class="nw-row${className ? ` ${className}` : ''}"${attrs({
-    'data-step': spills(sizeByCount(count), column) ? '1' : null,
-    'data-step-m': phone !== 's' && spills(phone, PHONE_COLUMN_PX) ? '1' : null,
-  })}>
-${readings.join('\n')}
-</div>`;
-}
-
-/**
- * Readings that may not fit one row: when a figure spills its column even a
- * step down (a 24-glyph balance in a quarter of the frame), the Readings split
- * into rows of half as many, each row still sized by its own count — never a
- * figure cut short, never two figures colliding.
- */
-export function readingRows(readings: readonly string[]): string {
-  let per = readings.length;
-  while (per > 1) {
-    const chunks: string[][] = [];
-    for (let i = 0; i < readings.length; i += per) chunks.push(readings.slice(i, i + per));
-    if (!chunks.some(rowSpills)) break;
-    per = Math.ceil(per / 2);
-  }
-  const rows: string[] = [];
-  for (let i = 0; i < readings.length; i += per) rows.push(readingRow(readings.slice(i, i + per)));
-  return rows.length === 1 ? (rows[0] ?? '') : `<div class="x-rows">\n${rows.join('\n')}\n</div>`;
-}
-
-/** What the lamp and footer know about the chain at render time. */
-interface Frame {
+interface Layout {
+  readonly title: string;
+  readonly path: string;
+  readonly body: string;
   readonly chain: ChainInfo | null;
+  /** The render time; the footer's "Page built". */
   readonly renderedAt: string | null;
-  readonly best: number | null;
-  readonly finalized: number | null;
-  readonly headAgeMs: number | null;
-  readonly indexerLine?: string | null;
-  readonly refreshSeconds?: number;
+  /** The best block the page read; the footer's "from block". */
+  readonly block: number | null;
+  /** What the page read, for the footer caption. */
+  readonly read: string | null;
+  readonly description?: string;
 }
 
-/** The lamp as the server fills it. Lit only when the newest block is under 30 s old at render — the lamp rule. */
-function lampFor(frame: Frame): string {
-  if (frame.best === null) {
-    return lampFilled({ state: 'connecting', lit: false, text: 'not connected' });
-  }
-  const asOf = frame.renderedAt ? ` · as of ${utc(frame.renderedAt)}` : '';
-  if (frame.headAgeMs === null) {
-    return lampFilled({ state: 'normal', lit: false, text: `block ${formatInt(frame.best)}${asOf}` });
-  }
-  if (frame.headAgeMs >= 30_000) {
-    const minutes = Math.floor(frame.headAgeMs / 60_000);
-    return lampFilled({ state: 'stalled', lit: false, text: `last block ${formatInt(frame.best)} · ${minutes} min ago · stalled` });
-  }
-  // The lamp's words, as the landing's lamp prints them: `block n · fin k`.
-  const finality = frame.finalized === null ? 'fin —' : `fin ${formatInt(frame.best - frame.finalized)}`;
-  return lampFilled({ state: 'normal', lit: true, text: `block ${formatInt(frame.best)} · ${finality}` });
-}
-
-/**
- * Wraps a page body in the chrome: the bar with the lamp, the frame, the
- * footer. `refreshSeconds` makes the page reload itself — the one way a
- * server-rendered, script-free page stays live.
- */
-function layout(title: string, frame: Frame, body: string): string {
-  const facts = {
-    genesisHash: frame.chain?.genesisHash ?? '—',
-    specVersion: frame.chain?.specVersion ?? '—',
-    nodeVersion: frame.chain?.nodeVersion ?? null,
-    builtAt: frame.renderedAt,
-    block: frame.best,
-  };
-  const refresh =
-    frame.refreshSeconds === undefined ? '' : `\n<meta http-equiv="refresh" content="${frame.refreshSeconds}">`;
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-${head({ title, description: 'Scalar Commons block explorer: blocks, extrinsics, accounts and agent activity read from the node at request time.', extraHead: `<style>${EXPLORER_LAYOUT_CSS}</style>${refresh}` })}
-</head>
-<body>
-${topBar({ current: 'explorer', lampHtml: lampFor(frame) })}
-<main class="nw-frame">
-${body}
-</main>
-${footer({ facts, extraLine: frame.indexerLine ?? null })}
-</body>
-</html>
-`;
-}
-
-/** `AS OF <UTC>` — the render time every page states, in the built style (no dot, dim). */
-const asOfTag = (renderedAt: string | null): string =>
-  tag({ state: 'built', text: `AS OF ${renderedAt ? (utc(renderedAt) ?? '—') : '—'}` });
-
-const sectionHead = (label: string, count: number | null = null, extra = ''): string =>
-  `<div class="nw-section-head"><h2 class="nw-label">${escapeHtml(label)}${
-    count === null ? '' : ` · ${formatInt(count)}`
-  }</h2>${extra}</div>`;
-
-/**
- * One Reading from one `Read`. A failed read, or one the view did not make,
- * renders `unavailable` with the reason as the sub-line, in sage.
- */
-function readingOf<T>(
-  label: string,
-  read: Read<T> | undefined,
-  format: (value: T) => string,
-  options: { size?: 'xl' | 'l' | 'm' | 's' | 'body'; href?: string | null; state?: State; figureHtml?: (value: T) => string; sub?: string | null; stack?: boolean; wide?: boolean; unit?: string | null } = {},
-): string {
-  const stack = options.stack ?? true;
-  const className = options.wide ? 'x-wide' : '';
-  if (read === undefined) {
-    return reading({ label, figure: 'unavailable', size: 'body', stack, className: `is-unavailable nw-sage ${className}`, sub: 'not read in this view', source: NOT_READ });
-  }
-  if (read.value === null && read.reason !== null) {
-    return reading({ label, figure: 'unavailable', size: 'body', stack, className: `is-unavailable nw-sage ${className}`, sub: read.reason, source: read.source });
-  }
-  const value = read.value as T;
-  return reading({
-    label,
-    figure: format(value),
-    figureHtml: options.figureHtml ? options.figureHtml(value) : null,
-    size: options.size ?? 'm',
-    href: options.href ?? null,
-    state: options.state ?? 'record',
-    sub: options.sub ?? null,
-    unit: options.unit ?? null,
-    stack,
-    className,
-    source: read.source,
+/** Wraps a page body in the chrome: head, header (Explorer current), main, footer with the read caption. */
+function layout({ title, path, body, chain, renderedAt, block, read, description = DESCRIPTION }: Layout): string {
+  return page({
+    title,
+    description,
+    path,
+    current: 'explorer',
+    site: SITE_ORIGIN,
+    origin: EXPLORER_ORIGIN,
+    assets: '/',
+    cssHref: '/chrome.css',
+    scripts: ['/chrome.js'],
+    extraHead: `\n<style>${EXPLORER_CSS}</style>`,
+    facts: chain ? { provenance: { specName: chain.specName, specVersion: chain.specVersion, readAtBlock: block } } : null,
+    builtAt: renderedAt,
+    body: `<div class="sc-container x-page">\n${body}\n</div>`,
+    read,
   });
 }
 
-/** A reading whose value the view already holds (a header field, a balance), with its source. */
-function fact(label: string, figure: string, source: Source, options: { size?: 'xl' | 'l' | 'm' | 's' | 'body'; href?: string | null; figureHtml?: string | null; state?: State; stack?: boolean; wide?: boolean; unit?: string | null } = {}): string {
-  return reading({ label, figure, size: options.size ?? 'body', href: options.href ?? null, figureHtml: options.figureHtml ?? null, state: options.state ?? 'record', stack: options.stack ?? true, unit: options.unit ?? null, className: options.wide ? 'x-wide' : '', source });
+const nodeRead = (block: number): string => `Read from the node at block ${formatInt(block)}.`;
+const indexerRead = (at: string | null | undefined): string => `List from the indexer, read at ${formatUtc(at)}.`;
+
+// ── cells ────────────────────────────────────────────────────────────────────
+
+/** A relative time with the absolute UTC time in the title; "no timestamp" when the block carries none. */
+function timeCell(timestampMs: bigint | null, renderedAt: string | null): string {
+  const iso = isoOf(timestampMs);
+  if (iso === null) return '<span class="sc-muted">no timestamp</span>';
+  const now = renderedAt ? new Date(renderedAt).getTime() : Date.now();
+  return `<time datetime="${escapeHtml(iso)}" title="${escapeHtml(formatUtc(iso))}">${escapeHtml(relativeTime(Number(timestampMs), now))}</time>`;
 }
 
-/** A hash-bearing Reading: stacked, full-width, wrapping anywhere — a 66-character hash never sets the page's width. */
-const hashFact = (label: string, figure: string, source: Source, options: { href?: string | null; figureHtml?: string | null } = {}): string =>
-  `<div class="x-col-12">${fact(label, figure, source, { ...options, stack: true, wide: true })}</div>`;
+const blockLink = (number: number): string => `<a class="sc-mono" href="${escapeHtml(blockPath({ kind: 'number', number }))}">${formatInt(number)}</a>`;
+const extrinsicLink = (number: number, index: number): string => `<a class="sc-mono" href="${escapeHtml(extrinsicPath({ kind: 'number', number }, index))}">${formatInt(number)}-${index}</a>`;
+const hashCell = (hash: string, href: string | null = null): string => address(hash, { href, head: 8, tail: 6 });
+const authorCell = (author: string | null): string => (author ? address(author, { href: accountPath(author) }) : '<span class="sc-muted">not in the pre-digest</span>');
+const finalityBadge = (final: boolean | null): string => (final === null ? '<span class="sc-muted">unknown</span>' : badge(final ? 'Finalized' : 'Pending'));
 
-/** Whole tokens with grouping, for the figure of a balance; the unit goes beside it at --label size and the exact plancks on the receipt's computation line. */
-const wholeTokens = (plancks: bigint, decimals: number): string => formatInt(plancks / 10n ** BigInt(decimals));
+/** A planck amount at two decimals, the full value in the title. */
+const cmn = (plancks: bigint, chain: ChainInfo): string =>
+  `<span title="${escapeHtml(formatBalance(plancks, chain.tokenDecimals, chain.tokenSymbol))}">${escapeHtml(formatCmn(plancks, chain.tokenDecimals, chain.tokenSymbol))}</span>`;
 
-/** A balance as a figure without its symbol: the symbol is the Reading's unit, printed at --label size on the figure's baseline. */
-const tokenFigure = (plancks: bigint, decimals: number, symbol: string): string => {
-  const text = formatBalance(plancks, decimals, symbol);
-  return text.endsWith(` ${symbol}`) ? text.slice(0, -(symbol.length + 1)) : text;
-};
+/** The call in words, with the raw `pallet.call` beside it for anyone who wants it. */
+const callCell = (section: string, method: string): string =>
+  `${escapeHtml(callWords(section, method))} <span class="sc-caption sc-mono">${escapeHtml(`${section}.${method}`)}</span>`;
 
-/** Clock time `HH:MM:SS` of a block's timestamp for a dense row; the full UTC goes on the title. */
-const clockTime = (timestampMs: bigint | null): string => {
-  const iso = formatTimestamp(timestampMs);
-  const match = /T(\d\d:\d\d:\d\d)/.exec(iso);
-  return match?.[1] ?? iso;
-};
+/** The event in words (raw name in the title), with its status badge when it has one. */
+function eventCell(section: string, method: string): string {
+  const words = eventWords(section, method);
+  const raw = `${section}.${method}`;
+  return `<span title="${escapeHtml(raw)}">${escapeHtml(words.label)}</span>${words.badge ? ` ${badge(words.badge)}` : ''}`;
+}
 
-const sourceAt = (method: string, url: string, block: number | null, fetchedAt: string | null, computed: string | null = null): Source => ({
-  method,
-  url,
-  fetchedAt,
-  block,
-  raw: null,
-  computed,
-});
-
-/** Renders a dispatch outcome as its tag, keeping "unknown" visibly distinct from "success". */
-function outcomeTag(outcome: Outcome): string {
+/** Renders a dispatch outcome as its badge, keeping "unknown" visibly distinct from "success". */
+function outcomeCell(outcome: Outcome): string {
   switch (outcome.kind) {
     case 'success':
-      return tag({ state: 'sealed', text: 'SUCCEEDED' });
+      return badge('Succeeded');
     case 'failed':
-      return tag({ state: 'dispute', text: `FAILED · ${outcome.reason}` });
+      return `${badge('Failed')} <span class="sc-caption sc-mono">${escapeHtml(outcome.reason)}</span>`;
     case 'unknown':
-      return tag({ state: 'record', text: 'OUTCOME NOT RECORDED' });
+      return '<span class="sc-muted">not recorded</span>';
   }
 }
 
@@ -312,717 +146,434 @@ function outcomeTag(outcome: Outcome): string {
  * to link to. Deciding on the link alone would print "unsigned" over a
  * signature the node did report.
  */
-function signerCell(isSigned: boolean, signer: string | null, unsignedLabel: string): string {
-  if (signer !== null) {
-    return addressChip(signer, { href: accountPath(signer) });
-  }
-  return isSigned
-    ? '<span class="nw-sage">signed (its address is not an AccountId)</span>'
-    : `<span class="nw-sage">${escapeHtml(unsignedLabel)}</span>`;
+function signerCell(isSigned: boolean, signer: string | null): string {
+  if (signer !== null) return address(signer, { href: accountPath(signer) });
+  return isSigned ? '<span class="sc-muted">signed (its address is not an AccountId)</span>' : '<span class="sc-muted">unsigned (inherent)</span>';
 }
 
-function accountLink(address: string): string {
-  return `<a class="nw-mono" href="${escapeHtml(accountPath(address))}">${escapeHtml(address)}</a>`;
+/** A failed read as the error callout the brief asks for: the plain cause, never a blank or a zero. */
+const unavailable = (what: string, reason: string): string => callout({ variant: 'warning', body: `${escapeHtml(what)} ${escapeHtml(reason)}` });
+
+/** The agent-address filter form the activity page keeps. */
+function agentFilter(agent: string | null, kind: ActivityKind | null): string {
+  return `<form class="sc-search-row" method="get" action="${escapeHtml(activityPath())}"><label class="sc-search"><span class="sc-sr">Filter by agent address</span><input class="sc-input" type="text" name="agent" value="${escapeHtml(agent ?? '')}" placeholder="Filter by agent address (SS58)" autocomplete="off" spellcheck="false"></label>${kind ? `<input type="hidden" name="kind" value="${escapeHtml(kind)}">` : ''}<button class="sc-btn sc-btn-secondary" type="submit">Filter</button></form>`;
 }
 
-function blockLinkByNumber(number: number): string {
-  return `<a href="${escapeHtml(blockPath({ kind: 'number', number }))}">${formatInt(number)}</a>`;
+/** The shared activity row: Time · Block · Event · Agent(s) · Details. */
+function activityRow(entry: ActivityEntry, chain: ChainInfo, renderedAt: string | null): string[] {
+  const agents = entry.agents.length === 0 ? '<span class="sc-muted">none named</span>' : entry.agents.map((a) => address(a, { href: accountPath(a) })).join('<br>');
+  const details = describeEvent(entry.section, entry.method, entry.fields, { decimals: chain.tokenDecimals, symbol: chain.tokenSymbol }, { showAccounts: false });
+  return [timeCell(entry.timestampMs, renderedAt), blockLink(entry.blockNumber), eventCell(entry.section, entry.method), agents, details];
 }
 
-function blockLinkByHash(hash: string): string {
-  return `<a class="nw-mono" href="${escapeHtml(blockPath({ kind: 'hash', hash }))}">${escapeHtml(shortHash(hash))}</a>`;
-}
+const ACTIVITY_COLUMNS = [{ label: 'Time' }, { label: 'Block' }, { label: 'Event' }, { label: 'Agents' }, { label: 'Details' }];
 
-const hashWithCopy = (hash: string): string =>
-  `<span class="nw-copyable nw-mono">${escapeHtml(hash)}${copy(hash, 'Copy hash')}</span>`;
-
-const rawDetails = (value: unknown): string => `<details class="nw-raw-details"><summary class="nw-label">▸ raw</summary>${raw(value)}</details>`;
-
-const extrinsicLedgerRow = (blockNumber: number, extrinsic: ExtrinsicSummary): LedgerRow => ({
-  id: `${blockNumber}-${extrinsic.index}`,
-  cells: [
-    `<a href="${escapeHtml(extrinsicPath({ kind: 'number', number: blockNumber }, extrinsic.index))}">${formatInt(blockNumber)}-${extrinsic.index}</a>`,
-    `<a class="nw-mono" href="${escapeHtml(extrinsicPath({ kind: 'number', number: blockNumber }, extrinsic.index))}">${escapeHtml(shortHash(extrinsic.hash, 6))}</a>`,
-    escapeHtml(`${extrinsic.section}.${extrinsic.method}`),
-    signerCell(extrinsic.isSigned, extrinsic.signer, 'unsigned'),
-    outcomeTag(extrinsic.outcome),
-  ],
-});
-
-const eventLedgerRow = (blockNumber: number | null, event: EventView & { extrinsicIndex?: number | null }): LedgerRow => ({
-  id: blockNumber === null ? String(event.index) : `${blockNumber}-${event.index}`,
-  cells: [
-    String(event.index),
-    escapeHtml(`${event.section}.${event.method}`),
-    event.fields.map((f) => `${escapeHtml(f.name)}: ${escapeHtml(f.value)}`).join('<br>'),
-    event.extrinsicIndex === undefined || event.extrinsicIndex === null || blockNumber === null
-      ? ''
-      : `<a href="${escapeHtml(extrinsicPath({ kind: 'number', number: blockNumber }, event.extrinsicIndex))}">${formatInt(blockNumber)}-${event.extrinsicIndex}</a>`,
-    rawDetails(event.fields),
-  ],
-});
-
-/**
- * The pulse model's event table (landing/src/pulse/model.js, EVENTS): the
- * runtime events the site draws, their kind and their word. The Spine's event
- * column prints one glyph per kind present in a block, in the Waterfall's
- * Ledger marks (SITE-ROUND2.md §1.2): agreement a line with end ticks,
- * message a 4×4 cell with a light line, work paid for a 4×6 cell, dispute a
- * dashed line, oracle answer a 1×12 tick, agent joined a printed head.
- * `resolved` draws no glyph of its own (it ends a dispute's line), as in the
- * Waterfall. tests/chrome.test.ts holds this table to model.js's.
- */
-export const PULSE_EVENTS: readonly { readonly section: string; readonly method: string; readonly kind: string; readonly describe: string }[] = [
-  { section: 'escrow', method: 'AgreementCreated', kind: 'agreement', describe: 'agreement opened' },
-  { section: 'messages', method: 'MessageSent', kind: 'message', describe: 'message sent' },
-  { section: 'escrow', method: 'DeliveryConfirmed', kind: 'settled', describe: 'work paid for' },
-  { section: 'escrow', method: 'DisputeOpened', kind: 'dispute', describe: 'dispute opened' },
-  { section: 'escrow', method: 'DisputeResolved', kind: 'resolved', describe: 'dispute resolved' },
-  { section: 'oracle', method: 'OracleResponseSubmitted', kind: 'oracle', describe: 'oracle answer' },
-  { section: 'oracle', method: 'BatchResponseSubmitted', kind: 'oracle', describe: 'oracle answer' },
-  { section: 'agents', method: 'AgentRegistered', kind: 'registered', describe: 'agent joined' },
-];
-/** The kinds that draw, in the Waterfall legend's order. */
-const GLYPH_KINDS = ['agreement', 'message', 'settled', 'dispute', 'oracle', 'registered'] as const;
-
-/** One glyph per drawing kind present among `events`, in the legend's order; '' when none. */
-export function eventGlyphs(events: readonly { readonly section: string; readonly method: string }[]): string {
-  const present = new Map<string, string>();
-  for (const event of events) {
-    const row = PULSE_EVENTS.find((r) => r.section === event.section && r.method === event.method);
-    if (row && !present.has(row.kind)) present.set(row.kind, row.describe);
-  }
-  return GLYPH_KINDS.filter((kind) => present.has(kind))
-    .map((kind) => {
-      const word = escapeHtml(present.get(kind) ?? kind);
-      return `<span class="x-glyph" data-kind="${kind}" role="img" aria-label="${word}" title="${word}"></span>`;
-    })
-    .join('');
-}
-
-const SS58 = /^[1-9A-HJ-NP-Za-km-z]{40,}$/;
-
-/**
- * The extrinsic in one plain sentence, by the site's existing formatter: the
- * pulse model's `sentence` (landing/src/pulse/model.js), word for word, for
- * the first event this extrinsic emitted that the model has a sentence for —
- * what happened, not what was asked. Its parties are the decoded event's
- * accounts (as address links) and its amount the decoded balance in whole
- * and fractional CMN. Null when the extrinsic emitted none of those events, or
- * a field the sentence needs did not decode as expected: never a template that
- * guesses.
- */
-export function plainSentence(events: readonly EventView[], chain: ChainInfo): string | null {
-  for (const event of events) {
-    const row = PULSE_EVENTS.find((r) => r.section === event.section && r.method === event.method);
-    if (!row) continue;
-    const field = (name: string): string | null => event.fields.find((f) => f.name === name)?.value ?? null;
-    const who = (name: string): string | null => {
-      const address = field(name);
-      return address !== null && SS58.test(address) ? addressChip(address, { href: accountPath(address) }) : null;
-    };
-    const cmn = (name: string): string | null => {
-      const value = field(name);
-      return value !== null && /^\d[\d,]*$/.test(value)
-        ? `${escapeHtml(tokenFigure(BigInt(value.replace(/,/g, '')), chain.tokenDecimals, chain.tokenSymbol))} ${escapeHtml(chain.tokenSymbol)}`
-        : null;
-    };
-    const all = (...parts: (string | null)[]): boolean => parts.every((p) => p !== null);
-    const [buyer, provider] = [who('buyer'), who('provider')];
-    switch (row.kind) {
-      case 'agreement': {
-        const amount = cmn('amount');
-        return all(buyer, provider, amount) ? `${buyer} opened an agreement with ${provider} for ${amount}` : null;
-      }
-      case 'settled': {
-        const amount = cmn('amount');
-        return all(buyer, provider, amount) ? `${buyer} paid ${provider} ${amount} for completed work` : null;
-      }
-      case 'message': {
-        const [from, to] = [who('from'), who('to')];
-        return all(from, to) ? `${from} sent a message to ${to}` : null;
-      }
-      case 'dispute':
-        return all(buyer, provider) ? `${buyer} disputed a delivery from ${provider}` : null;
-      case 'resolved':
-        return all(buyer, provider) ? `the dispute between ${buyer} and ${provider} was resolved` : null;
-      case 'oracle': {
-        const agent = who('agent');
-        if (agent === null) return null;
-        if (row.method === 'BatchResponseSubmitted') {
-          const accepted = field('accepted');
-          if (accepted === null || !/^\d[\d,]*$/.test(accepted)) return null;
-          const n = Number(accepted.replace(/,/g, ''));
-          return `${agent} answered ${formatInt(n)} oracle ${n === 1 ? 'question' : 'questions'}`;
-        }
-        return `${agent} answered an oracle question`;
-      }
-      default: {
-        const joined = who('who');
-        return joined === null ? null : `${joined} joined the network`;
-      }
-    }
-  }
-  return null;
-}
+const pager = (list: ListPage<unknown>, href: (offset: number) => string): string =>
+  pagination({
+    prevHref: list.offset > 0 ? href(Math.max(0, list.offset - list.limit)) : null,
+    nextHref: list.offset + list.items.length < list.total ? href(list.offset + list.limit) : null,
+    from: list.total === 0 ? 0 : list.offset + 1,
+    to: Math.min(list.total, list.offset + list.items.length),
+    total: list.total,
+  });
 
 // ── home ─────────────────────────────────────────────────────────────────────
 
-/** The index page: the search field, the six readings, the Spine, the ledgers, the pool. */
+/** The index page: the search field, four stats, the latest blocks and activity side by side, the chain facts. */
 export function renderHome(view: HomeView): string {
   const r = view.readings;
   const renderedAt = r?.renderedAt ?? null;
-  const headSource = sourceAt('RPC', 'chain_getHeader', view.head.number, renderedAt);
-  const balance = (value: bigint): string => formatBalance(value, view.chain.tokenDecimals, view.chain.tokenSymbol);
+  const finalized = r?.finalized.value?.number ?? null;
+  const chain = view.chain;
 
-  const search = `<form class="nw-search" method="get" action="${SEARCH_PATH}">${field({
-    name: 'q',
-    label: 'Search',
-    placeholder: 'block number, hash, extrinsic, address, agent name',
-  })}</form>`;
+  const statValue = <T>(read: Read<T> | undefined, format: (value: T) => string): { value: string; caption: string | null } => {
+    if (read === undefined) return { value: 'Unavailable', caption: 'Not read in this view.' };
+    if (read.value === null) return { value: 'Unavailable', caption: escapeHtml(read.reason ?? 'Not read.') };
+    return { value: format(read.value), caption: null };
+  };
+  const agents = statValue(view.agents, (n) => formatInt(n));
+  const emission = statValue(view.emission, (e) => cmn(e.lastEraEmission, chain));
+  const statsHtml = stats(
+    [
+      { label: 'Block height', value: formatInt(view.head.number) },
+      { label: 'Finalized', value: finalized === null ? 'Unavailable' : formatInt(finalized), caption: finalized === null ? escapeHtml(r?.finalized.reason ?? 'Not read.') : null },
+      { label: 'Registered agents', value: agents.value, caption: agents.caption },
+      { label: 'Last era emission', value: emission.value, caption: emission.caption ?? (view.emission?.value?.lastSettledEra !== null && view.emission?.value?.lastSettledEra !== undefined ? `era ${formatInt(view.emission.value.lastSettledEra)}` : null) },
+    ],
+    { label: 'Network right now' },
+  );
 
-  // Six Readings as two rows of three, so each row has one figure size
-  // (§2.5: 3–4 in a row → --figure-m) and nothing wraps at 1440 px.
-  const readings = `<div class="x-rows">
-${readingRow([
-  fact('Best', formatInt(view.head.number), headSource, { size: 'm', href: blockPath({ kind: 'number', number: view.head.number }), state: r && r.headAgeMs !== null && r.headAgeMs < 30_000 ? 'live' : 'record' }),
-  readingOf('Finalized', r?.finalized, (f) => formatInt(f.number), { href: r?.finalized.value ? blockPath({ kind: 'number', number: r.finalized.value.number }) : null }),
-  readingOf('Era', r?.era, (e) => `${formatInt(e.number)} · ${formatInt(e.elapsed)} / ${formatInt(e.length)}`),
-])}
-${readingRow([
-  readingOf('Session', r?.session, (s) => `${formatInt(s.index)} · ${formatInt(s.elapsed)} / ${formatInt(s.length)}`),
-  readingOf('Validators', r?.validators, (n) => formatInt(n)),
-  readingOf('Issuance', r === undefined ? undefined : r.issuance.value === null ? r.issuance : { ...r.issuance, source: { ...r.issuance.source, computed: `${r.issuance.value.toString()} plancks · whole ${view.chain.tokenSymbol}` } }, (value) => wholeTokens(value, view.chain.tokenDecimals), { unit: view.chain.tokenSymbol }),
-])}
-</div>`;
-
-  const recent = r?.recent.value ?? [];
-  const finalizedNumber = r?.finalized.value?.number ?? null;
-  const spineHtml =
-    r === undefined || r.recent.value === null
-      ? readingOf('Recent blocks', r?.recent, () => '')
-      : spine({
-          form: 'explorer',
-          ariaLabel: `The newest ${recent.length} blocks`,
-          ticks: recent.map((block, position) => ({
-            number: block.number,
-            newest: position === 0 && r.headAgeMs !== null && r.headAgeMs < 30_000,
-            final: finalizedNumber !== null && block.number <= finalizedNumber,
-            html: `<span class="nw-mono">${blockLinkByNumber(block.number)}</span><span class="nw-mono" title="${escapeHtml(
-              block.timestampMs === null ? 'no timestamp' : (utc(formatTimestamp(block.timestampMs)) ?? ''),
-            )}">${escapeHtml(block.timestampMs === null ? 'no timestamp' : clockTime(block.timestampMs))}</span><span class="nw-mono">${block.extrinsics.length} ex</span><span class="nw-mono">${
-              block.author ? addressChip(block.author, { href: accountPath(block.author) }) : '<span class="nw-sage">author —</span>'
-            }</span><span class="nw-mono">${eventGlyphs(block.events)}${block.events.length} ev</span>`,
-          })),
+  const recent = r?.recent;
+  const blocksTable =
+    recent === undefined || recent.value === null
+      ? unavailable('The latest blocks could not be read from the node.', recent?.reason ?? '')
+      : table({
+          columns: [{ label: 'Block' }, { label: 'Age' }, { label: 'Author' }, { label: 'Extrinsics', align: 'right' }, { label: 'Finalized' }],
+          rows: recent.value.map((b) => [blockLink(b.number), timeCell(b.timestampMs, renderedAt), authorCell(b.author), formatInt(b.extrinsics.length), finalityBadge(finalized === null ? null : b.number <= finalized)]),
+          empty: 'No blocks were read.',
+          caption: 'Latest blocks',
         });
+  const activity = view.activity;
+  const activityTable =
+    activity === undefined
+      ? unavailable('Latest activity was not read in this view.', '')
+      : activity.value === null
+        ? unavailable('The latest activity could not be read.', activity.reason)
+        : table({
+            columns: [{ label: 'Time' }, { label: 'Event' }, { label: 'Agent' }],
+            rows: activity.value.map((e) => [timeCell(e.timestampMs, renderedAt), eventCell(e.section, e.method), e.agents[0] ? address(e.agents[0], { href: accountPath(e.agents[0]) }) : '<span class="sc-muted">none named</span>']),
+            empty: 'No agent events in the index yet.',
+            caption: 'Latest activity',
+          });
 
-  const lastExtrinsics = recent.flatMap((block) => block.extrinsics.map((extrinsic) => extrinsicLedgerRow(block.number, extrinsic))).slice(0, 12);
-  const lastEvents = recent.flatMap((block) => block.events.map((event) => eventLedgerRow(block.number, event))).slice(0, 12);
-  const ledgers = `${sectionHead('Extrinsics', null, asOfTag(renderedAt))}
-${lastExtrinsics.length === 0 ? '<p class="nw-small nw-dim">No extrinsics in the blocks read.</p>' : ledger({ rows: lastExtrinsics })}
-${sectionHead('Events', null, asOfTag(renderedAt))}
-${lastEvents.length === 0 ? '<p class="nw-small nw-dim">No events in the blocks read.</p>' : ledger({ rows: lastEvents })}`;
+  const panel = (title: string, href: string, body: string): string =>
+    `<section class="x-panel" aria-label="${escapeHtml(title)}"><div class="sc-between"><h2 class="sc-h3">${escapeHtml(title)}</h2>${button({ text: 'View all', href, variant: 'text' })}</div>${body}</section>`;
 
-  const pending =
-    r === undefined || r.pending.value === null
-      ? readingOf('Pending in the pool', r?.pending, () => '')
-      : `${readingOf('Pending in the pool', r.pending, (pool) => formatInt(pool.length))}
-${
-  r.pending.value.length === 0
-    ? ''
-    : ledger({
-        rows: r.pending.value.map((extrinsic) => ({
-          id: extrinsic.hash,
-          cells: ['', `<span class="nw-mono">${escapeHtml(shortHash(extrinsic.hash, 6))}</span>`, escapeHtml(`${extrinsic.section}.${extrinsic.method}`), extrinsic.signer ? addressChip(extrinsic.signer, { href: accountPath(extrinsic.signer) }) : '', tag({ state: 'live', text: 'PENDING · in the pool' })],
-        })),
-      })
-}`;
+  const about = kvTable(
+    [
+      ['Chain name', escapeHtml(chain.chain)],
+      ['Runtime', `${escapeHtml(chain.specName)} ${escapeHtml(String(chain.specVersion))}`],
+      ['Token', `${escapeHtml(chain.tokenSymbol)}, ${formatInt(chain.tokenDecimals)} decimals`],
+      ['SS58 prefix', formatInt(chain.ss58Format)],
+      ['Genesis hash', `<span class="sc-full">${escapeHtml(chain.genesisHash)}</span> ${copyButton(chain.genesisHash)}`],
+      ...(chain.nodeVersion ? [['Node version', escapeHtml(chain.nodeVersion)] as const] : []),
+    ],
+    { caption: 'About this chain' },
+  );
 
-  const body = `<section class="nw-section nw-stack">
-<div class="nw-section-head"><h1 class="nw-h3">${escapeHtml(view.chain.chain)}</h1>${asOfTag(renderedAt)}${tag({ state: 'record', text: `SPEC ${view.chain.specVersion} · ${view.chain.tokenSymbol}` })}</div>
-${search}
-${readings}
-<p class="nw-small nw-dim">Head ${blockLinkByNumber(view.head.number)} ${blockLinkByHash(view.head.hash)} · <a href="${escapeHtml(activityPath())}">Agent activity</a></p>
-<div class="nw-grid">
-<div class="x-col-4">${sectionHead('Blocks', null, asOfTag(renderedAt))}${spineHtml}</div>
-<div class="x-col-8">${ledgers}</div>
+  const body = `${search()}
+<section class="x-panel" aria-labelledby="now-h"><h1 class="sc-h2" id="now-h">Scalar Commons testnet</h1>${statsHtml}</section>
+<div class="sc-cols-2">
+${panel('Latest blocks', blocksPath(), blocksTable)}
+${panel('Latest activity', activityPath(), activityTable)}
 </div>
-${pending}
-</section>`;
+<section class="x-panel" aria-labelledby="about-h"><h2 class="sc-h3" id="about-h">About this chain</h2>${about}</section>`;
 
-  const indexerLine =
-    view.indexer === undefined
-      ? null
-      : view.indexer.value === null
-        ? `indexer api.scalarnet.io · <span class="nw-sage">unavailable · ${escapeHtml(view.indexer.reason ?? '')}</span>`
-        : `indexer api.scalarnet.io · syncedHeight ${formatInt(view.indexer.value.syncedHeight)} · ${formatInt(
-            Math.max(0, view.head.number - view.indexer.value.syncedHeight),
-          )} behind`;
-
-  return layout('Scalar Commons Explorer', {
-    chain: view.chain,
+  return layout({
+    title: 'Explorer',
+    path: '/',
+    body,
+    chain,
     renderedAt,
-    best: view.head.number,
-    finalized: finalizedNumber,
-    headAgeMs: r?.headAgeMs ?? null,
-    indexerLine,
-  }, body);
+    block: view.head.number,
+    read: `${nodeRead(view.head.number)} ${view.indexerReadAt ? `Lists from the indexer, read at ${formatUtc(view.indexerReadAt)}.` : ''}`.trim(),
+  });
+}
+
+// ── blocks ───────────────────────────────────────────────────────────────────
+
+/** The paginated block list: 25 a page from the indexer, authors from the node. */
+export function renderBlocks(view: BlocksView): string {
+  const { page: list, renderedAt } = view;
+  const rows = list.items.map((b) => [
+    blockLink(b.number),
+    timeCell(b.timestampMs, renderedAt),
+    hashCell(b.hash, blockPath({ kind: 'hash', hash: b.hash })),
+    authorCell(b.author),
+    formatInt(b.extrinsicCount),
+    formatInt(b.eventCount),
+    finalityBadge(view.finalized === null ? null : b.number <= view.finalized),
+  ]);
+  const body = `<div class="sc-page-head"><h1 class="sc-h1">Blocks</h1><p class="sc-lead">Finalized blocks the indexer holds, newest first.</p></div>
+${table({
+  columns: [{ label: 'Block' }, { label: 'Age' }, { label: 'Hash' }, { label: 'Author' }, { label: 'Extrinsics', align: 'right' }, { label: 'Events', align: 'right' }, { label: 'Finalized' }],
+  rows,
+  empty: 'The indexer holds no blocks yet.',
+  caption: 'Blocks',
+})}
+${pager(list, blocksPath)}`;
+  return layout({ title: 'Blocks', path: blocksPath(list.offset), body, chain: view.chain, renderedAt, block: view.best, read: `${indexerRead(renderedAt)} Authors from the node at block ${formatInt(view.best)}.` });
 }
 
 // ── block ────────────────────────────────────────────────────────────────────
 
-/** A block, and the list of extrinsics that is the way through to everything else. */
-export function renderBlock(view: BlockView, chain: ChainInfo): string {
+/** A block: key/value facts, then its extrinsics or its events, the tab in the URL. */
+export function renderBlock(view: BlockView, chain: ChainInfo, tab: BlockTab = 'extrinsics'): string {
   const d = view.detail;
   const renderedAt = d?.renderedAt ?? null;
-  const best = d?.best ?? null;
-  const headerSource = sourceAt('RPC', 'chain_getBlock', best, renderedAt);
-  const finality =
-    d === undefined || d.finalized.value === null
-      ? tag({ state: 'record', text: 'FINALITY UNAVAILABLE' })
-      : d.finalized.value
-        ? tag({ state: 'sealed', text: 'FINALIZED' })
-        : tag({ state: 'live', text: 'BEST · not final' });
-  const prev = view.number > 0 ? quiet({ text: `← ${formatInt(view.number - 1)}`, href: blockPath({ kind: 'number', number: view.number - 1 }) }) : '';
-  const next = best !== null && view.number < best ? quiet({ text: `${formatInt(view.number + 1)} →`, href: blockPath({ kind: 'number', number: view.number + 1 }) }) : '';
-
+  const best = d?.best ?? view.number;
+  const final = d?.finalized.value ?? null;
+  const ref = { kind: 'number' as const, number: view.number };
   const events = d?.events ?? view.extrinsics.flatMap((extrinsic) => (extrinsic.events ?? []).map((event) => ({ ...event, extrinsicIndex: extrinsic.index })));
-  const counts = `${formatInt(view.extrinsics.length)} extrinsics · ${formatInt(events.length)} events`;
+  const iso = isoOf(view.timestampMs);
 
-  const col = (html: string): string => `<div class="x-col-6">${html}</div>`;
-  const receipts = `<div class="nw-grid">
-${hashFact('Hash', view.hash, headerSource, { figureHtml: hashWithCopy(view.hash) })}
-${hashFact('Parent', view.parentHash, headerSource, { href: blockPath({ kind: 'hash', hash: view.parentHash }) })}
-${hashFact('State root', view.stateRoot, headerSource)}
-${hashFact('Extrinsics root', view.extrinsicsRoot, headerSource)}
-${col(fact('Time', formatTimestamp(view.timestampMs), sourceAt('STORAGE', 'timestamp.now', best, renderedAt)))}
-${col(readingOf('Author', d?.author, (author) => author ?? 'not in the pre-digest', { size: 'body', figureHtml: (author) => (author ? addressChip(author, { href: accountPath(author) }) : '<span class="nw-sage">not in the pre-digest</span>') }))}
-${col(readingOf('Slot', d?.slot, (slot) => slot ?? 'not in the pre-digest', { size: 'body' }))}
-${col(
-  d === undefined
-    ? readingOf('Era · session', undefined, () => '')
-    : reading({
-        label: 'Era · session',
-        figure: `${d.era.value === null ? 'unavailable' : formatInt(d.era.value)} · ${d.session.value === null ? 'unavailable' : formatInt(d.session.value)}`,
-        size: 'body',
-        sub: [d.era.reason, d.session.reason].filter((x): x is string => x !== null).join(' · ') || null,
-        source: { ...d.era.source, url: 'agents.eraNumber · session.currentIndex' },
-      }),
-)}
-${col(fact('Spec', String(view.specVersion), sourceAt('RPC', 'state_getRuntimeVersion', best, renderedAt)))}
-${col(readingOf('Weight', d?.weight, (weight) => weight, { size: 'body', wide: true }))}
-${col(fact('Counts', counts, headerSource))}
-</div>`;
+  const facts = kvTable(
+    [
+      ['Number', formatInt(view.number)],
+      ['Hash', `<span class="sc-full">${escapeHtml(view.hash)}</span> ${copyButton(view.hash)}`],
+      ['Parent', view.number === 0 ? '<span class="sc-muted">none (genesis)</span>' : `<a class="sc-full" href="${escapeHtml(blockPath({ kind: 'hash', hash: view.parentHash }))}">${escapeHtml(view.parentHash)}</a>`],
+      ['Timestamp', iso === null ? '<span class="sc-muted">no timestamp</span>' : `${escapeHtml(formatUtc(iso))} (${timeCell(view.timestampMs, renderedAt)})`],
+      ['Author', d === undefined ? '<span class="sc-muted">not read</span>' : authorCell(d.author.value)],
+      ['Status', finalityBadge(final)],
+      ['Extrinsics', formatInt(view.extrinsics.length)],
+      ['Events', formatInt(events.length)],
+      ['State root', `<span class="sc-full">${escapeHtml(view.stateRoot)}</span>`],
+    ],
+    { caption: `Block ${formatInt(view.number)}` },
+  );
 
-  const list =
-    view.extrinsics.length === 0
-      ? '<p class="nw-small nw-dim">This block has no extrinsics.</p>'
-      : ledger({ sheet: true, rows: view.extrinsics.map((extrinsic) => extrinsicLedgerRow(view.number, extrinsic)) });
+  const extrinsicsTable = table({
+    columns: [{ label: 'Extrinsic' }, { label: 'Call' }, { label: 'Signer' }, { label: 'Result' }],
+    rows: view.extrinsics.map((e: ExtrinsicSummary) => [extrinsicLink(view.number, e.index), callCell(e.section, e.method), signerCell(e.isSigned, e.signer), outcomeCell(e.outcome)]),
+    empty: 'This block has no extrinsics.',
+    caption: 'Extrinsics',
+  });
+  const eventsTable = table({
+    columns: [{ label: 'Index' }, { label: 'Event' }, { label: 'Details' }, { label: 'Extrinsic' }],
+    rows: events.map((e) => [
+      formatInt(e.index),
+      eventCell(e.section, e.method),
+      describeEvent(e.section, e.method, e.fields, { decimals: chain.tokenDecimals, symbol: chain.tokenSymbol }),
+      e.extrinsicIndex === null ? '<span class="sc-muted">block hook</span>' : extrinsicLink(view.number, e.extrinsicIndex),
+    ]),
+    empty: d === undefined && view.extrinsics.every((e) => e.events === undefined) ? 'Events were not read in this view.' : 'No events were recorded in this block.',
+    caption: 'Events',
+  });
 
-  const groups = new Map<number | null, (EventView & { extrinsicIndex: number | null })[]>();
-  for (const event of events) {
-    const key = event.extrinsicIndex;
-    const group = groups.get(key) ?? [];
-    group.push(event);
-    groups.set(key, group);
-  }
-  const eventsHtml =
-    events.length === 0
-      ? `<p class="nw-small nw-dim">${d === undefined && view.extrinsics.every((e) => e.events === undefined) ? 'Events were not read in this view.' : 'No events were recorded in this block.'}</p>`
-      : [...groups.entries()]
-          .map(
-            ([extrinsicIndex, group]) =>
-              `<div class="nw-stack"><p class="nw-label">${
-                extrinsicIndex === null
-                  ? 'block hooks'
-                  : `extrinsic <a href="${escapeHtml(extrinsicPath({ kind: 'number', number: view.number }, extrinsicIndex))}">${formatInt(view.number)}-${extrinsicIndex}</a>`
-              }</p>${ledger({ rows: group.map((event) => eventLedgerRow(view.number, event)) })}</div>`,
-          )
-          .join('\n');
+  const nav = `<div class="sc-actions">${
+    view.number > 0 ? button({ text: 'Previous block', href: blockPath({ kind: 'number', number: view.number - 1 }), variant: 'secondary' }) : ''
+  }${view.number < best ? button({ text: 'Next block', href: blockPath({ kind: 'number', number: view.number + 1 }), variant: 'secondary' }) : ''}</div>`;
 
-  const body = `<section class="nw-section nw-stack">
-<div class="nw-section-head"><span class="nw-label">Block</span><h1 class="nw-figure nw-figure--xl">${formatInt(view.number).replace(/,/g, '')}</h1>${finality}${asOfTag(renderedAt)}</div>
-<p class="nw-small">${prev} ${next}</p>
-${receipts}
-${sectionHead('Extrinsics', view.extrinsics.length)}
-${list}
-${sectionHead('Events', events.length)}
-${eventsHtml}
-</section>`;
+  const body = `${breadcrumb([{ text: 'Explorer', href: '/' }, { text: `Block ${formatInt(view.number)}` }])}
+<div class="sc-page-head"><h1 class="sc-h1">Block ${formatInt(view.number)}</h1>${nav}</div>
+${facts}
+<section class="x-panel">${tabs(
+    [
+      { label: `Extrinsics (${formatInt(view.extrinsics.length)})`, href: blockPath(ref, 'extrinsics'), current: tab === 'extrinsics' },
+      { label: `Events (${formatInt(events.length)})`, href: blockPath(ref, 'events'), current: tab === 'events' },
+    ],
+    { label: 'Block contents' },
+  )}${tab === 'extrinsics' ? extrinsicsTable : eventsTable}</section>`;
 
-  return layout(`Block ${view.number}`, { chain, renderedAt, best, finalized: null, headAgeMs: null }, body);
+  return layout({ title: `Block ${formatInt(view.number)}`, path: blockPath(ref, tab), body, chain, renderedAt, block: best, read: nodeRead(best) });
 }
 
 // ── extrinsic ────────────────────────────────────────────────────────────────
 
-/** One extrinsic, including the accounts it touched — the hop into the account view. */
+/** The fee the runtime charged, read from the `transactionPayment.TransactionFeePaid` event; null when the extrinsic paid none or the event is absent. */
+export function feeOf(events: readonly EventView[]): bigint | null {
+  for (const event of events) {
+    if (event.section !== 'transactionPayment' || event.method !== 'TransactionFeePaid') continue;
+    const field = event.fields.find((f) => f.name === 'actualFee' || f.name === 'actual_fee');
+    if (field && /^\d[\d,]*$/.test(field.value)) return BigInt(field.value.replace(/,/g, ''));
+  }
+  return null;
+}
+
+/** One extrinsic: key/value facts (the call in words and raw), then its arguments and events. */
 export function renderExtrinsic(view: ExtrinsicView, chain: ChainInfo): string {
   const renderedAt = view.renderedAt ?? null;
-  const src = sourceAt('RPC', 'chain_getBlock', view.block.number, renderedAt);
-  const col = (html: string): string => `<div class="x-col-6">${html}</div>`;
-  const callName = `${view.section}.${view.method}`;
+  const id = `${formatInt(view.block.number)}-${view.index}`;
+  const fee = feeOf(view.events);
+  const token = { decimals: chain.tokenDecimals, symbol: chain.tokenSymbol };
 
-  const receipts = `<div class="nw-grid">
-${col(fact('Block', formatInt(view.block.number), src, { href: blockPath({ kind: 'number', number: view.block.number }) }))}
-${hashFact('Block hash', view.block.hash, src)}
-${col(fact('Index', `${formatInt(view.block.number)}-${view.index}`, src))}
-${col(fact('Signer', '', src, { figureHtml: signerCell(view.isSigned, view.signer, 'unsigned (inherent)') }))}
-${col(fact('Nonce', view.nonce === null ? '—' : String(view.nonce), src))}
-${col(fact('Tip', view.tip === null ? '—' : formatBalance(view.tip, chain.tokenDecimals, chain.tokenSymbol), src))}
-${col(fact('Length', `${formatInt(view.lengthBytes)} bytes`, src))}
-</div>`;
+  const facts = kvTable(
+    [
+      ['Block', blockLink(view.block.number)],
+      ['Index', formatInt(view.index)],
+      ['Hash', `<span class="sc-full">${escapeHtml(view.hash)}</span> ${copyButton(view.hash)}`],
+      ['Signer', signerCell(view.isSigned, view.signer)],
+      ['Call', callCell(view.section, view.method)],
+      ['Result', outcomeCell(view.outcome)],
+      ...(fee !== null ? [['Fee', cmn(fee, chain)] as const] : []),
+      ...(view.tip !== null && view.tip > 0n ? [['Tip', cmn(view.tip, chain)] as const] : []),
+      ...(view.nonce !== null ? [['Nonce', formatInt(view.nonce)] as const] : []),
+      ['Size', `${formatInt(view.lengthBytes)} bytes`],
+    ],
+    { caption: `Extrinsic ${id}` },
+  );
 
-  const callText =
-    view.args.length === 0
-      ? `${callName}()`
-      : `${callName}(\n${view.args.map((arg) => `  ${arg.name}: ${arg.type} = ${arg.value}`).join(',\n')}\n)`;
-  const callBlock = `${sectionHead('Call')}${code({ text: callText, lang: 'call' })}${rawDetails(view.args)}`;
+  const args = table({
+    columns: [{ label: 'Argument' }, { label: 'Type' }, { label: 'Value' }],
+    rows: view.args.map((arg) => [escapeHtml(humanize(arg.name)), `<span class="sc-mono">${escapeHtml(arg.type)}</span>`, `<span class="sc-full">${escapeHtml(arg.value)}</span>`]),
+    empty: 'This call takes no arguments.',
+    caption: 'Arguments',
+  });
+  const events = table({
+    columns: [{ label: 'Index' }, { label: 'Event' }, { label: 'Details' }],
+    rows: view.events.map((e) => [formatInt(e.index), eventCell(e.section, e.method), describeEvent(e.section, e.method, e.fields, token)]),
+    empty: 'No events were recorded for this extrinsic.',
+    caption: 'Events',
+  });
 
-  const accounts =
-    view.accounts.length === 0
-      ? '<p class="nw-small nw-dim">This extrinsic named no accounts.</p>'
-      : `<ul class="nw-stack x-hash">${view.accounts.map((address) => `<li>${accountLink(address)}</li>`).join('')}</ul>`;
+  const body = `${breadcrumb([{ text: 'Explorer', href: '/' }, { text: `Block ${formatInt(view.block.number)}`, href: blockPath({ kind: 'number', number: view.block.number }) }, { text: `Extrinsic ${id}` }])}
+<div class="sc-page-head"><h1 class="sc-h1">Extrinsic ${id}</h1><p class="sc-lead">${escapeHtml(callWords(view.section, view.method))}.</p></div>
+${facts}
+<section class="x-panel"><h2 class="sc-h3">Arguments</h2>${args}</section>
+<section class="x-panel"><h2 class="sc-h3">Events</h2>${events}</section>`;
 
-  const events =
-    view.events.length === 0
-      ? '<p class="nw-small nw-dim">No events were recorded for this extrinsic.</p>'
-      : ledger({ rows: view.events.map((event) => eventLedgerRow(null, event)) });
-
-  const sentence = plainSentence(view.events, chain);
-  const sentenceHtml = sentence === null ? '' : `<p class="nw-body" data-sentence>${sentence}.</p>`;
-
-  const terms = view.disputeTerms;
-  const next =
-    terms === undefined
-      ? ''
-      : `${sectionHead('What happens next')}${readingRow([
-          readingOf('Dispute bounty', terms.bountyBps, (bps) => `${bps / 100}% · ${formatInt(bps)} bps`),
-          readingOf('Burned on dispute', terms.burnBps, (bps) => `${bps / 100}% · ${formatInt(bps)} bps`),
-          readingOf('Settled by', terms.settles, (who) => who, { size: 'body' }),
-        ])}`;
-
-  const body = `<section class="nw-section nw-stack">
-<div class="nw-section-head"><h1 class="nw-h2">${escapeHtml(callName)}</h1>${outcomeTag(view.outcome)}${asOfTag(renderedAt)}</div>
-<p class="nw-mono x-hash">${hashWithCopy(view.hash)}</p>
-${sentenceHtml}
-${receipts}
-${callBlock}
-${sectionHead('Accounts touched', view.accounts.length)}
-${accounts}
-${sectionHead('Events', view.events.length)}
-${events}
-${next}
-</section>`;
-
-  return layout(`Extrinsic ${view.block.number}-${view.index}`, { chain, renderedAt, best: view.block.number, finalized: null, headAgeMs: null }, body);
+  return layout({ title: `Extrinsic ${id}`, path: extrinsicPath({ kind: 'number', number: view.block.number }, view.index), body, chain, renderedAt, block: view.block.number, read: nodeRead(view.block.number) });
 }
 
 // ── account ──────────────────────────────────────────────────────────────────
 
-/** An account: the state the runtime holds for it, at the block it was read. */
+/** An account: the full address, its balances, its agent record when it has one, and its history in two tabs. */
 export function renderAccount(view: AccountView, chain: ChainInfo): string {
   const roles = view.roles;
   const renderedAt = roles?.renderedAt ?? null;
-  const balanceSource = sourceAt('STORAGE', 'system.account', view.at.number, renderedAt);
+  const tab: AccountTab = view.tab ?? 'extrinsics';
+  const token = { decimals: chain.tokenDecimals, symbol: chain.tokenSymbol };
 
-  const name = roles?.agentName.value ?? null;
-  const operator = name !== null && name.startsWith('swarm-');
-  const isAgent = name !== null || (roles?.agentStake.value ?? null) !== null;
-  // DECAYED: the head is past the agent's heartbeat by more than the runtime's
-  // grace period, where the pallet's decay begins (the rule and both bounds
-  // are the chain's; the multiplier it implies is on the receipt).
-  const heartbeat = roles?.heartbeat?.value ?? null;
-  const multiplier = heartbeat === null ? null : heartbeatMultiplier(heartbeat);
-  const tags = [
-    roles?.validator.value === true ? tag({ state: 'record', text: 'VALIDATOR STASH' }) : '',
-    (roles?.bonded.value ?? null) !== null ? tag({ state: 'record', text: 'BONDED' }) : '',
-    isAgent ? tag({ state: 'record', text: 'AGENT' }) : '',
-    operator ? tag({ state: 'operator', text: 'OPERATOR-RUN' }) : '',
-    heartbeat !== null && heartbeatDecayed(heartbeat) ? tag({ state: 'record', text: 'DECAYED' }) : '',
-  ].join('');
+  // A key/value table rather than a stat row: a genesis-scale balance
+  // ("1,000,051,912.36 CMN") does not fit a quarter of the container at the
+  // stat size, and a figure that spills its cell is the one layout fault the
+  // check forbids. The full planck value is in each title.
+  const balances = kvTable(
+    [
+      ['Free balance', cmn(view.free, chain)],
+      ['Reserved', cmn(view.reserved, chain)],
+      ['Total', `${cmn(view.free + view.reserved, chain)} <span class="sc-caption">free + reserved</span>`],
+      ['Transactions sent', formatInt(view.nonce)],
+    ],
+    { caption: 'Balances' },
+  );
 
-  const figureOf = (value: bigint): string => tokenFigure(value, chain.tokenDecimals, chain.tokenSymbol);
-  const unit = chain.tokenSymbol;
-  const balances = readingRows([
-    fact('Free', figureOf(view.free), balanceSource, { size: 'm', unit }),
-    fact('Reserved', figureOf(view.reserved), balanceSource, { size: 'm', unit }),
-    fact('Frozen', figureOf(view.frozen), balanceSource, { size: 'm', unit }),
-    fact('Total', figureOf(view.free + view.reserved), { ...balanceSource, computed: 'free + reserved' }, { size: 'm', unit }),
-  ]);
+  // The Agent card: the indexer's record when it answered, the node's own reads otherwise.
+  const record = view.agent?.value ?? null;
+  const nodeName = roles?.agentName.value ?? null;
+  const nodeStake = roles?.agentStake.value ?? null;
+  const isAgent = record !== null || nodeName !== null || nodeStake !== null;
+  let agentCard = '';
+  if (isAgent) {
+    const name = record?.name ?? nodeName;
+    const heartbeat = roles?.heartbeat?.value ?? null;
+    const lastHeartbeat = record?.lastHeartbeatBlock ?? heartbeat?.lastHeartbeat ?? null;
+    const operator = name !== null && name.startsWith('swarm-');
+    const status =
+      record?.unstakeAtBlock !== null && record?.unstakeAtBlock !== undefined
+        ? `${badge('Pending')} <span class="sc-caption">unstaking at block ${formatInt(record.unstakeAtBlock)}</span>`
+        : heartbeat === null
+          ? '<span class="sc-muted">not read</span>'
+          : heartbeatDecayed(heartbeat)
+            ? `${badge('Stale')} <span class="sc-caption">no heartbeat within the grace period of ${formatInt(heartbeat.grace)} blocks</span>`
+            : badge('Active');
+    const stake = record?.stakePlancks ?? nodeStake;
+    const rows: (readonly [string, string])[] = [
+      ['Name', name === null ? '<span class="sc-muted">no name on chain</span>' : `${escapeHtml(name)}${operator ? ` ${badge('Operator-run')}` : ''}`],
+      ['Status', status],
+      ['Stake', stake === null ? '<span class="sc-muted">none</span>' : cmn(stake, chain)],
+      ...(record ? [['Registered at', record.registeredAtBlock === 0 ? 'genesis' : blockLink(record.registeredAtBlock)] as const] : []),
+      [
+        'Last heartbeat',
+        lastHeartbeat === null
+          ? '<span class="sc-muted">none</span>'
+          : `${blockLink(lastHeartbeat)} <span class="sc-caption">${formatInt(Math.max(0, view.at.number - lastHeartbeat))} blocks ago</span>`,
+      ],
+      ...(record ? [['Agreements', `${formatInt(record.completedAgreements)} completed, ${formatInt(record.activeEscrowCount)} open`] as const] : []),
+    ];
+    agentCard = `<article class="sc-card" aria-labelledby="agent-h"><h3 id="agent-h">Agent</h3>${kvTable(rows, { caption: 'Agent' })}<div>${button({ text: 'Agent activity', href: activityPath(view.address), variant: 'text' })}</div></article>`;
+  } else if (view.agent !== undefined && view.agent.value === null && view.agent.reason !== null) {
+    agentCard = unavailable('The agent record could not be read from the indexer.', view.agent.reason);
+  }
 
-  const col = (html: string): string => `<div class="x-col-6">${html}</div>`;
-  const roleReadings = isAgent
-    ? `${sectionHead('Agent')}<div class="nw-grid">
-${col(readingOf('Name', roles?.agentName, (n) => n ?? 'no metadata on chain', { size: 'body', figureHtml: (n) => (n ? agentName({ name: n, operator: n.startsWith('swarm-') }) : '<span class="nw-sage">no metadata on chain</span>') }))}
-${col(readingOf('Stake', roles?.agentStake, (stake) => (stake === null ? 'none' : figureOf(stake)), { unit: (roles?.agentStake.value ?? null) === null ? null : unit }))}
-${
-  roles?.heartbeat === undefined || (roles.heartbeat.value === null && roles.heartbeat.reason === null)
-    ? ''
-    : col(
-        readingOf(
-          'Last heartbeat',
-          roles.heartbeat.value === null
-            ? roles.heartbeat
-            : {
-                ...roles.heartbeat,
-                source: {
-                  ...roles.heartbeat.source,
-                  computed: `best ${roles.heartbeat.value.best} − ${roles.heartbeat.value.lastHeartbeat} = ${roles.heartbeat.value.best - roles.heartbeat.value.lastHeartbeat} blocks · grace ${roles.heartbeat.value.grace} · decay ${roles.heartbeat.value.decay} · multiplier ${multiplier ?? 100} % (pallets/agents/src/lib.rs:1987)`,
-                },
-              },
-          (h) => (h === null ? '' : formatInt(h.lastHeartbeat)),
-          { href: heartbeat === null ? null : blockPath({ kind: 'number', number: heartbeat.lastHeartbeat }) },
-        ),
-      )
-}
-</div>`
-    : `${sectionHead('Staking')}<div class="nw-grid">
-${col(readingOf('Bonded', roles?.bonded, (controller) => controller ?? 'not bonded', { size: 'body' }))}
-${col(readingOf('Validator', roles?.validator, (v) => (v ? 'in session.validators' : 'not in session.validators'), { size: 'body' }))}
-</div>`;
+  const tabsHtml = tabs(
+    [
+      { label: 'Extrinsics', href: accountPath(view.address), current: tab === 'extrinsics' },
+      { label: 'Activity', href: accountPath(view.address, { tab: 'activity' }), current: tab === 'activity' },
+    ],
+    { label: 'Account history' },
+  );
+  let list: string;
+  if (tab === 'extrinsics') {
+    const read = view.extrinsics;
+    list =
+      read === undefined
+        ? unavailable('The extrinsics were not read in this view.', '')
+        : read.value === null
+          ? unavailable('The extrinsics could not be read from the indexer.', read.reason)
+          : `${table({
+              columns: [{ label: 'Extrinsic' }, { label: 'Block' }, { label: 'Call' }, { label: 'Result' }],
+              rows: read.value.items.map((h: HistoryEntry) => [extrinsicLink(h.blockNumber, h.index), blockLink(h.blockNumber), callCell(h.section, h.method), h.success === null ? '<span class="sc-muted">not recorded</span>' : badge(h.success ? 'Succeeded' : 'Failed')]),
+              empty: 'This account has signed no extrinsics in the indexed history.',
+              caption: 'Extrinsics',
+            })}${pager(read.value, (offset) => accountPath(view.address, { tab: 'extrinsics', offset }))}`;
+  } else {
+    const read = view.events;
+    list =
+      read === undefined
+        ? unavailable('The activity was not read in this view.', '')
+        : read.value === null
+          ? unavailable('The activity could not be read from the indexer.', read.reason)
+          : `${table({
+              columns: [{ label: 'Time' }, { label: 'Block' }, { label: 'Event' }, { label: 'Details' }],
+              rows: read.value.items.map((e) => [
+                timeCell(e.timestampMs, renderedAt),
+                e.extrinsicIndex === null ? blockLink(e.blockNumber) : extrinsicLink(e.blockNumber, e.extrinsicIndex),
+                eventCell(e.section, e.method),
+                describeEvent(e.section, e.method, e.fields.filter((f) => f.value !== view.address), token),
+              ]),
+              empty: 'No events name this account in the indexed history.',
+              caption: 'Activity',
+            })}${pager(read.value, (offset) => accountPath(view.address, { tab: 'activity', offset }))}`;
+  }
 
-  const history = view.history;
-  const entries: RailEntry[] =
-    history?.value?.map((row, position) => ({
-      time: row.timestampMs === null ? `block ${formatInt(row.blockNumber)}` : (utc(formatTimestamp(row.timestampMs)) ?? ''),
-      state: position === 0 ? 'newest' : row.success === false ? 'dispute' : 'final',
-      html: `<a href="${escapeHtml(extrinsicPath({ kind: 'number', number: row.blockNumber }, row.index))}">${escapeHtml(`${row.section}.${row.method}`)}</a> <span class="nw-label">${formatInt(row.blockNumber)}-${row.index}</span>`,
-    })) ?? [];
-  const historyHtml =
-    history === undefined
-      ? readingOf('History', undefined, () => '')
-      : history.value === null
-        ? readingOf('History', history, () => '')
-        : entries.length === 0
-          ? '<p class="nw-small nw-dim">No activity in the index for this address.</p>'
-          : rail({ entries });
-
-  const body = `<section class="nw-section nw-stack">
-<div class="nw-section-head"><h1 class="nw-h2">${name === null ? escapeHtml(view.address) : agentName({ name, operator })}</h1>${tags}${asOfTag(renderedAt)}</div>
-<p class="nw-mono x-hash">${hashWithCopy(view.address)}</p>
+  const body = `${breadcrumb([{ text: 'Explorer', href: '/' }, { text: 'Account' }])}
+<div class="sc-page-head"><h1 class="sc-h1">Account</h1><p class="sc-full">${escapeHtml(view.address)} ${copyButton(view.address, 'Copy address')}</p></div>
 ${balances}
-${roleReadings}
-<div class="nw-grid">
-${hashFact('Public key', view.publicKey, balanceSource)}
-${col(fact('Nonce', String(view.nonce), balanceSource))}
-${hashFact('State read at', `${formatInt(view.at.number)}`, sourceAt('RPC', 'chain_getHeader', view.at.number, renderedAt), { href: blockPath({ kind: 'number', number: view.at.number }), figureHtml: `${formatInt(view.at.number)} <span class="nw-mono">${escapeHtml(view.at.hash)}</span>` })}
-</div>
-${sectionHead('History', null, filter([{ href: accountPath(view.address), label: 'all', current: true }, { href: activityPath(view.address), label: 'agent activity' }]))}
-${historyHtml}
-</section>`;
+${agentCard}
+<section class="x-panel">${tabsHtml}${list}</section>`;
 
-  return layout(name ?? 'Account', { chain, renderedAt, best: view.at.number, finalized: null, headAgeMs: null }, body);
+  return layout({
+    title: 'Account',
+    path: accountPath(view.address, { tab, offset: tab === 'extrinsics' ? (view.extrinsics?.value?.offset ?? 0) : (view.events?.value?.offset ?? 0) }),
+    body,
+    chain,
+    renderedAt,
+    block: view.at.number,
+    read: `${nodeRead(view.at.number)} List from the indexer.`,
+  });
 }
 
 // ── activity ─────────────────────────────────────────────────────────────────
 
-/**
- * How often the newest page of the activity feed reloads itself.
- *
- * Two block times: the indexer only follows finalized blocks, so reloading
- * faster than blocks finalize would mostly redraw the same rows.
- */
-export const ACTIVITY_REFRESH_SECONDS = 12;
-
-/** The indexer's kind names, as a reader would say them. Unknown kinds are shown as served. */
-const KIND_LABELS: Readonly<Record<string, string>> = {
-  message: 'message',
-  registration: 'registration',
-  heartbeat: 'heartbeat',
-  agreement: 'agreement',
-  dispute: 'dispute',
-  oracle_vote: 'oracle vote',
-  slash: 'slash',
-};
-
-const KIND_STATES: Readonly<Record<string, State>> = { dispute: 'dispute', slash: 'slashed' };
-
-function kindTag(kind: string): string {
-  return tag({ state: KIND_STATES[kind] ?? 'record', text: (KIND_LABELS[kind] ?? kind).toUpperCase() });
-}
-
-/** An agent: a link to their own activity, plus the hop into their account view. */
-function agentLink(address: string): string {
-  return `<a class="nw-mono" href="${escapeHtml(activityPath(address))}">${escapeHtml(address)}</a> <a href="${escapeHtml(accountPath(address))}" title="account">↗</a>`;
-}
-
-function activityFieldValue(field: ActivityField, chain: ChainInfo): string {
-  switch (field.kind) {
-    case 'account':
-      return `<a class="nw-mono" href="${escapeHtml(activityPath(field.value))}">${escapeHtml(field.value)}</a>`;
-    case 'balance':
-      return escapeHtml(formatBalance(BigInt(field.value), chain.tokenDecimals, chain.tokenSymbol));
-    case 'plain':
-      return escapeHtml(field.value);
-  }
-}
-
-function activityRow(entry: ActivityEntry, chain: ChainInfo): LedgerRow {
-  const where =
-    entry.extrinsicIndex === null
-      ? blockLinkByNumber(entry.blockNumber)
-      : `${blockLinkByNumber(entry.blockNumber)} · <a href="${escapeHtml(extrinsicPath({ kind: 'number', number: entry.blockNumber }, entry.extrinsicIndex))}">${entry.blockNumber}-${entry.extrinsicIndex}</a>`;
-  const fields = entry.fields.map((field) => `${escapeHtml(field.name)}: ${activityFieldValue(field, chain)}`).join('<br>');
-  const agents = entry.agents.length === 0 ? '<span class="nw-sage">none named</span>' : entry.agents.map(agentLink).join('<br>');
-  return {
-    id: entry.id,
-    cells: [
-      `${escapeHtml(entry.id)}<br>${escapeHtml(formatTimestamp(entry.timestampMs))}`,
-      `${where}<br>${escapeHtml(`${entry.section}.${entry.method}`)}`,
-      `${kindTag(entry.kind)}<br>${fields === '' ? '<span class="nw-sage">—</span>' : fields}`,
-      agents,
-      '',
-    ],
-  };
-}
-
-const activityRailEntry = (entry: ActivityEntry, chain: ChainInfo, position: number): RailEntry => ({
-  time: formatTimestamp(entry.timestampMs) === 'unknown' ? `block ${formatInt(entry.blockNumber)}` : (utc(formatTimestamp(entry.timestampMs)) ?? ''),
-  state: position === 0 ? 'newest' : entry.kind === 'dispute' ? 'dispute' : entry.kind === 'slash' ? 'slash' : 'final',
-  html: activityRow(entry, chain).cells.slice(0, 3).join(' · '),
-});
-
-/**
- * The agent-activity feed: one stream of what agents did, newest first.
- *
- * The newest page reloads itself; an older page does not, because a reader
- * paging back through history is reading, and a reload would shift the window
- * under them as new rows push the old ones down.
- */
+/** The agent-activity feed on the shared table: Time · Block · Event · Agents · Details, filter chips, the agent filter, 25 a page. */
 export function renderActivity(view: ActivityView, chain: ChainInfo): string {
-  const agentReadings = view.agentReadings;
-  const renderedAt = agentReadings?.renderedAt ?? null;
-  const balance = (value: bigint): string => formatBalance(value, chain.tokenDecimals, chain.tokenSymbol);
-
-  const form = `<form class="nw-search" method="get" action="/activity">${field({
-    name: 'agent',
-    label: 'Filter by agent address (SS58)',
-    placeholder: 'agent address (SS58)',
-    value: view.agent ?? '',
-  })}</form>`;
-
-  const reach =
-    view.historyFrom === null
-      ? 'The indexer holds no blocks yet.'
-      : `History reaches back to block ${view.historyFrom}, the oldest the indexer holds.`;
-  const live = view.offset === 0 ? ` This page refreshes every ${ACTIVITY_REFRESH_SECONDS}s.` : '';
-  const empty = `<p class="nw-small nw-dim">No agent activity ${view.offset > 0 ? 'this far back' : 'in the indexed history'}${
-    view.agent === null ? '' : ' for this agent'
-  }.</p>`;
-
-  const paging = pager({
-    from: view.total === 0 ? 0 : view.offset + 1,
-    to: Math.min(view.total, view.offset + view.entries.length),
-    total: view.total,
-    prevHref: view.offset > 0 ? activityPath(view.agent) : null,
-    nextHref: view.offset + view.entries.length < view.total ? activityPath(view.agent, view.offset + view.limit) : null,
-  });
-
-  const receiptLine = `<p class="nw-small nw-dim">Activity read from the indexer's index of finalized blocks; field types from the node's runtime metadata. ${escapeHtml(reach)}${live}</p>`;
-
-  let body: string;
-  if (view.agent === null || agentReadings === undefined) {
-    const scope =
-      view.agent === null
-        ? 'every agent'
-        : `<span class="nw-mono">${escapeHtml(view.agent)}</span> (<a href="${escapeHtml(accountPath(view.agent))}">account</a> · <a href="${escapeHtml(activityPath())}">show every agent</a>)`;
-    body = `<section class="nw-section nw-stack">
-<div class="nw-section-head"><h1 class="nw-h2">Agent activity</h1>${asOfTag(renderedAt)}</div>
-<p class="nw-small">Showing ${scope}: ${view.total} event${view.total === 1 ? '' : 's'}, newest first.</p>
-${form}
-${view.entries.length === 0 ? empty : ledger({ rows: view.entries.map((entry) => activityRow(entry, chain)) })}
-${paging}
-${receiptLine}
-</section>`;
-  } else {
-    const a = agentReadings;
-    const name = a.name;
-    const operator = name !== null && name.startsWith('swarm-');
-    const stateTags = [a.decayed ? tag({ state: 'record', text: 'DECAYED' }) : '', a.cooldown ? tag({ state: 'record', text: 'COOLDOWN' }) : ''].join('');
-    const readings = `<div class="nw-row x-wrap">
-${readingOf('Earned all time', a.earnedAllTime, (v) => (v === null ? '' : balance(v)))}
-${readingOf('Earned this era', a.earnedThisEra, (v) => (v === null ? '' : balance(v)))}
-${readingOf('Agreements open', a.agreementsOpen, (v) => (v === null ? '' : formatInt(v)))}
-${readingOf('In dispute', a.inDispute, (v) => (v === null ? '' : formatInt(v)), { state: (a.inDispute.value ?? 0) > 0 ? 'dispute' : 'record' })}
-${readingOf('Counterparties', a.counterparties, (v) => formatInt(v.length))}
-</div>`;
-
-    const series = a.earningsByEra.value;
-    let curveHtml: string;
-    if (series === null) {
-      curveHtml = readingOf('Earnings by era', a.earningsByEra, () => '');
-    } else {
-      const ordered = [...series].sort((x, y) => x.era - y.era);
-      const values = ordered.map((row) => Number(row.amount) / 10 ** chain.tokenDecimals);
-      const paths = curvePaths(values, 1200, 200);
-      const table = ordered.map((row) => [`era ${formatInt(row.era)}`, balance(row.amount)]);
-      curveHtml =
-        paths === null
-          ? `<p class="nw-small nw-dim">${ordered.length === 0 ? 'No settled era with earnings in the index for this agent.' : `One era in the index: era ${formatInt(ordered[0]?.era ?? 0)} · ${balance(ordered[0]?.amount ?? 0n)}.`}</p>`
-          : curve({
-              id: 'earnings',
-              width: 1200,
-              height: 200,
-              pathLine: paths.pathLine,
-              pathArea: paths.pathArea,
-              end: paths.end,
-              labels: [balance(ordered.reduce((m, r) => (r.amount > m ? r.amount : m), 0n)), '', balance(0n)],
-              alt: `Earnings by era for ${name ?? view.agent}, ${ordered.length} eras`,
-              table,
-            });
-    }
-
-    const counterparties = a.counterparties.value ?? [];
-    const most = counterparties.reduce((m, c) => Math.max(m, c.count), 0);
-    const counterpartyRows: LedgerRow[] = counterparties.map((c) => ({
-      id: c.address,
-      cells: [
-        String(c.count),
-        addressChip(c.address, { href: activityPath(c.address) }),
-        `<span class="nw-share" style="width:${most === 0 ? 0 : Math.round((c.count / most) * 100)}%"></span>`,
-        '',
-        '',
-      ],
-    }));
-
-    body = `<section class="nw-section nw-stack">
-<div class="nw-section-head"><h1 class="nw-h2">${name === null ? escapeHtml(view.agent) : agentName({ name, operator })}</h1>${stateTags}${asOfTag(renderedAt)}</div>
-<p class="nw-small"><span class="nw-mono">${escapeHtml(view.agent)}</span> (<a href="${escapeHtml(accountPath(view.agent))}">account</a> · <a href="${escapeHtml(activityPath())}">show every agent</a>)</p>
-${form}
-${readings}
-${sectionHead('Earnings by era', null, asOfTag(renderedAt))}
-${curveHtml}
-${sectionHead('Counterparties', counterparties.length)}
-${counterpartyRows.length === 0 ? readingOf('Counterparties', a.counterparties, () => 'none in the index') : ledger({ rows: counterpartyRows })}
-${sectionHead('Watch-log', view.total)}
-${view.entries.length === 0 ? empty : rail({ entries: view.entries.map((entry, position) => activityRailEntry(entry, chain, position)) })}
-${paging}
-${receiptLine}
-</section>`;
-  }
-
-  return layout(
-    'Agent activity',
-    {
-      chain,
-      renderedAt,
-      best: null,
-      finalized: null,
-      headAgeMs: null,
-      ...(view.offset === 0 ? { refreshSeconds: ACTIVITY_REFRESH_SECONDS } : {}),
-    },
-    body,
+  const renderedAt = view.readAt ?? null;
+  const kind = (view.filter as ActivityKind | null) ?? null;
+  const filterChips = chips(
+    CHIPS.map((c) => ({ label: c.label, href: activityPath(view.agent, 0, c.kind), current: c.kind === kind })),
+    { label: 'Filter by kind' },
   );
+  const intro =
+    view.agent === null
+      ? `Agent events, newest first.${view.historyFrom === null ? '' : ` History reaches back to block ${formatInt(view.historyFrom)}.`}`
+      : `Events naming ${address(view.agent, { href: accountPath(view.agent) })}, newest first. <a href="${escapeHtml(activityPath(null, 0, kind))}">Show every agent</a>.`;
+  const list: ListPage<ActivityEntry> = { total: view.total, offset: view.offset, limit: view.limit, items: view.entries };
+  const empty = view.agent === null ? (view.offset > 0 ? 'No agent events this far back.' : 'No agent events in the index yet.') : 'No events name this agent in the indexed history.';
+
+  const body = `<div class="sc-page-head"><h1 class="sc-h1">Activity</h1><p class="sc-lead">${intro}</p></div>
+<section class="x-panel">${filterChips}${agentFilter(view.agent, kind)}${table({ columns: ACTIVITY_COLUMNS, rows: view.entries.map((e) => activityRow(e, chain, renderedAt)), empty, caption: 'Agent activity' })}${pager(list, (offset) => activityPath(view.agent, offset, kind))}</section>`;
+
+  return layout({ title: 'Activity', path: activityPath(view.agent, view.offset, kind), body, chain, renderedAt, block: view.best ?? null, read: indexerRead(renderedAt) });
 }
 
-// ── errors ───────────────────────────────────────────────────────────────────
+// ── search miss and errors ───────────────────────────────────────────────────
 
-/** An error page as a Band. The reason is chain- or user-supplied, so it is escaped like any other value. */
-export function renderError(status: number, message: string, chain: ChainInfo | null): string {
-  const body = `<section class="nw-section nw-stack">
-<p class="nw-figure nw-figure--xl nw-sage">${status}</p>
-${band({ text: `${status} · ${message}`, alarm: status >= 500 })}
-<p class="nw-small"><a href="/">Explorer home</a></p>
-</section>`;
-  return layout(`${status}`, { chain, renderedAt: null, best: null, finalized: null, headAgeMs: null }, body);
+/** "Nothing found for '…'": the field again and the four formats it accepts, with examples from the chain. */
+export function renderSearchMiss(query: string, chain: ChainInfo, best: number, renderedAt: string): string {
+  const body = `<div class="sc-page-head"><h1 class="sc-h1">Nothing found for ‘${escapeHtml(query)}’</h1><p class="sc-lead">Search by one of these.</p></div>
+<ul class="sc-prose sc-stack">
+<li>A block number, such as <span class="sc-mono">${formatInt(best)}</span></li>
+<li>A block hash: <span class="sc-mono">0x</span> and 64 hexadecimal characters</li>
+<li>An extrinsic as block-index, such as <span class="sc-mono">${formatInt(best)}-0</span></li>
+<li>An account address (SS58)</li>
+</ul>
+${search(query)}`;
+  return layout({ title: 'Nothing found', path: SEARCH_PATH, body, chain, renderedAt, block: best, read: nodeRead(best) });
 }
+
+const ERROR_TITLES: Readonly<Record<number, string>> = { 400: 'That is not something this explorer can look up', 404: 'Page not found', 502: 'Not available right now', 500: 'Not available right now' };
+
+/**
+ * An error page: a plain title, one sentence, the search field. The sentence
+ * is written by the server from what it knows, never from an upstream error's
+ * text, so it carries no internal address and no stack trace.
+ */
+export function renderError(status: number, sentence: string, chain: ChainInfo | null): string {
+  const body = `<div class="sc-page-head"><h1 class="sc-h1">${escapeHtml(ERROR_TITLES[status] ?? 'Something went wrong')}</h1><p class="sc-lead">${escapeHtml(sentence)}</p></div>
+${search()}
+<p>${button({ text: 'Explorer home', href: '/', variant: 'text' })}</p>`;
+  return layout({ title: ERROR_TITLES[status] ?? `Error ${status}`, path: '/', body, chain, renderedAt: null, block: null, read: null, description: 'Scalar Commons explorer.' });
+}
+
+export { ACTIVITY_PAGE_SIZE };

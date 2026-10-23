@@ -143,7 +143,9 @@ async function startExplorer() {
 async function explorerTargets(url) {
   const home = await (await fetch(`${url}/`)).text();
   const block = home.match(/href="(\/block\/\d+)"/)?.[1];
-  const extrinsic = home.match(/href="(\/extrinsic\/\d+\/\d+)"/)?.[1];
+  // The home page lists blocks and agent events; an extrinsic link is on a block page.
+  let extrinsic = home.match(/href="(\/extrinsic\/\d+\/\d+)"/)?.[1];
+  if (!extrinsic && block) extrinsic = (await (await fetch(`${url}${block}`)).text()).match(/href="(\/extrinsic\/\d+\/\d+)"/)?.[1];
   let account = home.match(/href="(\/account\/[1-9A-HJ-NP-Za-km-z]{40,})"/)?.[1];
   if (!account) {
     const agents = await (await fetch(`${INDEXER}/v1/agents?limit=1`)).json();

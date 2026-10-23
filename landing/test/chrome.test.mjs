@@ -142,7 +142,6 @@ export const LEGACY_DIRS = ['landing/src/chrome-legacy/', 'explorer/src/chrome-l
 export const NOT_YET_REBUILT = [
   'landing/src/oversight.css',
   'docs/.vitepress/theme/docs.css',
-  'explorer/src/render.ts',
 ];
 const exempt = (path) => LEGACY_DIRS.some((d) => path.startsWith(d)) || NOT_YET_REBUILT.some((d) => path.startsWith(d));
 

@@ -7,7 +7,7 @@
  * have.
  */
 
-import { createIndexerClient, createIndexerReader } from './activity.js';
+import { createIndexerReader } from './activity.js';
 import { connectExplorerChain } from './chain.js';
 import { readIntEnv } from './config.js';
 import { createExplorerServer } from './server.js';
@@ -23,8 +23,9 @@ const rpcEndpoint = process.env.EXPLORER_RPC_ENDPOINT ?? 'ws://127.0.0.1:9944';
 // only ever wrong for someone running it the documented way, from the README.
 const port = readIntEnv('EXPLORER_PORT', process.env.EXPLORER_PORT, 8081, 0, 65_535);
 const host = process.env.EXPLORER_HOST ?? '127.0.0.1';
-// The agent-activity page reads history from the indexer. Only that page
-// depends on it: every other view still reads the node alone.
+// Every list (blocks, activity, an account's history) and the agent record
+// come from the indexer; single items still come from the node alone. The
+// value is the indexer's origin; a trailing `/v1` is tolerated.
 const indexerUrl = process.env.EXPLORER_INDEXER_URL ?? 'http://127.0.0.1:8080';
 if (!/^https?:\/\//.test(indexerUrl)) {
   throw new Error(`EXPLORER_INDEXER_URL must be an http:// or https:// URL, not ${JSON.stringify(indexerUrl)}`);
@@ -34,15 +35,12 @@ const chain = await connectExplorerChain({ rpcEndpoint });
 const info = chain.chainInfo();
 const server = createExplorerServer({
   chain,
-  activity: createIndexerClient({ baseUrl: indexerUrl }),
-  // The home page's indexer line, the account page's history and the
-  // agent-scoped activity readings come from the same indexer.
   indexer: createIndexerReader({ baseUrl: indexerUrl }),
 });
 
 server.listen(port, host, () => {
   console.log(
-    `[explorer] serving ${info.chain} (${info.specName} spec ${info.specVersion}) from ${rpcEndpoint} (activity from ${indexerUrl}) on http://${host}:${port}`,
+    `[explorer] serving ${info.chain} (${info.specName} spec ${info.specVersion}) from ${rpcEndpoint} (lists from ${indexerUrl}) on http://${host}:${port}`,
   );
 });
 

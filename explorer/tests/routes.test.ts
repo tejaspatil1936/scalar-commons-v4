@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { accountPath, blockPath, extrinsicPath, parseBlockRef, parseRoute } from '../src/routes.js';
+import { accountPath, activityPath, blockPath, blocksPath, extrinsicPath, parseBlockRef, parseExtrinsicId, parseRoute, searchPath } from '../src/routes.js';
 
 const ALICE = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
 const BLOCK_HASH = `0x${'12'.repeat(32)}`;
@@ -40,12 +40,26 @@ describe('parseRoute', () => {
     expect(parseRoute('/')).toEqual({ kind: 'home' });
   });
 
-  it('routes a block view by number and by hash', () => {
-    expect(parseRoute('/block/42')).toEqual({ kind: 'block', ref: { kind: 'number', number: 42 } });
+  it('routes a block view by number and by hash, with the tab in the URL', () => {
+    expect(parseRoute('/block/42')).toEqual({ kind: 'block', ref: { kind: 'number', number: 42 }, tab: 'extrinsics' });
     expect(parseRoute(`/block/${BLOCK_HASH}`)).toEqual({
       kind: 'block',
       ref: { kind: 'hash', hash: BLOCK_HASH },
+      tab: 'extrinsics',
     });
+    expect(parseRoute('/block/42?tab=events')).toEqual({ kind: 'block', ref: { kind: 'number', number: 42 }, tab: 'events' });
+    expect(parseRoute('/block/42?tab=nope')).toEqual({ kind: 'badRequest', message: 'not a block tab: nope' });
+  });
+
+  it('routes the block list by page, the search field, and the extrinsic id the search accepts', () => {
+    expect(parseRoute('/blocks')).toEqual({ kind: 'blocks', offset: 0 });
+    expect(parseRoute('/blocks?offset=50')).toEqual({ kind: 'blocks', offset: 50 });
+    expect(parseRoute('/blocks?offset=x')).toEqual({ kind: 'badRequest', message: 'not a page offset: x' });
+    expect(parseRoute(searchPath('42'))).toEqual({ kind: 'search', query: '42' });
+    expect(parseRoute('/search?q=%20hello%20')).toEqual({ kind: 'search', query: 'hello' });
+    expect(parseExtrinsicId('1166762-1')).toEqual({ number: 1166762, index: 1 });
+    expect(parseExtrinsicId('1166762')).toBeNull();
+    expect(parseExtrinsicId('4294967296-0')).toBeNull();
   });
 
   it('routes an extrinsic view as (block, index) — the only stable coordinate on chain', () => {
@@ -56,8 +70,10 @@ describe('parseRoute', () => {
     });
   });
 
-  it('routes an account view', () => {
-    expect(parseRoute(`/account/${ALICE}`)).toEqual({ kind: 'account', address: ALICE });
+  it('routes an account view with its tab and page', () => {
+    expect(parseRoute(`/account/${ALICE}`)).toEqual({ kind: 'account', address: ALICE, tab: 'extrinsics', offset: 0 });
+    expect(parseRoute(`/account/${ALICE}?tab=activity&offset=25`)).toEqual({ kind: 'account', address: ALICE, tab: 'activity', offset: 25 });
+    expect(parseRoute(`/account/${ALICE}?tab=nope`)).toEqual({ kind: 'badRequest', message: 'not an account tab: nope' });
   });
 
   it('reports a bad reference as a bad request, not as a missing page', () => {
@@ -115,16 +131,22 @@ describe('path builders', () => {
     expect(parseRoute(blockPath({ kind: 'number', number: 7 }))).toEqual({
       kind: 'block',
       ref: { kind: 'number', number: 7 },
+      tab: 'extrinsics',
     });
-    expect(parseRoute(blockPath({ kind: 'hash', hash: BLOCK_HASH }))).toEqual({
+    expect(parseRoute(blockPath({ kind: 'hash', hash: BLOCK_HASH }, 'events'))).toEqual({
       kind: 'block',
       ref: { kind: 'hash', hash: BLOCK_HASH },
+      tab: 'events',
     });
+    expect(parseRoute(blocksPath(25))).toEqual({ kind: 'blocks', offset: 25 });
+    expect(blocksPath()).toBe('/blocks');
+    expect(parseRoute(accountPath(ALICE, { tab: 'activity', offset: 50 }))).toEqual({ kind: 'account', address: ALICE, tab: 'activity', offset: 50 });
+    expect(parseRoute(activityPath(ALICE, 25, 'dispute'))).toEqual({ kind: 'activity', agent: ALICE, filter: 'dispute', offset: 25 });
     expect(parseRoute(extrinsicPath({ kind: 'number', number: 7 }, 2))).toEqual({
       kind: 'extrinsic',
       ref: { kind: 'number', number: 7 },
       index: 2,
     });
-    expect(parseRoute(accountPath(ALICE))).toEqual({ kind: 'account', address: ALICE });
+    expect(parseRoute(accountPath(ALICE))).toEqual({ kind: 'account', address: ALICE, tab: 'extrinsics', offset: 0 });
   });
 });

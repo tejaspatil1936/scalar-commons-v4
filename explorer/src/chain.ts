@@ -25,7 +25,6 @@ import type {
   AccountView,
   BlockView,
   ChainInfo,
-  DisputeTerms,
   EventView,
   ExtrinsicArg,
   ExtrinsicSummary,
@@ -33,7 +32,6 @@ import type {
   HomeReadings,
   HomeView,
   Outcome,
-  PendingExtrinsic,
   Read,
   RecentBlock,
   Source,
@@ -87,6 +85,14 @@ export interface ExplorerChain {
    * memory: it costs the node nothing.
    */
   eventFieldTypes(section: string, method: string): ReadonlyMap<string, string> | null;
+  /** The best and finalized block numbers, one header read each. */
+  heads(): Promise<{ best: number; finalized: number | null }>;
+  /**
+   * The author of each block, resolved through its BABE pre-digest into
+   * `session.validators` at that block: two reads a block, all in parallel.
+   * A block whose author cannot be resolved maps to null.
+   */
+  authors(blocks: readonly { readonly hash: string }[]): Promise<ReadonlyMap<string, string | null>>;
   disconnect(): Promise<void>;
 }
 
@@ -195,8 +201,8 @@ function toNumber(value: Codec): number {
   return Number(toBigInt(value) ?? 0n);
 }
 
-/** How many of the newest blocks the home page reads for its Spine and ledgers. */
-export const HOME_RECENT_BLOCKS = 16;
+/** How many of the newest blocks the home page reads for its Latest blocks table. */
+export const HOME_RECENT_BLOCKS = 10;
 
 /**
  * Connects to a node and returns the explorer's reader.
@@ -458,86 +464,44 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
     };
   }
 
-  /** The newest `HOME_RECENT_BLOCKS` blocks from `head` down, fully decoded. */
+  /**
+   * The newest `HOME_RECENT_BLOCKS` blocks from `head` down, fully decoded.
+   * Their hashes come from `chain_getBlockHash` by number so the blocks decode
+   * in parallel rather than one parent hash at a time.
+   */
   async function recentBlocks(head: { number: number; hash: string }): Promise<RecentBlock[]> {
-    const blocks: RecentBlock[] = [];
-    let hash = head.hash;
-    for (let i = 0; i < HOME_RECENT_BLOCKS && blocks.length <= head.number; i += 1) {
-      const decoded = await decodeBlock(hash);
-      blocks.push({
-        number: decoded.number,
-        hash: decoded.hash,
-        timestampMs: decoded.timestampMs,
-        author: decoded.author,
-        extrinsics: decoded.extrinsics.map(summarize),
-        events: decoded.events,
-      });
-      if (decoded.number === 0) break;
-      hash = decoded.parentHash;
-    }
-    return blocks;
+    const numbers: number[] = [];
+    for (let n = head.number; n >= 0 && numbers.length < HOME_RECENT_BLOCKS; n -= 1) numbers.push(n);
+    const hashes = await Promise.all(numbers.map(async (n) => (n === head.number ? head.hash : (await api.rpc.chain.getBlockHash(n)).toHex())));
+    const decoded = await Promise.all(hashes.map((hash) => decodeBlock(hash)));
+    return decoded.map((block) => ({
+      number: block.number,
+      hash: block.hash,
+      timestampMs: block.timestampMs,
+      author: block.author,
+      extrinsics: block.extrinsics.map(summarize),
+      events: block.events,
+    }));
   }
 
-  /** Every live reading on the home page, each a separate `attempt` so one failure costs one figure. */
+  /** The live readings on the home page, each a separate `attempt` so one failure costs one figure. */
   async function homeReadings(head: { number: number; hash: string }): Promise<HomeReadings> {
     const at = nowIso();
     const src = (method: string, url: string, computed: string | null = null): Source => source(method, url, head.number, at, computed);
-    const apiAt = await api.at(head.hash);
 
-    const [finalized, era, session, validators, issuance, recent, pending] = await Promise.all([
+    const [finalized, recent] = await Promise.all([
       attempt(src('RPC', 'chain_getFinalizedHead'), async () => {
         const hash = await api.rpc.chain.getFinalizedHead();
         const header = await api.rpc.chain.getHeader(hash);
         return { number: header.number.toNumber(), hash: hash.toHex() };
       }),
-      attempt(src('STORAGE', 'agents.eraNumber · emissions.eraStartBlock · emissions.eraDuration', 'elapsed = best − eraStartBlock'), async () => {
-        const eraNumber = fromMetadata(apiAt.query.agents?.eraNumber, 'runtime exposes no agents.eraNumber storage');
-        const eraStart = fromMetadata(apiAt.query.emissions?.eraStartBlock, 'runtime exposes no emissions.eraStartBlock storage');
-        const duration = fromMetadata(api.consts.emissions?.eraDuration, 'runtime exposes no emissions.eraDuration constant');
-        const [number, start] = await Promise.all([eraNumber(), eraStart()]);
-        return { number: toNumber(number), elapsed: head.number - toNumber(start), length: toNumber(duration) };
-      }),
-      attempt(src('STORAGE', 'session.currentIndex · babe.epochDuration · babe.epochStart', 'elapsed = best − epochStart'), async () => {
-        const currentIndex = fromMetadata(apiAt.query.session?.currentIndex, 'runtime exposes no session.currentIndex storage');
-        const epochStart = fromMetadata(apiAt.query.babe?.epochStart, 'runtime exposes no babe.epochStart storage');
-        const duration = fromMetadata(api.consts.babe?.epochDuration, 'runtime exposes no babe.epochDuration constant');
-        const [index, start] = await Promise.all([currentIndex(), epochStart()]);
-        // `babe.epochStart` is `(previous, current)`; the current epoch began at the second.
-        const pair = start as unknown as Codec[];
-        const current = pair[1] ?? pair[0];
-        return {
-          index: toNumber(index),
-          elapsed: current ? head.number - toNumber(current) : 0,
-          length: toNumber(duration),
-        };
-      }),
-      attempt(src('STORAGE', 'session.validators'), async () => {
-        const validatorsAt = fromMetadata(apiAt.query.session?.validators, 'runtime exposes no session.validators storage');
-        return ((await validatorsAt()) as unknown as Codec[]).length;
-      }),
-      attempt(src('STORAGE', 'balances.totalIssuance'), async () => {
-        const total = fromMetadata(apiAt.query.balances?.totalIssuance, 'runtime exposes no balances.totalIssuance storage');
-        return toBigInt(await total()) ?? 0n;
-      }),
       attempt(src('RPC', `chain_getBlock × ${HOME_RECENT_BLOCKS} · system.events`), () => recentBlocks(head)),
-      attempt(src('RPC', 'author_pendingExtrinsics'), async () => {
-        const pool = await api.rpc.author.pendingExtrinsics();
-        return pool.map(
-          (extrinsic): PendingExtrinsic => ({
-            hash: extrinsic.hash.toHex(),
-            section: extrinsic.method.section,
-            method: extrinsic.method.method,
-            signer: extrinsic.isSigned ? (collectAccounts([extrinsic.signer], ss58Format)[0] ?? null) : null,
-          }),
-        );
-      }),
     ]);
 
     const newest = recent.value?.[0];
-    const headAgeMs =
-      newest && newest.timestampMs !== null ? Date.now() - Number(newest.timestampMs) : null;
+    const headAgeMs = newest && newest.timestampMs !== null ? Date.now() - Number(newest.timestampMs) : null;
 
-    return { renderedAt: at, headAgeMs, finalized, era, session, validators, issuance, recent, pending };
+    return { renderedAt: at, headAgeMs, finalized, recent };
   }
 
   return {
@@ -623,21 +587,6 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
         );
       }
       const at = nowIso();
-      let disputeTerms: DisputeTerms | undefined;
-      if (extrinsic.section === 'escrow' && extrinsic.method === 'disputeDelivery') {
-        const src = (url: string): Source => source('META', url, decoded.number, at);
-        disputeTerms = {
-          bountyBps: await attempt(src('escrow.disputeBountyBps · runtime/src/lib.rs:1297'), async () =>
-            toNumber(fromMetadata(api.consts.escrow?.disputeBountyBps, 'runtime exposes no escrow.disputeBountyBps constant')),
-          ),
-          burnBps: await attempt(src('escrow.disputeBurnBps · runtime/src/lib.rs:1299'), async () =>
-            toNumber(fromMetadata(api.consts.escrow?.disputeBurnBps, 'runtime exposes no escrow.disputeBurnBps constant')),
-          ),
-          settles: await attempt(src('escrow.disputeTimeout · runtime/src/lib.rs:1295–1299'), async () =>
-            api.query.oracle ? 'oracle' : 'the runtime exposes no oracle pallet',
-          ),
-        };
-      }
       return {
         block: { number: decoded.number, hash: decoded.hash },
         index: extrinsic.index,
@@ -654,7 +603,6 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
         outcome: extrinsic.outcome,
         accounts: extrinsic.accounts,
         renderedAt: at,
-        ...(disputeTerms ? { disputeTerms } : {}),
       };
     },
 
@@ -750,6 +698,32 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
         at: { number: headNumber, hash: headHash },
         roles,
       };
+    },
+
+    async heads(): Promise<{ best: number; finalized: number | null }> {
+      const [best, finalizedHash] = await Promise.all([api.rpc.chain.getHeader(), api.rpc.chain.getFinalizedHead()]);
+      const finalized = await api.rpc.chain.getHeader(finalizedHash);
+      return { best: best.number.toNumber(), finalized: finalized.number.toNumber() };
+    },
+
+    async authors(blocks: readonly { readonly hash: string }[]): Promise<ReadonlyMap<string, string | null>> {
+      const resolved = await Promise.all(
+        blocks.map(async ({ hash }): Promise<[string, string | null]> => {
+          try {
+            const header = await api.rpc.chain.getHeader(hash);
+            const { authorityIndex } = preDigest(header);
+            if (authorityIndex === null) return [hash, null];
+            const apiAt = await api.at(hash);
+            if (!apiAt.query.session?.validators) return [hash, null];
+            const validators = (await apiAt.query.session.validators()) as unknown as Codec[];
+            const found = validators[authorityIndex];
+            return [hash, found ? (collectAccounts([found], ss58Format)[0] ?? null) : null];
+          } catch {
+            return [hash, null];
+          }
+        }),
+      );
+      return new Map(resolved);
     },
 
     eventFieldTypes(section: string, method: string): ReadonlyMap<string, string> | null {
