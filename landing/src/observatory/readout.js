@@ -187,7 +187,8 @@ export function showValue(target, record, { value, prefix = '', unit = '', sub =
   slot.replaceChildren(rawLink(record, figure));
   if (unit) {
     const u = document.createElement('span');
-    u.className = 'unit';
+    // The chrome's unit: --label on the figure's baseline, 8 px after it.
+    u.className = 'unit nw-unit';
     u.textContent = unit;
     slot.append(u);
   }

@@ -421,8 +421,8 @@ test('the top bar: the chrome’s bar before the first screen — wordmark, nav 
   assert.ok(!/sb-pill|statusbar/.test(page), 'the status pill is gone');
   assert.ok(bundle.includes('data-lamp') && /finality/.test(bundle), 'the bundle wires the lamp');
   assert.ok(!bundle.includes('.sb-state'), 'the bundle no longer drives the pill');
-  // The bar's height is the token; its sheet turns pine-1 once scrolled.
-  assert.match(chromeCss, /\.nw-bar \{[^}]*height: var\(--bar\)/);
+  // The bar's row is the token's height, on the page's 12-column grid; a 1 px rule falls under it once scrolled.
+  assert.match(chromeCss, /\.nw-bar-inner \{[^}]*height: var\(--bar\);[^}]*grid-template-columns: repeat\(12, minmax\(0, 1fr\)\)/);
   assert.match(chromeCss, /\.nw-bar\.is-scrolled/);
 });
 
@@ -543,7 +543,9 @@ test('sections: a numbered label, the instrument, then the Readings in a row —
   assert.equal((economy.match(/nw-daybar-seg/g) ?? []).length, 4);
   assert.equal((economy.match(/nw-daybar-seg is-current/g) ?? []).length, 1);
   for (const [, label] of economy.matchAll(/<span class="nw-label" data-daybar-label>([^<]*)<\/span>/g)) assert.equal(label, '', 'a Day Bar label is the browser’s to fill');
-  assert.match(css, /\.nw-daybar \{ position: sticky; top: var\(--s-3\);/);
+  // Sticky 12 px under the bar (the chrome's rule): the page adds no offset that would slide it under the bar.
+  assert.match(chromeCss, /\.nw-daybar \{ position: sticky; top: calc\(var\(--bar\) \+ var\(--s-3\)\);/);
+  assert.ok(!/\.nw-daybar \{/.test(css), 'the page does not re-pin the Day Bar');
   assert.ok(!/data-role="dial"/.test(economy), 'the era dial is gone: the Day Bar and its module own the era');
   assert.match(readFileSync(new URL('../src/observatory/daybar.js', import.meta.url), 'utf8'), /ctx\.watch\(\s*'era'/);
   // 03 · Validators: the ring on a 240 px circle (its height on the spacing scale: 160 + 64 + 16), the authoring point solid ink and the rest an ink-3 outline, the list, the ring note, the hosts record.
@@ -615,6 +617,10 @@ test('figures: tabular lining figures from the token; a live figure fills throug
   assert.match(readout, /target\.dataset\.at = new Date\(record\.at\)\.toISOString\(\)/);
   assert.match(readFileSync(new URL('../src/observatory/main.js', import.meta.url), 'utf8'), /if \(state !== 'open'\) ctx\.readout\.markStale\(document\)/);
   assert.match(css, /\.nw-reading-sub\[data-stale\] \{ color: var\(--ink-3\); \}/);
+  // The alignment contract (round 2 §2.5): a unit sits on the figure's baseline at --label, 8 px after it; a sub-line and a failure's reason are words on their own line that wrap in the column, so a figure never collides or overflows.
+  assert.match(readFileSync(new URL('../src/observatory/readout.js', import.meta.url), 'utf8'), /u\.className = 'unit nw-unit'/, 'the unit is the chrome’s');
+  assert.match(chromeCss, /\.nw-figure \.nw-unit \{ font: var\(--label\);[^}]*margin-left: var\(--s-2\); \}/);
+  assert.match(css, /\.reading-value \.sub \{ display: block;[^}]*white-space: normal; \}/);
   assert.match(bundle, /raw (?:↗|\\u2197)/);
 });
 

@@ -1,0 +1,8 @@
+/* Request from /observatory (round 2): a stub's state is its fill, so a state
+   change (connecting → live, live → record) is instant; only the digits of a
+   changed figure warm and cool. Today .nw-stub transitions `background` over
+   --t-cool, and check-layout.mjs (e) samples the stub mid-fade as a colour
+   that is not a token (a grey between paper and ink) on any reading
+   whose first read lands in the last 1.8 s before the measurement.
+   Replace the transition in the .nw-stub rule with: */
+.nw-stub { transition: transform var(--t-ui) var(--ease-ui); }

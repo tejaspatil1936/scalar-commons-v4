@@ -101,8 +101,7 @@ pre {
 .status-record .status-label { color: var(--ink-3); }
 .instrument-failed { font: var(--small); color: var(--ink); }
 
-/* 02 · Economy: the Day Bar sticks over the section. */
-.nw-daybar { position: sticky; top: var(--s-3); z-index: 1; }
+/* 02 · Economy: the Day Bar sticks over the section, 12 px under the bar (the chrome's rule; this page adds none). */
 
 /* 03 · Validators */
 .ring-host { display: grid; place-items: center; }
@@ -144,13 +143,18 @@ html[data-sources] .fact .reading-prov { display: inline; }
 
 /* ── readouts: the figure's states, in the readout's class names ─────────── */
 .reading-value .error, .reading-value .unavailable { font: var(--small); color: var(--ink-3); display: block; }
-.reading-value .sub, .reading-value .unit { font: var(--mono); color: var(--ink-2); margin-left: var(--s-2); }
+/* A sub-line under a figure is words, not the figure: its own line, wrapping in its column. */
+.reading-value .sub { display: block; margin-top: var(--s-2); font: var(--mono); color: var(--ink-2); white-space: normal; }
 .reading-value a { color: inherit; text-decoration: none; }
 .reading-value.is-error, .reading-value.is-absent { color: var(--ink-3); }
 .reading-prov { margin: 0; }
 .nw-reading > .reading-prov { display: none; }
 .hero-sub .nw-figure { color: var(--ink-2); }
 .nw-reading-sub[data-stale] { color: var(--ink-3); }
+
+/* A stub changes state at once: its fill is the state, not a motion (only a changed digit warms and cools).
+   Page-scoped until the chrome takes chrome/requests/observatory.css. */
+.nw-stub { transition: transform var(--t-ui) var(--ease-ui); }
 
 /* ── presenter ────────────────────────────────────────────────────────────── */
 html[data-present] .nw-nav, html[data-present] .nw-nav-row, html[data-present] .nw-foot,
