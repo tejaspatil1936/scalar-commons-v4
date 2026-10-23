@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createIndexerClient, createIndexerReader } from '../src/activity.js';
 import type { ExplorerChain } from '../src/chain.js';
 import { band, curve, curvePaths, reading, tag, topBar, NAV } from '../src/chrome-templates.js';
-import { eventGlyphs, figureWidthPx, PULSE_EVENTS, readingRow, readingRows, renderAccount, renderActivity, renderBlock, renderError, renderExtrinsic, renderHome } from '../src/render.js';
+import { eventGlyphs, figureWidthPx, plainSentence, PULSE_EVENTS, readingRow, readingRows, renderAccount, renderActivity, renderBlock, renderError, renderExtrinsic, renderHome } from '../src/render.js';
 import { parseRoute, searchPath } from '../src/routes.js';
 import { createExplorerServer, readChromeStylesheet, defaultChromeDir } from '../src/server.js';
 import type { AccountView, ActivityView, BlockView, ChainInfo, ExtrinsicView, HomeView, Read } from '../src/types.js';
@@ -622,5 +622,31 @@ describe("the Spine's event column: the pulse model's kinds as glyphs", () => {
     const html = renderHome(HOME);
     expect(html).toMatch(/\.x-glyph\[data-kind="dispute"\]::before\{[^}]*border-top:1px dashed var\(--ink\)\}/);
     expect(html).not.toMatch(/\.x-glyph[^{]*\{[^}]*(?:#|rgb|hsl)/);
+  });
+});
+
+describe('the plain extrinsic sentence', () => {
+  const ev = (section: string, method: string, fields: Record<string, string>) => ({ index: 0, section, method, fields: Object.entries(fields).map(([name, value]) => ({ name, value })) });
+
+  it("says what happened in the pulse model's words, from the decoded event fields", () => {
+    const html = plainSentence([ev('system', 'ExtrinsicSuccess', {}), ev('escrow', 'AgreementCreated', { buyer: ALICE, provider: BOB, seq: '3', amount: '12,500,000,000,000' })], CHAIN);
+    expect(html).toContain(' opened an agreement with ');
+    expect(html).toContain(`href="/account/${ALICE}"`);
+    expect(html).toContain(`href="/account/${BOB}"`);
+    expect(html).toMatch(/ for 12\.5 CMN$/);
+    expect(plainSentence([ev('oracle', 'BatchResponseSubmitted', { agent: BOB, accepted: '1', skipped: '0' })], CHAIN)).toMatch(/ answered 1 oracle question$/);
+    expect(plainSentence([ev('agents', 'AgentRegistered', { who: ALICE, stake: '1', fee: '0' })], CHAIN)).toMatch(/ joined the network$/);
+  });
+
+  it('prints no sentence for an extrinsic with none of those events, or a field that did not decode as expected', () => {
+    expect(plainSentence([ev('system', 'ExtrinsicSuccess', {})], CHAIN)).toBeNull();
+    expect(plainSentence([ev('escrow', 'AgreementCreated', { buyer: ALICE, provider: BOB, amount: '12.5 kCMN' })], CHAIN)).toBeNull();
+    expect(plainSentence([ev('escrow', 'DisputeOpened', { buyer: '0', provider: BOB })], CHAIN)).toBeNull();
+    expect(renderExtrinsic(EXTRINSIC, CHAIN)).not.toContain('data-sentence');
+  });
+
+  it('puts the sentence under the hash on the extrinsic page', () => {
+    const html = renderExtrinsic({ ...EXTRINSIC, outcome: { kind: 'success' }, events: [ev('escrow', 'DisputeOpened', { buyer: ALICE, provider: BOB, seq: '1', request_id: '0x00' })] }, CHAIN);
+    expect(html).toMatch(/<p class="nw-mono x-hash">[\s\S]*<\/p>\n<p class="nw-body" data-sentence>.* disputed a delivery from .*\.<\/p>/);
   });
 });

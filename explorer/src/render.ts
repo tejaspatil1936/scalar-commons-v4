@@ -398,6 +398,72 @@ export function eventGlyphs(events: readonly { readonly section: string; readonl
     .join('');
 }
 
+const SS58 = /^[1-9A-HJ-NP-Za-km-z]{40,}$/;
+
+/**
+ * The extrinsic in one plain sentence, by the site's existing formatter: the
+ * pulse model's `sentence` (landing/src/pulse/model.js), word for word, for
+ * the first event this extrinsic emitted that the model has a sentence for —
+ * what happened, not what was asked. Its parties are the decoded event's
+ * accounts (as address links) and its amount the decoded balance in whole
+ * and fractional CMN. Null when the extrinsic emitted none of those events, or
+ * a field the sentence needs did not decode as expected: never a template that
+ * guesses.
+ */
+export function plainSentence(events: readonly EventView[], chain: ChainInfo): string | null {
+  for (const event of events) {
+    const row = PULSE_EVENTS.find((r) => r.section === event.section && r.method === event.method);
+    if (!row) continue;
+    const field = (name: string): string | null => event.fields.find((f) => f.name === name)?.value ?? null;
+    const who = (name: string): string | null => {
+      const address = field(name);
+      return address !== null && SS58.test(address) ? addressChip(address, { href: accountPath(address) }) : null;
+    };
+    const cmn = (name: string): string | null => {
+      const value = field(name);
+      return value !== null && /^\d[\d,]*$/.test(value)
+        ? `${escapeHtml(tokenFigure(BigInt(value.replace(/,/g, '')), chain.tokenDecimals, chain.tokenSymbol))} ${escapeHtml(chain.tokenSymbol)}`
+        : null;
+    };
+    const all = (...parts: (string | null)[]): boolean => parts.every((p) => p !== null);
+    const [buyer, provider] = [who('buyer'), who('provider')];
+    switch (row.kind) {
+      case 'agreement': {
+        const amount = cmn('amount');
+        return all(buyer, provider, amount) ? `${buyer} opened an agreement with ${provider} for ${amount}` : null;
+      }
+      case 'settled': {
+        const amount = cmn('amount');
+        return all(buyer, provider, amount) ? `${buyer} paid ${provider} ${amount} for completed work` : null;
+      }
+      case 'message': {
+        const [from, to] = [who('from'), who('to')];
+        return all(from, to) ? `${from} sent a message to ${to}` : null;
+      }
+      case 'dispute':
+        return all(buyer, provider) ? `${buyer} disputed a delivery from ${provider}` : null;
+      case 'resolved':
+        return all(buyer, provider) ? `the dispute between ${buyer} and ${provider} was resolved` : null;
+      case 'oracle': {
+        const agent = who('agent');
+        if (agent === null) return null;
+        if (row.method === 'BatchResponseSubmitted') {
+          const accepted = field('accepted');
+          if (accepted === null || !/^\d[\d,]*$/.test(accepted)) return null;
+          const n = Number(accepted.replace(/,/g, ''));
+          return `${agent} answered ${formatInt(n)} oracle ${n === 1 ? 'question' : 'questions'}`;
+        }
+        return `${agent} answered an oracle question`;
+      }
+      default: {
+        const joined = who('who');
+        return joined === null ? null : `${joined} joined the network`;
+      }
+    }
+  }
+  return null;
+}
+
 // ── home ─────────────────────────────────────────────────────────────────────
 
 /** The index page: the search field, the six readings, the Spine, the ledgers, the pool. */
@@ -613,12 +679,15 @@ ${col(fact('Length', `${formatInt(view.lengthBytes)} bytes`, src))}
   const accounts =
     view.accounts.length === 0
       ? '<p class="nw-small nw-dim">This extrinsic named no accounts.</p>'
-      : `<ul class="nw-stack">${view.accounts.map((address) => `<li>${accountLink(address)}</li>`).join('')}</ul>`;
+      : `<ul class="nw-stack x-hash">${view.accounts.map((address) => `<li>${accountLink(address)}</li>`).join('')}</ul>`;
 
   const events =
     view.events.length === 0
       ? '<p class="nw-small nw-dim">No events were recorded for this extrinsic.</p>'
       : ledger({ rows: view.events.map((event) => eventLedgerRow(null, event)) });
+
+  const sentence = plainSentence(view.events, chain);
+  const sentenceHtml = sentence === null ? '' : `<p class="nw-body" data-sentence>${sentence}.</p>`;
 
   const terms = view.disputeTerms;
   const next =
@@ -633,6 +702,7 @@ ${col(fact('Length', `${formatInt(view.lengthBytes)} bytes`, src))}
   const body = `<section class="nw-section nw-stack">
 <div class="nw-section-head"><h1 class="nw-h2">${escapeHtml(callName)}</h1>${outcomeTag(view.outcome)}${asOfTag(renderedAt)}</div>
 <p class="nw-mono x-hash">${hashWithCopy(view.hash)}</p>
+${sentenceHtml}
 ${receipts}
 ${callBlock}
 ${sectionHead('Accounts touched', view.accounts.length)}
