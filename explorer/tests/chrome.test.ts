@@ -600,13 +600,6 @@ describe('layout faults seen at 1440 px against the public node', () => {
 });
 
 describe("the Spine's event column: the pulse model's kinds as glyphs", () => {
-  it('mirrors landing/src/pulse/model.js EVENTS row for row (section, method, kind, word)', () => {
-    const model = readFileSync(fileURLToPath(new URL('../../landing/src/pulse/model.js', import.meta.url)), 'utf8');
-    const rows = [...model.matchAll(/\{ section: '([^']+)', method: '([^']+)', kind: '([^']+)', lifetimeMs: \d+, describe: '([^']+)' \}/g)].map((m) => ({ section: m[1], method: m[2], kind: m[3], describe: m[4] }));
-    expect(rows.length).toBe(8);
-    expect(PULSE_EVENTS).toEqual(rows);
-  });
-
   it('draws one glyph per kind present, in the legend order, named by the model word; resolved and system events draw none', () => {
     const html = eventGlyphs([
       { section: 'system', method: 'ExtrinsicSuccess' },

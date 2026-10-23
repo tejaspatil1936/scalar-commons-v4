@@ -1,0 +1,23 @@
+/*
+ * /network — the page's own rules, after the chrome. Only tokens; nothing
+ * moves. The chrome draws every component; this sheet only spaces them.
+ */
+.net-nojs { display: none; color: var(--text-2); font: var(--small); }
+/* A table only the browser fills says so in one sentence when there is no script (see the noscript rule in network.mjs). */
+.net-nojs-row { display: none; }
+.net-alert:not(:empty) { margin-bottom: var(--s-4); }
+.net-more { margin-top: var(--s-4); }
+.net-sub { margin-top: var(--s-6); margin-bottom: var(--s-4); }
+.net-record { max-width: 65ch; }
+.net-history td:last-child { min-width: 32ch; }
+.net-history td:nth-child(3) { white-space: nowrap; }
+/* The page title and the first section share one gap, not two. */
+.sc-page-head + .sc-section { padding-top: var(--s-5); }
+.net-stale { margin-left: var(--s-2); }
+.sc-stat-caption .sc-badge { vertical-align: baseline; }
+/* A source name never breaks inside itself; a long list of them wraps between names, and the table scrolls in its own box on a phone. */
+#sources-table code { font: var(--mono); white-space: nowrap; }
+#sources-table td:last-child { white-space: nowrap; }
+.sc-stats-foot code { font: var(--mono); overflow-wrap: anywhere; }
+/* Times stay on one line; an empty table's one sentence still wraps on a phone. */
+#activity-table td:first-child:not(.sc-empty-cell), #blocks-table td:nth-child(2) { white-space: nowrap; }

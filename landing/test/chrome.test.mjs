@@ -140,9 +140,6 @@ const walk = (dir, keep) => {
 // Each phase removes its own entries; the final phase empties both lists.
 export const LEGACY_DIRS = ['landing/src/chrome-legacy/', 'explorer/src/chrome-legacy/', 'docs/.vitepress/theme/chrome-legacy/'];
 export const NOT_YET_REBUILT = [
-  'landing/src/observatory.css',
-  'landing/src/observatory/instruments/',
-  'landing/src/pulse.css',
   'landing/src/faucet.css',
   'landing/src/oversight.css',
   'docs/.vitepress/theme/docs.css',
