@@ -73,6 +73,7 @@ const STATIC_PAGES = {
   404: '/no-page-is-logged-here',
   'docs-home': '/docs/',
   'docs-article': null, // resolved at run time
+  'docs-404': '/docs/no-page-is-logged-here',
 };
 const EXPLORER_PAGES = ['explorer-home', 'explorer-block', 'explorer-extrinsic', 'explorer-account'];
 

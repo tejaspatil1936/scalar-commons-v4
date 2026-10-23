@@ -210,6 +210,8 @@ button, input { font: inherit; color: inherit; }
 .nw-reading:hover .nw-leader, .nw-reading:focus-within .nw-leader { color: var(--ink); }
 .nw-reading-figure { display: inline-flex; align-items: center; gap: var(--s-2); min-width: 0; max-width: 100%; }
 .nw-reading-figure .nw-figure { white-space: nowrap; min-width: 0; }
+/* A body-size figure is a sentence, an address or a hash, not a number: it may wrap. */
+.nw-reading-figure .nw-figure--body { white-space: normal; overflow-wrap: anywhere; }
 /* A record (as built, from a file) prints in ink-2; a live figure in ink. */
 .nw-reading:has(.nw-stub[data-state="record"]) .nw-figure, .nw-reading[data-sealed="true"] .nw-figure { color: var(--ink-2); }
 .nw-figure .nw-unit { font: var(--label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); margin-left: var(--s-2); }
@@ -408,7 +410,7 @@ html[data-sources] .nw-receipt-line { display: block; }
 .nw-spine--comb::before { left: 0; right: 0; top: var(--s-3); bottom: auto; height: calc(var(--s-1) / 4); width: auto; background-size: 4px 1px; }
 .nw-spine--comb .nw-spine-tick { width: calc(1600px / 240); height: var(--s-5); }
 .nw-spine--comb .nw-spine-tick::before { left: calc(var(--s-1) / 2); top: var(--s-1); width: 2px; height: var(--s-4); }
-.nw-spine--explorer .nw-spine-tick { height: calc(var(--s-7) + var(--s-2)); display: grid; grid-template-columns: 48px minmax(0, 1fr) auto auto; align-items: center; column-gap: var(--s-4); padding-left: var(--s-7); }
+.nw-spine--explorer .nw-spine-tick { height: calc(var(--s-7) + var(--s-2)); display: grid; grid-template-columns: max-content max-content max-content minmax(0, 1fr) max-content; align-items: center; column-gap: var(--s-3); padding-left: var(--s-7); }
 .nw-spine--explorer .nw-spine-tick::before { top: calc(var(--s-5) + var(--s-1) * 0.75); }
 
 /* ── curve: a 1.5 px ink line over a flat 8 % ink pool ───────────────────── */
@@ -508,12 +510,15 @@ html[data-sources] .nw-receipt-line { display: block; }
   .nw-figure--xl { font: var(--figure-l); }
   .nw-figure--l { font: var(--figure-m); }
   .nw-figure--m { font: var(--figure-s); }
-  /* one step down by count: 1 → l, 2 → m, 3 or more → s; a stepped row one more */
+  /* one step down by count: 1 → l, 2 → m, 3 or more → s; a stepped row one more.
+     The selectors repeat the desktop ones exactly, so these win by order. */
   .nw-row:not(:has(> :nth-child(2))) .nw-reading-figure .nw-figure { font: var(--figure-l); }
   .nw-row:has(> :nth-child(2)):not(:has(> :nth-child(3))) .nw-reading-figure .nw-figure { font: var(--figure-m); }
-  .nw-row:has(> :nth-child(3)) .nw-reading-figure .nw-figure { font: var(--figure-s); }
+  .nw-row:has(> :nth-child(3)):not(:has(> :nth-child(5))) .nw-reading-figure .nw-figure { font: var(--figure-s); }
+  .nw-row:has(> :nth-child(5)) .nw-reading-figure .nw-figure { font: var(--figure-s); }
   .nw-row[data-step="1"]:not(:has(> :nth-child(2))) .nw-reading-figure .nw-figure { font: var(--figure-m); }
-  .nw-row[data-step="1"]:has(> :nth-child(2)) .nw-reading-figure .nw-figure { font: var(--figure-s); }
+  .nw-row[data-step="1"]:has(> :nth-child(2)):not(:has(> :nth-child(3))) .nw-reading-figure .nw-figure { font: var(--figure-s); }
+  .nw-row[data-step="1"]:has(> :nth-child(3)) .nw-reading-figure .nw-figure { font: var(--figure-s); }
   .nw-section { padding-block: var(--s-9) 0; }
   .nw-nav-row { display: flex; gap: var(--s-4); overflow-x: auto; height: calc(var(--s-6) + var(--s-1)); align-items: center; padding-inline: var(--gutter); background: var(--paper); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
   .nw-nav-row a { color: var(--ink-2); white-space: nowrap; }
