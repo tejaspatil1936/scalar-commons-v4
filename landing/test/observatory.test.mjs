@@ -18,12 +18,14 @@ import { fileURLToPath } from 'node:url';
 import { API_ORIGIN, RPC_URL, GITHUB_COMMITS_URL, SOURCES, STORAGE_KEYS } from '../src/observatory/data.js';
 import { twox128 } from '../src/observatory/scale.js';
 import { renderSection, railPositions } from '../src/observatory.mjs';
+import { contrast } from './lib/contrast.mjs';
 
 const landingDir = fileURLToPath(new URL('../', import.meta.url));
 const repoRoot = new URL('../../', import.meta.url);
 const readRepoFile = (relPath) => readFileSync(new URL(relPath, repoRoot), 'utf8');
 const history = JSON.parse(readFileSync(new URL('../runtime-history.json', import.meta.url), 'utf8'));
 const posture = JSON.parse(readFileSync(new URL('../public/posture.json', import.meta.url), 'utf8'));
+const status = JSON.parse(readFileSync(new URL('../public/status.json', import.meta.url), 'utf8'));
 
 /** Every client-side source file the bundle is built from. */
 function clientSources() {
@@ -57,7 +59,7 @@ const bundle = readFileSync(join(out, 'observatory.js'), 'utf8');
 
 test('the build emits the observatory page, its bundle, stylesheet, fonts and records', () => {
   const files = readdirSync(out);
-  for (const name of ['observatory.html', 'observatory.js', 'observatory.css', 'runtime-history.json', 'posture.json', 'fonts']) {
+  for (const name of ['observatory.html', 'observatory.js', 'observatory.css', 'runtime-history.json', 'posture.json', 'status.json', 'fonts']) {
     assert.ok(files.includes(name), `build produced no ${name} (got: ${files.join(', ')})`);
   }
   const fonts = readdirSync(join(out, 'fonts'));
@@ -344,10 +346,10 @@ const section = (id) => page.match(new RegExp(`<section id="${id}"[\\s\\S]*?<\\/
 
 test('renderSection renders each section on its own for the harness', () => {
   for (const name of ['chain', 'economy', 'validators', 'history', 'upgrades', 'verify']) {
-    const html = renderSection(name, { history, posture });
+    const html = renderSection(name, { history, posture, status });
     assert.match(html, new RegExp(`<section id="${name}"`));
   }
-  assert.throws(() => renderSection('nope', { history, posture }), /no section named/);
+  assert.throws(() => renderSection('nope', { history, posture, status }), /no section named/);
 });
 
 test('one URL: no ?sky and no ?present, and no three.js, GSAP or WebGL anywhere in the page, its bundle or its manifest', () => {
@@ -383,15 +385,6 @@ const statusbarHtml = () => page.match(/<header class="statusbar reading"[\s\S]*
 const heroHtml = () => page.match(/<header class="hero"[\s\S]*?<\/header>/)?.[0] ?? '';
 /** Every declaration block of a stylesheet, as [selector, body]. */
 const blocks = (source) => [...source.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => [m[1].trim(), m[2]]);
-/** WCAG relative luminance and contrast of two #rrggbb colours. */
-const luminance = (hex) => {
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-};
-const contrast = (a, b) => {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-};
 const themes = () => [...css.matchAll(/:root\s*\{([^}]*)\}/g)].slice(0, 2).map((m) => Object.fromEntries([...m[1].matchAll(/(--[a-z0-9-]+):\s*([^;]+);/g)].map((d) => [d[1], d[2].trim()])));
 
 test('the top bar: two zones, 56 px, sticky, a bottom hairline — wordmark and nav on the left; the status pill and two quiet text buttons on the right', () => {

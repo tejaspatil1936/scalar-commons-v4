@@ -144,7 +144,23 @@ function economySection() {
   });
 }
 
-function validatorsSection() {
+/**
+ * Who runs the validators, and where. Written by the operators in
+ * public/status.json, never read from the chain, and shown with the Validators
+ * notes under the same "Record, not live" label as the posture record, so the
+ * live set beside it is never mistaken for a statement about hosts. The docs
+ * quote the same file, pinned by their lint, so it is typed in one place. A
+ * build without the record fails rather than leave the section silent on it.
+ */
+export function statusRecord(status) {
+  const entry = status?.fields?.hosts;
+  if (!entry?.value || !entry.asOf || !entry.source) {
+    throw new Error('public/status.json has no hosts record with value, asOf and source');
+  }
+  return `        <p class="instrument-note status-record" data-record="true" data-status="hosts"><span class="status-label">Record, not live · Who runs them:</span> <span class="status-value">${escapeHtml(entry.value)}</span> <span class="dim mono">as of ${escapeHtml(entry.asOf)}</span> <span class="posture-source">${escapeHtml(entry.source)}</span> <a href="status.json" class="mono">landing/public/status.json</a></p>`;
+}
+
+function validatorsSection(status) {
   return section({
     id: 'validators',
     title: 'Validators',
@@ -160,7 +176,8 @@ function validatorsSection() {
       reading({ key: 'validators', label: 'Active set' }),
       reading({ key: 'nodeHealth', label: 'Node health' }),
     ].join('\n'),
-    notes: `        <p class="instrument-note ring-note"></p>`,
+    notes: `        <p class="instrument-note ring-note"></p>
+${statusRecord(status)}`,
   });
 }
 
@@ -402,7 +419,7 @@ ${postureRecord(posture)}
 const SECTIONS = {
   chain: () => chainSection(),
   economy: () => economySection(),
-  validators: () => validatorsSection(),
+  validators: ({ status }) => validatorsSection(status),
   history: () => historySection(),
   upgrades: ({ history }) => upgradesSection(history),
   verify: ({ history, posture }) => verifySection(history, posture),
@@ -583,9 +600,10 @@ ${reading({ key: 'hourMessages', label: 'Messages sent', live: false, minSpec: 3
 
 /**
  * The whole page, as a string. `history` is runtime-history.json; `posture`
- * is public/posture.json; `css` is the assembled stylesheet to inline.
+ * is public/posture.json; `status` is public/status.json; `css` is the
+ * assembled stylesheet to inline.
  */
-export function renderObservatory({ history, posture, css = null }) {
+export function renderObservatory({ history, posture, status, css = null }) {
   const howTo = HOW_TO_READ.map(
     ([term, def]) => `          <div><dt>${escapeHtml(term)}</dt><dd>${escapeHtml(def)}</dd></div>`,
   ).join('\n');
@@ -606,7 +624,7 @@ ${statusBar()}${hero()}
 <noscript><p class="noscript frame">The live figures on this page are drawn by JavaScript, which is off. Every source is listed under Verify, with a command that reads it directly.</p></noscript>
 <main>
 ${Object.keys(SECTIONS)
-  .map((name) => renderSection(name, { history, posture }))
+  .map((name) => renderSection(name, { history, posture, status }))
   .join('\n')}
 </main>
 <footer class="footer">
@@ -634,8 +652,8 @@ ${howTo}
 const HARNESS_SECTION = { pulse: 'chain', era: 'economy', economy: 'economy', posture: 'verify' };
 
 /** A page holding one instrument's section, for the dev harness. */
-export function renderHarness(name, { history, posture, css = null }) {
-  const body = name === 'agent-field' || name === 'constellation' ? hero() : renderSection(HARNESS_SECTION[name] ?? name, { history, posture });
+export function renderHarness(name, { history, posture, status, css = null }) {
+  const body = name === 'agent-field' || name === 'constellation' ? hero() : renderSection(HARNESS_SECTION[name] ?? name, { history, posture, status });
   return `<!doctype html>
 <html lang="en">
 <head>

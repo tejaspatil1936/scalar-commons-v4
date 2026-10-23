@@ -43,13 +43,17 @@ copyFileSync(here('../src/styles.css'), join(outDir, 'styles.css'));
 // are also copied out so the page can link to the raw file it was built from.
 const history = readJson('../runtime-history.json');
 const posture = readJson('../public/posture.json');
+// The third record: who runs the validators and where, operator-written. It
+// is rendered with the Validators notes and copied out like the other two.
+const status = readJson('../public/status.json');
 // The stylesheet ships minified, inlined in the page for first paint and as a
 // file for reading; the source in src/ stays the readable copy.
 const css = (await transform(observatoryCss(), { loader: 'css', minify: true })).code.trim();
-writeFileSync(join(outDir, 'observatory.html'), renderObservatory({ history, posture, css }));
+writeFileSync(join(outDir, 'observatory.html'), renderObservatory({ history, posture, status, css }));
 writeFileSync(join(outDir, 'observatory.css'), css);
 copyFileSync(here('../runtime-history.json'), join(outDir, 'runtime-history.json'));
 copyFileSync(here('../public/posture.json'), join(outDir, 'posture.json'));
+copyFileSync(here('../public/status.json'), join(outDir, 'status.json'));
 
 // /pulse: the same design system (the observatory's stylesheet, then the
 // page's own), inlined the same way, written out the same way.
