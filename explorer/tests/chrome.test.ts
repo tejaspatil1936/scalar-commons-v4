@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createIndexerClient, createIndexerReader } from '../src/activity.js';
 import type { ExplorerChain } from '../src/chain.js';
 import { band, curve, curvePaths, reading, tag, topBar, NAV } from '../src/chrome-templates.js';
-import { renderAccount, renderActivity, renderBlock, renderError, renderExtrinsic, renderHome } from '../src/render.js';
+import { figureWidthPx, readingRow, renderAccount, renderActivity, renderBlock, renderError, renderExtrinsic, renderHome } from '../src/render.js';
 import { parseRoute, searchPath } from '../src/routes.js';
 import { createExplorerServer, readChromeStylesheet, defaultChromeDir } from '../src/server.js';
 import type { AccountView, ActivityView, BlockView, ChainInfo, ExtrinsicView, HomeView, Read } from '../src/types.js';
@@ -144,7 +144,7 @@ describe('renderHome in the chrome', () => {
     expect(html).toContain('AS OF 2026-10-23 12:00:00 UTC');
     expect(html).toContain('7 · 120 / 3,600');
     expect(html).toContain('STORAGE agents.eraNumber · emissions.eraStartBlock · emissions.eraDuration');
-    expect(html).toContain('18,000,000,000 CMN');
+    expect(html).toContain('18,000,000,000<span class="nw-unit">CMN</span>');
     expect(html).toContain('STORAGE session.validators');
   });
 
@@ -512,20 +512,35 @@ describe('the chrome over HTTP', () => {
 });
 
 describe('layout faults seen at 1440 px against the public node', () => {
-  it('renders the six home readings stacked in a wrapping row, and issuance as whole CMN', () => {
+  it('renders the six home readings as two .nw-row rows of three (one figure size a row), issuance as whole CMN with the unit at label size', () => {
     const html = renderHome(HOME);
-    expect(html).toContain('<div class="nw-row x-wrap">');
+    const rows = html.match(/<div class="nw-row"[^>]*>/g) ?? [];
+    expect(rows.length).toBe(2);
+    expect(html).not.toContain('nw-row x-wrap');
     expect(html.match(/nw-reading nw-reading--stack/g)?.length).toBeGreaterThanOrEqual(6);
-    expect(html).toContain('18,000,000,000 CMN');
+    expect(html).toContain('18,000,000,000<span class="nw-unit">CMN</span>');
     expect(html).toContain('18000000000000000000000 plancks · whole CMN');
-    expect(html).toMatch(/\.x-wrap\{grid-auto-flow:row;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
   });
 
-  it('prints the spine row time as HH:MM:SS with the full UTC on the title, and sizes the spine columns to fit', () => {
+  it('steps a row down at render when a figure would spill its column (Plex Mono is 0.6 em a glyph)', () => {
+    expect(readingRow(['<span data-reading-value>1,163,615</span>', '<span data-reading-value>1,163,613</span>', '<span data-reading-value>172 · 311 / 3,600</span>'])).toBe(
+      '<div class="nw-row">\n<span data-reading-value>1,163,615</span>\n<span data-reading-value>1,163,613</span>\n<span data-reading-value>172 · 311 / 3,600</span>\n</div>',
+    );
+    const wide = ['1,099.999891842778', '0', '0', '1,099.999891842778'].map((f) => `<span data-reading-value>${f}<span class="nw-unit">CMN</span></span>`);
+    expect(readingRow(wide)).toContain('<div class="nw-row" data-step="1">');
+    // 18 glyphs at 28 px is 302 px, more than a quarter of the 1,200 px frame (282 px).
+    expect(figureWidthPx('1,099.999891842778', null, 'm')).toBeCloseTo(18 * 16.8 + 28);
+    // Two in a row on a phone sit at --figure-m; a 21-glyph balance spills the 350 px column and drops to --figure-s.
+    expect(readingRow(['1,000,000.12345678901', '0'].map((f) => `<span data-reading-value>${f}</span>`))).toContain('data-step-m="1"');
+  });
+
+  it('prints the spine row time as HH:MM:SS with the full UTC on the title, and never truncates the block number', () => {
     const html = renderHome(HOME);
     expect(html).toContain('title="2026-08-18 21:01:00 UTC">21:01:00</span>');
-    expect(html).toContain('.nw-spine--explorer .nw-spine-tick{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,.6fr) minmax(0,2fr)}');
-    expect(html).toContain('.nw-spine--explorer .nw-spine-tick>span:nth-child(4){display:none}');
+    // Number, time and extrinsic count at their full width; the author takes what is left (ellipsis); the event column keeps its count.
+    expect(html).toContain('.nw-spine--explorer .nw-spine-tick{grid-template-columns:max-content max-content max-content minmax(0,1fr) max-content;column-gap:var(--s-3)}');
+    expect(html).toContain('.nw-spine--explorer .nw-spine-tick>span{min-width:0;white-space:nowrap}');
+    expect(html).toContain('<div class="x-col-4">');
   });
 
   it('renders every hash-bearing reading stacked and full-width so a 66-character hash never sets the page width', () => {
@@ -533,7 +548,7 @@ describe('layout faults seen at 1440 px against the public node', () => {
     for (const label of ['Hash', 'Parent', 'State root', 'Extrinsics root']) {
       expect(block).toMatch(new RegExp(`<div class="x-col-12"><div class="nw-reading nw-reading--stack x-wide">\\s*<div class="nw-reading-line"><span class="nw-label">${label}</span>`));
     }
-    expect(block).toContain('.x-wide .nw-figure,.x-hash{overflow-wrap:anywhere;word-break:break-all}');
+    expect(block).toContain('.nw-reading.x-wide .nw-reading-figure .nw-figure,.x-hash{white-space:normal;overflow-wrap:anywhere;word-break:break-all}');
     expect(renderExtrinsic(EXTRINSIC, CHAIN)).toContain('<p class="nw-mono x-hash">');
     expect(renderAccount(ACCOUNT, CHAIN)).toMatch(/<div class="x-col-12"><div class="nw-reading nw-reading--stack x-wide">\s*<div class="nw-reading-line"><span class="nw-label">Public key<\/span>/);
   });

@@ -19,6 +19,7 @@
 import {
   address as addressChip,
   agentName,
+  attrs,
   band,
   code,
   copy,
@@ -70,10 +71,54 @@ import type {
  * --s-n step or a calc of them) — and a request for the chrome
  * (landing/src/chrome/README.md, "Asking for a change") rather than a theme.
  */
-const EXPLORER_LAYOUT_CSS = `.x-col-4{grid-column:1/span 4}.x-col-8{grid-column:5/span 8}.x-col-6{grid-column:span 6}.x-col-12{grid-column:1/-1}.x-wrap{grid-auto-flow:row;grid-template-columns:repeat(3,minmax(0,1fr));row-gap:var(--s-6)}.x-wide .nw-reading-figure{max-width:100%}.x-wide .nw-figure,.x-hash{overflow-wrap:anywhere;word-break:break-all}.nw-ledger-row>span{min-width:0;overflow-wrap:anywhere}.nw-ledger-row .nw-tag{white-space:normal}.nw-spine--explorer .nw-spine-tick{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,.6fr) minmax(0,2fr)}.nw-spine--explorer .nw-spine-tick>span{min-width:0}.nw-spine--explorer .nw-spine-tick>span:nth-child(-n+3){white-space:nowrap;overflow:hidden;text-overflow:ellipsis}@media(max-width:390px){.x-col-4,.x-col-8,.x-col-6{grid-column:1/-1}.x-wrap{grid-template-columns:minmax(0,1fr)}.nw-spine--explorer .nw-spine-tick{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,.6fr)}.nw-spine--explorer .nw-spine-tick>span:nth-child(4){display:none}}.nw-spine--explorer{width:100%}.nw-search{margin-block:var(--s-5)}.nw-raw-details summary{cursor:pointer;list-style:none}.nw-raw-details[open] summary{margin-bottom:var(--s-2)}.nw-share{min-width:calc(var(--s-1) / 2)}.nw-section-head .nw-tag{margin-left:auto}.nw-section-head .nw-tag+.nw-tag{margin-left:0}@media(min-width:391px){.nw-ledger-row{grid-template-columns:minmax(var(--s-7),auto) minmax(0,2fr) minmax(0,2fr) minmax(0,1fr) auto}.nw-ledger-row>:first-child{white-space:nowrap}}`;
+const EXPLORER_LAYOUT_CSS = `.x-col-4{grid-column:1/span 4}.x-col-8{grid-column:5/span 8}.x-col-6{grid-column:span 6}.x-col-12{grid-column:1/-1}.x-wrap{grid-auto-flow:row;grid-template-columns:repeat(3,minmax(0,1fr));row-gap:var(--s-6)}.x-rows>.nw-row+.nw-row{margin-top:var(--s-6)}.x-wide .nw-reading-figure{max-width:100%}.nw-reading .nw-reading-figure .nw-figure--body{white-space:normal;overflow-wrap:anywhere}.nw-reading.x-wide .nw-reading-figure .nw-figure,.x-hash{white-space:normal;overflow-wrap:anywhere;word-break:break-all}.nw-section-head h1{min-width:0;max-width:100%;overflow-wrap:anywhere}.nw-ledger-row>span{min-width:0;overflow-wrap:anywhere}.nw-ledger-row .nw-tag{white-space:normal}.nw-spine--explorer{width:100%}.nw-spine--explorer .nw-spine-tick{grid-template-columns:max-content max-content max-content minmax(0,1fr) max-content;column-gap:var(--s-3)}.nw-spine--explorer .nw-spine-tick>span{min-width:0;white-space:nowrap}.nw-spine--explorer .nw-spine-tick>span:nth-child(4){overflow:hidden;text-overflow:ellipsis}@media(max-width:480px){.x-col-4,.x-col-8,.x-col-6{grid-column:1/-1}.x-wrap{grid-template-columns:minmax(0,1fr)}.nw-row.nw-row.nw-row.nw-row .nw-reading-figure .nw-figure{font:var(--figure-m)}.nw-row.nw-row.nw-row:has(> :nth-child(3)) .nw-reading-figure .nw-figure,.nw-row.nw-row.nw-row[data-step-m="1"] .nw-reading-figure .nw-figure{font:var(--figure-s)}}.nw-search{margin-block:var(--s-5)}.nw-raw-details summary{cursor:pointer;list-style:none}.nw-raw-details[open] summary{margin-bottom:var(--s-2)}.nw-share{min-width:calc(var(--s-1) / 2)}.nw-section-head .nw-tag{margin-left:auto}.nw-section-head .nw-tag+.nw-tag{margin-left:0}@media(min-width:481px){.nw-ledger-row{grid-template-columns:minmax(var(--s-7),auto) minmax(0,2fr) minmax(0,2fr) minmax(0,1fr) auto}.nw-ledger-row>:first-child{white-space:nowrap}}`;
 
 /** The source a view carries for a figure it did not read: a leader to nothing, with the reason. */
 const NOT_READ: Source = { method: 'RPC', url: 'not read in this view', fetchedAt: null, block: null, raw: null };
+
+/**
+ * A row of Readings, sized as the chrome sizes it (one figure size per row by
+ * count: 1 xl, 2 l, 3–4 m, 5–6 s; at 480 px and under one column, a step
+ * down). The explorer ships no script, so behaviour/fit.js cannot drop an
+ * overflowing row a step at render; the server does it instead, and it can,
+ * exactly: IBM Plex Mono advances 0.6 em per glyph, so a figure's width is its
+ * length × 0.6 × its size, plus its unit (--label, 0.72 em a glyph with the
+ * tracking, 8 px after the figure) and the stub (20 px, 8 px after). A row
+ * that would spill at 1440 px gets data-step="1" (the chrome's own step); one
+ * that would spill in the 350 px phone column gets data-step-m="1", which the
+ * page's layout CSS sets at --figure-s. At 480 px and under the layout CSS
+ * also restates the chrome's phone sizes (1–2 → m, 3+ → s) at a specificity
+ * that beats the desktop count rules, which otherwise outrank them.
+ */
+const FIGURE_PX = { xl: 64, l: 44, m: 28, s: 20 } as const;
+type FigureStep = keyof typeof FIGURE_PX;
+const sizeByCount = (count: number): FigureStep => (count <= 1 ? 'xl' : count === 2 ? 'l' : count <= 4 ? 'm' : 's');
+const phoneSizeByCount = (count: number): FigureStep => (count >= 3 ? 's' : 'm');
+/** The frame (--content), the gutter, and the phone column (390 px less two 20 px gutters). */
+const FRAME_PX = 1200;
+const GUTTER_PX = 24;
+const PHONE_COLUMN_PX = 390 - 2 * 20;
+const decodeText = (html: string): string =>
+  html.replace(/<[^>]*>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+export const figureWidthPx = (text: string, unit: string | null, size: FigureStep): number =>
+  [...text].length * 0.6 * FIGURE_PX[size] + (unit ? 8 + [...unit].length * 0.72 * 11 : 0) + 8 + 20;
+
+export function readingRow(readings: readonly string[], className = ''): string {
+  const count = readings.length;
+  const column = (FRAME_PX - (count - 1) * GUTTER_PX) / count;
+  const figures = readings.map((html) => ({
+    text: decodeText(/data-reading-value[^>]*>([\s\S]*?)(?:<span class="nw-unit">|<\/span>)/.exec(html)?.[1] ?? ''),
+    unit: /<span class="nw-unit">([^<]*)<\/span>/.exec(html)?.[1] ?? null,
+  }));
+  const spills = (size: FigureStep, width: number): boolean => figures.some((f) => figureWidthPx(f.text, f.unit, size) > width);
+  const phone = phoneSizeByCount(count);
+  return `<div class="nw-row${className ? ` ${className}` : ''}"${attrs({
+    'data-step': spills(sizeByCount(count), column) ? '1' : null,
+    'data-step-m': phone !== 's' && spills(phone, PHONE_COLUMN_PX) ? '1' : null,
+  })}>
+${readings.join('\n')}
+</div>`;
+}
 
 /** What the lamp and footer know about the chain at render time. */
 interface Frame {
@@ -152,7 +197,7 @@ function readingOf<T>(
   label: string,
   read: Read<T> | undefined,
   format: (value: T) => string,
-  options: { size?: 'xl' | 'l' | 'm' | 'body'; href?: string | null; state?: State; figureHtml?: (value: T) => string; sub?: string | null; stack?: boolean; wide?: boolean } = {},
+  options: { size?: 'xl' | 'l' | 'm' | 's' | 'body'; href?: string | null; state?: State; figureHtml?: (value: T) => string; sub?: string | null; stack?: boolean; wide?: boolean; unit?: string | null } = {},
 ): string {
   const stack = options.stack ?? true;
   const className = options.wide ? 'x-wide' : '';
@@ -171,6 +216,7 @@ function readingOf<T>(
     href: options.href ?? null,
     state: options.state ?? 'record',
     sub: options.sub ?? null,
+    unit: options.unit ?? null,
     stack,
     className,
     source: read.source,
@@ -178,16 +224,22 @@ function readingOf<T>(
 }
 
 /** A reading whose value the view already holds (a header field, a balance), with its source. */
-function fact(label: string, figure: string, source: Source, options: { size?: 'xl' | 'l' | 'm' | 'body'; href?: string | null; figureHtml?: string | null; state?: State; stack?: boolean; wide?: boolean } = {}): string {
-  return reading({ label, figure, size: options.size ?? 'body', href: options.href ?? null, figureHtml: options.figureHtml ?? null, state: options.state ?? 'record', stack: options.stack ?? true, className: options.wide ? 'x-wide' : '', source });
+function fact(label: string, figure: string, source: Source, options: { size?: 'xl' | 'l' | 'm' | 's' | 'body'; href?: string | null; figureHtml?: string | null; state?: State; stack?: boolean; wide?: boolean; unit?: string | null } = {}): string {
+  return reading({ label, figure, size: options.size ?? 'body', href: options.href ?? null, figureHtml: options.figureHtml ?? null, state: options.state ?? 'record', stack: options.stack ?? true, unit: options.unit ?? null, className: options.wide ? 'x-wide' : '', source });
 }
 
 /** A hash-bearing Reading: stacked, full-width, wrapping anywhere — a 66-character hash never sets the page's width. */
 const hashFact = (label: string, figure: string, source: Source, options: { href?: string | null; figureHtml?: string | null } = {}): string =>
   `<div class="x-col-12">${fact(label, figure, source, { ...options, stack: true, wide: true })}</div>`;
 
-/** Whole tokens with grouping, for the figure of a balance; the exact plancks go on the receipt's computation line. */
-const wholeTokens = (plancks: bigint, decimals: number, symbol: string): string => `${formatInt(plancks / 10n ** BigInt(decimals))} ${symbol}`;
+/** Whole tokens with grouping, for the figure of a balance; the unit goes beside it at --label size and the exact plancks on the receipt's computation line. */
+const wholeTokens = (plancks: bigint, decimals: number): string => formatInt(plancks / 10n ** BigInt(decimals));
+
+/** A balance as a figure without its symbol: the symbol is the Reading's unit, printed at --label size on the figure's baseline. */
+const tokenFigure = (plancks: bigint, decimals: number, symbol: string): string => {
+  const text = formatBalance(plancks, decimals, symbol);
+  return text.endsWith(` ${symbol}`) ? text.slice(0, -(symbol.length + 1)) : text;
+};
 
 /** Clock time `HH:MM:SS` of a block's timestamp for a dense row; the full UTC goes on the title. */
 const clockTime = (timestampMs: bigint | null): string => {
@@ -292,13 +344,19 @@ export function renderHome(view: HomeView): string {
     placeholder: 'block number, hash, extrinsic, address, agent name',
   })}</form>`;
 
-  const readings = `<div class="nw-row x-wrap">
-${fact('Best', formatInt(view.head.number), headSource, { size: 'm', href: blockPath({ kind: 'number', number: view.head.number }), state: r && r.headAgeMs !== null && r.headAgeMs < 30_000 ? 'live' : 'record' })}
-${readingOf('Finalized', r?.finalized, (f) => formatInt(f.number), { href: r?.finalized.value ? blockPath({ kind: 'number', number: r.finalized.value.number }) : null })}
-${readingOf('Era', r?.era, (e) => `${formatInt(e.number)} · ${formatInt(e.elapsed)} / ${formatInt(e.length)}`)}
-${readingOf('Session', r?.session, (s) => `${formatInt(s.index)} · ${formatInt(s.elapsed)} / ${formatInt(s.length)}`)}
-${readingOf('Validators', r?.validators, (n) => formatInt(n))}
-${readingOf('Issuance', r === undefined ? undefined : r.issuance.value === null ? r.issuance : { ...r.issuance, source: { ...r.issuance.source, computed: `${r.issuance.value.toString()} plancks · whole ${view.chain.tokenSymbol}` } }, (value) => wholeTokens(value, view.chain.tokenDecimals, view.chain.tokenSymbol))}
+  // Six Readings as two rows of three, so each row has one figure size
+  // (§2.5: 3–4 in a row → --figure-m) and nothing wraps at 1440 px.
+  const readings = `<div class="x-rows">
+${readingRow([
+  fact('Best', formatInt(view.head.number), headSource, { size: 'm', href: blockPath({ kind: 'number', number: view.head.number }), state: r && r.headAgeMs !== null && r.headAgeMs < 30_000 ? 'live' : 'record' }),
+  readingOf('Finalized', r?.finalized, (f) => formatInt(f.number), { href: r?.finalized.value ? blockPath({ kind: 'number', number: r.finalized.value.number }) : null }),
+  readingOf('Era', r?.era, (e) => `${formatInt(e.number)} · ${formatInt(e.elapsed)} / ${formatInt(e.length)}`),
+])}
+${readingRow([
+  readingOf('Session', r?.session, (s) => `${formatInt(s.index)} · ${formatInt(s.elapsed)} / ${formatInt(s.length)}`),
+  readingOf('Validators', r?.validators, (n) => formatInt(n)),
+  readingOf('Issuance', r === undefined ? undefined : r.issuance.value === null ? r.issuance : { ...r.issuance, source: { ...r.issuance.source, computed: `${r.issuance.value.toString()} plancks · whole ${view.chain.tokenSymbol}` } }, (value) => wholeTokens(value, view.chain.tokenDecimals), { unit: view.chain.tokenSymbol }),
+])}
 </div>`;
 
   const recent = r?.recent.value ?? [];
@@ -317,7 +375,7 @@ ${readingOf('Issuance', r === undefined ? undefined : r.issuance.value === null 
               block.timestampMs === null ? 'no timestamp' : (utc(formatTimestamp(block.timestampMs)) ?? ''),
             )}">${escapeHtml(block.timestampMs === null ? 'no timestamp' : clockTime(block.timestampMs))}</span><span class="nw-mono">${block.extrinsics.length} ex</span><span class="nw-mono">${
               block.author ? addressChip(block.author, { href: accountPath(block.author) }) : '<span class="nw-sage">author —</span>'
-            } · ${block.events.length} ev</span>`,
+            }</span><span class="nw-mono">${block.events.length} ev</span>`,
           })),
         });
 
@@ -415,7 +473,7 @@ ${col(
       }),
 )}
 ${col(fact('Spec', String(view.specVersion), sourceAt('RPC', 'state_getRuntimeVersion', best, renderedAt)))}
-${col(readingOf('Weight', d?.weight, (weight) => weight, { size: 'body' }))}
+${col(readingOf('Weight', d?.weight, (weight) => weight, { size: 'body', wide: true }))}
 ${col(fact('Counts', counts, headerSource))}
 </div>`;
 
@@ -497,11 +555,11 @@ ${col(fact('Length', `${formatInt(view.lengthBytes)} bytes`, src))}
   const next =
     terms === undefined
       ? ''
-      : `${sectionHead('What happens next')}<div class="nw-row x-wrap">
-${readingOf('Dispute bounty', terms.bountyBps, (bps) => `${bps / 100}% · ${formatInt(bps)} bps`)}
-${readingOf('Burned on dispute', terms.burnBps, (bps) => `${bps / 100}% · ${formatInt(bps)} bps`)}
-${readingOf('Settled by', terms.settles, (who) => who, { size: 'body' })}
-</div>`;
+      : `${sectionHead('What happens next')}${readingRow([
+          readingOf('Dispute bounty', terms.bountyBps, (bps) => `${bps / 100}% · ${formatInt(bps)} bps`),
+          readingOf('Burned on dispute', terms.burnBps, (bps) => `${bps / 100}% · ${formatInt(bps)} bps`),
+          readingOf('Settled by', terms.settles, (who) => who, { size: 'body' }),
+        ])}`;
 
   const body = `<section class="nw-section nw-stack">
 <div class="nw-section-head"><h1 class="nw-h2">${escapeHtml(callName)}</h1>${outcomeTag(view.outcome)}${asOfTag(renderedAt)}</div>
@@ -537,12 +595,14 @@ export function renderAccount(view: AccountView, chain: ChainInfo): string {
     operator ? tag({ state: 'operator', text: 'OPERATOR-RUN' }) : '',
   ].join('');
 
-  const balances = `<div class="nw-row x-wrap">
-${fact('Free', balance(view.free), balanceSource, { size: 'm' })}
-${fact('Reserved', balance(view.reserved), balanceSource, { size: 'm' })}
-${fact('Frozen', balance(view.frozen), balanceSource, { size: 'm' })}
-${fact('Total', balance(view.free + view.reserved), { ...balanceSource, computed: 'free + reserved' }, { size: 'm' })}
-</div>`;
+  const figureOf = (value: bigint): string => tokenFigure(value, chain.tokenDecimals, chain.tokenSymbol);
+  const unit = chain.tokenSymbol;
+  const balances = readingRow([
+    fact('Free', figureOf(view.free), balanceSource, { size: 'm', unit }),
+    fact('Reserved', figureOf(view.reserved), balanceSource, { size: 'm', unit }),
+    fact('Frozen', figureOf(view.frozen), balanceSource, { size: 'm', unit }),
+    fact('Total', figureOf(view.free + view.reserved), { ...balanceSource, computed: 'free + reserved' }, { size: 'm', unit }),
+  ]);
 
   const col = (html: string): string => `<div class="x-col-6">${html}</div>`;
   const roleReadings = isAgent
