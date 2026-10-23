@@ -72,12 +72,14 @@ export function noteContainer(md: MarkdownIt): void {
   md.block.ruler.before('fence', 'container_note', rule, {
     alt: ['paragraph', 'reference', 'blockquote', 'list'],
   })
+  // Rendered as the chrome's info callout; the label in sentence case.
   md.renderer.rules.container_note_open = (tokens, idx) => {
-    const label = tokens[idx].info.trim().slice(NAME.length).trim()
+    const raw = tokens[idx].info.trim().slice(NAME.length).trim().toLowerCase()
+    const label = raw ? raw[0].toUpperCase() + raw.slice(1) : ''
     return (
-      `<aside class="nw-note" data-note><span class="nw-leader" aria-hidden="true"></span>` +
-      `<div class="nw-note-body"><span class="nw-label">${md.utils.escapeHtml(label)}</span>`
+      `<aside class="sc-callout sc-note" role="note" data-note>` +
+      `<div class="sc-callout-body">${label ? `<strong>${md.utils.escapeHtml(label)}</strong>` : ''}<div>`
     )
   }
-  md.renderer.rules.container_note_close = () => '</div></aside>\n'
+  md.renderer.rules.container_note_close = () => '</div></div></aside>\n'
 }

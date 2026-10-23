@@ -1,0 +1,341 @@
+/*
+ * The docs theme: VitePress's default theme with its variables set to the
+ * shared tokens (landing/src/chrome/tokens.css, synced to ./chrome/). Inter for
+ * everything, JetBrains Mono for code, the accent for links and the active
+ * page, neutral greys, one light theme. Then the few rules that bring the
+ * default theme's own surfaces onto the shared scales: the reading column,
+ * the type scale, code blocks and tables in the shared style, sentence case,
+ * no letter-spacing, no shadows but an open menu, colour transitions only.
+ */
+
+/* ── variables ───────────────────────────────────────────────────────────── */
+:root {
+  --vp-font-family-base: var(--font-sans);
+  --vp-font-family-mono: var(--font-mono);
+
+  /* palette: every hue the default theme names resolves to a token */
+  --vp-c-white: var(--bg);
+  --vp-c-black: var(--text);
+  --vp-c-neutral: var(--text);
+  --vp-c-neutral-inverse: var(--bg);
+  --vp-c-gray-1: var(--border);
+  --vp-c-gray-2: var(--border);
+  --vp-c-gray-3: var(--border);
+  --vp-c-gray-soft: var(--bg-2);
+  --vp-c-indigo-1: var(--accent);
+  --vp-c-indigo-2: var(--accent-2);
+  --vp-c-indigo-3: var(--accent-2);
+  --vp-c-indigo-soft: var(--bg-2);
+  --vp-c-purple-1: var(--accent);
+  --vp-c-purple-2: var(--accent-2);
+  --vp-c-purple-3: var(--accent-2);
+  --vp-c-purple-soft: var(--bg-2);
+  --vp-c-green-1: var(--ok);
+  --vp-c-green-2: var(--ok);
+  --vp-c-green-3: var(--ok);
+  --vp-c-green-soft: var(--ok-bg);
+  --vp-c-yellow-1: var(--warn);
+  --vp-c-yellow-2: var(--warn);
+  --vp-c-yellow-3: var(--warn);
+  --vp-c-yellow-soft: var(--warn-bg);
+  --vp-c-red-1: var(--bad);
+  --vp-c-red-2: var(--bad);
+  --vp-c-red-3: var(--bad);
+  --vp-c-red-soft: var(--bad-bg);
+  --vp-c-sponsor: var(--accent);
+
+  --vp-c-bg: var(--bg);
+  --vp-c-bg-alt: var(--bg);
+  --vp-c-bg-elv: var(--bg);
+  --vp-c-bg-soft: var(--bg-2);
+  --vp-c-border: var(--control);
+  --vp-c-divider: var(--border);
+  --vp-c-gutter: var(--border);
+  --vp-c-text-1: var(--text);
+  --vp-c-text-2: var(--text-2);
+  --vp-c-text-3: var(--text-3);
+
+  --vp-c-default-1: var(--text-2);
+  --vp-c-default-2: var(--border);
+  --vp-c-default-3: var(--border);
+  --vp-c-default-soft: var(--bg-2);
+  --vp-c-brand-1: var(--accent);
+  --vp-c-brand-2: var(--accent-2);
+  --vp-c-brand-3: var(--accent);
+  --vp-c-brand-soft: var(--bg-2);
+  --vp-c-brand: var(--accent);
+  --vp-c-tip-1: var(--accent);
+  --vp-c-tip-2: var(--accent-2);
+  --vp-c-tip-3: var(--accent);
+  --vp-c-tip-soft: var(--bg);
+  --vp-c-note-1: var(--accent);
+  --vp-c-note-2: var(--accent-2);
+  --vp-c-note-3: var(--accent);
+  --vp-c-note-soft: var(--bg);
+  --vp-c-success-1: var(--ok);
+  --vp-c-success-2: var(--ok);
+  --vp-c-success-3: var(--ok);
+  --vp-c-success-soft: var(--ok-bg);
+  --vp-c-important-1: var(--accent);
+  --vp-c-important-2: var(--accent-2);
+  --vp-c-important-3: var(--accent);
+  --vp-c-important-soft: var(--bg);
+  --vp-c-warning-1: var(--warn);
+  --vp-c-warning-2: var(--warn);
+  --vp-c-warning-3: var(--warn);
+  --vp-c-warning-soft: var(--bg);
+  --vp-c-danger-1: var(--bad);
+  --vp-c-danger-2: var(--bad);
+  --vp-c-danger-3: var(--bad);
+  --vp-c-danger-soft: var(--bg);
+  --vp-c-caution-1: var(--bad);
+  --vp-c-caution-2: var(--bad);
+  --vp-c-caution-3: var(--bad);
+  --vp-c-caution-soft: var(--bg);
+
+  /* surfaces */
+  --vp-nav-height: var(--header);
+  --vp-nav-bg-color: var(--bg);
+  --vp-nav-screen-bg-color: var(--bg);
+  --vp-local-nav-bg-color: var(--bg);
+  --vp-sidebar-bg-color: var(--bg);
+  --vp-backdrop-bg-color: var(--bg);
+  --vp-input-bg-color: var(--bg);
+  --vp-input-border-color: var(--control);
+  --vp-shadow-1: none;
+  --vp-shadow-2: none;
+  --vp-shadow-3: var(--menu-shadow);
+  --vp-shadow-4: var(--menu-shadow);
+  --vp-shadow-5: var(--menu-shadow);
+  --vp-layout-max-width: calc(var(--container) + 2 * var(--gutter) + 320px);
+
+  /* code: bg-2, mono, one colour */
+  --vp-code-font-size: 0.875rem;
+  --vp-code-line-height: 1.5;
+  --vp-code-color: var(--text);
+  --vp-code-bg: var(--bg-2);
+  --vp-code-block-bg: var(--bg-2);
+  --vp-code-block-color: var(--text);
+  --vp-code-block-divider-color: var(--border);
+  --vp-code-lang-color: var(--text-2);
+  --vp-code-line-highlight-color: var(--bg);
+  --vp-code-line-number-color: var(--text-3);
+  --vp-code-copy-code-bg: var(--bg);
+  --vp-code-copy-code-border-color: var(--border);
+  --vp-code-copy-code-hover-bg: var(--bg);
+  --vp-code-copy-code-hover-border-color: var(--control);
+  --vp-code-copy-code-active-text: var(--text-2);
+  --vp-code-tab-divider: var(--border);
+  --vp-code-tab-text-color: var(--text-2);
+  --vp-code-tab-bg: var(--bg-2);
+  --vp-code-tab-hover-text-color: var(--text);
+  --vp-code-tab-active-text-color: var(--text);
+  --vp-code-tab-active-bar-color: var(--accent);
+  --vp-code-link-color: var(--accent);
+  --vp-code-link-hover-color: var(--accent-2);
+
+  /* callouts (::: tip, ::: warning …): the chrome's callout, white with a coloured left rule */
+  --vp-custom-block-font-size: 0.875rem;
+  --vp-custom-block-code-font-size: 0.875rem;
+  --vp-custom-block-info-bg: var(--bg);
+  --vp-custom-block-info-border: var(--border);
+  --vp-custom-block-info-text: var(--text);
+  --vp-custom-block-info-code-bg: var(--bg-2);
+  --vp-custom-block-note-bg: var(--bg);
+  --vp-custom-block-note-border: var(--border);
+  --vp-custom-block-note-text: var(--text);
+  --vp-custom-block-note-code-bg: var(--bg-2);
+  --vp-custom-block-tip-bg: var(--bg);
+  --vp-custom-block-tip-border: var(--border);
+  --vp-custom-block-tip-text: var(--text);
+  --vp-custom-block-tip-code-bg: var(--bg-2);
+  --vp-custom-block-important-bg: var(--bg);
+  --vp-custom-block-important-border: var(--border);
+  --vp-custom-block-important-text: var(--text);
+  --vp-custom-block-important-code-bg: var(--bg-2);
+  --vp-custom-block-warning-bg: var(--bg);
+  --vp-custom-block-warning-border: var(--border);
+  --vp-custom-block-warning-text: var(--text);
+  --vp-custom-block-warning-code-bg: var(--bg-2);
+  --vp-custom-block-danger-bg: var(--bg);
+  --vp-custom-block-danger-border: var(--border);
+  --vp-custom-block-danger-text: var(--text);
+  --vp-custom-block-danger-code-bg: var(--bg-2);
+  --vp-custom-block-caution-bg: var(--bg);
+  --vp-custom-block-caution-border: var(--border);
+  --vp-custom-block-caution-text: var(--text);
+  --vp-custom-block-caution-code-bg: var(--bg-2);
+  --vp-custom-block-details-bg: var(--bg);
+  --vp-custom-block-details-border: var(--border);
+  --vp-custom-block-details-text: var(--text);
+  --vp-custom-block-details-code-bg: var(--bg-2);
+
+  /* badges */
+  --vp-badge-info-border: transparent;
+  --vp-badge-info-text: var(--text-2);
+  --vp-badge-info-bg: var(--bg-2);
+  --vp-badge-tip-border: transparent;
+  --vp-badge-tip-text: var(--accent);
+  --vp-badge-tip-bg: var(--bg-2);
+  --vp-badge-warning-border: transparent;
+  --vp-badge-warning-text: var(--warn);
+  --vp-badge-warning-bg: var(--warn-bg);
+  --vp-badge-danger-border: transparent;
+  --vp-badge-danger-text: var(--bad);
+  --vp-badge-danger-bg: var(--bad-bg);
+
+  /* local search */
+  --vp-local-search-bg: var(--bg);
+  --vp-local-search-result-bg: var(--bg);
+  --vp-local-search-result-border: var(--border);
+  --vp-local-search-result-selected-bg: var(--bg-2);
+  --vp-local-search-result-selected-border: var(--accent);
+  --vp-local-search-highlight-bg: var(--bg-2);
+  --vp-local-search-highlight-text: var(--text);
+}
+
+/* ── nav bar: the chrome's header ────────────────────────────────────────── */
+.VPNavBar,
+.VPNavBar.has-sidebar .content,
+.VPNavBar:not(.home) .divider-line,
+.VPNavBar.screen-open { background: var(--bg); }
+.VPNavBar { border-bottom: 1px solid var(--border); }
+.VPNavBar .divider { display: none; }
+.VPNavBarTitle .title { font: var(--lead); font-weight: 600; color: var(--text); border-bottom: 0; }
+.VPNavBarMenuLink { font: var(--small); font-weight: 500; color: var(--text-2); }
+.VPNavBarMenuLink:hover { color: var(--text); }
+.VPNavBarMenuLink.active { color: var(--text); }
+.VPNavBarMenuLink .vpi-arrow-up-right { display: none; }
+.sc-docs-navend { display: flex; align-items: center; gap: var(--s-4); margin-left: var(--s-4); }
+.sc-docs-screen-end a { display: flex; align-items: center; gap: var(--s-2); min-height: var(--s-7); font: var(--body); font-weight: 500; color: var(--text); border-bottom: 1px solid var(--border); }
+.VPNavScreenMenuLink { font: var(--body); font-weight: 500; color: var(--text); padding: var(--s-3) 0; }
+.VPNavScreenMenuLink .vpi-arrow-up-right { display: none; }
+.VPNavScreen .container { padding: var(--s-5) 0 var(--s-8); }
+.VPNavBarHamburger { width: var(--s-7); height: var(--s-7); }
+@media (max-width: 960px) {
+  .sc-docs-navend .sc-header-link { display: none; }
+}
+@media (max-width: 767px) {
+  .sc-docs-navend { gap: var(--s-2); margin-left: auto; }
+}
+
+/* ── search button in the nav ────────────────────────────────────────────── */
+.DocSearch-Button { background: var(--bg); border: 1px solid var(--control); border-radius: var(--radius); }
+.DocSearch-Button:hover { background: var(--bg-2); border-color: var(--control); }
+.DocSearch-Button .DocSearch-Button-Placeholder { font: var(--small); color: var(--text-3); }
+.DocSearch-Button .DocSearch-Button-Keys { display: none; }
+
+/* ── sidebar and outline: sans, sentence case, no letter-spacing ─────────── */
+.VPSidebarItem .text { font: var(--small); font-weight: 400; color: var(--text-2); }
+.VPSidebarItem.level-0 > .item > .text,
+.VPSidebarItem.level-0 > .item > .VPLink > .text { font: var(--small); font-weight: 600; color: var(--text); }
+.VPSidebarItem.is-link > .item > .link:hover .text { color: var(--text); }
+.VPSidebarItem.is-active > .item .link > .text { color: var(--accent); font-weight: 500; }
+.VPSidebarItem .vpi-arrow-up-right { display: none; }
+.VPDocAsideOutline .outline-title { font: var(--small); font-weight: 600; color: var(--text); }
+.VPDocOutlineItem .outline-link { font: var(--small); color: var(--text-2); }
+.VPDocOutlineItem .outline-link:hover,
+.VPDocOutlineItem .outline-link.active { color: var(--accent); }
+.VPLocalNav { border-bottom: 1px solid var(--border); }
+.VPLocalNav .menu-text,
+.VPLocalNavOutlineDropdown button { font: var(--small); font-weight: 500; color: var(--text-2); }
+.VPLocalNavOutlineDropdown .items { box-shadow: var(--menu-shadow); border: 1px solid var(--border); }
+.VPLocalNavOutlineDropdown .header .top-link { font: var(--small); color: var(--accent); }
+
+/* ── articles: the reading column, the type scale ────────────────────────── */
+.VPDoc .content-container,
+.VPDoc.has-aside .content-container { max-width: var(--reading); }
+.vp-doc { font: var(--body); color: var(--text); }
+.vp-doc p,
+.vp-doc li,
+.vp-doc summary { font: var(--body); }
+.vp-doc h1 { font: var(--h1); letter-spacing: normal; margin-bottom: var(--s-5); }
+.vp-doc h2 { font: var(--h2); letter-spacing: normal; margin: var(--s-7) 0 var(--s-4); padding-top: var(--s-5); border-top: 1px solid var(--border); }
+.vp-doc h3 { font: var(--h3); letter-spacing: normal; margin: var(--s-6) 0 var(--s-3); }
+.vp-doc h4,
+.vp-doc h5,
+.vp-doc h6 { font: var(--body); font-weight: 600; letter-spacing: normal; margin: var(--s-5) 0 var(--s-2); }
+.vp-doc a { color: var(--accent); font-weight: 400; text-decoration: none; }
+.vp-doc a:hover { color: var(--accent-2); text-decoration: underline; }
+.vp-doc strong { font-weight: 600; }
+.vp-doc .header-anchor { color: var(--text-3); }
+.vp-doc hr { border-top: 1px solid var(--border); }
+.vp-doc blockquote { border-left: 3px solid var(--border); color: var(--text-2); }
+
+/* inline code and code blocks: bg-2, mono, radius, no syntax colours */
+.vp-doc :not(pre) > code { font: var(--mono); color: var(--text); background: var(--bg-2); border-radius: var(--radius-sm); padding: 0 var(--s-1); }
+.vp-doc a > code { color: var(--accent); }
+.vp-doc div[class*='language-'] { background: var(--bg-2); border-radius: var(--radius); margin: var(--s-4) 0; }
+.vp-doc div[class*='language-'] pre { padding: var(--s-4) 0; }
+.vp-doc div[class*='language-'] code { font: var(--mono); padding: 0 var(--s-4); }
+.vp-doc div[class*='language-'] > span.lang { font: var(--caption); color: var(--text-2); top: var(--s-1); right: var(--s-3); }
+.vp-doc div[class*='language-'] > button.copy { top: var(--s-3); right: var(--s-3); border-radius: var(--radius-sm); }
+.vp-doc [class*='language-'] code .highlighted { background: var(--bg); }
+
+/* tables: the chrome's table */
+.vp-doc table { display: block; width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); border-collapse: collapse; margin: var(--s-5) 0; font: var(--small); }
+.vp-doc tr { background: var(--bg); border-top: 1px solid var(--border); }
+.vp-doc tr:nth-child(2n) { background: var(--bg); }
+.vp-doc th { font: var(--caption); font-weight: 500; color: var(--text-2); background: var(--bg-2); text-align: left; padding: var(--s-3) var(--s-4); border: 0; border-bottom: 1px solid var(--border); }
+.vp-doc td { font: var(--small); padding: var(--s-3) var(--s-4); border: 0; border-bottom: 1px solid var(--border); }
+.vp-doc tr:last-child td { border-bottom: 0; }
+
+/* callouts: ::: tip / ::: warning / ::: danger and ::: note as the chrome's callout */
+.vp-doc .custom-block { border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--radius); padding: var(--s-4); margin: var(--s-4) 0; font: var(--small); }
+.vp-doc .custom-block p,
+.vp-doc .custom-block li { font: var(--small); margin: var(--s-1) 0; }
+.vp-doc .custom-block .custom-block-title { font: var(--small); font-weight: 600; }
+.vp-doc .custom-block.warning { border-left-color: var(--warn); }
+.vp-doc .custom-block.danger,
+.vp-doc .custom-block.caution { border-left-color: var(--bad); }
+.vp-doc .sc-note { margin: var(--s-4) 0; }
+.vp-doc .sc-note p { font: var(--small); margin: 0; }
+
+/* previous / next */
+.VPDocFooter .pager-link { border: 1px solid var(--border); border-radius: var(--radius); }
+.VPDocFooter .pager-link:hover { border-color: var(--accent); }
+.VPDocFooter .desc { font: var(--caption); color: var(--text-2); }
+.VPDocFooter .title { font: var(--small); font-weight: 500; color: var(--accent); }
+.VPDocFooter .prev-next { border-top: 1px solid var(--border); }
+
+/* ── docs home and 404 ───────────────────────────────────────────────────── */
+.sc-docs-home { padding-bottom: var(--s-8); }
+.sc-docs-home-ref { margin-top: var(--s-8); }
+.sc-docs-home-ref h2 { margin-bottom: var(--s-4); }
+.sc-docs-list { display: grid; gap: var(--s-2); }
+.sc-docs-list a { font: var(--body); }
+.sc-docs-notfound { display: grid; gap: var(--s-4); padding-block: var(--s-8); max-width: calc(var(--reading) + 2 * var(--gutter)); }
+.sc-docs-notfound-links { gap: var(--s-5); }
+.sc-docs-path { font: var(--mono); overflow-wrap: anywhere; }
+.sc-docs-search-trigger { text-align: left; color: var(--text-3); cursor: pointer; }
+
+/* ── the footer sits above the fixed sidebar, which ends where it begins ─── */
+.Layout > .sc-footer { position: relative; z-index: 31; margin-top: 0; }
+
+/* ── links that leave the docs: plain nav text, as in the chrome's header ── */
+.VPSidebar .VPSidebarItem .link.vp-external-link-icon::after { display: none !important; }
+/* in prose, the chrome's external-link icon (templates.mjs `icon`), not the default theme's arrow */
+:is(.vp-external-link-icon, .vp-doc a[href*='://'], .vp-doc a[target='_blank']):not(:is(.no-icon, svg a, :has(img, svg)))::after {
+  width: 16px;
+  height: 16px;
+  --icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M11 4h5v5M16 4l-7 7M14 11v4a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h4'/%3E%3C/svg%3E");
+}
+@media (min-width: 768px) {
+  .sc-docs-navend { margin-right: var(--s-4); }
+}
+@media (max-width: 767px) {
+  .DocSearch-Button { border: 0; width: var(--s-6); padding: 0; justify-content: center; }
+  .VPNavBarHamburger { width: var(--s-6); }
+  .VPNavBar .wrapper { padding-left: var(--s-4); padding-right: var(--s-2); }
+}
+
+/* the search sheet: a white sheet over a white page, a hairline and the menu shadow */
+.VPLocalSearchBox .shell { border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--menu-shadow); }
+.VPLocalSearchBox .result { border-radius: var(--radius); }
+/* nothing in the sheet a visitor cannot explain: no "#" before each result, no
+   list-layout toggle, and one clear button (the sheet's own, not the browser's) */
+.VPLocalSearchBox .shell .title-icon,
+.VPLocalSearchBox .shell .toggle-layout-button { display: none; }
+.VPLocalSearchBox .shell input::-webkit-search-cancel-button { display: none; }
+/* the search sheet's key hints: a token fill, not the default translucent grey */
+.VPLocalSearchBox .shell .search-keyboard-shortcuts kbd { background: var(--bg-2); border-color: var(--border); }
