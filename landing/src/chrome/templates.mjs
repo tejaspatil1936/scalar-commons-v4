@@ -51,7 +51,8 @@ export function leader({ arrow = false } = {}) {
 /** `GET api.scalarnet.io/v1/status` style request line for a source. */
 export function requestLine(source) {
   const url = String(source.url).replace(/^https?:\/\//, '').replace(/^wss?:\/\//, '');
-  return `${source.method} ${url}`;
+  // A file or a build step is named by itself; a request by its verb.
+  return source.method === 'FILE' || source.method === 'BUILD' ? url : `${source.method} ${url}`;
 }
 
 /** UTC to the second, the way every receipt prints time. */
@@ -73,7 +74,7 @@ export function receipt(source) {
 export function receiptLine(source) {
   const fetched = source.fetchedAt ? utc(source.fetchedAt) : '—';
   const block = source.block === null || source.block === undefined ? '' : ` · block ${formatInt(source.block)}`;
-  return `<span class="nw-receipt-line" data-receipt-line>${escapeHtml(requestLine(source))} · ${escapeHtml(fetched)}${escapeHtml(block)}</span>`;
+  return `<span class="nw-receipt-line" data-receipt-line>${escapeHtml(requestLine(source))}${escapeHtml(block)} · ${escapeHtml(fetched)}</span>`;
 }
 
 export function stub({ state = 'record', sealed = false, label = null } = {}) {

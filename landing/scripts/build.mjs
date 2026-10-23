@@ -32,12 +32,15 @@ const facts = readJson('../chain-facts.json');
 
 // renderPage throws on an unresolvable placeholder, so a page that would state a
 // figure the chain never reported fails the build instead of shipping.
-const html = renderPage({ facts, content, sourceClaims });
+const builtAt = new Date().toISOString();
+const html = renderPage({ facts, content, sourceClaims, builtAt });
 
 const outDir = process.env.LANDING_OUT_DIR ?? here('../dist');
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'index.html'), html);
-copyFileSync(here('../src/styles.css'), join(outDir, 'styles.css'));
+// styles.css is the chrome: tokens, chrome and print, minified — the one
+// stylesheet the script-free home page links.
+writeFileSync(join(outDir, 'styles.css'), (await transform(chromeCss(), { loader: 'css', minify: true })).code.trim());
 
 // /observatory: a static frame whose live figures the reader's browser fetches.
 // The two sets of figures it is built with are checked-in records, and both

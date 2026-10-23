@@ -90,6 +90,14 @@ test('the page makes no claim the runtime does not implement', () => {
     /airdrop/i,
     /mainnet is live/i,
     /price/i,
+    // Design-prompt specimens (brief §6.2): never a figure on a built page.
+    /1,115,263/,
+    /6,054,836,317/,
+    /\bera 141\b/,
+    /\bagents? 214\b/,
+    /214 agents/,
+    /5GbFZC[^<\s]*8pcj/,
+    /swarm-\d{4}\b/,
   ];
   for (const pattern of forbidden) {
     assert.ok(!pattern.test(html), `rendered page matches forbidden claim ${pattern}`);
@@ -105,6 +113,15 @@ test('each descriptive claim is grounded in a snippet still present in the repo'
       source.includes(claim.snippet),
       `claim "${claim.claim}" cites ${claim.file} for \`${claim.snippet}\`, which is no longer there`,
     );
+    // The ledger rows (brief §7) also pin the line, and every further excerpt they cite.
+    for (const row of [claim, ...(claim.also ?? [])]) {
+      if (!row.line) continue;
+      const lines = readRepoFile(row.file).split('\n');
+      assert.ok(
+        (lines[row.line - 1] ?? '').includes(row.snippet),
+        `claim "${claim.claim}" cites ${row.file}:${row.line} for \`${row.snippet}\`, but that line now reads: ${(lines[row.line - 1] ?? '').trim()} — correct the line, never the claim`,
+      );
+    }
   }
 });
 

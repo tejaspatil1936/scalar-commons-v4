@@ -9,9 +9,11 @@
     "metadataVersion": 15,
     "genesisHash": "0xff6882b49ad61dd3128a6e834b4f81704a3824ce358f2f69fe765ca07cf803d1",
     "ss58Format": 42,
-    "readAtBlock": 1157819,
-    "readAtBlockHash": "0xaeb668ef07bd5b3c66406df76d48500efd40106fa7dacdd2c349b2f4efdc031a",
-    "fetchedAt": "2026-10-23T05:48:45.503Z"
+    "readAtBlock": 1161243,
+    "readAtBlockHash": "0x3f6b160b12899e7d3f3853b118c17d2c281ba2090aaa193b6671b7de1a466735",
+    "finalizedAtRead": 1161242,
+    "nodeVersion": "4.0.0-5f5e3c9439f",
+    "fetchedAt": "2026-10-23T11:32:11.060Z"
   },
   "token": {
     "symbol": "CMN",
@@ -128,10 +130,217 @@
   },
   "state": {
     "validators": 8,
+    "validatorCount": 8,
     "registeredAgents": 204,
-    "totalIssuancePlancks": "6054836317056241560214",
-    "eraNumber": 171,
-    "lastSettledEra": "170",
+    "operatorRunAgents": 140,
+    "openDisputes": 399,
+    "eraStartBlock": 1160932,
+    "eraElapsedBlocks": 311,
+    "recentBlocks": [
+      {
+        "number": 1161243,
+        "extrinsics": 1,
+        "final": false
+      },
+      {
+        "number": 1161242,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161241,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161240,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161239,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161238,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161237,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161236,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161235,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161234,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161233,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161232,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161231,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161230,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161229,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161228,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161227,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161226,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161225,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161224,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161223,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161222,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161221,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161220,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161219,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161218,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161217,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161216,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161215,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161214,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161213,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161212,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161211,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161210,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161209,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161208,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161207,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161206,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161205,
+        "extrinsics": 1,
+        "final": true
+      },
+      {
+        "number": 1161204,
+        "extrinsics": 1,
+        "final": true
+      }
+    ],
+    "totalIssuancePlancks": "6054836317054727360198",
+    "eraNumber": 172,
+    "lastSettledEra": "171",
     "alpha": 8000,
     "beta": 5000,
     "floorBps": 1000,

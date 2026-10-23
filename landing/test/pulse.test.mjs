@@ -58,7 +58,7 @@ test('Pulse is linked from the observatory nav, and from its own, as the current
   assert.match(observatory, /<a href="pulse">Pulse<\/a>/);
   assert.match(page, /<a href="pulse" aria-current="page">Pulse<\/a>/);
   assert.match(page, /<a href="observatory">Observatory<\/a>/);
-  assert.ok(!index.includes('href="pulse"'), 'the landing page’s nav is not changed by this page');
+  assert.match(index, /<a href="pulse">Pulse<\/a>/, 'the landing page’s nav names Pulse, as the chrome’s nav does on every page');
 });
 
 test('the strip has exactly the three figures, the caption and a legend of six', () => {

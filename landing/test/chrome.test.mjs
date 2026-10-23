@@ -163,11 +163,8 @@ export const FORBIDDEN_SPECIMENS = [/1,115,263/, /6,054,836,317/, /\bera 141\b/,
 test('no built page carries a design specimen, a Google font or a CDN', () => {
   const out = mkdtempSync(join(tmpdir(), 'landing-specimens-'));
   execFileSync(process.execPath, ['scripts/build.mjs'], { cwd: fileURLToPath(new URL('../', import.meta.url)), env: { ...process.env, LANDING_OUT_DIR: out }, stdio: 'pipe' });
-  // index.html joins this check with the Nightwatch home (phase 2): the page it still
-  // carries prints total issuance read from chain-facts.json, which today truncates to
-  // the very figure the brief lists as a specimen.
-  const pages = readdirSync(out).filter((f) => f.endsWith('.html') && f !== 'index.html');
-  assert.ok(pages.length >= 2);
+  const pages = readdirSync(out).filter((f) => f.endsWith('.html'));
+  assert.ok(pages.length >= 4);
   for (const page of pages) {
     const html = readFileSync(join(out, page), 'utf8');
     for (const pattern of FORBIDDEN_SPECIMENS) assert.ok(!pattern.test(html), `${page} matches ${pattern}`);

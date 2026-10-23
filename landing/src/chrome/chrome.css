@@ -192,7 +192,7 @@ button, input { font: inherit; color: inherit; }
 .nw-receipt > * + * { margin-top: 6px; }
 .nw-receipt a { color: var(--bone); }
 .nw-receipt-line { display: none; font: var(--label); letter-spacing: 0; text-transform: none; color: var(--bone-dim); }
-.nw-reading.is-torn .nw-receipt, html[data-sources] .nw-reading:not([data-sealed="true"]) .nw-receipt { display: block; animation: nw-unfold var(--t-ui) var(--ease-ui); }
+.nw-reading.is-torn .nw-receipt, .nw-reading:focus-within .nw-receipt, html[data-sources] .nw-reading:not([data-sealed="true"]) .nw-receipt { display: block; animation: nw-unfold var(--t-ui) var(--ease-ui); }
 html[data-sources] .nw-receipt-line { display: block; }
 @keyframes nw-unfold { from { opacity: 0; transform: translateY(-2px); } to { opacity: 1; transform: none; } }
 
@@ -358,8 +358,7 @@ html[data-sources] .nw-receipt-line { display: block; }
 .nw-curve-tick[data-state="slash"] { stroke: var(--ice); }
 .nw-curve-tick[data-state="settled"] { stroke: var(--sage); }
 .nw-curve-cursor { stroke: var(--leader); stroke-dasharray: 1 3; }
-.nw-curve table { font: var(--mono); color: var(--bone-dim); margin-top: 16px; border-collapse: collapse; }
-.nw-curve td, .nw-curve th { padding: 4px 16px 4px 0; text-align: left; font-weight: 400; }
+.nw-curve table { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* ── redaction ────────────────────────────────────────────────────────────── */
 .nw-redaction { position: relative; display: inline-block; vertical-align: middle; min-width: 8ch; height: calc(1em + 4px); background: var(--bone); color: var(--pine-0); font: var(--label); letter-spacing: 0.14em; text-transform: uppercase; text-align: center; line-height: calc(1em + 4px); transition: transform var(--t-ui) var(--ease-ui), opacity var(--t-ui) var(--ease-ui); }
@@ -446,4 +445,48 @@ html[data-sources] .nw-receipt-line { display: block; }
   .nw-reading.is-loading .nw-leader::before { display: none; }
   .nw-reading.is-loading .nw-leader::after { content: "loading"; position: absolute; right: 0; top: -0.9em; font: var(--label); color: var(--sage); }
   .nw-redaction.is-lifted { transform: translateY(-8px); }
+}
+
+/* ── the home page and the 404 ────────────────────────────────────────────── */
+.nw-hero { padding-block: 96px 64px; }
+.nw-hero .nw-grid { align-items: center; }
+.nw-hero-text { grid-column: 1 / span 7; }
+.nw-hero-text .nw-body { margin-top: 24px; }
+.nw-hero-readings { grid-column: 8 / span 5; }
+.nw-river { padding-block: 0 96px; }
+.nw-river svg { width: 100%; height: auto; }
+.nw-river-caption { display: block; margin-top: 12px; }
+.nw-manifesto { padding-top: 0; }
+.nw-manifesto-sheet { position: relative; overflow: hidden; padding: 96px 48px; }
+.nw-manifesto-curve { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.04; pointer-events: none; }
+.nw-manifesto-sheet .nw-display, .nw-manifesto-sheet .nw-body { position: relative; }
+.nw-manifesto-sheet .nw-body { margin-top: 24px; }
+.nw-what { display: grid; row-gap: 48px; }
+.nw-what-row { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 6fr) minmax(0, 3fr); column-gap: var(--gutter); align-items: baseline; }
+.nw-calls summary { list-style: none; cursor: pointer; }
+.nw-calls summary::-webkit-details-marker { display: none; }
+.nw-calls ul { margin-top: 12px; display: grid; gap: 4px; }
+.nw-curves { row-gap: 48px; }
+.nw-curve-card .nw-curve { margin-top: 16px; }
+.nw-curve-card .nw-small { margin-top: 12px; }
+.nw-curve-source { display: block; margin-top: 4px; }
+.nw-section .nw-code { margin-top: 48px; }
+.nw-caveat { margin-top: 24px; max-width: 60ch; }
+.nw-gate { margin-top: 48px; max-width: 72ch; }
+.nw-gate .nw-body { margin-top: 12px; }
+.nw-where > div { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.nw-ledger-claims { display: grid; row-gap: 32px; }
+.nw-ledger-claim .nw-code { margin-top: 12px; padding: 12px 24px; }
+.nw-more { margin-top: 32px; }
+.nw-more > summary { list-style: none; cursor: pointer; }
+.nw-more > summary::-webkit-details-marker { display: none; }
+.nw-more .nw-ledger-claims { margin-top: 32px; }
+.nw-notfound { margin-top: 48px; max-width: 640px; }
+@media (max-width: 1024px) {
+  .nw-hero-text, .nw-hero-readings { grid-column: 1 / -1; }
+  .nw-what-row { grid-template-columns: minmax(0, 1fr); row-gap: 12px; }
+}
+@media (max-width: 390px) {
+  .nw-manifesto-sheet { padding: 48px 20px; }
+  .nw-hero { padding-block: 48px 32px; }
 }
