@@ -196,6 +196,13 @@ function inspect({ colours, fontSizes, spacing }) {
     const spill = Math.max(rf.right - rc.right, inner ? inner.scrollWidth - inner.clientWidth : 0, rf.left < rc.left - 1 ? rc.left - rf.left : 0);
     if (spill > 1) out.push(`(b) figure wider than its column by ${Math.round(spill)} px: ${sel(fig)} "${fig.textContent.trim().slice(0, 40)}" figure ${Math.round(rf.width)} px in column ${Math.round(rc.width)} px`);
   }
+  // (b) also: a Reading's label wider than its column (it would run into the next one)
+  for (const label of [...document.querySelectorAll('.nw-reading-line > .nw-label')].filter(visible)) {
+    const column = label.closest('.nw-reading');
+    const [rl, rc] = [label.getBoundingClientRect(), column.getBoundingClientRect()];
+    const spill = Math.max(rl.right - rc.right, label.scrollWidth - label.clientWidth);
+    if (spill > 1) out.push(`(b) label wider than its column by ${Math.round(spill)} px: ${sel(label)} "${label.textContent.trim().slice(0, 40)}"`);
+  }
   // (c) no horizontal scroll; name the element that reaches furthest right
   const sw = document.documentElement.scrollWidth;
   if (sw > window.innerWidth) {

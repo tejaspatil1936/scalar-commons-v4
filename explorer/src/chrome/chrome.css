@@ -186,6 +186,8 @@ button, input { font: inherit; color: inherit; }
 .nw-reading { position: relative; display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; }
 .nw-reading-line { display: grid; grid-template-columns: auto minmax(var(--s-5), 1fr); grid-template-rows: auto auto; align-items: end; column-gap: 0; row-gap: var(--s-2); min-width: 0; }
 .nw-reading-line > .nw-label { grid-column: 1; grid-row: 1; white-space: nowrap; }
+/* In a row a long label wraps to two lines, so a row's labels still share a top line and its figures a baseline. */
+.nw-row .nw-reading-line > .nw-label { white-space: normal; min-height: var(--s-5); }
 .nw-reading-line > .nw-leader { grid-column: 2; grid-row: 1; align-self: center; }
 .nw-reading-line > .nw-reading-figure { grid-column: 1 / -1; grid-row: 2; }
 .nw-leader {
@@ -219,7 +221,8 @@ button, input { font: inherit; color: inherit; }
   background: var(--paper);
   border: 1px solid var(--rule-2); border-left-style: dashed;
   border-radius: 0 var(--radius) var(--radius) 0;
-  transition: transform var(--t-ui) var(--ease-ui), background var(--t-cool) var(--ease-cool);
+  /* A stub's state is its fill and changes at once; only a changed figure's digits warm and settle. */
+  transition: transform var(--t-ui) var(--ease-ui);
 }
 .nw-stub[data-state="live"] { background: var(--ink); border-color: var(--ink); }
 .nw-stub[data-state="record"] { background: var(--paper); border-color: var(--rule-2); }
@@ -281,6 +284,8 @@ html[data-sources] .nw-receipt-line { display: block; }
 .nw-tag[data-state="operator"] .nw-dot { border-color: var(--ink); box-shadow: 0 0 0 1px var(--paper-2), 0 0 0 2px var(--ink); }
 .nw-tag[data-state="built"] { color: var(--ink-2); }
 .nw-tag--kbd { color: var(--ink-2); }
+/* A tag used as a tooltip and hidden with the attribute paints nothing. */
+.nw-tag[hidden], [hidden] { display: none !important; }
 
 /* ── controls ─────────────────────────────────────────────────────────────── */
 .nw-button {
@@ -564,7 +569,7 @@ html[data-sources] .nw-receipt-line { display: block; }
 .nw-curve-card .nw-curve { margin-top: var(--s-4); }
 .nw-curve-card .nw-small { margin-top: var(--s-3); }
 .nw-curve-source { display: block; margin-top: var(--s-1); overflow-wrap: anywhere; }
-.nw-section .nw-code { margin-top: var(--s-7); }
+.nw-home .nw-section .nw-code { margin-top: var(--s-7); }
 .nw-caveat { margin-top: var(--s-5); max-width: 62ch; }
 .nw-gate { margin-top: var(--s-7); max-width: 72ch; }
 .nw-gate .nw-body { margin-top: var(--s-3); }

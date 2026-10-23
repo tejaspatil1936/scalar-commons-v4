@@ -72,7 +72,7 @@ export function renderHead({ title, description, css = null, scripts = true, scr
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(description)}">
-<meta name="color-scheme" content="dark light">
+<meta name="color-scheme" content="light">
 ${boot ? SOURCES_BOOT : ''}
 <link rel="preload" href="fonts/source-serif-4-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/inter-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
