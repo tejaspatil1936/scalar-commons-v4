@@ -1,21 +1,44 @@
-# Scalar Commons — persistent 5-validator devnet
+# Scalar Commons — the operator host's validators
 
-A 5-validator Scalar Commons network that runs 24/7 on this VPS under **user**
-systemd (no root, no system units). `loginctl enable-linger dev` is already set,
-which is what lets the user manager start at boot with nobody logged in — that
-is the mechanism by which this survives a reboot.
+The validators on this host run 24/7 under **user** systemd (no root, no system
+units). `loginctl enable-linger dev` is already set, which is what lets the user
+manager start at boot with nobody logged in — that is the mechanism by which
+this survives a reboot.
 
 Everything here is ops and configuration. The only source change ROUND15 made
 was the `local` preset's authority list in `node/src/chain_spec.rs` — no pallet
 or runtime logic is involved.
 
-This file covers the five validators. The indexer, explorer and faucet that read
-from them are in [`products/README.md`](products/README.md).
+This file covers the validators on this host (`deploy/nodes.env` lists them).
+The indexer, explorer and faucet that read from them are in
+[`products/README.md`](products/README.md).
 
-> **ROUND15 changed the network's identity.** Going from 3 to 5 authorities is a
-> different genesis, therefore a different chain. The chainspec was regenerated
-> and the databases wiped; any node still holding pre-ROUND15 data cannot sync
-> against this chain. See "Resetting the chain".
+## The validator set today
+
+*Operator-written on 2026-10-23. The counts below can be read from the chain
+(`session.validators`, `staking.validatorCount`) and are shown live on
+<https://scalarnet.io/observatory>; who runs what cannot, so it is written here
+and copied to exactly one other place, `landing/public/status.json`, which the
+Observatory's Validators notes and `docs/guide/run-a-node.md` quote verbatim.
+When a validator moves host or changes hands, change both the same day.*
+
+- The active set is eight validators and `staking.validatorCount` is 8. The
+  seat count was raised from 7 to 8 by `sudo.sudo(staking.setValidatorCount(8))`
+  in block #1 122 976; the set of eight has been active since staking era 105
+  (2026-10-21).
+- Five validators run on the operator's host; one is run independently by Bourn
+  on his own server; two are operator-run on separate hosts (Ron and JC). That
+  is four fault domains, not one per validator.
+- GRANDPA tolerates ⌊(n − 1) / 3⌋ simultaneous failures: with eight authorities
+  the threshold is six voters, so two may be down at once and a third stalls
+  finality. The five on this host share a kernel, a disk, a NIC and one
+  `systemd --user` manager, so this host alone is five of the eight: losing it
+  stops finality.
+
+> **ROUND15 (2026-08-03) changed the network's identity.** Going from 3 to 5
+> authorities was a different genesis, therefore a different chain. The
+> chainspec was regenerated and the databases wiped; any node still holding
+> pre-ROUND15 data cannot sync against this chain. See "Resetting the chain".
 
 ---
 
@@ -208,8 +231,10 @@ for n in eve dave charlie bob alice; do
 done
 ```
 
-Never restart two at once: two down of five leaves three, below GRANDPA's
-threshold of four, and finality stalls until one returns.
+Roll them one at a time regardless of the arithmetic: with eight authorities
+(see "The validator set today") finality survives two down and not three, and
+the five here are the majority of the set — a mistake on this host is a mistake
+for five of them at once.
 
 Confirm afterwards that the flags actually took:
 
@@ -482,10 +507,10 @@ The script **stops the node, copies, and starts it again**. A tar of a running
 node's database can be torn — the DB holds an exclusive lock and buffers writes
 in memory — so a hot copy is not a supportable backup.
 
-Since ROUND15 this is no longer a maintenance window: with five authorities the
-remaining four keep finalizing while one node is stopped for the copy. **Do not
-snapshot two nodes at once** — three of five is below the threshold of 4 and
-finality stalls until one comes back.
+Since ROUND15 (2026-08-03) this has not been a maintenance window: the remaining
+authorities keep finalizing while one node is stopped for the copy. **Still
+snapshot one node at a time** — with eight authorities (2026-10-23) two down at
+once is tolerated and three is not, and five of the eight are on this host.
 
 Restore:
 
@@ -498,26 +523,26 @@ systemctl --user start scalar-alice
 
 ---
 
-## Fault tolerance — one validator down is survivable, two is not
+## Fault tolerance — ⌊(n − 1) / 3⌋ failures: two of today's eight
 
-**This 5-validator set tolerates exactly one failure for finality.** GRANDPA's
-supermajority threshold for `n` authorities is `n - (n-1)/3` voters (integer
-division):
+GRANDPA's supermajority threshold for `n` authorities is `n - (n-1)/3` voters
+(integer division), so `(n-1)/3` may be down at once:
 
-| `n` | threshold | tolerated down |                                          |
-|-----|-----------|----------------|------------------------------------------|
-| 3   | 3         | **0**          | what ROUND10 shipped — any stop froze it |
-| 4   | 3         | 1              |                                          |
-| 5   | 4         | 1              | **current**                              |
-| 7   | 5         | 2              | next step up                             |
+| `n` | threshold | tolerated down |                                                      |
+|-----|-----------|----------------|------------------------------------------------------|
+| 3   | 3         | **0**          | what ROUND10 shipped — any stop froze it             |
+| 4   | 3         | 1              |                                                      |
+| 5   | 4         | 1              | the ROUND15 set, 2026-08-03 to 2026-10-21            |
+| 7   | 5         | 2              | the seat count from block #750 511 to #1 122 976     |
+| 8   | 6         | 2              | **current** — the set since staking era 105, 2026-10-21 |
 
-Be precise about what the fifth authority buys: **nothing for fault tolerance.**
-Four and five both survive exactly one failure, because the threshold rises with
-the set size. Five was chosen for slot spread and an odd set size. If the
-requirement is surviving two simultaneous failures, the answer is seven, not
-five.
+When ROUND15 went from four to five (2026-08-03), the fifth authority bought
+**nothing for fault tolerance**: four and five both survived exactly one
+failure, because the threshold rises with the set size. Five was chosen for slot
+spread and an odd set size. Eight, reached on 2026-10-21, was the first set that
+survives two.
 
-### Evidence — charlie stopped for 93s, all five nodes sampled
+### Evidence (ROUND15, 2026-08-03, the five-validator set) — charlie stopped for 93 s, all five nodes sampled
 
 Verbatim from `./deploy/finality-check.sh`. The column that matters is `final`:
 
@@ -573,11 +598,12 @@ no manual intervention:
 
 ### Negative control — two down does stall, as predicted
 
-Three of five is below the threshold of 4, so finality must stop. It does; see
+Three of five was below the threshold of 4, so finality had to stop. It did; see
 ROUND15.md for the verbatim run. This matters: without it, "finality survived
 one node down" could just mean nothing was ever being tested.
 
-**Operationally:** restart or snapshot one node freely. Never two at once.
+**Operationally (2026-10-23):** with eight authorities, two may be down at once
+and never three. On this host, which carries five of them, still one at a time.
 
 ---
 
@@ -611,34 +637,34 @@ value:
 - **`sudo` is a single Alice key** (`chain_spec.rs`: "replaced by multisig in
   staging/mainnet"). Mainnet needs the multisig, and the documented day-14
   referendum handoff that removes sudo entirely.
-- **One host — and this is the big one after ROUND15.** Five validators sharing
-  a box, a kernel, a disk, a NIC, a power supply and one `systemd --user`
-  manager is **one fault domain, not five.** ROUND15 proved the chain survives
-  one *validator process* stopping. It proved nothing whatsoever about surviving
-  the loss of this machine, because every authority dies with it — and at that
-  point the surviving voter count is zero, not four.
+- **Fault domains: four, not eight (2026-10-23; see "The validator set today").**
+  Five validators sharing a box, a kernel, a disk, a NIC, a power supply and one
+  `systemd --user` manager are **one fault domain, not five.** ROUND15
+  (2026-08-03) proved the chain survived one *validator process* stopping. It
+  proved nothing about surviving the loss of this machine, which still takes
+  five of the eight authorities with it — below the threshold of six, so
+  finality stops with it.
 
   Read the fault-tolerance result for exactly what it is: the GRANDPA authority
-  set is now large enough that a single validator failure is not a finality
-  outage. That is a real and necessary property, and it is the *consensus*
-  half of the problem. The *infrastructure* half is untouched. What it takes:
+  set is large enough that two validator failures are not a finality outage.
+  That is a real and necessary property, and it is the *consensus* half of the
+  problem. The *infrastructure* half is only begun. What it still takes:
 
-  - five (ideally seven) validators on **separate hosts**, ideally separate
-    providers and regions, so a host, rack, provider, or region failure takes
-    at most one authority with it;
+  - one validator per **host**, ideally separate providers and regions, so a
+    host, rack, provider, or region failure takes at most one authority with it;
   - run by **separate operators** with separate credentials — five nodes one
     person can `systemctl --user stop` are not five independent failure
     probabilities, whatever the authority count says. The same applies to a
-    single bad deploy: one operator pushing one broken binary to all five is a
-    correlated failure the authority count does not model;
+    single bad deploy: one operator pushing one broken binary to five nodes is
+    a correlated failure the authority count does not model;
   - real p2p addressing between them (public multiaddrs, several bootnodes,
     not `/ip4/127.0.0.1`), and no single bootnode whose loss partitions the
     network;
   - independent key custody per operator, per the session-key point above.
-- **Five authorities tolerate exactly one failure, not two** — the threshold
-  rises to 4 of 5 with the set size. Four and five are equivalent here; **seven**
-  is the next size that survives two simultaneous failures. Mainnet should size
-  the set from the failure count it intends to survive, not from a round number.
+- **Eight authorities tolerate two simultaneous failures, not three** — the
+  threshold is 6 of 8 and rises with the set size; **ten** is the next size
+  that survives three. Mainnet should size the set from the failure count it
+  intends to survive, not from a round number.
 - **SS58 prefix is 42**, the generic Substrate default. `chain_spec.rs` already
   flags this: `// MAINNET BLOCKER: register unique SS58 prefix`.
 - **`ChainType::Local`** and a chainspec with no telemetry endpoints and no
