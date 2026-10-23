@@ -469,6 +469,14 @@ test('the first screen: Observatory in the display face, the one sentence, four 
   assert.match(spine, /ctx\.bus\.on\('finalized'/);
   assert.match(spine, /is-newest/);
   assert.match(spine, /TICKS = 100/);
+  // Round 2 §4: each tick names its author from the block's BABE pre-digest (carried on the head bus by pulse.js), and the column shifts one pitch over --t-shift.
+  assert.match(readFileSync(new URL('../src/observatory/instruments/pulse.js', import.meta.url), 'utf8'), /author = babePreDigestOf\(header\)[\s\S]*?ctx\.bus\.emit\('head', \{ record, number, header, author/);
+  assert.match(spine, /const onHead = \(\{ number, author = null \}\)/);
+  assert.match(spine, /BABE authority \$\{formatInteger\(author\.authorityIndex\)\}/);
+  assert.match(spine, /li\.dataset\.author = String\(author\.authorityIndex\)/);
+  assert.match(spine, /spine\.classList\.add\('is-shifting'\)/);
+  assert.match(css, /\.hero-spine \.nw-spine \{ transition: transform var\(--t-shift\) var\(--ease-ui\); \}/);
+  assert.match(css, /\.hero-spine \.nw-spine\.is-shifting \{ transform: translateY\(calc\(-1 \* var\(--s-2\)\)\); transition: none; \}/);
 });
 
 test('the agent activity panel: the title as a label, the Network graph switch, one legend, the field on canvas, one live line, one footnote, the list behind its disclosure', () => {

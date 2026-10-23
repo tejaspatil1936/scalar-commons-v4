@@ -55,6 +55,9 @@ pre {
   align-items: start;
 }
 .hero-spine { position: sticky; top: calc(var(--bar) + var(--s-5)); }
+/* The Spine shifts down one pitch (8 px) as a tick is born, over --t-shift; reduced motion places it at once (spine.js). */
+.hero-spine .nw-spine { transition: transform var(--t-shift) var(--ease-ui); }
+.hero-spine .nw-spine.is-shifting { transform: translateY(calc(-1 * var(--s-2))); transition: none; }
 .hero-text { min-width: 0; }
 .hero h1 { margin: 0 0 var(--s-5); }
 .dek { margin: 0 0 var(--s-7); color: var(--ink-2); }
