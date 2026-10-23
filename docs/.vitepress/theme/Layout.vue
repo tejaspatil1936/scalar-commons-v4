@@ -8,6 +8,7 @@ import TopBar from './components/TopBar.vue'
 import SiteFooter from './components/SiteFooter.vue'
 import Home from './components/Home.vue'
 import Article from './components/Article.vue'
+import NotFound from './components/NotFound.vue'
 
 const VPLocalSearchBox = defineAsyncComponent(
   () => import('vitepress/dist/client/theme-default/components/VPLocalSearchBox.vue'),
@@ -34,10 +35,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKey))
   <TopBar />
   <main id="nw-main" class="nw-main">
     <Home v-if="frontmatter.layout === 'home'" />
-    <section v-else-if="page.isNotFound" class="nw-frame nw-notfound">
-      <span class="nw-figure nw-figure--xl nw-sage">404</span>
-      <p class="nw-body">Nothing is logged at this address.</p>
-    </section>
+    <NotFound v-else-if="page.isNotFound" />
     <Article v-else />
   </main>
   <SiteFooter />

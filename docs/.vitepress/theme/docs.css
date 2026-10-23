@@ -12,7 +12,12 @@ body { background: var(--pine-0); color: var(--bone); font: var(--body); overflo
 .nw-sources, .nw-menu { border: 0; }
 .nw-bar-inner { min-width: 0; }
 .nw-bar-right { flex: none; }
-.nw-notfound { padding-block: 160px; display: grid; gap: 24px; }
+.nw-notfound { padding-block: 160px 0; display: grid; gap: 24px; }
+.nw-notfound-readings { display: grid; gap: 32px; max-width: 640px; margin-top: 48px; }
+.nw-notfound .nw-figure--body { overflow-wrap: anywhere; }
+.nw-figure-link, .nw-figure-button { display: inline; padding: 0; border: 0; background: none; cursor: pointer; text-align: left; }
+.nw-figure-link .nw-figure, .nw-figure-button .nw-figure { text-decoration: underline dotted var(--leader); text-underline-offset: 4px; transition: color var(--t-ui) var(--ease-ui); }
+.nw-figure-link:hover .nw-figure, .nw-figure-button:hover .nw-figure { color: var(--filament); text-decoration: underline solid var(--filament); }
 
 /* ── home ─────────────────────────────────────────────────────────────────── */
 .nw-home { padding-top: 96px; }
