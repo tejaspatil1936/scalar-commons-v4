@@ -2,8 +2,10 @@
 // The chrome's `reading`: label above · leader · figure · unit · stub ·
 // receipt, in templates.mjs's markup and order. A Reading without a source
 // throws at render, so the build fails rather than ship a figure that names no
-// origin. Everything on the docs is a record: the figure prints in ink-2 and
-// the stub is a rule-2 outline on paper (the chrome's `record` state).
+// origin. Everything on the docs is a record — the figure prints in ink-2 and
+// the stub is a rule-2 outline on paper (the chrome's `record` state) — except
+// a figure the reader's own browser fills (the 404's path), which is `live`:
+// ink, a solid stub, `is-loading` until it arrives.
 import { computed, ref } from 'vue'
 import { formatInt, requestLine, utc, type Source } from '../ledger'
 
@@ -22,8 +24,22 @@ const props = withDefaults(
     href?: string | null
     /** Renders the figure as a button that emits `activate` on a person's action (e.g. open search). */
     button?: boolean
+    /** The stub's state: `record` (from the build) or `live` (filled in the browser). */
+    state?: 'record' | 'live'
+    /** The figure is still to arrive (the chrome's `is-loading`). */
+    loading?: boolean
   }>(),
-  { size: 'm', sub: null, unit: null, id: undefined, stack: false, href: null, button: false },
+  {
+    size: 'm',
+    sub: null,
+    unit: null,
+    id: undefined,
+    stack: false,
+    href: null,
+    button: false,
+    state: 'record',
+    loading: false,
+  },
 )
 defineEmits<{ (e: 'activate'): void }>()
 
@@ -34,6 +50,7 @@ if (!props.source || !props.source.method || !props.source.url) {
 }
 
 const torn = ref(false)
+const stateWord = computed(() => (props.state === 'live' ? 'LIVE' : 'RECORD'))
 const fetched = computed(() => (props.source.fetchedAt ? utc(props.source.fetchedAt) : '—'))
 const blockWord = computed(() =>
   props.source.block === null || props.source.block === undefined
@@ -50,7 +67,7 @@ const blockSuffix = computed(() =>
 <template>
   <div
     class="nw-reading"
-    :class="{ 'is-torn': torn, 'nw-reading--stack': stack }"
+    :class="{ 'is-torn': torn, 'nw-reading--stack': stack, 'is-loading': loading }"
     :data-reading="id"
     :id="id"
   >
@@ -74,8 +91,8 @@ const blockSuffix = computed(() =>
         <button
           type="button"
           class="nw-stub"
-          data-state="record"
-          aria-label="RECORD · show the source"
+          :data-state="state"
+          :aria-label="`${stateWord} · show the source`"
           :aria-expanded="torn ? 'true' : 'false'"
           @click="torn = !torn"
         ></button>

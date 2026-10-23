@@ -29,6 +29,8 @@ export interface Facts {
   nodeVersion: string
   builtAt: string
   pages: number
+  /** The built route list (docs home + the sidebar's pages), base-relative. */
+  routes: string[]
   drift: number
   checkPassed: boolean
 }

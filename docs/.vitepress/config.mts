@@ -114,6 +114,9 @@ export default defineConfig({
       nodeVersion: snapshot.provenance.nodeVersion,
       builtAt: new Date().toISOString(),
       pages: sidebar.reduce((n, g) => n + g.items.length, 0),
+      // The built route list the 404's `Closest page` measures against: the
+      // docs home and every page the sidebar publishes, as the router links them.
+      routes: ['/', ...sidebar.flatMap((g) => g.items.map((item) => item.link))],
       drift: driftPages,
       checkPassed: check.status === 0,
     },
