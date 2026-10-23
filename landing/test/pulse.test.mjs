@@ -1,4 +1,4 @@
-// /pulse as built, in the Nightwatch chrome: the page, its one script, its
+// /pulse as built, in the Ledger chrome: the page, its one script, its
 // stylesheet, and the rules the observatory's modules are held to, applied
 // to the pulse's modules the same way. The build runs once into a temporary
 // directory.
@@ -148,31 +148,48 @@ test('the pulse’s modules keep the observatory’s rules: one timer, in main.j
   const waterfall = files.find(([file]) => file === 'waterfall.js')[1];
   assert.ok(!/#[0-9a-f]{3,8}\b/i.test(waterfall), 'the canvas names no colour of its own: it reads the tokens at draw time');
   assert.match(waterfall, /getComputedStyle/);
+  assert.ok(!/['"](?:pine-\d|bone|bone-dim|sage|leader|filament|vermilion|clay|ice)['"]|shadowBlur|shadowColor/.test(waterfall), 'the canvas reads the Ledger’s inks by name and draws no glow');
   assert.ok(!/from ['"](?:force-graph|gsap|three)/.test(waterfall));
 });
 
-test('pulse.css draws only with tokens: no hex, no font-size outside the scale, no borders, no gradients, no shadow but --glow, no italics, one scheme, no loop; the feed is 320 px', () => {
+test('pulse.css draws in the Ledger: tokens only, no hue, the eleven fonts, rules as lines never frames, no gradient, no shadow, no glow, no italics, one scheme, no loop', () => {
   const body = css.replace(/\/\*[\s\S]*?\*\//g, '');
-  assert.ok(!/#[0-9a-f]{3,8}\b/i.test(body), 'a hex colour outside tokens.css');
-  for (const [, value] of body.matchAll(/font(?:-size)?:\s*([^;]+);/g)) assert.match(value, /^var\(--/, `a font outside the scale: ${value}`);
-  assert.ok(!/\bborder(?!-radius)[a-z-]*\s*:/.test(body), 'a border');
+  assert.ok(!/#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?)\(/i.test(body), 'a colour literal outside tokens.css');
+  // Only the Ledger's eight: paper, paper-2, paper-3, ink, ink-2, ink-3, rule, rule-2; the Nightwatch names are gone.
+  for (const [, name] of body.matchAll(/var\(--([a-z0-9-]+)\)/g)) {
+    if (/^(?:s-\d+|gutter|bar|content|radius|t-|ease-|pulse-)/.test(name)) continue;
+    if (['display', 'h2', 'h3', 'body', 'small', 'figure-xl', 'figure-l', 'figure-m', 'figure-s', 'label', 'mono'].includes(name)) continue;
+    assert.ok(['paper', 'paper-2', 'paper-3', 'ink', 'ink-2', 'ink-3', 'rule', 'rule-2'].includes(name), `--${name} is not a Ledger token`);
+  }
+  assert.ok(!/filament|vermilion|--ice|--clay|--pine|--bone|--sage|--leader\b|--glow/.test(body), 'a Nightwatch token survives');
+  for (const [, value] of body.matchAll(/(?:^|[;{\s])font:\s*([^;]+);/g)) assert.match(value.trim(), /^var\(--(?:display|h2|h3|body|small|figure-(?:xl|l|m|s)|label|mono)\)$/, `a font outside the eleven: ${value}`);
+  assert.ok(!/font-size\s*:/.test(body), 'nothing sets a font-size');
+  // A rule is a line, never a frame: a border is one side, 1 px, solid, in --rule or --rule-2.
+  for (const [, prop, value] of body.matchAll(/(border(?!-radius)[a-z-]*)\s*:\s*([^;]+);/g)) {
+    assert.match(prop, /^border-(?:top|bottom)$/, `a border that is not a top or bottom rule: ${prop}`);
+    assert.match(value.trim(), /^1px solid var\(--rule(?:-2)?\)$/, `a rule that is not a 1 px hairline: ${value}`);
+  }
   assert.ok(!/gradient\(/.test(body), 'a gradient');
-  for (const [, value] of body.matchAll(/box-shadow:\s*([^;]+);/g)) assert.match(value, /^(?:var\(--glow\)|none)$/, `a shadow that is not --glow: ${value}`);
+  assert.ok(!/box-shadow|text-shadow|filter\s*:/.test(body), 'a shadow or a glow');
   assert.ok(!/italic/.test(body), 'an italic');
   assert.ok(!/prefers-color-scheme/.test(body), 'a second colour scheme');
   assert.ok(!/infinite/.test(body), 'pulse.css declares an infinite animation');
   assert.match(body, /@media \(prefers-reduced-motion: reduce\)/);
-  assert.match(body, /--pulse-feed: 320px;/, 'the feed is 320 px');
-  assert.match(body, /grid-template-columns: minmax\(0, 1fr\) var\(--pulse-feed\);/);
-  // A rule the chrome lacked was requested, with a comment, and carried here so the page worked at once.
-  // Once the main thread merges a request into chrome.css the request file goes; the rule then lives in the chrome.
-  const request = fileURLToPath(new URL('../src/chrome/requests/phase4.css', import.meta.url));
+  // The Waterfall is a paper field between two hairlines; the feed's lamp dot is the chrome's, not restated here.
+  assert.match(body, /\.pulse-waterfall \{[^}]*background: var\(--paper\);[^}]*border-top: 1px solid var\(--rule\);[^}]*border-bottom: 1px solid var\(--rule\);/);
+  assert.ok(!/\.nw-lamp-dot\[data-lit/.test(body), 'the lit dot is the chrome’s rule, not a page override');
   const chromeCss = readFileSync(new URL('../src/chrome/chrome.css', import.meta.url), 'utf8');
-  if (existsSync(request)) {
-    const requested = readFileSync(request, 'utf8');
-    assert.match(requested, /\/\*/);
-    for (const rule of requested.replace(/\/\*[\s\S]*?\*\//g, '').match(/[^{}]+\{[^}]*\}/g) ?? []) assert.ok(body.includes(rule.trim()), `requested rule is not also in pulse.css: ${rule.trim()}`);
-  } else {
-    assert.match(chromeCss, /\.nw-lamp-dot\[data-lit="true"\] \{ background: var\(--filament\); box-shadow: var\(--glow\); \}/, 'the merged request lives in chrome.css');
-  }
+  assert.match(chromeCss, /\.nw-lamp-dot\[data-lit="true"\] \{ background: var\(--ink\); border-color: var\(--ink\); \}/, 'the chrome lights a lamp dot outside the lamp in ink');
+  assert.ok(!existsSync(fileURLToPath(new URL('../src/chrome/requests/phase4.css', import.meta.url))), 'the phase-4 request was merged and is gone');
+  // On the page's grid (round-2 contract §2.3): 1200 px, twelve columns; the Waterfall 1–9, the feed 10–12; the strip's three in 1–7.
+  assert.match(body, /\.pulse \{[^}]*max-width: calc\(var\(--content\) \+ 2 \* var\(--gutter\)\);[^}]*margin-inline: auto;/);
+  assert.match(body, /\.pulse-stage \{[^}]*grid-template-columns: repeat\(12, minmax\(0, 1fr\)\);/);
+  assert.match(body, /\.pulse-waterfall \{ grid-column: 1 \/ span 9;/);
+  assert.match(body, /\.pulse-feed \{ grid-column: 10 \/ span 3;/);
+  assert.match(body, /\.pulse-strip-left \{ grid-column: 1 \/ span 7; \}/);
+  assert.match(body, /@media \(max-width: 480px\)/, 'the narrow step is the contract’s 480 px');
+  // The three Readings and the strip's three are .nw-row rows, so the chrome sizes their figures by count (three → --figure-m).
+  assert.match(page, /<section class="nw-row pulse-readings" aria-label="Now">/);
+  assert.match(page, /<div class="nw-row pulse-strip-left">/);
+  assert.ok(!/nw-figure--(?:body|l|xl)/.test(page.slice(page.indexOf('<main'))), 'every figure on the page is mono, sized by its row');
 });

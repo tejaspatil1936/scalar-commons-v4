@@ -160,7 +160,7 @@ function boot() {
     else lines.quiet(ctx.now() - lastEventAt > HOUR_MS ? lastEventBlock : null);
     lines.tick();
     // Stalled or disconnected, as the lamp already judges it (socket open and the last block under 30 s old):
-    // every live stub goes sage with "as of <UTC>", figures keep their last value, nothing fades.
+    // every live stub goes to a record's outline with "as of <UTC>", figures keep their last value, nothing fades.
     const lit = lampEl ? lampEl.getAttribute('data-lit') === 'true' : true;
     for (const key of readingKeys) setStale(readingOf(key), !lit);
   }, TICK_MS);

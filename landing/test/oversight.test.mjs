@@ -181,3 +181,35 @@ test('every row says WHY it reads the way it does, so public is never confusable
     if (row.reason) assert.ok(html.includes(escapeHtml(row.reason)), `row ${row.id}: reason missing from the page`);
   }
 });
+
+test('oversight.css draws in the Ledger: no hue; a message is a ruled entry, not a card; a disagreement is a dotted ink rule and its word; the redactions are the chrome’s', () => {
+  const css = readFileSync(fileURLToPath(new URL('../src/oversight.css', import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.ok(!/#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?)\(/i.test(css), 'a colour literal');
+  for (const [, name] of css.matchAll(/var\(--([a-z0-9-]+)\)/g)) {
+    if (/^(?:s-\d+|gutter|bar|content|radius|t-|ease-)/.test(name)) continue;
+    if (['display', 'h2', 'h3', 'body', 'small', 'figure-xl', 'figure-l', 'figure-m', 'figure-s', 'label', 'mono'].includes(name)) continue;
+    assert.ok(['paper', 'paper-2', 'paper-3', 'ink', 'ink-2', 'ink-3', 'rule', 'rule-2'].includes(name), `--${name} is not a Ledger token`);
+  }
+  assert.ok(!/filament|vermilion|--ice|--clay|--pine|--bone|--sage|--glow|box-shadow|text-shadow|italic|font-size\s*:/.test(css), 'a Nightwatch token, a shadow, an italic or a font-size');
+  // A rule is a line, never a frame.
+  for (const [, prop, value] of css.matchAll(/(border(?!-radius)[a-z-]*)\s*:\s*([^;]+);/g)) {
+    if (/^border-color$/.test(prop)) continue; // a 6 px mark's outline (the tag's language), set by the chrome's .nw-dot shape
+    if (prop === 'border' && /^1px solid var\(--rule-2\)$/.test(value.trim())) continue; // the mark itself: a 6 px outlined dot
+    assert.match(prop, /^border-(?:top|bottom)$/, `a border that is not a top or bottom rule: ${prop}`);
+    assert.match(value.trim(), /^1px solid var\(--rule(?:-2)?\)$/, value);
+  }
+  assert.match(css, /\.ov-row \{[^}]*border-top: 1px solid var\(--rule\);/, 'a message sits under a hairline');
+  assert.ok(!/\.ov-row \{[^}]*background/.test(css), 'and is not a card');
+  assert.match(css, /\.ov-row\[data-disagrees\]::before \{[^}]*radial-gradient\(circle, var\(--ink\) 1px, transparent 1px\)/, 'a disagreement is a dotted ink rule');
+  assert.match(html, /<span class="nw-tag ov-disagree" data-state="dispute" hidden><span class="nw-dot" aria-hidden="true"><\/span>DISAGREES WITH THE RECORD<\/span>/, 'and its word');
+  const chrome = readFileSync(fileURLToPath(new URL('../src/chrome/chrome.css', import.meta.url)), 'utf8');
+  assert.match(chrome, /\.nw-redaction \{[^}]*background: var\(--ink\); color: var\(--paper\);/, 'sealed: a solid ink bar, the words in paper');
+  assert.match(chrome, /\.nw-redaction\.is-lifted \{ transform: translateY\(-8px\); opacity: 0\.25; \}/, 'lifted: ink at 25 %, raised 8 px');
+  assert.match(chrome, /\.nw-redaction--hash span \{ background: var\(--rule-2\); \}/);
+  assert.match(chrome, /\.nw-redaction--hash span\.is-on \{ background: var\(--ink\); \}/, 'hash-only: the grid in ink and rule-2');
+  assert.ok(html.includes('no key held'), 'the sealed bar says so');
+  // Alignment (round-2 §2.5): the five summary figures are one .nw-row, so the chrome sets them at one size by count.
+  assert.match(html, /<div class="nw-row ov-figures">/);
+  assert.equal((html.slice(html.indexOf('nw-row ov-figures')).match(/data-reading="/g) ?? []).length >= 5, true);
+  assert.equal((html.match(/class="nw-redaction nw-redaction--hash"/g) ?? []).length, sample.rows.filter((r) => r.bodyType === 'None' && r.payloadHashOnChain).length, 'one 32×2 grid per hash-only row');
+});

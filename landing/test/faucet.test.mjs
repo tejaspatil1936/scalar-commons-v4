@@ -25,7 +25,7 @@ const text = (markup) => markup.replace(/<[^>]+>/g, ' ');
 test('the frame: chrome bar with Faucet current, eyebrow, the one line, the footer disclaimer', () => {
   assert.match(html, /<title>Faucet — Scalar Commons<\/title>/);
   assert.match(html, /<a href="faucet" aria-current="page">Faucet<\/a>/);
-  assert.ok(html.includes(`data-state="operator">`) && html.includes(EYEBROW), 'the clay-dot eyebrow');
+  assert.ok(html.includes(`data-state="operator">`) && html.includes(EYEBROW), 'the operator-run eyebrow (a double-ring mark)');
   assert.ok(html.includes(escapeHtml(LINE)));
   assert.ok(html.includes(DISCLAIMER));
   assert.ok(html.includes(`spec ${facts.provenance.specVersion}`), 'footer facts from chain-facts.json');
@@ -79,13 +79,26 @@ test('the address check is a real SS58 decode with the chain’s prefix', () => 
   assert.equal(decodeSs58('', { prefix: 42 }).ok, false);
 });
 
-test('faucet.css draws with tokens only: no hex, no border, no gradient, no shadow, no italic, sizes on the scale', () => {
+test('faucet.css draws in the Ledger: tokens only, no hue, the eleven fonts, rules as lines never frames, no gradient, no shadow, no italic', () => {
   const css = readFileSync(new URL('../src/faucet.css', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-  assert.ok(!/#[0-9a-f]{3,8}\b/i.test(css));
-  assert.ok(!/(^|[;{]\s*)border(?!-radius)[a-z-]*:/m.test(css));
+  assert.ok(!/#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?)\(/i.test(css), 'a colour literal');
+  for (const [, name] of css.matchAll(/(?:color|background)\s*:\s*var\(--([a-z0-9-]+)\)/g)) assert.ok(['paper', 'paper-2', 'paper-3', 'ink', 'ink-2', 'ink-3', 'rule', 'rule-2'].includes(name), `--${name} is not a Ledger token`);
+  assert.ok(!/filament|vermilion|--ice|--clay|--pine|--bone|--sage|--glow/.test(css), 'a Nightwatch token survives');
+  for (const [, prop, value] of css.matchAll(/(border(?!-radius)[a-z-]*)\s*:\s*([^;]+);/g)) {
+    assert.match(prop, /^border-(?:top|bottom)$/, `a border that is not a top or bottom rule: ${prop}`);
+    assert.match(value.trim(), /^1px solid var\(--rule(?:-2)?\)$/, value);
+  }
   assert.ok(!/gradient\(|box-shadow|text-shadow|font-style:\s*italic/.test(css));
-  for (const [, value] of css.matchAll(/font-size:\s*([^;]+);/g)) assert.ok(['2.5rem'].includes(value.trim()), value);
-  for (const [, value] of css.matchAll(/(?:^|;)\s*font:\s*([^;]+);/g)) assert.match(value, /var\(--(?:display|h2|h3|body|small|figure-(?:xl|l|m)|label|mono)\)/);
+  assert.ok(!/font-size\s*:/.test(css), 'nothing sets a font-size');
+  for (const [, value] of css.matchAll(/(?:^|[;{\s])font:\s*([^;]+);/g)) assert.match(value.trim(), /^var\(--(?:display|h2|h3|body|small|figure-(?:xl|l|m|s)|label|mono)\)$/);
+  assert.match(css, /\.fc-title-word \{ font: var\(--display\); letter-spacing: -0\.015em;/, 'the display face at the Ledger’s tracking');
+  assert.match(css, /@media \(max-width: 480px\)/, 'the narrow step is the contract’s 480 px');
+  // On the 12-column grid (round-2 contract §2.3): the title's slots and words, the form, the account and the recent drips start and end on column lines.
+  assert.match(css, /\.fc-title \{ display: grid; grid-template-columns: repeat\(12, minmax\(0, 1fr\)\);/);
+  assert.match(css, /\.fc-account, \.fc-recent \{ display: grid; grid-template-columns: repeat\(12, minmax\(0, 1fr\)\);/);
+  assert.ok(!/[{;]\s*max-width:\s*\d+px/.test(css), 'no block width off the grid');
+  // Under 1024 px the title's three parts stack; the selector must outweigh the desktop :nth-child placements, or the words overlap the slots.
+  assert.match(css, /@media \(max-width: 1024px\) \{[^}]*\.fc-title > :nth-child\(n\)[^}]*grid-column: 1 \/ -1;/);
 });
 
 test('npm run build emits faucet.html and faucet.js beside oversight.html and oversight.js', () => {

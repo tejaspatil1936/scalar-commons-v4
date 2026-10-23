@@ -1,4 +1,4 @@
-// Filling a Nightwatch Reading from a provenance record: the figure (only the
+// Filling a Ledger Reading from a provenance record: the figure (only the
 // digits that changed warm), the stub's state, and the receipt's fetched
 // time, block and raw bytes. The observatory's readout targets its own older
 // markup; this is the same contract on the chrome's `nw-reading`.
