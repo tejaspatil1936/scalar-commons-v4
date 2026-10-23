@@ -76,7 +76,7 @@ export const content = {
       { label: 'Symbol', value: '{{token.symbol}}' },
       { label: 'Decimals', value: '{{token.decimals}}' },
       { label: 'Supply cap', value: '{{constants.emissions.supplyCap|cmn}} {{token.symbol}}' },
-      { label: 'Genesis mint', key: 'genesis' },
+      { label: 'Issued at genesis (this testnet)', key: 'genesis' },
       { label: 'Era length', value: '{{constants.emissions.eraDuration|commas}} blocks, about {{constants.emissions.eraDuration|hours}} hours' },
       { label: 'Minimum agent stake', value: '{{constants.agents.minStake|cmn}} {{token.symbol}}' },
       { label: 'Registration fee', value: '{{constants.agents.baseRegistrationFee|cmn}} {{token.symbol}}' },

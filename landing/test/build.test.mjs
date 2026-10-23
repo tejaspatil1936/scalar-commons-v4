@@ -163,7 +163,7 @@ test('what’s on chain: the seven modules in plain English, no pallet names, th
 
 test('token: the eight rows from the chain facts, the thesis, the oracle caveat in text-2', () => {
   const rows = [...main.querySelectorAll('#token .sc-kv tr')].map((r) => [r.querySelector('th').textContent, r.querySelector('td')]);
-  assert.deepEqual(rows.map(([k]) => k), ['Symbol', 'Decimals', 'Supply cap', 'Genesis mint', 'Era length', 'Minimum agent stake', 'Registration fee', 'Unstake cooldown']);
+  assert.deepEqual(rows.map(([k]) => k), ['Symbol', 'Decimals', 'Supply cap', 'Issued at genesis (this testnet)', 'Era length', 'Minimum agent stake', 'Registration fee', 'Unstake cooldown']);
   assert.equal(rows[0][1].textContent, facts.token.symbol);
   assert.equal(rows[1][1].textContent, String(facts.token.decimals));
   assert.equal(rows[2][1].textContent, `${(BigInt(facts.constants.emissions.supplyCap) / 10n ** BigInt(facts.token.decimals)).toLocaleString('en-US')} CMN`);
