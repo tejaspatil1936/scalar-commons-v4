@@ -1,14 +1,10 @@
-// The Ledger — the docs theme. It consumes the chrome synced from
-// landing/src/chrome (tokens, chrome, print; the fonts resolve beside
-// chrome.css) and adds only the rules the docs' own surfaces need (docs.css).
-// No default-theme nav, sidebar, footer or hero: the Layout is the chrome's.
+// The docs theme: VitePress's default theme (nav, sidebar, outline, local
+// search, previous/next, not-found) with its variables set to the shared
+// tokens in custom.css (SITE-REDESIGN.md §5.6). The theme's own Inter files
+// are left out: the chrome's fonts.css (Inter variable, JetBrains Mono) is
+// the only face on every surface. Nothing is drawn here.
 import type { Theme } from 'vitepress'
-import Layout from './Layout.vue'
-import './chrome-legacy/tokens.css'
-import './chrome-legacy/chrome.css'
-import './chrome-legacy/print.css'
-import './docs.css'
+import DefaultTheme from 'vitepress/theme-without-fonts'
+import './custom.css'
 
-export default {
-  Layout,
-} satisfies Theme
+export default DefaultTheme satisfies Theme

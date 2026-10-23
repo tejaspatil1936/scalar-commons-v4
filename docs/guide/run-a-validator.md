@@ -155,6 +155,10 @@ Budget **~8 GB of disk and 15–60 minutes** depending on cores.
 
 ## 3. Chain spec and node key
 
+The raw spec is published beside these docs as
+<a href="https://scalarnet.io/docs/chainspec.json" download class="no-icon">chainspec.json (download)</a>;
+from a shell:
+
 ```bash
 mkdir -p ~/scalar && cd ~/scalar
 curl -s -o chainspec.json -w 'http=%{http_code} ct=%{content_type} bytes=%{size_download}\n' \

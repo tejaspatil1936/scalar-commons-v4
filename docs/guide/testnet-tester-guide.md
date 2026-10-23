@@ -52,7 +52,7 @@ tester guide that hides its own friction is not a test.
 | Indexer REST API | `https://api.scalarnet.io` |
 | Faucet | `https://faucet.scalarnet.io` |
 | Explorer | `https://explorer.scalarnet.io` |
-| Raw chain spec | `https://scalarnet.io/docs/chainspec.json` |
+| Raw chain spec | <a href="https://scalarnet.io/docs/chainspec.json" download class="no-icon">chainspec.json (download)</a> |
 
 A quick liveness check, and the two facts worth knowing before anything else:
 
@@ -590,7 +590,7 @@ console.log(Object.keys(api.tx.escrow).sort().join(' '));
 
 :::
 
-Want a worker that does this loop for you? See [Run an agent](https://scalarnet.io/docs/guide/run-an-agent).
+Want a worker that does this loop for you? See [Run an agent](/guide/run-an-agent).
 
 The run below was captured on spec 305, before the accept step existed. On spec 309 the provider
 must `acceptAgreement` between the create and the delivery, or `recordDelivery` fails with

@@ -1,0 +1,323 @@
+/*
+ * The docs theme: VitePress's default theme in the shared tokens
+ * (SITE-REDESIGN.md §5.6). tokens.css and fonts.css are the chrome's, synced
+ * from landing/src/chrome by scripts/sync-chrome.mjs. This file maps every
+ * variable the default theme reads onto a token, then restates the few rules
+ * the default theme draws outside the brief: tracked headings, 12 px labels,
+ * tinted blocks, striped tables, a copy icon. No colour, face, size, shadow
+ * or motion is written here that is not a token.
+ */
+@import './chrome/tokens.css';
+@import './chrome/fonts.css';
+
+/* ── VitePress's variables, every one a token ─────────────────────────────── */
+:root {
+  --vp-c-white: var(--bg);
+  --vp-c-black: var(--text);
+  --vp-c-neutral: var(--text);
+  --vp-c-neutral-inverse: var(--bg);
+
+  --vp-c-gray-1: var(--border);
+  --vp-c-gray-2: var(--bg-2);
+  --vp-c-gray-3: var(--bg-2);
+  --vp-c-gray-soft: var(--bg-2);
+  --vp-c-indigo-1: var(--accent);
+  --vp-c-indigo-2: var(--accent-2);
+  --vp-c-indigo-3: var(--accent);
+  --vp-c-indigo-soft: var(--bg-2);
+  --vp-c-purple-1: var(--accent);
+  --vp-c-purple-2: var(--accent-2);
+  --vp-c-purple-3: var(--accent);
+  --vp-c-purple-soft: var(--bg-2);
+  --vp-c-green-1: var(--ok);
+  --vp-c-green-2: var(--ok);
+  --vp-c-green-3: var(--ok);
+  --vp-c-green-soft: var(--ok-bg);
+  --vp-c-yellow-1: var(--warn);
+  --vp-c-yellow-2: var(--warn);
+  --vp-c-yellow-3: var(--warn);
+  --vp-c-yellow-soft: var(--warn-bg);
+  --vp-c-red-1: var(--bad);
+  --vp-c-red-2: var(--bad);
+  --vp-c-red-3: var(--bad);
+  --vp-c-red-soft: var(--bad-bg);
+  --vp-c-sponsor: var(--accent);
+
+  --vp-c-bg: var(--bg);
+  --vp-c-bg-alt: var(--bg-2);
+  --vp-c-bg-elv: var(--bg);
+  --vp-c-bg-soft: var(--bg-2);
+  --vp-c-border: var(--control);
+  --vp-c-divider: var(--border);
+  --vp-c-gutter: var(--border);
+  --vp-c-text-1: var(--text);
+  --vp-c-text-2: var(--text-2);
+  --vp-c-text-3: var(--text-3);
+
+  --vp-c-brand-1: var(--accent);
+  --vp-c-brand-2: var(--accent-2);
+  --vp-c-brand-3: var(--accent);
+  --vp-c-brand-soft: var(--bg-2);
+
+  --vp-font-family-base: var(--font-sans);
+  --vp-font-family-mono: var(--font-mono);
+
+  /* The only shadow is an open menu's. */
+  --vp-shadow-1: none;
+  --vp-shadow-2: none;
+  --vp-shadow-3: var(--menu-shadow);
+  --vp-shadow-4: var(--menu-shadow);
+  --vp-shadow-5: var(--menu-shadow);
+  --vp-backdrop-bg-color: color-mix(in srgb, var(--text) 40%, transparent);
+
+  --vp-nav-height: var(--header);
+  --vp-nav-bg-color: var(--bg);
+  --vp-nav-screen-bg-color: var(--bg);
+  --vp-local-nav-bg-color: var(--bg);
+  --vp-sidebar-bg-color: var(--bg-2);
+
+  --vp-code-line-height: 1.5;
+  --vp-code-color: var(--text);
+  --vp-code-link-color: var(--accent);
+  --vp-code-link-hover-color: var(--accent-2);
+  --vp-code-bg: var(--bg-2);
+  --vp-code-block-color: var(--text);
+  --vp-code-block-bg: var(--bg-2);
+  --vp-code-block-divider-color: var(--border);
+  --vp-code-lang-color: var(--text-3);
+  --vp-code-line-highlight-color: var(--bg);
+  --vp-code-line-number-color: var(--text-3);
+  --vp-code-line-diff-add-color: var(--ok-bg);
+  --vp-code-line-diff-add-symbol-color: var(--ok);
+  --vp-code-line-diff-remove-color: var(--bad-bg);
+  --vp-code-line-diff-remove-symbol-color: var(--bad);
+  --vp-code-line-warning-color: var(--warn-bg);
+  --vp-code-line-error-color: var(--bad-bg);
+  --vp-code-copy-code-border-color: var(--border);
+  --vp-code-copy-code-bg: var(--bg);
+  --vp-code-copy-code-hover-border-color: var(--control);
+  --vp-code-copy-code-hover-bg: var(--bg);
+  --vp-code-copy-code-active-text: var(--text-2);
+  --vp-code-tab-divider: var(--border);
+  --vp-code-tab-text-color: var(--text-2);
+  --vp-code-tab-bg: var(--bg-2);
+  --vp-code-tab-hover-text-color: var(--text);
+  --vp-code-tab-active-text-color: var(--text);
+  --vp-code-tab-active-bar-color: var(--accent);
+
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-text: var(--bg);
+  --vp-button-brand-bg: var(--accent);
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-hover-text: var(--bg);
+  --vp-button-brand-hover-bg: var(--accent-2);
+  --vp-button-brand-active-border: transparent;
+  --vp-button-brand-active-text: var(--bg);
+  --vp-button-brand-active-bg: var(--accent-2);
+  --vp-button-alt-border: var(--control);
+  --vp-button-alt-text: var(--text);
+  --vp-button-alt-bg: var(--bg);
+  --vp-button-alt-hover-border: var(--control);
+  --vp-button-alt-hover-text: var(--text);
+  --vp-button-alt-hover-bg: var(--bg-2);
+  --vp-button-alt-active-border: var(--control);
+  --vp-button-alt-active-text: var(--text);
+  --vp-button-alt-active-bg: var(--bg-2);
+
+  /* Callouts: white, a hairline, and a 3 px status rule at the left (below). */
+  --vp-custom-block-info-border: var(--border);
+  --vp-custom-block-info-text: var(--text);
+  --vp-custom-block-info-bg: var(--bg);
+  --vp-custom-block-info-code-bg: var(--bg-2);
+  --vp-custom-block-note-border: var(--border);
+  --vp-custom-block-note-text: var(--text);
+  --vp-custom-block-note-bg: var(--bg);
+  --vp-custom-block-note-code-bg: var(--bg-2);
+  --vp-custom-block-tip-border: var(--border);
+  --vp-custom-block-tip-text: var(--text);
+  --vp-custom-block-tip-bg: var(--bg);
+  --vp-custom-block-tip-code-bg: var(--bg-2);
+  --vp-custom-block-important-border: var(--border);
+  --vp-custom-block-important-text: var(--text);
+  --vp-custom-block-important-bg: var(--bg);
+  --vp-custom-block-important-code-bg: var(--bg-2);
+  --vp-custom-block-warning-border: var(--border);
+  --vp-custom-block-warning-text: var(--text);
+  --vp-custom-block-warning-bg: var(--bg);
+  --vp-custom-block-warning-code-bg: var(--bg-2);
+  --vp-custom-block-danger-border: var(--border);
+  --vp-custom-block-danger-text: var(--text);
+  --vp-custom-block-danger-bg: var(--bg);
+  --vp-custom-block-danger-code-bg: var(--bg-2);
+  --vp-custom-block-caution-border: var(--border);
+  --vp-custom-block-caution-text: var(--text);
+  --vp-custom-block-caution-bg: var(--bg);
+  --vp-custom-block-caution-code-bg: var(--bg-2);
+  --vp-custom-block-details-border: var(--border);
+  --vp-custom-block-details-text: var(--text);
+  --vp-custom-block-details-bg: var(--bg);
+  --vp-custom-block-details-code-bg: var(--bg-2);
+
+  --vp-input-border-color: var(--control);
+  --vp-input-bg-color: var(--bg);
+  --vp-input-switch-bg-color: var(--bg-2);
+
+  --vp-home-hero-name-color: var(--text);
+  --vp-home-hero-name-background: transparent;
+
+  --vp-badge-info-border: transparent;
+  --vp-badge-info-text: var(--text-2);
+  --vp-badge-info-bg: var(--bg-2);
+  --vp-badge-tip-border: transparent;
+  --vp-badge-tip-text: var(--ok);
+  --vp-badge-tip-bg: var(--ok-bg);
+  --vp-badge-warning-border: transparent;
+  --vp-badge-warning-text: var(--warn);
+  --vp-badge-warning-bg: var(--warn-bg);
+  --vp-badge-danger-border: transparent;
+  --vp-badge-danger-text: var(--bad);
+  --vp-badge-danger-bg: var(--bad-bg);
+
+  --vp-local-search-bg: var(--bg);
+  --vp-local-search-result-bg: var(--bg);
+  --vp-local-search-result-border: var(--border);
+  --vp-local-search-result-selected-bg: var(--bg-2);
+  --vp-local-search-result-selected-border: var(--accent);
+  --vp-local-search-highlight-bg: var(--accent);
+  --vp-local-search-highlight-text: var(--bg);
+}
+
+/* ── base ─────────────────────────────────────────────────────────────────── */
+body { font: var(--body); color: var(--text); background: var(--bg); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.DocSearch-Button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.VPSkipLink { font: var(--small); font-weight: 500; }
+
+/* ── header: wordmark, nav in --small 500 text-2, current page underlined ─── */
+.VPNavBar .VPNavBarTitle .title { font: var(--lead); font-weight: 600; color: var(--text); }
+.VPNavBar .VPNavBarMenu .VPNavBarMenuLink {
+  display: flex; align-items: center; height: var(--header); line-height: 1.5;
+  font-weight: 500; color: var(--text-2); border-bottom: 2px solid transparent;
+  transition: color .15s, background-color .15s, border-color .15s;
+}
+.VPNavBar .VPNavBarMenu .VPNavBarMenuLink:hover { color: var(--text); }
+.VPNavBar .VPNavBarMenu .VPNavBarMenuLink.active { color: var(--text); border-bottom-color: var(--accent); }
+/* The search button says "Search"; the keyboard hint is not a visitor's concern. */
+.DocSearch-Button .DocSearch-Button-Keys { display: none; }
+.DocSearch-Button { font: var(--small); }
+.DocSearch-Button .DocSearch-Button-Placeholder { font: var(--small); font-weight: 500; color: var(--text-2); }
+.VPNavScreen .VPNavScreenMenuLink { font: var(--small); font-weight: 500; min-height: var(--s-7); display: flex; align-items: center; }
+
+/* ── local nav (under 960 px): Menu · On this page ────────────────────────── */
+.VPLocalNav .container .menu { font: var(--small); font-weight: 500; color: var(--text-2); }
+.VPLocalNav .VPLocalNavOutlineDropdown button { font: var(--small); font-weight: 500; color: var(--text-2); }
+
+/* ── sidebar ──────────────────────────────────────────────────────────────── */
+#VPSidebarNav .VPSidebarItem.level-0 .text { font-weight: 600; }
+
+/* ── the reading column: 720 px, body 16/1.6, headings on the scale ───────── */
+.VPDoc.has-aside .content-container { max-width: var(--reading); }
+.VPDoc .aside-curtain { display: none; }
+.VPDoc .vp-doc h1 { font: var(--h1); letter-spacing: normal; }
+.VPDoc .vp-doc h2 { font: var(--h2); letter-spacing: normal; }
+.VPDoc .vp-doc h3 { font: var(--h3); letter-spacing: normal; }
+.VPDoc .vp-doc h4 { font: var(--lead); font-weight: 600; letter-spacing: normal; }
+.VPDoc .vp-doc h5, .VPDoc .vp-doc h6 { font: var(--body); font-weight: 600; letter-spacing: normal; }
+.vp-doc p, .vp-doc li { line-height: 1.6; max-width: 65ch; }
+.vp-doc ul, .vp-doc ol { padding-left: var(--s-5); }
+.vp-doc a { font-weight: 400; color: var(--accent); text-decoration: none; overflow-wrap: anywhere; transition: color .15s, background-color .15s, border-color .15s; }
+.vp-doc a:hover, .vp-doc a:focus-visible { color: var(--accent-2); text-decoration: underline; }
+.vp-doc blockquote { color: var(--text-2); }
+
+/* inline code: --mono everywhere (headings and callouts too, as the chrome's prose does),
+   bg-2, radius 4, breaks anywhere so a long address never widens the page */
+.vp-doc :not(pre) > code { font: var(--mono); padding: calc(var(--s-1) / 2) var(--s-1); border-radius: var(--radius-sm); overflow-wrap: anywhere; }
+.vp-doc th > code { font: inherit; font-family: var(--font-mono); }
+/* In a table a code span breaks only where a word would; a long raw value widens its column and the table scrolls. */
+.vp-doc table code { overflow-wrap: normal; }
+
+/* tables: a bordered box that scrolls inside itself, head in --caption 500 text-2 on bg-2, 1 px row rules */
+.vp-doc table { display: block; width: max-content; max-width: 100%; margin: var(--s-5) 0; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.vp-doc tr, .vp-doc tr:nth-child(2n) { background-color: var(--bg); border-top: 0; }
+.vp-doc th, .vp-doc td { border: 0; border-bottom: 1px solid var(--border); padding: var(--s-3) var(--s-4); font: var(--small); vertical-align: top; }
+.vp-doc th { font: var(--caption); font-weight: 500; color: var(--text-2); background-color: var(--bg-2); text-align: left; white-space: nowrap; }
+.vp-doc tbody tr:last-child td { border-bottom: 0; }
+
+/* callouts: 1 px border, a 3 px status rule at the left, 16 px padding, --small */
+.vp-doc .custom-block { border-radius: var(--radius); border-left-width: 3px; border-left-color: var(--accent); padding: var(--s-4); font: var(--small); color: var(--text); }
+.vp-doc .custom-block.warning { border-left-color: var(--warn); }
+.vp-doc .custom-block.danger, .vp-doc .custom-block.caution { border-left-color: var(--bad); }
+.vp-doc .custom-block.details { border-left-width: 1px; border-left-color: var(--border); }
+.vp-doc .custom-block .custom-block-title { font: var(--small); font-weight: 600; }
+.vp-doc .custom-block p, .vp-doc .custom-block li { font: var(--small); line-height: 1.5; }
+.vp-doc .custom-block p { margin: var(--s-2) 0; }
+.vp-doc .custom-block p:first-child { margin: 0; }
+/* Status colour stays on the rule: code and links inside a callout read as everywhere else. */
+.vp-doc .custom-block code { color: var(--text); }
+.vp-doc .custom-block a { color: var(--accent); font-weight: 400; text-decoration: none; }
+.vp-doc .custom-block a:hover, .vp-doc .custom-block a:focus-visible { color: var(--accent-2); text-decoration: underline; opacity: 1; }
+.vp-doc .custom-block a:hover > code { color: var(--text); }
+
+/* code blocks: bg-2, radius 8, 16 px padding, --mono, a Copy button top-right, no language label */
+.vp-doc div[class*='language-'] { margin: var(--s-4) 0; border-radius: var(--radius); }
+.vp-doc li div[class*='language-'] { border-radius: var(--radius); }
+.vp-doc [class*='language-'] pre { padding: var(--s-4) 0; }
+.vp-doc [class*='language-'] code { padding: 0 var(--s-4); font-family: var(--font-mono); color: var(--text); }
+.vp-doc [class*='language-'] > span.lang { display: none; }
+/* The button says "Copy". It appears when the block is hovered or focused (the
+   default theme's behaviour, so a long line is not covered while it is read) and
+   stays on screen where there is no pointer to hover with. */
+.vp-doc [class*='language-'] > button.copy {
+  top: var(--s-3); right: var(--s-3); width: auto; height: auto; padding: var(--s-1) var(--s-2);
+  border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg) none;
+  font: var(--caption); font-weight: 500; color: var(--text-2);
+  transition: color .15s, background-color .15s, border-color .15s;
+}
+@media (hover: none) {
+  .vp-doc [class*='language-'] > button.copy { opacity: 1; }
+}
+.vp-doc [class*='language-'] > button.copy::before { content: "Copy"; }
+.vp-doc [class*='language-'] > button.copy:hover { color: var(--text); border-color: var(--control); background: var(--bg) none; }
+.vp-doc [class*='language-'] > button.copy.copied,
+.vp-doc [class*='language-'] > button.copy:hover.copied { border-radius: var(--radius-sm); border-color: var(--border); background: var(--bg) none; color: var(--ok); }
+.vp-doc [class*='language-'] > button.copy.copied::before,
+.vp-doc [class*='language-'] > button.copy:hover.copied::before {
+  content: "Copied"; position: static; transform: none; display: inline; border: 0; padding: 0;
+  width: auto; height: auto; font: inherit; color: inherit; background: none;
+}
+
+/* previous / next */
+.VPDocFooter .pager-link { border-radius: var(--radius); }
+.VPDocFooter .pager-link .desc { font: var(--caption); font-weight: 500; color: var(--text-2); }
+.VPDocFooter .pager-link .title { font: var(--small); font-weight: 500; color: var(--accent); }
+
+/* ── home: "Documentation", one sentence, three cards, the reference list ──── */
+.VPHome .VPHero .name, .VPHome .VPHero .text { font: var(--h1); letter-spacing: normal; max-width: none; }
+.VPHome .VPHero .clip { background: none; -webkit-text-fill-color: var(--text); }
+.VPHome .VPHero .tagline { font: var(--lead); color: var(--text-2); max-width: 65ch; padding-top: var(--s-3); }
+.VPHome .VPHero .tagline a { color: var(--accent); transition: color .15s, background-color .15s, border-color .15s; }
+.VPHome .VPHero .tagline a:hover, .VPHome .VPHero .tagline a:focus-visible { color: var(--accent-2); text-decoration: underline; }
+.VPHome .VPFeature { background-color: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); }
+.VPHome .VPFeature.link:hover { border-color: var(--control); }
+.VPHome .VPFeature .title { font: var(--h3); }
+.VPHome .VPFeature .details { font: var(--body); color: var(--text-2); padding-top: var(--s-3); }
+.VPHome .VPFeature .link-text { padding-top: var(--s-4); }
+.VPHome .VPFeature .link-text-value { font: var(--small); font-weight: 500; color: var(--accent); }
+.VPHome .vp-doc h2 { font: var(--h2); letter-spacing: normal; }
+
+/* ── footer (home only) ───────────────────────────────────────────────────── */
+.VPFooter { background-color: var(--bg-2); }
+.VPFooter .message { font: var(--caption); font-weight: 400; color: var(--text-2); }
+
+/* ── not found: the default page in the scale, without the rule ───────────── */
+.NotFound .code { font: var(--stat); color: var(--text-2); }
+.NotFound .title { font: var(--h1); letter-spacing: normal; padding-top: var(--s-3); }
+.NotFound .divider { display: none; }
+.NotFound .quote { font: var(--body); color: var(--text-2); max-width: 65ch; margin: var(--s-4) auto 0; }
+.NotFound .action { padding-top: var(--s-5); }
+.NotFound .link {
+  display: inline-flex; align-items: center; height: calc(var(--s-6) + var(--s-2)); padding: 0 calc(var(--s-4) + var(--s-1));
+  border: 1px solid var(--control); border-radius: var(--radius); font: var(--small); font-weight: 500; color: var(--text);
+  transition: color .15s, background-color .15s, border-color .15s;
+}
+.NotFound .link:hover { border-color: var(--control); color: var(--text); background-color: var(--bg-2); }

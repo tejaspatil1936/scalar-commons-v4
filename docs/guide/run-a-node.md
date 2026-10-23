@@ -7,7 +7,7 @@ description: "This page covers building scalar-node from source, choosing a chai
 This page covers building `scalar-node` from source, choosing a chain spec, and joining the
 devnet — as a full node first, then as a validator.
 
-::: note PROVENANCE
+::: info Provenance
 These instructions were verified against **Scalar Commons Local Testnet** as it ran in
 ROUND15 (2026-08-03): five validators on one host, RPC on `ws://127.0.0.1:9944`. Today the
 RPC is public at `wss://rpc.scalarnet.io` and the validator set is **8 validators** of **8 seats**, read at block #1 157 827

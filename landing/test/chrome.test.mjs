@@ -141,7 +141,6 @@ const walk = (dir, keep) => {
 export const LEGACY_DIRS = ['landing/src/chrome-legacy/', 'explorer/src/chrome-legacy/', 'docs/.vitepress/theme/chrome-legacy/'];
 export const NOT_YET_REBUILT = [
   'landing/src/oversight.css',
-  'docs/.vitepress/theme/docs.css',
 ];
 const exempt = (path) => LEGACY_DIRS.some((d) => path.startsWith(d)) || NOT_YET_REBUILT.some((d) => path.startsWith(d));
 
