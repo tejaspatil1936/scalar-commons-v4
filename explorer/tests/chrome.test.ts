@@ -8,7 +8,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { createIndexerClient, createIndexerReader } from '../src/activity.js';
 import type { ExplorerChain } from '../src/chain.js';
 import { band, curve, curvePaths, reading, tag, topBar, NAV } from '../src/chrome-templates.js';
-import { figureWidthPx, readingRow, readingRows, renderAccount, renderActivity, renderBlock, renderError, renderExtrinsic, renderHome } from '../src/render.js';
+import { eventGlyphs, figureWidthPx, PULSE_EVENTS, readingRow, readingRows, renderAccount, renderActivity, renderBlock, renderError, renderExtrinsic, renderHome } from '../src/render.js';
 import { parseRoute, searchPath } from '../src/routes.js';
 import { createExplorerServer, readChromeStylesheet, defaultChromeDir } from '../src/server.js';
 import type { AccountView, ActivityView, BlockView, ChainInfo, ExtrinsicView, HomeView, Read } from '../src/types.js';
@@ -592,5 +592,35 @@ describe('layout faults seen at 1440 px against the public node', () => {
     expect(html).toContain('spec 309 · node 4.0.0-5f5e3c9439f');
     expect(renderHome(HOME)).toContain('spec 309 · node —');
     expect(renderHome(HOME)).not.toContain('node scalar-commons');
+  });
+});
+
+describe("the Spine's event column: the pulse model's kinds as glyphs", () => {
+  it('mirrors landing/src/pulse/model.js EVENTS row for row (section, method, kind, word)', () => {
+    const model = readFileSync(fileURLToPath(new URL('../../landing/src/pulse/model.js', import.meta.url)), 'utf8');
+    const rows = [...model.matchAll(/\{ section: '([^']+)', method: '([^']+)', kind: '([^']+)', lifetimeMs: \d+, describe: '([^']+)' \}/g)].map((m) => ({ section: m[1], method: m[2], kind: m[3], describe: m[4] }));
+    expect(rows.length).toBe(8);
+    expect(PULSE_EVENTS).toEqual(rows);
+  });
+
+  it('draws one glyph per kind present, in the legend order, named by the model word; resolved and system events draw none', () => {
+    const html = eventGlyphs([
+      { section: 'system', method: 'ExtrinsicSuccess' },
+      { section: 'oracle', method: 'BatchResponseSubmitted' },
+      { section: 'escrow', method: 'AgreementCreated' },
+      { section: 'escrow', method: 'AgreementCreated' },
+      { section: 'escrow', method: 'DisputeResolved' },
+    ]);
+    expect(html).toBe(
+      '<span class="x-glyph" data-kind="agreement" role="img" aria-label="agreement opened" title="agreement opened"></span>' +
+        '<span class="x-glyph" data-kind="oracle" role="img" aria-label="oracle answer" title="oracle answer"></span>',
+    );
+    expect(eventGlyphs([{ section: 'system', method: 'ExtrinsicSuccess' }])).toBe('');
+  });
+
+  it('prints the glyphs before the event count in the home Spine, in ink and rule tokens only', () => {
+    const html = renderHome(HOME);
+    expect(html).toMatch(/\.x-glyph\[data-kind="dispute"\]::before\{[^}]*border-top:1px dashed var\(--ink\)\}/);
+    expect(html).not.toMatch(/\.x-glyph[^{]*\{[^}]*(?:#|rgb|hsl)/);
   });
 });
