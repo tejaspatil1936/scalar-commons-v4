@@ -475,9 +475,9 @@ test('the agent activity panel: the title as a label, the Network graph switch, 
   const panel = heroHtml().match(/<figure class="panel hero-panel instrument"[\s\S]*?<\/figure>/)?.[0] ?? '';
   assert.match(panel, /<figcaption class="panel-head">\s*<h2 class="nw-label panel-title" id="panel-h">Agent activity<\/h2>\s*<button type="button" class="nw-quiet graph-toggle" role="switch" aria-checked="false">Network graph<\/button>/);
   const legend = panel.match(/<ul class="legend field-legend"[^>]*>([\s\S]*?)<\/ul>/)?.[1] ?? '';
-  assert.deepEqual([...legend.matchAll(/<\/span>([^<]+)<\/li>/g)].map((m) => m[1]), ['Idle', 'Working', 'In dispute', 'Slashed, last hour', 'Operator-run']);
-  // The legend's marks are the chrome's tag marks, each beside its word: outline, solid, hatch, X, double ring — never a hue.
-  assert.deepEqual([...legend.matchAll(/<li class="nw-tag" data-state="([a-z]+)"><span class="nw-dot" aria-hidden="true"><\/span>/g)].map((m) => m[1]), ['settled', 'live', 'dispute', 'slashed', 'operator']);
+  assert.deepEqual([...legend.matchAll(/<\/span>([^<]+)<\/li>/g)].map((m) => m[1]), ['Heartbeat multiplier', 'In dispute', 'Slashed, last hour', 'Operator-run', 'Unstaking']);
+  // The legend's marks are the chrome's tag marks, each beside its word: solid, hatch, X, double ring, outline — never a hue.
+  assert.deepEqual([...legend.matchAll(/<li class="nw-tag" data-state="([a-z]+)"><span class="nw-dot" aria-hidden="true"><\/span>/g)].map((m) => m[1]), ['live', 'dispute', 'slashed', 'operator', 'record']);
   for (const state of ['live', 'dispute', 'slashed', 'operator']) assert.match(chromeCss, new RegExp(`\\.nw-tag\\[data-state="${state}"\\] \\.nw-dot`), `the chrome has no ${state} mark`);
   assert.ok(!/\.dot-|\.swatch/.test(css), 'no colour-swatch legend is left');
   assert.match(panel, /<canvas class="field-canvas" role="img" aria-label="[^"]+"><\/canvas>\s*<div class="tooltip field-tip nw-tag" role="tooltip" hidden><\/div>/);
@@ -494,11 +494,20 @@ test('the agent activity panel: the title as a label, the Network graph switch, 
   assert.match(field, /import\(new URL\(GRAPH_BUNDLE, import\.meta\.url\)\.href\)/, 'the graph is fetched on first use');
   // The panel sits on paper-2 with the one radius; no border, no shadow.
   assert.match(css, /\.panel \{[^}]*background: var\(--paper-2\); border-radius: var\(--radius\)/);
-  // The canvas draws state as marks read from the tokens: hatch for dispute, an X for slashed, a second outline for operator-run.
-  assert.match(field, /export function markCell/);
+  // The EmberBank (round 2 §4): one 24×3 ember per agent, ink at the heartbeat multiplier's opacity; hatch for dispute, an X for slashed, a 1 px tick at the left for operator-run, an outline when unstaking — marks read from the tokens, never a hue.
+  assert.match(field, /export const EMBER = \{ width: 24, height: 3, gap: 4, pitch: 24, perRow: 24 \}/);
+  assert.match(field, /export function drawEmber/);
+  assert.match(field, /g\.globalAlpha = multiplier \/ 100;\s*g\.fillStyle = ink;\s*g\.fillRect\(x, y, w, h\)/, 'the ember is ink at the multiplier');
   assert.match(field, /state === 'disputed'[\s\S]*?g\.clip\(\)/, 'dispute is hatched');
-  assert.match(field, /state === 'slashed'[\s\S]*?moveTo\(x - k, y - k\)[\s\S]*?lineTo\(x \+ k, y \+ k\)/, 'slashed is an X');
-  assert.match(field, /Operator-run: a second outline/);
+  assert.match(field, /state === 'slashed'[\s\S]*?moveTo\(cx - 4, cy - 4\)[\s\S]*?lineTo\(cx \+ 4, cy \+ 4\)/, 'slashed is an X');
+  assert.match(field, /if \(operator\) \{[\s\S]*?g\.fillRect\(x - 2, y - 3, 1, h \+ 6\)/, 'operator-run is a 1 px tick at the left');
+  assert.match(field, /\$\{ctx\.EXPLORER_ORIGIN\}\/account\//, 'an ember opens its account on the explorer');
+  // The periods come from chain-facts.json, embedded as a record; nothing is typed.
+  const record = JSON.parse(page.match(/<script type="application\/json" id="heartbeat-record">([^<]+)<\/script>/)[1]);
+  assert.equal(record.grace, Number(facts.constants.agents.heartbeatGracePeriod));
+  assert.equal(record.decay, Number(facts.constants.agents.heartbeatDecayPeriod));
+  assert.equal(record.blockMs, Number(facts.constants.babe.expectedBlockTime));
+  assert.equal(record.source, 'chain-facts.json');
 });
 
 test('the river under the first screen: a titled strip at 140 px across the content width, newest ink, the rest ink-3', () => {

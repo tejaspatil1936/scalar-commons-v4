@@ -1,12 +1,13 @@
-// The agent field, the first screen's panel beside the hero's figures: one
-// small cell per registered agent on a tidy grid (above BUCKET_THRESHOLD
-// agents, one cell per bucket of agents), coloured by what the agent is doing
-// now — idle in grey, working (party to an open agreement) in the active
-// colour, in dispute in the dispute colour, slashed in the last hour in red.
-// Operator-run agents, the ones whose on-chain name carries the `swarm-`
-// prefix, carry a thin ring so they are never mistaken for external agents.
-// It is a grid of dots on one canvas, not a simulation: drawing 2,000 agents
-// is a few hundred arcs, redrawn only when something changes.
+// The EmberBank, the first screen's panel beside the hero's figures: one
+// 24×3 px ember per registered agent (above BUCKET_THRESHOLD agents, one per
+// bucket of agents), in rows of up to 24 at 4 px gaps and a 24 px row pitch.
+// An ember is ink on paper-2 at exactly the agent's heartbeat multiplier —
+// pallets/agents/src/lib.rs `heartbeat_multiplier` (lines 1987–2004): 100 %
+// within the grace period, then linear to a 10 % floor over the decay period,
+// the two periods read from chain-facts.json's runtime constants. State is
+// never a hue: in dispute the ember is hatched, slashed in the last hour it
+// carries an X, operator-run (the `swarm-` prefix) a 1 px tick at its left,
+// unstaking it is an outline. One canvas, redrawn on events only.
 //
 // Data: /v1/agents (live chain state, read whole up to the indexer's scan
 // cap), /v1/escrows (the open agreements: who is working, who is in dispute),
@@ -43,47 +44,112 @@ export const GRAPH_BUNDLE = 'observatory-graph.js';
 export const STATES = ['idle', 'working', 'disputed', 'slashed'];
 export const STATE_COLOUR = { idle: 'idle', working: 'active', disputed: 'disputed', slashed: 'slash' };
 
+/** The ember's geometry (px): a 24×3 bar, 4 px apart, rows 24 px apart, at most 24 to a row. */
+export const EMBER = { width: 24, height: 3, gap: 4, pitch: 24, perRow: 24 };
+
 /**
- * One cell in the Ledger's marks, never a hue: working is solid ink (live),
- * idle an ink-3 outline (settled), in dispute a 45° hatch of 1 px ink lines
- * at 4 px pitch inside an ink outline, slashed an ink outline with an X.
- * `inks` are read from the tokens at draw time by the caller.
+ * pallets/agents/src/lib.rs `heartbeat_multiplier` (1987–2004) in the same
+ * integer arithmetic: 100 while `now - last` is within `grace`, then
+ * 100 − ⌊90 × over / decay⌋ with `over` capped at `decay`, never under 10.
  */
-export function markCell(g, state, x, y, r, { ink, settled, ground }) {
+export function heartbeatMultiplier(last, now, { grace, decay }) {
+  const since = Math.max(0, now - last);
+  if (since <= grace) return 100;
+  const over = Math.min(since - grace, decay);
+  const pct = 100 - Math.floor((90 * over) / Math.max(1, decay));
+  return Math.max(10, pct);
+}
+
+/** Rows of up to EMBER.perRow embers that fit `width`, from the top-left of the plate. */
+export function bankLayout(count, width, pad = 8) {
+  if (count <= 0 || width <= 0) return { count: 0, cols: 0, rows: 0, x0: 0, y0: 0, height: 2 * pad };
+  const step = EMBER.width + EMBER.gap;
+  const cols = Math.max(1, Math.min(EMBER.perRow, count, Math.floor((width - 2 * pad + EMBER.gap) / step)));
+  const rows = Math.ceil(count / cols);
+  return { count, cols, rows, x0: pad, y0: pad, height: rows * EMBER.pitch + 2 * pad };
+}
+
+/** The top-left corner of the i-th ember: centred in its row's 24 px pitch. */
+export function emberOrigin(layout, i) {
+  return {
+    x: layout.x0 + (i % layout.cols) * (EMBER.width + EMBER.gap),
+    y: layout.y0 + Math.floor(i / layout.cols) * EMBER.pitch + Math.floor((EMBER.pitch - EMBER.height) / 2),
+  };
+}
+
+/** The ember under a point (its whole slot in the row counts), or -1. */
+export function emberAt(layout, x, y) {
+  if (!layout.count) return -1;
+  const col = Math.floor((x - layout.x0) / (EMBER.width + EMBER.gap));
+  const row = Math.floor((y - layout.y0) / EMBER.pitch);
+  if (col < 0 || col >= layout.cols || row < 0 || row >= layout.rows) return -1;
+  const i = row * layout.cols + col;
+  return i < layout.count ? i : -1;
+}
+
+/**
+ * One ember in the Ledger's marks, never a hue. `multiplier` (10–100, or
+ * null while the chain head is unknown) is the ink's opacity; `state` adds
+ * the hatch (in dispute) or the X (slashed); `operator` the 1 px tick at the
+ * left; `unstaking` draws the bar as an outline. Colours come from the
+ * tokens at draw time.
+ */
+export function drawEmber(g, { x, y, multiplier, state, operator, unstaking }, { ink, unknown }) {
+  const { width: w, height: h } = EMBER;
+  g.save();
   g.lineWidth = 1;
-  g.beginPath();
-  g.arc(x, y, r - 0.5, 0, Math.PI * 2);
-  if (state === 'working') {
+  if (multiplier === null) {
+    g.strokeStyle = unknown;
+    g.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  } else if (unstaking) {
+    g.globalAlpha = multiplier / 100;
+    g.strokeStyle = ink;
+    g.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+  } else {
+    g.globalAlpha = multiplier / 100;
     g.fillStyle = ink;
-    g.fill();
-    return;
+    g.fillRect(x, y, w, h);
   }
-  g.fillStyle = ground;
-  g.fill();
-  g.strokeStyle = state === 'idle' ? settled : ink;
-  g.stroke();
+  g.globalAlpha = 1;
+  g.strokeStyle = ink;
+  g.fillStyle = ink;
   if (state === 'disputed') {
-    g.save();
-    g.clip();
-    g.strokeStyle = ink;
-    for (let d = -2 * r; d <= 2 * r; d += 4) {
-      g.beginPath();
-      g.moveTo(x + d - r, y + r);
-      g.lineTo(x + d + r, y - r);
-      g.stroke();
-    }
-    g.restore();
-  } else if (state === 'slashed') {
-    const k = r * 0.6;
-    g.strokeStyle = ink;
+    // The 45° hatch: 1 px ink lines at 4 px pitch, over an ink outline.
+    g.strokeRect(x - 0.5, y - 1.5, w + 1, h + 3);
     g.beginPath();
-    g.moveTo(x - k, y - k);
-    g.lineTo(x + k, y + k);
-    g.moveTo(x + k, y - k);
-    g.lineTo(x - k, y + k);
+    g.rect(x - 1, y - 2, w + 2, h + 4);
+    g.clip();
+    g.beginPath();
+    for (let d = -h - 4; d <= w + 4; d += 4) {
+      g.moveTo(x + d, y + h + 2);
+      g.lineTo(x + d + h + 4, y - 2);
+    }
+    g.stroke();
+  } else if (state === 'slashed') {
+    // Slashed: an X across the middle of the ember.
+    const cx = x + w / 2;
+    const cy = y + h / 2;
+    g.beginPath();
+    g.moveTo(cx - 4, cy - 4);
+    g.lineTo(cx + 4, cy + 4);
+    g.moveTo(cx + 4, cy - 4);
+    g.lineTo(cx - 4, cy + 4);
     g.stroke();
   }
+  g.restore();
+  if (operator) {
+    // Operator-run: a 1 px tick at the left end, in the gap before the ember.
+    g.fillStyle = ink;
+    g.fillRect(x - 2, y - 3, 1, h + 6);
+  }
 }
+
+/** A span of blocks as words: hours under two days, days from there. */
+export function spanWords(blocks, blockMs) {
+  const hours = Math.round((blocks * blockMs) / 3_600_000);
+  return hours < 48 ? `${hours} h` : `${Math.round(hours / 24)} days`;
+}
+
 export const STATE_WORD = { idle: 'idle', working: 'working', disputed: 'in dispute', slashed: 'slashed in the last hour' };
 
 const AGENTS_INTERVAL_MS = 60_000;
@@ -286,12 +352,12 @@ export function slashedSince(items, since, field) {
   return new Set(items.slice(0, count).map((item) => field(item, 'data.who')));
 }
 
-/** The footnote: what one cell is, and anything the read could not cover. */
+/** The footnote: what one ember is, and anything the read could not cover. */
 export function footnote({ size, truncated, scanLimit, listed, total }, formatInteger = String) {
   const unit =
     size === 1
-      ? 'One cell per agent'
-      : `One cell per ${formatInteger(size)} agents; working cells are in the same share as working agents, and any dispute or slash shows`;
+      ? 'One ember per agent'
+      : `One ember per ${formatInteger(size)} agents; working embers are in the same share as working agents, and any dispute or slash shows`;
   const order = 'External agents come first, then operator-run, each in order of registration';
   const cut = truncated
     ? `; the indexer's live scan stops at ${formatInteger(scanLimit)} agents, so ${formatInteger(listed)} are drawn`
@@ -363,6 +429,29 @@ export function init(root, ctx) {
   let ordered = [];
 
   const box = ctx.fitCanvas(canvas, () => draw());
+
+  // The heartbeat periods, from chain-facts.json's runtime constants (the page embeds them as a record); the chain head from the head bus.
+  const heartbeat = (() => {
+    try {
+      return JSON.parse(document.getElementById('heartbeat-record')?.textContent ?? 'null');
+    } catch {
+      return null;
+    }
+  })();
+  let head = null;
+  ctx.bus.on('head', ({ number }) => {
+    const first = head === null;
+    head = number;
+    // Redrawn on the first head only; afterwards each agent-list read redraws with the head of that moment.
+    if (first) render();
+  });
+  const multiplierOf = (agent) =>
+    head === null || !heartbeat || !Number.isFinite(agent.lastHeartbeatBlock) ? null : heartbeatMultiplier(agent.lastHeartbeatBlock, head, heartbeat);
+  const cellMultiplier = (cell) => {
+    const values = cell.agents.map(multiplierOf);
+    if (values.some((v) => v === null)) return null;
+    return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
+  };
 
   const stateOf = (agent) => agentState(agent, { ...parties, slashed: slashedSet });
 
@@ -462,35 +551,26 @@ export function init(root, ctx) {
       drawEmpty(g, width, height, ['no agents registered']);
       return;
     }
-    const inner = gridLayout(model.cells.length, width - 2 * PLATE_PAD, height - 2 * PLATE_PAD);
-    layout = { ...inner, x0: inner.x0 + PLATE_PAD, y0: inner.y0 + PLATE_PAD };
-    const r = dotRadius(layout.pitch);
-    const ring = ringRadius(layout.pitch);
-    const ink = colour('text');
-    const settled = colour('settled');
-    const ground = colour('field');
+    layout = bankLayout(model.cells.length, width, PLATE_PAD);
+    // The plate is as tall as its rows (24 px each, on the 8 px rhythm), so no ember is cut and no row is empty.
+    if (Math.abs(canvas.clientHeight - layout.height) > 0.5) {
+      canvas.style.height = `${layout.height}px`;
+      return; // fitCanvas re-fits on the resize and draws again
+    }
+    const tokens = { ink: colour('text'), unknown: colour('border') };
     model.cells.forEach((cell, i) => {
       const e = shown.get(cell.key);
-      const { x, y } = cellCentre(layout, i);
+      const { x, y } = emberOrigin(layout, i);
       g.globalAlpha = e?.alpha ?? 1;
-      markCell(g, cell.state, x, y, r, { ink, settled, ground });
-      if (cell.ring) {
-        // Operator-run: a second outline 2 px outside the mark (the stub's double outline).
-        g.strokeStyle = ink;
-        g.lineWidth = 1;
-        g.beginPath();
-        g.arc(x, y, ring, 0, Math.PI * 2);
-        g.stroke();
-      }
+      drawEmber(g, { x, y, multiplier: cellMultiplier(cell), state: cell.state, operator: cell.ring, unstaking: cell.agents.every((a) => a.leaving) }, tokens);
     });
     g.globalAlpha = 1;
-    // The pointed-at cell: a hairline square in the text colour (an interaction state, not a reading).
+    // The pointed-at ember: a hairline frame in the text colour (an interaction state, not a reading).
     if (hovered >= 0 && hovered < model.cells.length) {
-      const { x, y } = cellCentre(layout, hovered);
-      const half = layout.pitch / 2 - 0.5;
+      const { x, y } = emberOrigin(layout, hovered);
       g.strokeStyle = colour('text');
       g.lineWidth = 1;
-      g.strokeRect(Math.round(x - half) + 0.5, Math.round(y - half) + 0.5, Math.round(half * 2) - 1, Math.round(half * 2) - 1);
+      g.strokeRect(x - 2.5, y - 6.5, EMBER.width + 5, EMBER.height + 13);
       positionTip();
     }
   }
@@ -510,13 +590,21 @@ export function init(root, ctx) {
     else live.textContent = liveLine(counts(), formatInteger);
   }
 
+  /** What an ember's ink is, in the record's own periods (chain-facts.json) and the pallet's own end points. */
+  function multiplierNote() {
+    if (!heartbeat) return '';
+    const top = heartbeatMultiplier(0, 0, heartbeat);
+    const floor = heartbeatMultiplier(0, heartbeat.grace + heartbeat.decay, heartbeat);
+    return ` An ember’s ink is the agent’s heartbeat multiplier: ${top} % within the ${spanWords(heartbeat.grace, heartbeat.blockMs)} grace, then linear to a ${floor} % floor over ${spanWords(heartbeat.decay, heartbeat.blockMs)} (pallets/agents heartbeat_multiplier; ${heartbeat.source}, spec ${heartbeat.specVersion}).`;
+  }
+
   function renderFoot() {
     if (!foot) return;
     if (agentsList === null || failures.agents) {
-      foot.textContent = 'One cell per agent. External agents come first, then operator-run, each in order of registration.';
+      foot.textContent = `One ember per agent. External agents come first, then operator-run, each in order of registration.${multiplierNote()}`;
       return;
     }
-    let text = footnote({ size: model.size, truncated: agentsTruncated, scanLimit, listed: agentsList.length, total: agentsTotal }, formatInteger);
+    let text = footnote({ size: model.size, truncated: agentsTruncated, scanLimit, listed: agentsList.length, total: agentsTotal }, formatInteger) + multiplierNote();
     if (failures.open) text += ` Open agreements could not be read: ${failures.open}.`;
     if (failures.slashes) text += ` Slashes could not be read: ${failures.slashes}.`;
     foot.textContent = text;
@@ -530,7 +618,7 @@ export function init(root, ctx) {
     else {
       const n = (s) => formatInteger(model.cells.reduce((sum, cell) => sum + cell.counts[s], 0));
       label =
-        `Agent activity, one ${model.size === 1 ? 'cell per agent' : `cell per ${model.size} agents`}: ${liveLine(c, formatInteger)}; ` +
+        `Agent activity, one ${model.size === 1 ? 'ember per agent' : `ember per ${model.size} agents`}, each as dark as its heartbeat multiplier: ${liveLine(c, formatInteger)}; ` +
         `${n('idle')} idle, ${n('working')} working, ${n('disputed')} in dispute, ${n('slashed')} slashed in the last hour.`;
     }
     canvas.setAttribute('aria-label', label);
@@ -602,6 +690,10 @@ export function init(root, ctx) {
       const open = openList === null || failures.open ? null : openList.filter((a) => a.buyer === agent.address || a.provider === agent.address).length;
       lines.push([nameOf(agent), true]);
       lines.push([STATE_WORD[cell.state], false]);
+      const multiplier = multiplierOf(agent);
+      lines.push([`last heartbeat · block ${formatInteger(agent.lastHeartbeatBlock)}`, false]);
+      lines.push([multiplier === null ? 'heartbeat multiplier unavailable until the chain head is read' : `heartbeat multiplier ${formatInteger(multiplier)} %`, false]);
+      if (agent.unstakeAtBlock !== null && agent.unstakeAtBlock !== undefined) lines.push([`unstaking · exits at block ${formatInteger(agent.unstakeAtBlock)}`, false]);
       if (isOperatorRun(agent.name)) lines.push(['operator-run (swarm- prefix)', false]);
       lines.push([open === null ? 'open agreements unavailable' : `${formatInteger(open)} open ${open === 1 ? 'agreement' : 'agreements'}, either side`, false]);
       lines.push([providerText(agent), false]);
@@ -634,8 +726,10 @@ export function init(root, ctx) {
   function positionTip() {
     if (!tip || tip.hidden || hovered < 0) return;
     const { width, height } = box();
-    const { x, y } = cellCentre(layout, hovered);
-    const half = layout.pitch / 2;
+    const origin = emberOrigin(layout, hovered);
+    const x = origin.x + EMBER.width / 2;
+    const y = origin.y + EMBER.height / 2;
+    const half = EMBER.width / 2;
     const tw = tip.offsetWidth;
     const th = tip.offsetHeight;
     let left = x + half + 8;
@@ -664,7 +758,7 @@ export function init(root, ctx) {
 
   const pointer = (event) => {
     const rect = canvas.getBoundingClientRect();
-    return cellAt(layout, event.clientX - rect.left, event.clientY - rect.top);
+    return emberAt(layout, event.clientX - rect.left, event.clientY - rect.top);
   };
   canvas.addEventListener('pointerdown', (event) => {
     lastPointerType = event.pointerType || 'mouse';
@@ -687,7 +781,7 @@ export function init(root, ctx) {
       return;
     }
     if (model.size === 1) {
-      window.open(`${ctx.EXPLORER_ORIGIN}/activity?agent=${encodeURIComponent(model.cells[i].agents[0].address)}`, '_blank', 'noopener');
+      window.open(`${ctx.EXPLORER_ORIGIN}/account/${encodeURIComponent(model.cells[i].agents[0].address)}`, '_blank', 'noopener');
     }
   });
 
@@ -733,6 +827,9 @@ export function init(root, ctx) {
             // Both are documented as nullable: null is "none", not a missing field.
             name: item.metadata === null ? null : ctx.field(item, 'metadata.name'),
             leaving: item.unstakeAtBlock === null ? false : Number.isFinite(ctx.field(item, 'unstakeAtBlock')),
+            unstakeAtBlock: item.unstakeAtBlock === null ? null : ctx.field(item, 'unstakeAtBlock'),
+            // The EmberBank's input: the block the agent last proved liveness at (agents.lastHeartbeat).
+            lastHeartbeatBlock: ctx.field(item, 'lastHeartbeatBlock'),
           }));
           agentsComplete = record.complete;
           agentsList = rows;

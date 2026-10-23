@@ -416,12 +416,12 @@ ${nwReading({ key: 'hourMessages', label: 'Messages sent', minSpec: 309 })}
         <h2 class="nw-label panel-title" id="panel-h">Agent activity</h2>
         <button type="button" class="nw-quiet graph-toggle" role="switch" aria-checked="false">Network graph</button>
       </figcaption>
-      <ul class="legend field-legend" aria-label="Cell marks">
-        <li class="nw-tag" data-state="settled"><span class="nw-dot" aria-hidden="true"></span>Idle</li>
-        <li class="nw-tag" data-state="live"><span class="nw-dot" aria-hidden="true"></span>Working</li>
+      <ul class="legend field-legend" aria-label="Ember marks">
+        <li class="nw-tag" data-state="live"><span class="nw-dot" aria-hidden="true"></span>Heartbeat multiplier</li>
         <li class="nw-tag" data-state="dispute"><span class="nw-dot" aria-hidden="true"></span>In dispute</li>
         <li class="nw-tag" data-state="slashed"><span class="nw-dot" aria-hidden="true"></span>Slashed, last hour</li>
         <li class="nw-tag" data-state="operator"><span class="nw-dot" aria-hidden="true"></span>Operator-run</li>
+        <li class="nw-tag" data-state="record"><span class="nw-dot" aria-hidden="true"></span>Unstaking</li>
       </ul>
       <ul class="legend graph-legend" aria-label="Line marks">
         <li class="nw-tag" data-state="live"><span class="nw-dot" aria-hidden="true"></span>Open</li>
@@ -429,7 +429,7 @@ ${nwReading({ key: 'hourMessages', label: 'Messages sent', minSpec: 309 })}
         <li class="nw-tag" data-state="settled"><span class="nw-dot" aria-hidden="true"></span>Settled</li>
       </ul>
       <div class="field-host">
-        <canvas class="field-canvas" role="img" aria-label="Agent activity: one cell per registered agent, marked by what it is doing now"></canvas>
+        <canvas class="field-canvas" role="img" aria-label="Agent activity: one ember per registered agent, as dark as its heartbeat multiplier"></canvas>
         <div class="tooltip field-tip nw-tag" role="tooltip" hidden></div>
       </div>
       <div class="graph-host">
@@ -440,7 +440,7 @@ ${nwReading({ key: 'hourMessages', label: 'Messages sent', minSpec: 309 })}
         <ol class="graph-bundles nw-mono" aria-label="Pairs with more lines than the graph draws" hidden></ol>
       </div>
       <p class="field-live nw-receipt-line" role="status" aria-live="off">reading the agent list…</p>
-      <p class="panel-foot field-foot nw-small nw-dim">One cell per agent. External agents come first, then operator-run, each in order of registration.</p>
+      <p class="panel-foot field-foot nw-small nw-dim">One ember per agent. External agents come first, then operator-run, each in order of registration.</p>
       <p class="panel-foot graph-note nw-small nw-dim"></p>
       <details class="disclosure agents-list"><summary class="nw-quiet">The same agents as a list</summary>
         <ol class="agent-list nw-mono" aria-live="off"></ol>
@@ -479,6 +479,27 @@ function noscriptBand(facts) {
   })}</div></noscript>`;
 }
 
+/**
+ * The two heartbeat periods the EmberBank needs, from chain-facts.json's
+ * runtime constants (read off the node at build time, with the spec they were
+ * read at), and the block time that turns them into words.
+ */
+export function heartbeatRecord(facts) {
+  const agents = facts.constants?.agents ?? {};
+  const record = {
+    grace: Number(agents.heartbeatGracePeriod),
+    decay: Number(agents.heartbeatDecayPeriod),
+    blockMs: Number(facts.constants?.babe?.expectedBlockTime),
+    source: 'chain-facts.json',
+    specVersion: facts.provenance.specVersion,
+    readAtBlock: facts.provenance.readAtBlock,
+  };
+  for (const key of ['grace', 'decay', 'blockMs']) if (!Number.isFinite(record[key]) || record[key] <= 0) throw new Error(`chain-facts.json has no ${key} for the EmberBank`);
+  return record;
+}
+
+const jsonScript = (id, value) => `<script type="application/json" id="${id}">${JSON.stringify(value).replace(/</g, '\\u003c')}</script>`;
+
 /** chain-facts.json, read when the caller passes no facts (the tests call renderObservatory without them). */
 const readFacts = () => JSON.parse(readFileSync(new URL('../chain-facts.json', import.meta.url), 'utf8'));
 
@@ -510,6 +531,7 @@ ${T.palette()}
 <p class="sr-status nw-visually-hidden" role="status" aria-live="polite"></p>
 <script type="application/json" id="runtime-history">${JSON.stringify(history).replace(/</g, '\\u003c')}</script>
 <script type="application/json" id="security-posture">${JSON.stringify(posture).replace(/</g, '\\u003c')}</script>
+${jsonScript('heartbeat-record', heartbeatRecord(chainFacts))}
 </body>
 </html>
 `;
@@ -519,7 +541,7 @@ ${T.palette()}
 const HARNESS_SECTION = { pulse: 'chain', era: 'economy', economy: 'economy', posture: 'verify' };
 
 /** A page holding one instrument's section, for the dev harness. */
-export function renderHarness(name, { history, posture, status, css = '' }) {
+export function renderHarness(name, { history, posture, status, css = '', facts = null }) {
   const section = name === 'agent-field' || name === 'constellation' ? hero() : renderSection(HARNESS_SECTION[name] ?? name, { history, posture, status });
   // The river draws into the strip, so the chain's harness carries it.
   const body = name === 'pulse' ? `${riverStrip()}\n${section}` : section;
@@ -535,6 +557,7 @@ ${body}
 <p class="sr-status nw-visually-hidden" role="status" aria-live="polite"></p>
 <script type="application/json" id="runtime-history">${JSON.stringify(history).replace(/</g, '\\u003c')}</script>
 <script type="application/json" id="security-posture">${JSON.stringify(posture).replace(/</g, '\\u003c')}</script>
+${jsonScript('heartbeat-record', heartbeatRecord(facts ?? readFacts()))}
 </body>
 </html>
 `;
