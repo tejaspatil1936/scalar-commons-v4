@@ -147,7 +147,7 @@ describe('home view', () => {
     const head = (await api.rpc.chain.getHeader()).number.toNumber();
     const { status, body } = await get('/');
     expect(status).toBe(200);
-    expect(body).toContain((await api.rpc.system.chain()).toString());
+    expect(body).toContain('Scalar Commons testnet');
     expect(body).toContain(api.runtimeVersion.specVersion.toString());
     // "head" moves, so the page may already be one block ahead of this read.
     const linked = /href="\/block\/(\d+)"/.exec(body);
@@ -162,7 +162,7 @@ describe('block view', () => {
     const headNumber = header.number.toNumber();
     const { status, body } = await get(`/block/${headNumber}`);
     expect(status).toBe(200);
-    expect(body).toContain(`<h1 class="nw-figure nw-figure--xl">${headNumber}</h1>`);
+    expect(body).toContain(`<h1 class="sc-h1">Block ${Number(headNumber).toLocaleString('en-US')}</h1>`);
     expect(body).toContain(header.hash.toHex());
   });
 
@@ -172,7 +172,7 @@ describe('block view', () => {
     expect(byNumber.status).toBe(200);
     expect(byHash.status).toBe(200);
     expect(byNumber.body).toContain(transfer.blockHash);
-    expect(byHash.body).toContain(`Block ${transfer.blockNumber}`);
+    expect(byHash.body).toContain(`Block ${transfer.blockNumber.toLocaleString('en-US')}`);
   });
 
   it('lists exactly the extrinsics the node put in the block, each linked', async () => {
@@ -183,14 +183,15 @@ describe('block view', () => {
       expect(body).toContain(`${ex.method.section}.${ex.method.method}`);
     }
     expect(body).toContain('balances.transferKeepAlive');
-    expect(body).toContain(`href="/block/${signedBlock.block.header.parentHash.toHex()}"`);
+    expect(body).toContain(`href="/block/${transfer.blockNumber - 1}"`);
+    expect(body).toContain(signedBlock.block.header.parentHash.toHex());
   });
 
   it('404s a block the chain has not produced', async () => {
     const head = (await api.rpc.chain.getHeader()).number.toNumber();
     const { status, body } = await get(`/block/${head + 10_000_000}`);
     expect(status).toBe(404);
-    expect(body).toContain('not found');
+    expect(body).toContain('This chain has no such block yet.');
   });
 });
 
@@ -203,7 +204,7 @@ describe('extrinsic view', () => {
     expect(body).toContain(transfer.sender);
     expect(body).toContain(transfer.recipient);
     expect(body).toContain('balances.Transfer');
-    expect(body).toContain('SUCCEEDED');
+    expect(body).toContain('>Succeeded</span>');
     expect(body).toContain(`href="/block/${transfer.blockNumber}"`);
   });
 
@@ -242,7 +243,7 @@ describe('extrinsic view', () => {
     const { status, body } = await get(`/extrinsic/${transfer.blockNumber}/${inherentIndex}`);
     expect(status).toBe(200);
     expect(body).toContain('timestamp.set');
-    expect(body).toContain('unsigned');
+    expect(body).toContain('Unsigned');
   });
 
   it('404s an extrinsic index the block does not have', async () => {
@@ -263,14 +264,14 @@ describe('account view', () => {
     // The recipient was created by this suite's transfer, so its free balance is
     // exactly the drip — a value the page must print, not approximate.
     expect(onChain.data.free.toBigInt()).toBe(ONE_CMN);
-    expect(body).toContain('1 CMN');
+    expect(body).toContain('1.00 CMN');
     expect(body).toContain(transfer.recipient);
   });
 
   it('400s an address that is not valid SS58', async () => {
     const { status, body } = await get('/account/not-an-address');
     expect(status).toBe(400);
-    expect(body).toContain('SS58');
+    expect(body).toContain('is not an account address');
   });
 });
 
@@ -284,7 +285,7 @@ describe('http surface', () => {
   it('404s a path that names no view', async () => {
     const { status, body } = await get('/not-a-view');
     expect(status).toBe(404);
-    expect(body).toContain('no such page');
+    expect(body).toContain('There is no page at this address.');
   });
 
   it('400s a malformed URL rather than blaming the node for it', async () => {

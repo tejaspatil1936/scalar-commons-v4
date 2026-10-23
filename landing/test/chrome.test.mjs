@@ -138,11 +138,10 @@ const walk = (dir, keep) => {
 // TRANSITIONAL: the Ledger chrome kept for pages not yet rebuilt (deleted in
 // the oversight phase), and the page stylesheets each later phase replaces.
 // Each phase removes its own entries; the final phase empties both lists.
-export const LEGACY_DIRS = ['landing/src/chrome-legacy/', 'explorer/src/chrome-legacy/', 'docs/.vitepress/theme/chrome-legacy/'];
+export const LEGACY_DIRS = ['landing/src/chrome-legacy/', 'docs/.vitepress/theme/chrome-legacy/'];
 export const NOT_YET_REBUILT = [
   'landing/src/oversight.css',
   'docs/.vitepress/theme/docs.css',
-  'explorer/src/render.ts',
 ];
 const exempt = (path) => LEGACY_DIRS.some((d) => path.startsWith(d)) || NOT_YET_REBUILT.some((d) => path.startsWith(d));
 
@@ -161,8 +160,11 @@ export const STYLE_SHEETS = () => {
   ]
     .filter((u) => !exempt(rel(u)) && !/\/chrome\/tokens\.css$/.test(u.pathname))
     .map((u) => [rel(u), readFileSync(u, 'utf8')]);
-  const render = readFileSync(new URL('explorer/src/render.ts', REPO), 'utf8');
-  if (!exempt('explorer/src/render.ts')) for (const m of render.matchAll(/const ([A-Z_]+_CSS) = `([^`]*)`/g)) sheets.push([`explorer/src/render.ts ${m[1]}`, m[2]]);
+  // The explorer's page-scoped rules live in TypeScript template strings.
+  for (const file of ['explorer/src/render.ts', 'explorer/src/explorer-css.ts']) {
+    const source = readFileSync(new URL(file, REPO), 'utf8');
+    for (const m of source.matchAll(/const ([A-Z_]+_CSS) = `([^`]*)`/g)) sheets.push([`${file} ${m[1]}`, m[2]]);
+  }
   return sheets;
 };
 const declarations = (sheet) =>

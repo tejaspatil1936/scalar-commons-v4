@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { accountPath, blockPath, extrinsicPath, parseBlockRef, parseRoute } from '../src/routes.js';
+import { accountPath, activityPath, blockPath, blocksPath, extrinsicPath, parseBlockRef, parseExtrinsicId, parseRoute } from '../src/routes.js';
 
 const ALICE = '5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY';
 const BLOCK_HASH = `0x${'12'.repeat(32)}`;
@@ -41,11 +41,13 @@ describe('parseRoute', () => {
   });
 
   it('routes a block view by number and by hash', () => {
-    expect(parseRoute('/block/42')).toEqual({ kind: 'block', ref: { kind: 'number', number: 42 } });
+    expect(parseRoute('/block/42')).toEqual({ kind: 'block', ref: { kind: 'number', number: 42 }, tab: 'extrinsics' });
     expect(parseRoute(`/block/${BLOCK_HASH}`)).toEqual({
       kind: 'block',
       ref: { kind: 'hash', hash: BLOCK_HASH },
+      tab: 'extrinsics',
     });
+    expect(parseRoute('/block/42?tab=events')).toEqual({ kind: 'block', ref: { kind: 'number', number: 42 }, tab: 'events' });
   });
 
   it('routes an extrinsic view as (block, index) — the only stable coordinate on chain', () => {
@@ -57,21 +59,22 @@ describe('parseRoute', () => {
   });
 
   it('routes an account view', () => {
-    expect(parseRoute(`/account/${ALICE}`)).toEqual({ kind: 'account', address: ALICE });
+    expect(parseRoute(`/account/${ALICE}`)).toEqual({ kind: 'account', address: ALICE, tab: 'extrinsics', page: 1 });
+    expect(parseRoute(`/account/${ALICE}?tab=activity&page=2`)).toEqual({ kind: 'account', address: ALICE, tab: 'activity', page: 2 });
   });
 
   it('reports a bad reference as a bad request, not as a missing page', () => {
     expect(parseRoute('/block/not-a-block')).toEqual({
       kind: 'badRequest',
-      message: 'not a block number or block hash: not-a-block',
+      message: '“not-a-block” is not a block number or a block hash.',
     });
     expect(parseRoute('/extrinsic/42/x')).toEqual({
       kind: 'badRequest',
-      message: 'not an extrinsic index: x',
+      message: '“x” is not an extrinsic index.',
     });
     expect(parseRoute('/account/nonsense')).toEqual({
       kind: 'badRequest',
-      message: 'not a valid SS58 account address: nonsense',
+      message: '“nonsense” is not an account address.',
     });
   });
 
@@ -81,26 +84,26 @@ describe('parseRoute', () => {
     // the node for a malformed URL the node never saw.
     expect(parseRoute('/block/%')).toEqual({
       kind: 'badRequest',
-      message: 'not a valid URL-encoded path segment: %',
+      message: '“%” is not a valid address in a link.',
     });
     expect(parseRoute('/extrinsic/%/0')).toEqual({
       kind: 'badRequest',
-      message: 'not a valid URL-encoded path segment: %',
+      message: '“%” is not a valid address in a link.',
     });
     expect(parseRoute('/extrinsic/1/%')).toEqual({
       kind: 'badRequest',
-      message: 'not a valid URL-encoded path segment: %',
+      message: '“%” is not a valid address in a link.',
     });
     expect(parseRoute('/account/%E0%A4%A')).toEqual({
       kind: 'badRequest',
-      message: 'not a valid URL-encoded path segment: %E0%A4%A',
+      message: '“%E0%A4%A” is not a valid address in a link.',
     });
   });
 
   it('reports a block number beyond u32 as a bad request', () => {
     expect(parseRoute('/block/9007199254740991')).toEqual({
       kind: 'badRequest',
-      message: 'not a block number or block hash: 9007199254740991',
+      message: '“9007199254740991” is not a block number or a block hash.',
     });
   });
 
@@ -115,16 +118,22 @@ describe('path builders', () => {
     expect(parseRoute(blockPath({ kind: 'number', number: 7 }))).toEqual({
       kind: 'block',
       ref: { kind: 'number', number: 7 },
+      tab: 'extrinsics',
     });
     expect(parseRoute(blockPath({ kind: 'hash', hash: BLOCK_HASH }))).toEqual({
       kind: 'block',
       ref: { kind: 'hash', hash: BLOCK_HASH },
+      tab: 'extrinsics',
     });
+    expect(parseRoute(blocksPath(3))).toEqual({ kind: 'blocks', page: 3 });
+    expect(parseRoute(activityPath(ALICE, 2, 'dispute'))).toEqual({ kind: 'activity', agent: ALICE, activityKind: 'dispute', page: 2 });
+    expect(parseExtrinsicId('1165185-1')).toEqual({ number: 1165185, index: 1 });
+    expect(parseExtrinsicId('abc')).toBeNull();
     expect(parseRoute(extrinsicPath({ kind: 'number', number: 7 }, 2))).toEqual({
       kind: 'extrinsic',
       ref: { kind: 'number', number: 7 },
       index: 2,
     });
-    expect(parseRoute(accountPath(ALICE))).toEqual({ kind: 'account', address: ALICE });
+    expect(parseRoute(accountPath(ALICE))).toEqual({ kind: 'account', address: ALICE, tab: 'extrinsics', page: 1 });
   });
 });

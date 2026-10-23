@@ -14,6 +14,7 @@
 //
 //   node scripts/check-layout.mjs [--root DIR] [--only key,key] [--widths 1440,390]
 //                                 [--wait 10000] [--explorer-url URL | --no-explorer]
+//                                 [--read-timeout 10000]
 //
 // Build first: landing `npm run build`; docs `DOCS_BASE=/docs/ npm run build`;
 // explorer `npm run build`. Playwright comes from the global install (it is
@@ -38,6 +39,11 @@ const ONLY = flag('--only', null)?.split(',');
 const RPC = flag('--rpc', 'wss://rpc.scalarnet.io');
 const INDEXER = flag('--indexer', 'https://api.scalarnet.io');
 const CHROMIUM = flag('--chromium', '/opt/pw-browsers/chromium-1194/chrome-linux/chrome');
+// The explorer's per-read limit while checking. The check measures layout with
+// live data, not latency: from a machine far from the indexer a list read can
+// take longer than the service's 1.5 s default, and the page would show its
+// Stale state instead of the table being checked.
+const READ_TIMEOUT = flag('--read-timeout', '10000');
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(join(execSync('npm root -g').toString().trim(), 'playwright'));
@@ -120,7 +126,7 @@ async function startExplorer() {
   const port = await freePort();
   const child = spawn(process.execPath, [entry], {
     cwd: join(ROOT, 'explorer'),
-    env: { ...process.env, EXPLORER_PORT: String(port), EXPLORER_RPC_ENDPOINT: RPC, EXPLORER_INDEXER_URL: INDEXER },
+    env: { ...process.env, EXPLORER_PORT: String(port), EXPLORER_RPC_ENDPOINT: RPC, EXPLORER_INDEXER_URL: INDEXER, EXPLORER_READ_TIMEOUT_MS: READ_TIMEOUT },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
@@ -143,7 +149,9 @@ async function startExplorer() {
 async function explorerTargets(url) {
   const home = await (await fetch(`${url}/`)).text();
   const block = home.match(/href="(\/block\/\d+)"/)?.[1];
-  const extrinsic = home.match(/href="(\/extrinsic\/\d+\/\d+)"/)?.[1];
+  // The home page links blocks, not extrinsics: take the extrinsic from the block page.
+  const blockPage = block ? await (await fetch(`${url}${block}`)).text() : '';
+  const extrinsic = (home.match(/href="(\/extrinsic\/\d+\/\d+)"/) ?? blockPage.match(/href="(\/extrinsic\/\d+\/\d+)"/))?.[1];
   let account = home.match(/href="(\/account\/[1-9A-HJ-NP-Za-km-z]{40,})"/)?.[1];
   if (!account) {
     const agents = await (await fetch(`${INDEXER}/v1/agents?limit=1`)).json();

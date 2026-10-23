@@ -87,6 +87,14 @@ export interface ExplorerChain {
    * memory: it costs the node nothing.
    */
   eventFieldTypes(section: string, method: string): ReadonlyMap<string, string> | null;
+  /** The best head and the finalized height: two header reads, nothing decoded. */
+  heads(): Promise<{ best: { number: number; hash: string }; finalized: number }>;
+  /**
+   * The author of each block, by number: one header read and one
+   * `session.validators` read per block, all in parallel. A block whose author
+   * cannot be read maps to null.
+   */
+  blockAuthors(numbers: readonly number[]): Promise<ReadonlyMap<number, string | null>>;
   disconnect(): Promise<void>;
 }
 
@@ -196,7 +204,7 @@ function toNumber(value: Codec): number {
 }
 
 /** How many of the newest blocks the home page reads for its Spine and ledgers. */
-export const HOME_RECENT_BLOCKS = 16;
+export const HOME_RECENT_BLOCKS = 10;
 
 /**
  * Connects to a node and returns the explorer's reader.
@@ -317,9 +325,11 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
     const fieldsMeta = record.event.meta.fields;
     const fields = record.event.data.map((value, position) => {
       const name = fieldsMeta[position]?.name;
+      const typeName = fieldsMeta[position]?.typeName;
       return {
         name: name !== undefined && name.isSome ? name.unwrap().toString() : String(position),
         value: humanValue(value),
+        ...(typeName !== undefined && typeName.isSome ? { type: typeName.unwrap().toString() } : {}),
       };
     });
     return {
@@ -772,6 +782,31 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
         types.set(field.name.unwrap().toString(), typeName);
       }
       return types;
+    },
+
+    async heads(): Promise<{ best: { number: number; hash: string }; finalized: number }> {
+      const [best, finalizedHash] = await Promise.all([api.rpc.chain.getHeader(), api.rpc.chain.getFinalizedHead()]);
+      const finalized = await api.rpc.chain.getHeader(finalizedHash);
+      return { best: { number: best.number.toNumber(), hash: best.hash.toHex() }, finalized: finalized.number.toNumber() };
+    },
+
+    async blockAuthors(numbers: readonly number[]): Promise<ReadonlyMap<number, string | null>> {
+      const pairs = await Promise.all(
+        numbers.map(async (number): Promise<[number, string | null]> => {
+          try {
+            const hash = await api.rpc.chain.getBlockHash(number);
+            const [header, apiAt] = await Promise.all([api.rpc.chain.getHeader(hash), api.at(hash)]);
+            const { authorityIndex } = preDigest(header);
+            if (authorityIndex === null || !apiAt.query.session?.validators) return [number, null];
+            const validators = (await apiAt.query.session.validators()) as unknown as Codec[];
+            const found = validators[authorityIndex];
+            return [number, found ? (collectAccounts([found], ss58Format)[0] ?? null) : null];
+          } catch {
+            return [number, null];
+          }
+        }),
+      );
+      return new Map(pairs);
     },
 
     async disconnect(): Promise<void> {
