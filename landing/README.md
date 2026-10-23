@@ -7,7 +7,7 @@ ships no client-side JavaScript. The only scripts this directory builds belong t
 
 ```sh
 npm ci --no-audit --no-fund
-npm run build          # -> dist/index.html + dist/styles.css
+npm run build          # -> dist/index.html + dist/styles.css (the chrome) + every other page
 npm test               # the honesty suite (below)
 ```
 
@@ -27,7 +27,9 @@ That is enforced, not aspirational:
 | `chain-facts.json` | Generated. Constants, pallet indices, extrinsic names, token properties and a state snapshot, read off a live node with `@polkadot/api`. Carries the spec version, genesis hash and block it was read at. |
 | `src/content.mjs` | The words. Prose may contain **no literal digits** — figures appear only as `{{path.into.chain-facts\|filter}}` placeholders. |
 | `src/source-claims.mjs` | Each descriptive claim (`weight starts from the square root of stake`) with the `file` + `snippet` that backs it. Rendered into the page's verification table. |
-| `src/render.mjs` | Pure `facts + content -> HTML`. Throws on an unresolved placeholder, so the build fails rather than ship a figure no node reported. |
+| `src/render.mjs` | Pure `facts + content -> HTML`, on the chrome. Throws on an unresolved placeholder, so the build fails rather than ship a figure no node reported; every figure is a Reading, and a Reading without a source throws too. |
+| `src/chrome/` | Nightwatch: `tokens.css` (the single source of every colour, face, size and timing), `chrome.css`, `print.css`, `templates.mjs` and `behaviour/`. Shared verbatim with `docs/` and `explorer/` by `scripts/sync-chrome.mjs`; `test/chrome.test.mjs` holds the copies byte-identical, the CSS token-only and every text pair at WCAG AA. See `src/chrome/README.md`. |
+| `src/notfound.mjs`, `scripts/pages/` | `404.html` and every page built by its own module (`scripts/pages/*.mjs`), after the core build. |
 
 `npm test` (`node --test`) checks that every placeholder resolves, that prose
 carries no hand-typed digits, that every pallet and extrinsic the page names
