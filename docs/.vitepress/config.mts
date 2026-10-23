@@ -78,10 +78,10 @@ export default defineConfig({
 
   cleanUrls: true,
 
-  // One theme (Nightwatch): no light scheme, no appearance toggle.
+  // One theme (the Ledger): light only, no dark scheme, no appearance toggle.
   appearance: false,
   head: [
-    ['meta', { name: 'color-scheme', content: 'dark' }],
+    ['meta', { name: 'color-scheme', content: 'light' }],
     // The Sources switch's memory, applied before first paint (the chrome's key).
     [
       'script',
@@ -101,8 +101,8 @@ export default defineConfig({
     outline: [2, 3],
     search: { provider: 'local' },
 
-    // The facts the Nightwatch theme prints; every one a record.
-    nightwatch: {
+    // The facts the Ledger theme prints; every one a record.
+    ledger: {
       chainName: snapshot.chain.name,
       specVersion: snapshot.runtime.specVersion,
       block: snapshot.provenance.capturedAtBlock,

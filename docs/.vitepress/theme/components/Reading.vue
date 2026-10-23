@@ -1,17 +1,21 @@
 <script setup lang="ts">
-// The chrome's `reading`: label · leader · figure · stub · receipt. A Reading
-// without a source throws at render, so the build fails rather than ship a
-// figure that names no origin. Everything on the docs is a record (sage).
+// The chrome's `reading`: label above · leader · figure · unit · stub ·
+// receipt, in templates.mjs's markup and order. A Reading without a source
+// throws at render, so the build fails rather than ship a figure that names no
+// origin. Everything on the docs is a record: the figure prints in ink-2 and
+// the stub is a rule-2 outline on paper (the chrome's `record` state).
 import { computed, ref } from 'vue'
-import { formatInt, requestLine, utc, type Source } from '../nightwatch'
+import { formatInt, requestLine, utc, type Source } from '../ledger'
 
 const props = withDefaults(
   defineProps<{
     label: string
     figure: string
-    size?: 'xl' | 'l' | 'm' | 'body'
+    size?: 'xl' | 'l' | 'm' | 's' | 'body'
     source: Source
     sub?: string | null
+    /** A unit (`CMN`, `blocks`) on the figure's baseline at --label, 8 px after it. */
+    unit?: string | null
     id?: string
     stack?: boolean
     /** Wraps the figure in a link (templates.mjs `href`). */
@@ -19,7 +23,7 @@ const props = withDefaults(
     /** Renders the figure as a button that emits `activate` on a person's action (e.g. open search). */
     button?: boolean
   }>(),
-  { size: 'm', sub: null, id: undefined, stack: false, href: null, button: false },
+  { size: 'm', sub: null, unit: null, id: undefined, stack: false, href: null, button: false },
 )
 defineEmits<{ (e: 'activate'): void }>()
 
@@ -55,12 +59,18 @@ const blockSuffix = computed(() =>
       <span class="nw-leader" aria-hidden="true"></span>
       <span class="nw-reading-figure">
         <a v-if="href" :href="href" class="nw-figure-link">
-          <span class="nw-figure" :class="`nw-figure--${size}`" data-reading-value>{{ figure }}</span>
+          <span class="nw-figure" :class="`nw-figure--${size}`" data-reading-value
+            >{{ figure }}<span v-if="unit" class="nw-unit">{{ unit }}</span></span
+          >
         </a>
         <button v-else-if="button" type="button" class="nw-figure-button" @click="$emit('activate')">
-          <span class="nw-figure" :class="`nw-figure--${size}`" data-reading-value>{{ figure }}</span>
+          <span class="nw-figure" :class="`nw-figure--${size}`" data-reading-value
+            >{{ figure }}<span v-if="unit" class="nw-unit">{{ unit }}</span></span
+          >
         </button>
-        <span v-else class="nw-figure" :class="`nw-figure--${size}`" data-reading-value>{{ figure }}</span>
+        <span v-else class="nw-figure" :class="`nw-figure--${size}`" data-reading-value
+          >{{ figure }}<span v-if="unit" class="nw-unit">{{ unit }}</span></span
+        >
         <button
           type="button"
           class="nw-stub"
@@ -73,7 +83,7 @@ const blockSuffix = computed(() =>
     </div>
     <p v-if="sub" class="nw-reading-sub" data-reading-sub>{{ sub }}</p>
     <span class="nw-receipt-line" data-receipt-line
-      >{{ requestLine(source) }} · {{ fetched }}{{ blockSuffix }}</span
+      >{{ requestLine(source) }}{{ blockSuffix }} · {{ fetched }}</span
     >
     <div class="nw-receipt" data-receipt>
       <div data-request>{{ requestLine(source) }}</div>

@@ -1,20 +1,22 @@
 /*
- * Nightwatch — the docs' own rules. Everything here is drawn from tokens.css;
- * no colour, face or size is written that is not a token. chrome.css draws the
- * components; this file lays out the home, the three article columns, the
- * prose VitePress renders (headings, lists, tables, custom blocks, code) and
- * the local search sheet, which is restyled through the variables it reads.
+ * The Ledger — the docs' own rules. Black ink on paper: everything here is
+ * drawn from tokens.css; no colour, face or size is written that is not a
+ * token, and state is carried by rule, outline and the word, never by hue.
+ * chrome.css draws the components (the bar, the Reading, the tag, the footer);
+ * this file lays out the home, the three article columns, the prose VitePress
+ * renders (headings, lists, tables as ledger rows, custom blocks as bands,
+ * code on paper-2) and the local search sheet, which is restyled through the
+ * variables it reads.
  */
 
 /* ── ground ───────────────────────────────────────────────────────────────── */
 body { background: var(--paper); color: var(--ink); font: var(--body); overflow-x: hidden; }
 .nw-main { min-height: calc(100vh - var(--bar)); }
-.nw-sources, .nw-menu { border: 0; }
-.nw-bar-inner { min-width: 0; }
-.nw-bar-right { flex: none; }
 .nw-notfound { padding-block: var(--s-10) 0; display: grid; gap: var(--s-5); }
 .nw-notfound-readings { display: grid; gap: var(--s-6); max-width: 640px; margin-top: var(--s-7); }
 .nw-notfound .nw-figure--body { overflow-wrap: anywhere; }
+/* A dim figure (the 404, the watch-log's numbers) prints in ink-2, as a record does. */
+.nw-figure.nw-dim { color: var(--ink-2); }
 .nw-figure-link, .nw-figure-button { display: inline; padding: 0; border: 0; background: none; cursor: pointer; text-align: left; }
 .nw-figure-link .nw-figure, .nw-figure-button .nw-figure { text-decoration: underline dotted var(--rule-2); text-underline-offset: 4px; transition: color var(--t-ui) var(--ease-ui); }
 .nw-figure-link:hover .nw-figure, .nw-figure-button:hover .nw-figure { color: var(--ink); text-decoration: underline solid var(--ink); }
@@ -31,10 +33,14 @@ body { background: var(--paper); color: var(--ink); font: var(--body); overflow-
 .nw-home-readings { margin-top: var(--s-9); }
 .nw-watchlog { margin-top: var(--s-9); }
 .nw-watchlog > .nw-label { display: block; margin-bottom: var(--s-7); }
-.nw-watchlog-groups { display: grid; gap: var(--s-8); }
-.nw-watchlog-group { display: grid; grid-template-columns: 96px minmax(0, 1fr); column-gap: var(--gutter); align-items: start; }
+.nw-watchlog-groups { display: grid; gap: 0; }
+/* The watch-log is a ledger: a 1 px rule between the groups, never a box. */
+.nw-watchlog-group { display: grid; grid-template-columns: 96px minmax(0, 1fr); column-gap: var(--gutter); align-items: baseline; padding-block: var(--s-6); border-top: 1px solid var(--rule); }
+.nw-watchlog-group:last-child { border-bottom: 1px solid var(--rule); }
 .nw-watchlog-body { max-width: 640px; }
-.nw-watchlog-body .nw-reading-line { align-items: baseline; }
+/* group name · leader · page count on one line: a ledger row, not the Reading's label-above form */
+.nw-watchlog-body .nw-reading-line { display: flex; align-items: baseline; }
+.nw-watchlog-body .nw-leader { flex: 1; align-self: center; }
 .nw-watchlog-pages { margin-top: var(--s-5); display: grid; gap: var(--s-3); }
 .nw-home-prose { margin-top: var(--s-9); max-width: 640px; }
 
@@ -64,13 +70,16 @@ body { background: var(--paper); color: var(--ink); font: var(--body); overflow-
 .nw-article-title { margin-bottom: var(--s-5); }
 .nw-standfirst { margin-bottom: var(--s-5); }
 .nw-receipt-strip { display: block; padding: var(--s-3) var(--s-4); background: var(--paper-2); border-radius: var(--radius); color: var(--ink-2); margin-bottom: var(--s-7); }
+.nw-standfirst { color: var(--ink-2); }
 .nw-margin { min-width: 0; }
 
-/* the receipts footer and prev/next */
-.nw-receipts-foot { margin-top: var(--s-9); padding: var(--s-5); background: var(--paper-2); border-radius: var(--radius); }
+/* the receipts footer (a ledger of file:line rows under a rule) and prev/next */
+.nw-receipts-foot { margin-top: var(--s-9); padding-top: var(--s-5); border-top: 1px solid var(--rule); }
 .nw-receipts-foot > .nw-label { display: block; margin-bottom: var(--s-4); }
-.nw-receipt-rows { display: grid; gap: var(--s-3); margin-bottom: var(--s-4); }
-.nw-receipt-rows .nw-reading-line { align-items: baseline; }
+.nw-receipt-rows { display: grid; gap: 0; margin-bottom: var(--s-4); }
+.nw-receipt-rows .nw-reading-line { display: flex; align-items: baseline; min-height: var(--s-7); padding-block: var(--s-3); border-top: 1px solid var(--rule); }
+.nw-receipt-rows .nw-reading-line:last-child { border-bottom: 1px solid var(--rule); }
+.nw-receipt-rows .nw-leader { flex: 1; align-self: center; }
 .nw-receipt-rows .nw-small { flex: none; max-width: 60%; }
 .nw-receipt-rows a { text-decoration: underline dotted var(--rule-2); text-underline-offset: 4px; }
 .nw-prevnext { display: flex; justify-content: space-between; gap: var(--s-5); margin-top: var(--s-7); }
@@ -94,7 +103,7 @@ body { background: var(--paper); color: var(--ink); font: var(--body); overflow-
 .nw-prose strong { font-weight: 600; }
 .nw-prose em { font-style: normal; font-weight: 500; }
 .nw-prose blockquote { padding-left: var(--s-5); color: var(--ink-2); box-shadow: inset 2px 0 0 var(--rule-2); }
-.nw-prose hr { border: 0; height: calc(var(--s-1) / 2); margin-top: var(--s-7); color: var(--rule-2); background-image: radial-gradient(circle, currentColor 1px, transparent 1px); background-size: 6px 2px; background-repeat: repeat-x; }
+.nw-prose hr { border: 0; border-top: 1px solid var(--rule); height: 0; margin-top: var(--s-7); }
 .nw-prose img { border-radius: var(--radius); }
 .nw-prose .header-anchor { position: absolute; width: 1px; height: calc(var(--s-1) / 4); overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .nw-prose h1, .nw-prose h2, .nw-prose h3, .nw-prose h4 { position: relative; }
@@ -103,18 +112,21 @@ body { background: var(--paper); color: var(--ink); font: var(--body); overflow-
 .nw-prose :not(pre) > code { padding: calc(var(--s-1) / 2) calc(var(--s-1) + (var(--s-1) / 2)); background: var(--paper-2); border-radius: var(--radius); color: var(--ink); overflow-wrap: anywhere; }
 .nw-prose a > code { text-decoration: inherit; }
 
-/* tables: mono, no rules, pine-1 head */
+/* tables: a ledger — mono rows, a 1 px rule between, the head in --label ink-3, hover paper-2 */
 .nw-prose table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; font: var(--mono); }
 .nw-prose th, .nw-prose td { padding: var(--s-3) var(--s-4); text-align: left; vertical-align: top; }
-.nw-prose th { font: var(--label); text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-2); background: var(--paper-2); white-space: nowrap; }
-.nw-prose tbody tr:nth-child(even) { background: var(--paper-2); }
+.nw-prose th { font: var(--label); text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-3); white-space: nowrap; }
+.nw-prose tbody tr { border-top: 1px solid var(--rule); transition: background var(--t-ui) var(--ease-ui); }
+.nw-prose tbody tr:last-child { border-bottom: 1px solid var(--rule); }
+.nw-prose tbody tr:hover { background: var(--paper-2); }
 .nw-prose td code { background: var(--paper-2); }
 
-/* VitePress custom blocks (tip, warning, info, danger, details) as Bands */
+/* VitePress custom blocks (tip, warning, info, danger, details) as Bands on paper-2;
+   a warning or danger carries a 2 px ink rule at the left and its word, never a colour */
 .nw-prose .custom-block { background: var(--paper-2); padding: var(--s-4) var(--s-5); font: var(--small); color: var(--ink); border-radius: var(--radius); border: 0; }
 .nw-prose .custom-block.warning, .nw-prose .custom-block.danger { box-shadow: inset 2px 0 0 var(--ink); }
 .nw-prose .custom-block.tip { box-shadow: inset 2px 0 0 var(--ink-3); }
-.nw-prose .custom-block-title { font: var(--label); text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-2); margin-bottom: var(--s-2); }
+.nw-prose .custom-block .custom-block-title { font: var(--label); text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-2); margin-bottom: var(--s-2); }
 .nw-prose .custom-block p { font: var(--small); max-width: none; }
 .nw-prose .custom-block p + p { margin-top: var(--s-2); }
 .nw-prose details.custom-block summary { cursor: pointer; font: var(--label); text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-2); }
@@ -124,10 +136,10 @@ body { background: var(--paper); color: var(--ink); font: var(--body); overflow-
 .nw-article-body .nw-note p { font: var(--small); margin-top: 0; max-width: none; }
 .nw-article-body .nw-note p + p { margin-top: var(--s-2); }
 
-/* code blocks: the chrome's nw-code — pine-1, 24 px, mono, Copy top-right, no line numbers */
+/* code blocks: the chrome's nw-code — paper-2, a 2 px rule at the left, 24 px, mono, Copy top-right, no line numbers */
 .nw-prose [class*="language-"] {
   position: relative; padding: var(--s-5); background: var(--paper-2); border-radius: var(--radius);
-  border-left: 2px solid var(--paper-2); overflow-x: auto; max-width: none;
+  border-left: 2px solid var(--rule); overflow-x: auto; max-width: none;
 }
 .nw-prose [class*="language-"] pre { margin: 0; white-space: pre; background: none; overflow: visible; }
 .nw-prose [class*="language-"] code { font: var(--mono); color: var(--ink); background: none; padding: 0; display: block; width: fit-content; min-width: 100%; }
@@ -135,7 +147,7 @@ body { background: var(--paper); color: var(--ink); font: var(--body); overflow-
 .nw-prose [class*="language-"] .lang, .nw-prose .line-numbers-wrapper { display: none; }
 .nw-prose [class*="language-"] .copy {
   position: absolute; top: var(--s-3); right: var(--s-3); padding: var(--s-1) var(--s-2); border: 0; border-radius: var(--radius);
-  background: var(--paper-2); color: var(--ink-2); cursor: pointer;
+  background: var(--paper-3); color: var(--ink-2); cursor: pointer;
   font: var(--label); text-transform: uppercase; letter-spacing: 0.12em;
   opacity: 0; transition: opacity var(--t-ui) var(--ease-ui);
 }
@@ -145,38 +157,43 @@ body { background: var(--paper); color: var(--ink); font: var(--body); overflow-
 .nw-prose [class*="language-"] .copy.copied::before { content: "Copied"; }
 .nw-prose .vp-code-group .tabs { display: flex; gap: var(--s-4); font: var(--label); text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-2); }
 .nw-prose .vp-code-group .tabs label { cursor: pointer; }
-.nw-prose .vp-code-group input:checked + label { color: var(--ink); }
+.nw-prose .vp-code-group input { position: absolute; opacity: 0; pointer-events: none; }
+.nw-prose .vp-code-group input:checked + label { color: var(--ink); text-decoration: underline solid var(--ink); text-underline-offset: 4px; }
 .nw-prose .vp-code-group .blocks > div { display: none; }
 .nw-prose .vp-code-group .blocks > div.active { display: block; }
 
 /* ── the local search sheet (VitePress VPLocalSearchBox), in tokens ───────── */
+/* Every variable the sheet reads is a token: the chrome palette's look — a
+   paper sheet under a 2 px ink rule, a paper-3 field with a rule-2 bottom
+   rule, results as rows with a 1 px rule between, the selected row paper-3. */
 :root {
-  --vp-local-search-bg: var(--paper-2);
-  --vp-local-search-result-bg: var(--paper-2);
-  --vp-local-search-result-border: var(--paper-2);
+  --vp-local-search-bg: var(--paper);
+  --vp-local-search-result-bg: var(--paper);
+  --vp-local-search-result-border: var(--rule);
   --vp-local-search-result-selected-bg: var(--paper-3);
-  --vp-local-search-result-selected-border: var(--paper-3);
+  --vp-local-search-result-selected-border: var(--rule-2);
   --vp-local-search-highlight-bg: var(--paper-3);
   --vp-local-search-highlight-text: var(--ink);
-  --vp-c-divider: var(--paper-2);
+  --vp-c-divider: var(--rule);
   --vp-c-brand-1: var(--ink);
-  --vp-backdrop-bg-color: color-mix(in srgb, var(--ink) 20%, transparent);
+  --vp-backdrop-bg-color: color-mix(in srgb, var(--paper) 85%, transparent);
   --vp-z-index-local-search: 40;
 }
-.VPLocalSearchBox .shell { border: 0; border-radius: var(--radius); }
-.VPLocalSearchBox .search-bar { border: 0; border-radius: var(--radius); background: var(--paper-2); height: calc(var(--s-7) + var(--s-2)); padding: 0 var(--s-4); }
+.VPLocalSearchBox .shell { border: 0; border-top: 2px solid var(--ink); border-bottom: 1px solid var(--rule); border-radius: 0; box-shadow: none; }
+.VPLocalSearchBox .search-bar { border: 0; border-bottom: 1px solid var(--rule-2); border-radius: 0; background: var(--paper-3); height: var(--s-7); padding: 0 var(--s-4); }
+.VPLocalSearchBox .search-bar:focus-within { border-bottom: 2px solid var(--ink); }
 .VPLocalSearchBox .search-input { font: var(--mono); color: var(--ink); caret-color: var(--ink); }
 .VPLocalSearchBox .search-input::placeholder { color: var(--ink-3); }
 .VPLocalSearchBox .local-search-icon, .VPLocalSearchBox .navigate-icon, .VPLocalSearchBox .excerpt-gradient-top, .VPLocalSearchBox .excerpt-gradient-bottom { display: none; }
 .VPLocalSearchBox .search-actions button { color: var(--ink-2); }
-.VPLocalSearchBox .result { border: 0; border-radius: var(--radius); }
+.VPLocalSearchBox .result { border: 0; border-top: 1px solid var(--rule); border-radius: 0; }
 .VPLocalSearchBox .result .title { font: var(--small); color: var(--ink); }
-.VPLocalSearchBox .result .titles { font: var(--label); letter-spacing: 0; text-transform: none; color: var(--ink-2); }
+.VPLocalSearchBox .result .titles { font: var(--label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
 .VPLocalSearchBox .result .excerpt { font: var(--small); color: var(--ink-2); }
 .VPLocalSearchBox .search-keyboard-shortcuts, .VPLocalSearchBox .no-results { font: var(--label); text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-2); }
 .VPLocalSearchBox kbd { font: var(--mono); color: var(--ink-2); border: 0; background: var(--paper-2); border-radius: var(--radius); box-shadow: none; }
 .VPLocalSearchBox kbd:has(.navigate-icon), .VPLocalSearchBox .title-icon { display: none; }
-.VPLocalSearchBox mark { background: var(--paper-3); color: var(--ink); }
+.VPLocalSearchBox mark { background: var(--paper-3); color: var(--ink); font-weight: 600; }
 
 /* ── responsive ───────────────────────────────────────────────────────────── */
 @media (max-width: 1200px) {
@@ -199,14 +216,7 @@ body { background: var(--paper); color: var(--ink); font: var(--body); overflow-
 @media (max-width: 1024px) {
   .nw-watchlog-group { grid-template-columns: 64px minmax(0, 1fr); }
 }
-@media (max-width: 390px) {
-  .nw-bar-inner { gap: var(--s-3); }
-  .nw-bar-right { gap: var(--s-3); }
-  .nw-bar-right .nw-tag[data-state="built"] { display: none; }
-  .nw-sources-word {
-    position: absolute; width: 1px; height: calc(var(--s-1) / 4); margin: calc(-1 * (var(--s-1) / 4)); padding: 0; overflow: hidden;
-    clip: rect(0 0 0 0); white-space: nowrap;
-  }
+@media (max-width: 480px) {
   .nw-home { padding-top: var(--s-7); }
   .nw-home-readings, .nw-watchlog, .nw-home-prose { margin-top: var(--s-8); }
   .nw-watchlog-group { grid-template-columns: minmax(0, 1fr); row-gap: var(--s-3); }

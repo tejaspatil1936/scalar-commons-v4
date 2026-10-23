@@ -6,7 +6,7 @@
 import { useData } from 'vitepress'
 import { computed, inject, onMounted, ref } from 'vue'
 import Reading from './Reading.vue'
-import { useWatchLog } from '../nightwatch'
+import { useWatchLog } from '../ledger'
 
 const { site } = useData()
 const { flat } = useWatchLog()
@@ -61,7 +61,7 @@ const base = computed(() => site.value.base.replace(/\/$/, ''))
 
 <template>
   <section class="nw-frame nw-notfound">
-    <span class="nw-figure nw-figure--xl nw-sage">404</span>
+    <span class="nw-figure nw-figure--xl nw-dim">404</span>
     <p class="nw-body">Nothing is logged at this address.</p>
     <div class="nw-notfound-readings">
       <Reading
