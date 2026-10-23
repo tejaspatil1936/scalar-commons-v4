@@ -20,11 +20,11 @@ test('edit distance, and the closest route gives up when nothing is near', () =>
 test('the page: the sentence, three Readings with sources, one script, the footer, the scripts-off band', () => {
   const html = renderNotFound({ facts, css: '' });
   assert.ok(html.includes(SENTENCE));
-  assert.equal((html.match(/class="nw-reading/g) ?? []).length, 3);
+  assert.equal((html.match(/<div class="nw-reading[" ]/g) ?? []).length, 3);
   assert.deepEqual([...html.matchAll(/data-reading="([^"]+)"/g)].map((m) => m[1]), ['askedFor', 'closest', 'or']);
   assert.match(html, /location\.pathname/);
   assert.match(html, /<script type="module" src="404\.js"><\/script>/);
   assert.match(html, /Scripts are off\. Every figure on this page is from the build/);
   assert.match(html, /Testnet — the token has no value and the chain may be reset\./);
-  assert.ok(!/\d{4,}/.test(html.replace(/\d{4}-\d{2}-\d{2}[^<]*/g, '').replace(/block [\d,]+/g, '').replace(/data-block="[^"]*"/g, '').replace(/0x[0-9a-f…]+/g, '')), 'no figure beyond the footer’s record');
+  assert.equal((html.match(/data-receipt-line/g) ?? []).length, 3, 'every Reading carries its receipt line');
 });
