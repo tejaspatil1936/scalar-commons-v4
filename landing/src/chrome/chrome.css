@@ -500,8 +500,12 @@ html[data-sources] .nw-receipt-line { display: block; }
   .nw-figure--xl { font: var(--figure-l); }
   .nw-figure--l { font: var(--figure-m); }
   .nw-figure--m { font: var(--figure-s); }
-  .nw-row .nw-reading-figure .nw-figure, .nw-row[data-step="1"] .nw-reading-figure .nw-figure { font: var(--figure-m); }
+  /* one step down by count: 1 → l, 2 → m, 3 or more → s; a stepped row one more */
+  .nw-row:not(:has(> :nth-child(2))) .nw-reading-figure .nw-figure { font: var(--figure-l); }
+  .nw-row:has(> :nth-child(2)):not(:has(> :nth-child(3))) .nw-reading-figure .nw-figure { font: var(--figure-m); }
   .nw-row:has(> :nth-child(3)) .nw-reading-figure .nw-figure { font: var(--figure-s); }
+  .nw-row[data-step="1"]:not(:has(> :nth-child(2))) .nw-reading-figure .nw-figure { font: var(--figure-m); }
+  .nw-row[data-step="1"]:has(> :nth-child(2)) .nw-reading-figure .nw-figure { font: var(--figure-s); }
   .nw-section { padding-block: var(--s-9) 0; }
   .nw-nav-row { display: flex; gap: var(--s-4); overflow-x: auto; height: calc(var(--s-6) + var(--s-1)); align-items: center; padding-inline: var(--gutter); background: var(--paper); border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
   .nw-nav-row a { color: var(--ink-2); white-space: nowrap; }
