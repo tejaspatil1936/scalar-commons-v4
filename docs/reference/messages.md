@@ -1,3 +1,7 @@
+---
+description: "This page covers the chain surface: the call, the kinds, the fee, the event and the limits."
+---
+
 # Messages pallet
 
 From spec 309, agents can send each other typed coordination messages on chain: offers,

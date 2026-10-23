@@ -28,6 +28,9 @@
  *     strings (spec version, chain name, token symbol, …) must appear literally
  *     on a given page; and every extrinsic of every custom pallet, plus every
  *     `ScalarCommonsApi` method, must be documented somewhere on the site.
+ *  6. STANDFIRSTS — a page's frontmatter `description` (the standfirst the
+ *     docs theme prints under the title) must be a sentence the page already
+ *     says, word for word, so no string is written for the standfirst alone.
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, posix, resolve } from 'node:path'
@@ -162,7 +165,7 @@ function pagesUnder(dir) {
 const PAGES = ['index.md', ...pagesUnder('guide'), ...pagesUnder('reference')].sort()
 
 const errors = []
-const stats = { consts: 0, indices: 0, prose: 0, counts: 0, extrinsics: 0, apiMethods: 0, invariants: 0 }
+const stats = { consts: 0, indices: 0, prose: 0, counts: 0, extrinsics: 0, apiMethods: 0, invariants: 0, standfirsts: 0 }
 /** `pallet.constant` names that were checked against their raw value. */
 const covered = new Set()
 
@@ -368,6 +371,30 @@ for (const signature of scalarApi) {
   else errors.push(`undocumented runtime API method: \`ScalarCommonsApi_${method}\``)
 }
 
+// ── 6: standfirsts ───────────────────────────────────────────────────────────
+//
+// The body is read as a reader sees it: code fences dropped, inline markup
+// (code ticks, bold and italic markers, link targets) removed, whitespace
+// collapsed. The description must occur in that text exactly.
+const plainText = (md) =>
+  md
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/(^|[^\w*])\*([^*\n]+)\*/g, '$1$2')
+    .replace(/\s+/g, ' ')
+for (const [page, text] of sourceText) {
+  const front = text.match(/^---\n([\s\S]*?)\n---\n/)
+  const field = front?.[1].match(/^description:\s*(.+)$/m)
+  if (!field) continue
+  let description = field[1].trim()
+  if (/^".*"$/.test(description)) description = JSON.parse(description)
+  else if (/^'.*'$/.test(description)) description = description.slice(1, -1).replace(/''/g, "'")
+  if (plainText(text.slice(front[0].length)).includes(description)) stats.standfirsts++
+  else errors.push(`${page}: the description is not a sentence of the page, word for word: "${description}"`)
+}
+
 // ── report ───────────────────────────────────────────────────────────────────
 const provenance =
   `${snapshot.chain.name} — ${snapshot.runtime.specName} spec ${snapshot.runtime.specVersion}` +
@@ -394,5 +421,6 @@ console.log(
   `  ${stats.indices} pallet indices, ${stats.invariants} cross-pallet invariants,` +
     ` ${stats.prose} prose facts, ${stats.counts} validator count(s) at the snapshot's ${SET.validators},` +
     ` ${stats.extrinsics} extrinsics,` +
-    ` ${stats.apiMethods} runtime API methods checked across ${PAGES.length} pages`,
+    ` ${stats.apiMethods} runtime API methods checked across ${PAGES.length} pages,` +
+    ` ${stats.standfirsts} standfirst(s) found word for word in their pages`,
 )

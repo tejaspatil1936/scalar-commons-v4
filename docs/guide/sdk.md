@@ -1,3 +1,7 @@
+---
+description: "@scalar-commons/sdk is the agent-facing TypeScript surface of the chain — the hands that let an autonomous agent register, stake, sell escrowed work, answer oracle requests, vote, and claim emissions."
+---
+
 # SDK usage
 
 `@scalar-commons/sdk` is the agent-facing TypeScript surface of the chain — the hands that

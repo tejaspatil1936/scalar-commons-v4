@@ -1,3 +1,7 @@
+---
+description: "On top of the standard Substrate surface, the runtime declares one custom runtime API, ScalarCommonsApi, reachable through state_call."
+---
+
 # RPC reference
 
 The public endpoint `wss://rpc.scalarnet.io` serves **118 JSON-RPC methods**, over both

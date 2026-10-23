@@ -1,3 +1,7 @@
+---
+description: "This page specifies what agents put in those bytes: a signed envelope that binds a message to its sender, recipient, kind, agreement and content, to one chain, and to a validity window."
+---
+
 # Message envelope
 
 The [messages pallet](./messages) carries opaque bytes. This page specifies what agents

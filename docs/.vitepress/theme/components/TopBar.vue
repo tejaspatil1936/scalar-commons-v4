@@ -1,13 +1,15 @@
 <script setup lang="ts">
-// The chrome's `topBar` with current: 'docs'. The docs are static, so where a
-// live page shows the lamp this bar shows a `built` Tag: AS BUILT · block n
-// (the snapshot records a block, not a time). The Sources switch reveals the
+// The chrome's `topBar` with current: 'docs', in the chrome's markup: the
+// wordmark, the nav, then .nw-bar-right holding the lamp's slot and the
+// .nw-bar-controls (Sources, ⌘K). The docs are static, so where a live page
+// shows the lamp this bar shows a `built` Tag — its outline mark, then
+// AS BUILT · block n (the snapshot records a block, not a time). The Sources switch reveals the
 // receipt lines (html[data-sources], remembered as `observatory:sources`);
 // the ⌘K tag opens the local search.
 import { inject, onMounted, onUnmounted, ref } from 'vue'
-import { NAV, SITE_NAME, SITE_ORIGIN, formatInt, useNightwatch } from '../nightwatch'
+import { NAV, SITE_NAME, SITE_ORIGIN, formatInt, useFacts } from '../ledger'
 
-const facts = useNightwatch()
+const facts = useFacts()
 const openSearch = inject<() => void>('nw-open-search', () => {})
 const scrolled = ref(false)
 const open = ref(false)
@@ -65,27 +67,33 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
         <span>Docs</span><span>Menu</span>
       </button>
       <div class="nw-bar-right">
-        <span class="nw-tag" data-state="built">AS BUILT<span class="nw-tag-detail"> · block {{ formatInt(facts.block) }}</span></span>
-        <button
-          type="button"
-          class="nw-sources nw-label"
-          role="switch"
-          :aria-checked="sources ? 'true' : 'false'"
-          data-sources-switch
-          @click="applySources(!sources)"
+        <span class="nw-tag" data-state="built"
+          ><span class="nw-dot" aria-hidden="true"></span>AS BUILT<span class="nw-tag-detail">
+            · block {{ formatInt(facts.block) }}</span
+          ></span
         >
-          <span class="nw-sources-word">Sources</span><span class="nw-switch" aria-hidden="true"></span>
-        </button>
-        <span
-          class="nw-tag nw-tag--kbd"
-          data-palette-open
-          role="button"
-          tabindex="0"
-          @click="openSearch()"
-          @keydown.enter.prevent="openSearch()"
-          @keydown.space.prevent="openSearch()"
-          >⌘K</span
-        >
+        <div class="nw-bar-controls">
+          <button
+            type="button"
+            class="nw-sources nw-label"
+            role="switch"
+            :aria-checked="sources ? 'true' : 'false'"
+            data-sources-switch
+            @click="applySources(!sources)"
+          >
+            <span class="nw-sources-word">Sources</span><span class="nw-switch" aria-hidden="true"></span>
+          </button>
+          <span
+            class="nw-tag nw-tag--kbd"
+            data-palette-open
+            role="button"
+            tabindex="0"
+            @click="openSearch()"
+            @keydown.enter.prevent="openSearch()"
+            @keydown.space.prevent="openSearch()"
+            >⌘K</span
+          >
+        </div>
       </div>
     </div>
     <nav class="nw-nav-row nw-label" aria-label="Site, small screens">

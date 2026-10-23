@@ -1,12 +1,13 @@
 <script setup lang="ts">
 // An article: 240 px index · 640 px reading column · 240 px margin, inside
 // 1200 px. Breadcrumb group › page, the title at --h2, the standfirst from
-// frontmatter `description` when present, a receipt line on pine-1, the
+// frontmatter `description` when present, a receipt line on paper-2, the
 // prose (margin notes float into the margin from `::: note` containers), a
-// receipts footer from frontmatter `receipts:`, and prev/next.
+// receipts footer from frontmatter `receipts:` as ledger rows (a 1 px rule
+// between, the file:line behind a leader), and prev/next.
 import { Content, onContentUpdated, useData, withBase } from 'vitepress'
 import { computed, ref } from 'vue'
-import { REPO_URL, formatInt, useNightwatch, useWatchLog } from '../nightwatch'
+import { REPO_URL, formatInt, useFacts, useWatchLog } from '../ledger'
 
 interface Header {
   level: number
@@ -20,7 +21,7 @@ interface ReceiptRow {
 }
 
 const { page, frontmatter } = useData()
-const facts = useNightwatch()
+const facts = useFacts()
 const { sidebar, current, prev, next, isCurrent } = useWatchLog()
 
 const headers = ref<Header[]>([])
@@ -84,7 +85,7 @@ const sheetOpen = ref(false)
 
     <article class="nw-reading-col">
       <p class="nw-label nw-crumb">
-        <span v-if="group">{{ group }}</span><span v-if="group" class="nw-sage"> › </span
+        <span v-if="group">{{ group }}</span><span v-if="group"> › </span
         ><span>{{ page.title }}</span>
       </p>
       <h1 class="nw-h2 nw-article-title">{{ page.title }}</h1>

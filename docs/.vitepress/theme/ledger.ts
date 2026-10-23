@@ -1,4 +1,4 @@
-// The docs theme's data plumbing: the chrome's fixed words (mirrored from
+// The Ledger docs theme's data plumbing: the chrome's fixed words (mirrored from
 // landing/src/chrome/templates.mjs), the build facts config.mts hands over,
 // and the sidebar read as the route list. No figure is typed here.
 import { computed } from 'vue'
@@ -29,6 +29,8 @@ export interface Facts {
   nodeVersion: string
   builtAt: string
   pages: number
+  /** The built route list (docs home + the sidebar's pages), base-relative. */
+  routes: string[]
   drift: number
   checkPassed: boolean
 }
@@ -68,9 +70,9 @@ export const utc = (iso: string | null | undefined): string | null =>
 export const requestLine = (source: Source): string =>
   `${source.method} ${String(source.url).replace(/^https?:\/\//, '').replace(/^wss?:\/\//, '')}`
 
-export function useNightwatch() {
+export function useFacts() {
   const { theme } = useData()
-  return computed(() => theme.value.nightwatch as Facts)
+  return computed(() => theme.value.ledger as Facts)
 }
 
 /** Strip the base and a trailing `.html`/`index` so a route matches a sidebar link. */

@@ -10,11 +10,11 @@ import {
   REPO_URL,
   SITE_ORIGIN,
   formatInt,
-  useNightwatch,
+  useFacts,
   utc,
-} from '../nightwatch'
+} from '../ledger'
 
-const facts = useNightwatch()
+const facts = useFacts()
 const short = (hash: string) => `${String(hash).slice(0, 6)}…${String(hash).slice(-4)}`
 
 const columns = [

@@ -5,9 +5,9 @@
 import { Content, withBase } from 'vitepress'
 import { inject } from 'vue'
 import Reading from './Reading.vue'
-import { formatInt, useNightwatch, useWatchLog } from '../nightwatch'
+import { formatInt, useFacts, useWatchLog } from '../ledger'
 
-const facts = useNightwatch()
+const facts = useFacts()
 const { sidebar } = useWatchLog()
 const openSearch = inject<() => void>('nw-open-search', () => {})
 const ordinal = (i: number) => String(i + 1).padStart(2, '0')
@@ -29,15 +29,13 @@ const ordinal = (i: number) => String(i + 1).padStart(2, '0')
 
     <div class="nw-row nw-home-readings">
       <Reading
-        stack
         id="pages"
         label="Pages"
         :figure="formatInt(facts.pages)"
-        size="l"
+        size="m"
         :source="{ method: 'BUILD', url: 'docs/.vitepress/config.mts', block: facts.block }"
       />
       <Reading
-        stack
         id="last-checked"
         label="Last checked against the node"
         :figure="`block ${formatInt(facts.block)}`"
@@ -45,11 +43,11 @@ const ordinal = (i: number) => String(i + 1).padStart(2, '0')
         :source="{ method: 'FILE', url: 'docs/.chain/snapshot.json', block: facts.block }"
       />
       <Reading
-        stack
         id="drift"
         label="Snapshot drift"
-        :figure="`${formatInt(facts.drift)} pages`"
-        size="l"
+        :figure="formatInt(facts.drift)"
+        unit="pages"
+        size="m"
         :source="{
           method: 'BUILD',
           url: 'docs/scripts/check-chain-values.mjs',
@@ -63,7 +61,7 @@ const ordinal = (i: number) => String(i + 1).padStart(2, '0')
       <span id="nw-watchlog-label" class="nw-label">THE WATCH-LOG</span>
       <ol class="nw-watchlog-groups">
         <li v-for="(group, i) in sidebar" :key="group.text" class="nw-watchlog-group">
-          <span class="nw-figure nw-figure--l nw-sage">{{ ordinal(i) }}</span>
+          <span class="nw-figure nw-figure--l nw-dim">{{ ordinal(i) }}</span>
           <div class="nw-watchlog-body">
             <div class="nw-reading-line">
               <h3 class="nw-h3">{{ group.text }}</h3>

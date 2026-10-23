@@ -1,3 +1,7 @@
+---
+description: "This page covers building scalar-node from source, choosing a chain spec, and joining the devnet — as a full node first, then as a validator."
+---
+
 # Run a node
 
 This page covers building `scalar-node` from source, choosing a chain spec, and joining the
