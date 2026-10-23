@@ -157,6 +157,17 @@ test('no colour literal anywhere outside tokens.css: no hex, rgb or hsl in the c
   assert.deepEqual(hits, [], `colour literals outside tokens.css:\n${hits.join('\n')}`);
 });
 
+test('no file names a deleted Nightwatch token: pine, bone, sage, leader, filament, glow, vermilion, ice, clay and the sans are gone, not aliased', () => {
+  const gone = /var\(--(?:pine-[0-3]|bone(?:-dim)?|sage|leader|filament|glow|vermilion|ice|clay|font-sans)\)/g;
+  const hits = [];
+  for (const url of COLOUR_SCOPE) {
+    readFileSync(url, 'utf8').split('\n').forEach((line, i) => {
+      for (const m of line.matchAll(gone)) hits.push(`${rel(url)}:${i + 1} ${m[0]}`);
+    });
+  }
+  assert.deepEqual(hits, [], `references to deleted tokens:\n${hits.join('\n')}`);
+});
+
 const SPACING_PROPS = /^(?:margin|padding|inset|gap|row-gap|column-gap|top|right|bottom|left|height|min-height|max-height)(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?$/;
 const SCALE_VAR = /var\(--(?:s-(?:[1-9]|10)|bar|gutter)\)/g;
 // A value is on the scale when every part is 0, auto, none, 100%, a scale
