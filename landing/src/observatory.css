@@ -155,6 +155,7 @@ html[data-sources] .fact .reading-prov { display: inline; }
 .reading-prov { margin: 0; }
 .nw-reading > .reading-prov { display: none; }
 .hero-sub .nw-figure { color: var(--clay); }
+.nw-reading-sub[data-stale] { color: var(--sage); }
 
 /* ── presenter ────────────────────────────────────────────────────────────── */
 html[data-present] .nw-nav, html[data-present] .nw-nav-row, html[data-present] .nw-foot,

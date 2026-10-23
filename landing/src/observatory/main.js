@@ -72,7 +72,11 @@ function lamp(ctx) {
   ctx.bus.on('head', ({ number }) => handle.update({ block: number }));
   ctx.bus.on('poll', ({ number, finalized }) => handle.update({ block: number, finalized: Number.isFinite(finalized) ? finalized : undefined }));
   ctx.bus.on('finalized', ({ number }) => handle.update({ finalized: number }));
-  ctx.bus.on('socket', ({ state }) => handle.update({ open: state === 'open' }));
+  ctx.bus.on('socket', ({ state }) => {
+    handle.update({ open: state === 'open' });
+    // Disconnected: every live stub goes sage with `as of <UTC>`; the next read relights it.
+    if (state !== 'open') ctx.readout.markStale(document);
+  });
   return handle;
 }
 

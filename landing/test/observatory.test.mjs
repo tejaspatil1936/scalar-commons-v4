@@ -599,6 +599,12 @@ test('figures: tabular lining figures from the token; a live figure fills throug
   assert.match(readout, /\[data-fetched\]/);
   assert.match(readout, /\[data-raw\]/);
   assert.match(readout, /textContent = 'unavailable'/);
+  // Disconnected: every live stub goes sage with `as of <UTC>` (the figure's own fetch time); a fresh read relights it.
+  assert.match(readout, /export function markStale/);
+  assert.match(readout, /`as of \$\{utcTime\(new Date\(target\.dataset\.at\)\)\}`/);
+  assert.match(readout, /target\.dataset\.at = new Date\(record\.at\)\.toISOString\(\)/);
+  assert.match(readFileSync(new URL('../src/observatory/main.js', import.meta.url), 'utf8'), /if \(state !== 'open'\) ctx\.readout\.markStale\(document\)/);
+  assert.match(css, /\.nw-reading-sub\[data-stale\] \{ color: var\(--sage\); \}/);
   assert.match(bundle, /raw (?:↗|\\u2197)/);
 });
 
