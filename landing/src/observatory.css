@@ -106,9 +106,8 @@ pre {
 .status-record .status-label { color: var(--sage); }
 .instrument-failed { font: var(--small); color: var(--vermilion); }
 
-/* 02 · Economy: the Day Bar sticks over the section; the dial is unused for now and kept for its reading. */
+/* 02 · Economy: the Day Bar sticks over the section. */
 .nw-daybar { position: sticky; top: 12px; z-index: 1; }
-.dial { display: none; }
 
 /* 03 · Validators */
 .ring-host { display: grid; place-items: center; }

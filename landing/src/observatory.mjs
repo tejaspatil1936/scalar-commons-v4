@@ -171,8 +171,7 @@ function economySection() {
     title: 'Economy',
     name: 'era',
     number: '02',
-    instrument: `        ${dayBarFrame()}
-        <div class="dial" data-role="dial" role="img" aria-label="Era progress: waiting for the first reading"></div>`,
+    instrument: `        ${dayBarFrame()}`,
     readings: [
       nwReading({ key: 'eraCountdown', label: 'Time to settlement', size: 'l' }),
       nwReading({ key: 'agentPayouts', label: 'Issued to agents to date', size: 'l' }),

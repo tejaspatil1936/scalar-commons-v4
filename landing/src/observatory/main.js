@@ -15,7 +15,7 @@ import * as pulse from './instruments/pulse.js';
 import * as agentField from './instruments/agent-field.js';
 import * as lastHour from './instruments/last-hour.js';
 import * as messaging from './instruments/messaging.js';
-import * as era from './instruments/era-dial.js';
+import * as daybar from './daybar.js';
 import * as economy from './instruments/economy.js';
 import * as validators from './instruments/validator-ring.js';
 import * as history from './instruments/history.js';
@@ -35,7 +35,7 @@ const INSTRUMENTS = [
   ['agent-field', agentField, '.hero'],
   ['last-hour', lastHour, '.hero'],
   ['messaging', messaging, '.hero'],
-  ['era', era, '#economy'],
+  ['daybar', daybar, '#economy'],
   ['economy', economy, '#economy'],
   ['validators', validators, '#validators'],
   ['history', history, '#history'],

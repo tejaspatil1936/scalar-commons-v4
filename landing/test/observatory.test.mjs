@@ -533,7 +533,8 @@ test('sections: a numbered label, the instrument, then the Readings in a row —
   assert.equal((economy.match(/nw-daybar-seg is-current/g) ?? []).length, 1);
   for (const [, label] of economy.matchAll(/<span class="nw-label" data-daybar-label>([^<]*)<\/span>/g)) assert.equal(label, '', 'a Day Bar label is the browser’s to fill');
   assert.match(css, /\.nw-daybar \{ position: sticky; top: 12px;/);
-  assert.match(css, /\.dial \{ display: none; \}/);
+  assert.ok(!/data-role="dial"/.test(economy), 'the era dial is gone: the Day Bar and its module own the era');
+  assert.match(readFileSync(new URL('../src/observatory/daybar.js', import.meta.url), 'utf8'), /ctx\.watch\(\s*'era'/);
   // 03 · Validators: the ring on a 240 px circle, the list, the ring note, the hosts record.
   const validators = section('validators');
   assert.match(validators, /<svg class="ring" role="img" aria-label="[^"]+"><\/svg>/);
