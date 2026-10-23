@@ -218,8 +218,8 @@ export const content = {
         {
           lead: 'Validators.',
           text:
-            '{{state.validators}} validators author blocks every {{constants.babe.expectedBlockTime|secs}} seconds under ' +
-            'BABE, with GRANDPA finality.',
+            'Validators author blocks every {{constants.babe.expectedBlockTime|secs}} seconds under BABE, with GRANDPA ' +
+            'finality.',
         },
         {
           lead: 'Runtime identity.',
@@ -240,13 +240,13 @@ export const content = {
         {
           // The page's own rule is that no figure is hand-typed — every number comes from
           // chain-facts.json through a placeholder. The percentage and the CMN amount from
-          // the issue therefore stay in the issue, which is linked; the running spec comes
+          // the issue therefore stay in the issue, not here; the running spec comes
           // from the same live metadata as everything else on this page.
           key: 'economic-gate',
           text:
-            'Testnet status: the economic gate FAILED, and the fix is the runtime named above — ' +
-            '{{provenance.specName}} spec {{provenance.specVersion}} — with re-measurement still pending. On the ' +
-            'previous runtime, two faucet-funded accounts took the great majority of a whole era\u2019s emission in ' +
+            'Testnet status: the economic gate FAILED, and the fix is in the runtime named above — ' +
+            '{{provenance.specName}} spec {{provenance.specVersion}} — with re-measurement still pending. On an ' +
+            'earlier runtime, two faucet-funded accounts took the great majority of a whole era\u2019s emission in ' +
             'return for a small amount of escrow between accounts one person controlled, because the size of an ' +
             'era\u2019s pool was set by how many agents had registered and never by how much work had been done. The ' +
             'current runtime bounds an era at alpha times the qualifying escrow volume that era settled. That is the ' +

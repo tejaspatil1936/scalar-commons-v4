@@ -1,10 +1,12 @@
 # Run a node
 
 This page covers building `scalar-node` from source, choosing a chain spec, and joining the
-5-validator devnet — as a full node first, then as a validator.
+devnet — as a full node first, then as a validator.
 
-The reference network these instructions were verified against is **Scalar Commons Local
-Testnet**, five validators on one host, RPC on `ws://127.0.0.1:9944`.
+These instructions were verified against **Scalar Commons Local Testnet** as it ran in
+ROUND15 (2026-08-03): five validators on one host, RPC on `ws://127.0.0.1:9944`. Today the
+RPC is public at `wss://rpc.scalarnet.io` and the validator set is **8 validators** of **8 seats**, read at block #1 157 827
+— as recorded in `docs/.chain/snapshot.json`.
 
 ## Prerequisites
 
@@ -73,9 +75,10 @@ A few consequences worth knowing before you pick one:
   authority set, so a single `--dev` process authors roughly a third of slots and never
   reaches GRANDPA's 2/3 quorum. Blocks are produced; nothing is finalized. Use it for
   extrinsic-level work, not for anything that reads finalized state.
-- **`local` is the devnet preset**, and the one the reference network runs. Five
-  authorities means the GRANDPA threshold is 4, so finality survives one validator being
-  down. It does not survive two — see [fault tolerance](#fault-tolerance).
+- **`local` is the devnet preset**, and the one the reference network runs. Its genesis
+  authority set (Alice … Eve) gives a GRANDPA threshold of 4, so a fresh `local` chain
+  survives a single authority being down, not two. The live set has since grown — see
+  [fault tolerance](#fault-tolerance).
 - **`sc-e1`** is genesis-identical to `dev` but tagged as a distinct chain so fast-era
   integration harnesses do not collide with dev chain state on disk. It pairs with a
   λ-scaled runtime build; era length and the other block-denominated constants are
@@ -156,12 +159,12 @@ Sync a non-authoring full node against it:
   --bootnodes /ip4/127.0.0.1/tcp/30333/p2p/12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp
 ```
 
-Only alice is given as a bootnode. The other validators find each other through authority
+Only alice is given as a bootnode in the operator-host units. The other validators find each other through authority
 discovery over the DHT rather than through configuration — which is why the network can
 grow without editing existing nodes. Note the consequence: **alice is a single point of
-partition** for peer discovery on this devnet. A real network needs several bootnodes.
+partition** for peer discovery among them. A real network needs several bootnodes.
 
-For a remote host, replace `/ip4/127.0.0.1` with its public address. The devnet's p2p
+For a remote host, replace `/ip4/127.0.0.1` with its public address. The operator host's p2p
 range is 30333–30337.
 
 ### Verify it joined
@@ -181,7 +184,7 @@ curl -sH 'Content-Type: application/json' \
 without finalizing them looks healthy to a naive check:
 
 ```bash
-./deploy/finality-check.sh 12 5     # 12 samples, 5s apart, all five nodes
+./deploy/finality-check.sh 12 5     # 12 samples, 5s apart, every node in deploy/nodes.env
 ```
 
 See [the RPC reference](/reference/rpc#chain-and-system) for the individual
@@ -189,7 +192,7 @@ See [the RPC reference](/reference/rpc#chain-and-system) for the individual
 
 ### Devnet topology
 
-The reference devnet allocates ports in parallel runs, so the *N*th node is derivable:
+The operator's host allocates ports in parallel runs, so the *N*th node is derivable:
 p2p `30333+i`, RPC `9944+i`, Prometheus `9615+i`.
 
 | Node | p2p | RPC | Prometheus | Pruning |
@@ -201,15 +204,18 @@ p2p `30333+i`, RPC `9944+i`, Prometheus `9615+i`.
 | eve | 30337 | 9948 | 9619 | default |
 
 alice runs `--state-pruning archive --blocks-pruning archive` because she is the indexer's
-query endpoint and needs full history. Every node's RPC is bound to loopback; alice's is
+query endpoint and needs full history. Every node's RPC there is bound to loopback; alice's is
 the one treated as public-facing. `deploy/nodes.env` is the machine-readable copy of this
 table, and `deploy/README.md` carries the full systemd operations runbook — service units,
 snapshots, log recipes and the firewall commands that need root.
 
 ### Reaching a remote RPC
 
-The devnet does not pass `--rpc-external`, so nothing is bound to `0.0.0.0`. An SSH tunnel
-gets you a remote endpoint without a firewall change or a unit edit:
+The operator-host units do not pass `--rpc-external`, so no node RPC there is bound to
+`0.0.0.0`: the public `wss://rpc.scalarnet.io` endpoint is nginx in front of a loopback
+port, not a node itself.
+For a node of your own, an SSH tunnel gets you a remote endpoint without a firewall change
+or a unit edit:
 
 ```bash
 ssh -L 9944:127.0.0.1:9944 user@your-host
@@ -305,9 +311,10 @@ Your keys take effect at the start of a session — not immediately. Session key
 restart back onto `safe`: they live in the keystore under `--base-path`, not in the RPC
 configuration, so you only ever need the unsafe window again when you rotate.
 
-::: danger The devnet's validator keys are public
-The five devnet validators author with the well-known `//Alice` … `//Eve` seeds, which
-appear in every Substrate test fixture in existence. Anyone can sign as them. Never reuse
+::: danger The `local` preset's validator keys are public
+The `local` preset's genesis authorities are keyed with the
+well-known `//Alice` … `//Eve` seeds, which appear in every Substrate test fixture in
+existence. Anyone can sign as them. Never reuse
 that pattern for a network holding value: generate per-validator session keys, hold them
 in each validator's own keystore, and register them via `session.setKeys`.
 :::
@@ -323,28 +330,36 @@ GRANDPA finalizes on a supermajority. For `n` authorities the threshold is
 | 4 | 3 | 1 |
 | 5 | 4 | 1 |
 | 7 | 5 | 2 |
+| 8 | 6 | 2 — the current set, read at block #1 157 827 |
+
+The row that applies today is the last one, taken from `docs/.chain/snapshot.json`. With **8** authorities the threshold is **6** voters, so the set tolerates **2** simultaneous failures.
+Restart or snapshot one node freely; two down at once still finalizes; a third stalls it.
 
 At `n = 3` the threshold is *every* authority, so stopping one freezes finality outright
 while block production carries on — the failure mode that motivated moving the devnet to
-five.
+five in ROUND15 (2026-08-03).
 
-Be precise about what the fifth authority buys: **nothing for fault tolerance.** Four and
-five both tolerate exactly one failure, because the threshold rises in step with set size.
-Seven is the next size that survives two. Five was chosen for slot spread and an odd set
-size. So: restart or snapshot one node freely, never two at once.
+Be precise about what that fifth authority bought in ROUND15 (2026-08-03): **nothing for
+fault tolerance.** Four and five both tolerated exactly one failure, because the threshold
+rises in step with set size. Five was chosen for slot spread and an odd set size, and the
+rule then was one node at a time, never two. Seven is the next size that survives two; the
+seat count was raised 5 → 7 at block #750 511 and 7 → 8 at block #1 122 976.
 
-And note what a validator count cannot tell you. Five validators on one host share a
-kernel, a disk, a NIC and one `systemd --user` manager — that is **one fault domain, not
-five**. Surviving one validator *process* stopping says nothing about surviving the loss
-of the machine, at which point the live voter count is zero. `deploy/README.md` enumerates
-what a production set needs: separate hosts, separate operators, separate key custody, and
-real p2p addressing with more than one bootnode.
+And note what a validator count cannot tell you. Five validators run on the operator's host; one is run independently by Bourn on his own server; two are operator-run on separate hosts (Ron and JC). That is four fault domains, not one per validator. (as of 2026-10-23, from `landing/public/status.json`)
+Validators that share a host share a kernel, a disk, a NIC and one `systemd --user`
+manager — that is one fault domain, however many processes it runs. Surviving a validator
+*process* stopping says nothing about surviving the loss of its machine, which takes every
+validator on it down together. `deploy/README.md` enumerates what a production set needs:
+separate hosts, separate operators, separate key custody, and real p2p addressing with more
+than one bootnode.
 
 ## What this devnet is not
 
 The devnet is deliberately insecure in ways that are fine locally and disqualifying for
-anything holding value: well-known session and node keys, `sudo` held by a single Alice key,
-the unregistered SS58 prefix 42, `ChainType::Local`, no TLS or rate limiting, and
-Prometheus exported but unscraped and unalerted. `deploy/README.md` keeps the full list
+anything holding value: well-known session and node keys on the `local` preset's genesis
+authorities, `sudo` held by a single key, the unregistered SS58 prefix 42,
+`ChainType::Local`, and Prometheus exported but unscraped and unalerted. TLS and per-IP
+rate limiting are handled at the public nginx edge (`deploy/public/`); alice's own RPC
+stays loopback-bound behind it. `deploy/README.md` keeps the full list
 under "What mainnet needs that this testnet skips". Read it before treating any of this as
 a mainnet template.
