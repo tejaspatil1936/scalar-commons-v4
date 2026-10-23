@@ -344,3 +344,23 @@ test('no built page carries a design specimen, a Google font or a CDN', () => {
   const fonts = readdirSync(join(out, 'fonts'));
   assert.deepEqual(fonts.sort(), ['ibm-plex-mono-latin-400-normal.woff2', 'ibm-plex-mono-latin-500-normal.woff2', 'source-serif-4-latin-opsz-normal.woff2'], 'dist/fonts holds the two faces and nothing else');
 });
+
+// ── fit.js: a row drops one size step, as a whole, when a figure outgrows its column ──
+import { fitRow } from '../src/chrome/behaviour/fit.js';
+
+test('fit: a row whose figure outgrows its column drops one step for all its figures, and steps back when it fits again', () => {
+  const figure = (width, column) => {
+    const reading = { clientWidth: column };
+    return { scrollWidth: width, closest: () => reading, parentElement: reading };
+  };
+  const row = (figs) => ({ dataset: {}, figs, querySelectorAll: () => figs, removeAttribute(name) { if (name === 'data-step') delete this.dataset.step; } });
+  const fits = row([figure(200, 282), figure(180, 282)]);
+  assert.equal(fitRow(fits), false);
+  assert.equal(fits.dataset.step, undefined);
+  const spills = row([figure(200, 282), figure(300, 282)]);
+  assert.equal(fitRow(spills), true);
+  assert.equal(spills.dataset.step, '1', 'the whole row steps down');
+  spills.figs[1].scrollWidth = 240; // the live figure shrank
+  assert.equal(fitRow(spills), false);
+  assert.equal(spills.dataset.step, undefined, 'and steps back up');
+});
