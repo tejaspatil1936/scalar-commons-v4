@@ -117,6 +117,8 @@ button, input { font: inherit; color: inherit; }
   transition: background var(--t-cool) var(--ease-cool), box-shadow var(--t-cool) var(--ease-cool);
 }
 .nw-lamp[data-lit="true"] .nw-lamp-dot { background: var(--filament); box-shadow: var(--glow); }
+/* A dot that stands alone (a feed heading, a legend) is lit by data-lit on itself. */
+.nw-lamp-dot[data-lit="true"] { background: var(--filament); box-shadow: var(--glow); }
 .nw-lamp[data-state="lagging"] .nw-lamp-dot { box-shadow: none; }
 .nw-lamp[data-state="stalled"] .nw-lamp-dot { background: var(--vermilion); box-shadow: none; }
 .nw-lamp.is-ticking .nw-lamp-dot { box-shadow: 0 0 32px rgba(255, 227, 163, 0.18); }

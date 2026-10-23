@@ -10,11 +10,13 @@
 
 import { HOUR_MS, counters } from './model.js';
 import { feedDown } from './wiring.js';
+import { showUnavailable, showValue } from './readings.js';
 
 /** The reading keys the strip fills, in order, and the counter each shows. */
 export const KEYS = ['activeAgents', 'eventsPerMinute', 'messagesHour'];
 export const COUNTER = { activeAgents: 'activeAgents', eventsPerMinute: 'eventsLastMinute', messagesHour: 'messagesLastHour' };
-const EXTRA = {
+/** The computation each figure names in its receipt. */
+export const EXTRA = {
   activeAgents: 'agents party to an event in the last 10 minutes',
   eventsPerMinute: 'events the page reacts to, in the last minute',
   messagesHour: 'messages.MessageSent in the last hour',
@@ -40,7 +42,7 @@ export function init(root, ctx, feed) {
   function show() {
     const failed = down ?? hourBroken;
     if (failed) {
-      for (const target of Object.values(targets)) ctx.readout.showError(target, failed.record, failed.reason);
+      for (const target of Object.values(targets)) showUnavailable(target, failed.record, failed.reason);
       return;
     }
     if (!provenance) return; // nothing read yet: the skeleton stays
@@ -50,7 +52,7 @@ export function init(root, ctx, feed) {
     const figures = counters([...seeded, ...live], now);
     for (const key of KEYS) {
       if (!targets[key]) continue;
-      ctx.readout.showValue(targets[key], provenance, { value: figures[COUNTER[key]], extra: `${EXTRA[key]} · ${basisText(liveSeen)}`, motion: ctx.motion });
+      showValue(targets[key], provenance, { value: figures[COUNTER[key]], computed: `${EXTRA[key]} · ${basisText(liveSeen)}`, reduced: ctx.motion.reduced() });
     }
   }
 
