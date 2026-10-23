@@ -623,6 +623,11 @@ test('figures: tabular lining figures from the token; a live figure fills throug
   assert.match(readout, /\[data-fetched\]/);
   assert.match(readout, /\[data-raw\]/);
   assert.match(readout, /textContent = 'unavailable'/);
+  // A live figure that changed (round 2 §1.2): only the changed digits warm, through the chrome's setFigure; no count-up tween.
+  assert.match(readout, /import \{ setFigure as warmFigure \} from '\.\.\/chrome\/behaviour\/digits\.js'/);
+  assert.match(readout, /if \(previous\) digits\.setAttribute\('data-text', previous\)/);
+  assert.ok(!/motion\.tween\(/.test(readout), 'no figure counts up');
+  assert.match(chromeCss, /\.nw-digit\.is-warm \{ font-weight: 500;/);
   // Disconnected: every live stub goes sage with `as of <UTC>` (the figure's own fetch time); a fresh read relights it.
   assert.match(readout, /export function markStale/);
   assert.match(readout, /`as of \$\{utcTime\(new Date\(target\.dataset\.at\)\)\}`/);

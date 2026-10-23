@@ -7,6 +7,7 @@
 // previous value standing.
 
 import { formatInteger, utcTime } from './format.js';
+import { setFigure as warmFigure } from '../chrome/behaviour/digits.js';
 
 /** Object URLs for raw responses, so a figure can link to the bytes it came from. */
 const snapshots = new WeakMap();
@@ -142,15 +143,17 @@ export function setFigure(node, text) {
   node.replaceChildren(document.createTextNode(String(text)));
 }
 
-/** Counts from the previous integer to the new one over 200 ms, if motion is allowed. */
-function tick(digits, from, to, motion) {
-  if (!motion || motion.reduced() || document.hidden || !(to > from) || to - from > 100_000) {
-    setFigure(digits, formatInteger(to));
-    return;
-  }
-  motion.tween(200, (t) => {
-    setFigure(digits, formatInteger(Math.round(from + (to - from) * t)));
-  });
+/**
+ * A live figure that changed (round 2 §1.2): through the chrome's setFigure,
+ * the digits that changed print at weight 500 and settle to 400 over
+ * --t-cool; nothing else moves — no count-up, no tween. `previous` is the text
+ * the slot showed before, carried across the slot's rebuild so the comparison
+ * is per digit; the first fill warms nothing. Reduced motion and a hidden tab
+ * print the figure at once.
+ */
+function fill(digits, text, previous, motion) {
+  if (previous) digits.setAttribute('data-text', previous);
+  warmFigure(digits, text, { reduced: Boolean(motion?.reduced?.()) || document.hidden });
 }
 
 /**
@@ -174,7 +177,7 @@ export function showValue(target, record, { value, prefix = '', unit = '', sub =
     return;
   }
   slot.dataset.shown = shown;
-  const before = slot.dataset.number;
+  const previous = slot.querySelector('.digits')?.getAttribute('data-text') ?? null;
   slot.classList.remove('is-loading', 'is-error', 'is-absent');
   slot.classList.toggle('is-live', live);
   markState(target, live ? 'live' : 'record');
@@ -202,12 +205,10 @@ export function showValue(target, record, { value, prefix = '', unit = '', sub =
   }
 
   if (typeof value === 'number') {
-    const previous = before === undefined ? NaN : Number(before);
-    if (Number.isFinite(previous)) tick(digits, previous, value, motion);
-    else setFigure(digits, formatInteger(value));
+    fill(digits, formatInteger(value), previous, motion);
     slot.dataset.number = String(value);
   } else {
-    digits.textContent = value;
+    fill(digits, String(value), previous, motion);
     delete slot.dataset.number;
   }
   provenance(target, record, extra);
