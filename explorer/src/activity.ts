@@ -15,7 +15,7 @@
  * and a balance renders in tokens because the runtime says so.
  */
 
-import type { ActivityEntry, ActivityField, ActivityView } from './types.js';
+import type { ActivityEntry, ActivityField, ActivityView, HistoryEntry, IndexerStatus } from './types.js';
 
 /** Rows per page. A screenful: the page refreshes, so it should stay cheap. */
 export const ACTIVITY_PAGE_SIZE = 50;
@@ -186,3 +186,90 @@ export function toActivityView(raw: unknown, fieldTypes: EventFieldTypes, query:
 
   return { agent: query.agent, offset: query.offset, limit, total, historyFrom, entries };
 }
+
+/**
+ * A plain GET of one indexer path, as JSON. The account, home and agent-scoped
+ * activity pages read `/v1/status`, `/v1/accounts/:address/extrinsics`,
+ * `/v1/agents/:address`, `/v1/agents/:address/escrows` and `/v1/eras` through
+ * it; each is one `Read` with a receipt, and a failure is one `unavailable`
+ * figure, never a 502 for the page.
+ */
+export interface IndexerReader {
+  getJson(path: string): Promise<unknown>;
+  readonly baseUrl: string;
+}
+
+export function createIndexerReader(options: IndexerClientOptions): IndexerReader {
+  const base = options.baseUrl.replace(/\/+$/, '');
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  return {
+    baseUrl: base,
+    async getJson(path: string): Promise<unknown> {
+      let response: Response;
+      try {
+        response = await fetch(`${base}${path}`, { signal: AbortSignal.timeout(timeoutMs) });
+      } catch (error) {
+        throw new IndexerUnavailableError(
+          `the indexer at ${base} did not answer: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      const body: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        const reason =
+          body !== null && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string'
+            ? (body as { error: string }).error
+            : `HTTP ${response.status}`;
+        throw new IndexerUnavailableError(`the indexer at ${base} answered ${response.status}: ${reason}`);
+      }
+      return body;
+    },
+  };
+}
+
+/** The indexer's `/v1/status` answer, shaped; throws when it is not the status. */
+export function toIndexerStatus(raw: unknown): IndexerStatus {
+  if (!isRecord(raw) || !isRecord(raw.indexer)) {
+    throw new IndexerResponseError('no indexer block in /v1/status');
+  }
+  return { syncedHeight: requireInteger(raw.indexer, 'syncedHeight', 'status.indexer') };
+}
+
+/** The indexer's `/v1/accounts/:address/extrinsics` page, shaped into history rows. */
+export function toHistory(raw: unknown): HistoryEntry[] {
+  if (!isRecord(raw) || !Array.isArray(raw.items)) {
+    throw new IndexerResponseError('no items list in /v1/accounts/:address/extrinsics');
+  }
+  return raw.items.map((item, position): HistoryEntry => {
+    const where = `items[${position}]`;
+    if (!isRecord(item)) throw new IndexerResponseError(`${where} is not an object`);
+    const timestamp = item.timestampMs;
+    const success = item.success;
+    return {
+      blockNumber: requireInteger(item, 'blockNumber', where),
+      index: requireInteger(item, 'index', where),
+      section: requireString(item, 'section', where),
+      method: requireString(item, 'method', where),
+      timestampMs: typeof timestamp === 'number' && Number.isInteger(timestamp) ? BigInt(timestamp) : null,
+      success: typeof success === 'boolean' ? success : null,
+    };
+  });
+}
+
+/** A field of an indexer record read as a wide integer (the indexer serves balances as decimal strings), or null when absent. */
+export function wideInteger(record: Record<string, unknown>, key: string): bigint | null {
+  const value = record[key];
+  if (typeof value === 'number' && Number.isInteger(value)) return BigInt(value);
+  if (typeof value === 'string' && /^\d+$/.test(value)) return BigInt(value);
+  return null;
+}
+
+/** The first agent on `/v1/agents` whose `name` is exactly `name`, or null. The index carries no name lookup, so this is one bounded page. */
+export function findAgentByName(raw: unknown, name: string): string | null {
+  if (!isRecord(raw) || !Array.isArray(raw.items)) return null;
+  for (const item of raw.items) {
+    if (isRecord(item) && item.name === name && typeof item.address === 'string') return item.address;
+  }
+  return null;
+}
+
+export { isRecord };

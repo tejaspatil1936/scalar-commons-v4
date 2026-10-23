@@ -36,9 +36,12 @@ public key. A string scan would both miss accounts and invent them.
 
 ## One page view is a bounded number of node reads
 
-No view walks the chain. The index page costs one header read; a block or
-extrinsic page costs the four reads it takes to decode exactly one block; an
-account page costs one header read and one storage read. Nothing here fans a
+No view walks the chain. The index page costs one header read plus the
+bounded set behind its readings (the newest 16 blocks decoded, and one storage
+read per figure); a block or extrinsic page costs the reads it takes to decode
+exactly one block plus its receipt readings; an account page costs one header
+read and a handful of storage reads (balances, agent metadata and stake,
+staking bond, the validator set). Nothing here fans a
 single request out across a range of blocks, so a visitor cannot turn one HTTP
 request into an unbounded amount of node work.
 
@@ -67,6 +70,32 @@ is a `502` naming the indexer — never an empty feed. The runtime has no
 `messages` pallet from runtime 309, so `message` rows appear once agents start
 sending.
 
+## The chrome
+
+Pages are drawn in Nightwatch, the site's one visual system. The stylesheet
+(`src/chrome/`: `tokens.css`, `chrome.css`, `print.css` and two font files) is
+a synced, byte-identical copy of `landing/src/chrome/` — `landing/scripts/
+sync-chrome.mjs` writes it and a landing test fails on drift; never edit it
+here. The server serves it at `GET /chrome.css` (the three files concatenated,
+read once at startup) and the fonts at `GET /fonts/<name>.woff2`, because the
+stylesheet addresses them as `fonts/…` relative to its own URL.
+`src/chrome-templates.ts` mirrors `landing/src/chrome/templates.mjs` markup
+for markup, in TypeScript.
+
+Every page is server-rendered and stays so: the lamp and every Reading are
+filled from the node at request time and carry an `AS OF <UTC>` tag; the
+receipt under each figure names the RPC or storage item it came from
+(`chain_getHeader`, `emissions.eraStartBlock`, `escrow.disputeBountyBps` from
+metadata, `GET api…/v1/status`). A read that fails renders `unavailable` and
+the reason — one missing storage item costs one figure, not the page. No
+script is shipped beyond the activity page's meta refresh.
+
+The home page's search field posts to `GET /search?q=` and redirects to the
+matching view: a number → block; `0x` + 64 hex → block by hash, else the
+extrinsic with that hash among the newest 16 blocks (the node keeps no hash
+index); an SS58 address → account; otherwise an agent name the index resolves
+(`/v1/agents`) → that agent's activity; else a 404 Band.
+
 ## Read-only by construction
 
 The client exposes no signing key and no `tx` surface at all. There is no
@@ -76,7 +105,9 @@ request that can change chain or server state.
 
 | Path | View |
 |---|---|
-| `/` | chain identity and where the head sits |
+| `/` | search; Best · Finalized · Era · Session · Validators · Issuance; the newest 16 blocks as a Spine; the last twelve extrinsics and events; the pool; the indexer line |
+| `/search?q=` | resolves to the matching view (see above) |
+| `/chrome.css`, `/fonts/<name>.woff2` | the synced chrome |
 | `/block/:number`, `/block/:hash` | block header + its extrinsics |
 | `/extrinsic/:block/:index` | call, arguments, events, outcome, accounts touched |
 | `/account/:address` | balances and nonce, at the block they were read |
