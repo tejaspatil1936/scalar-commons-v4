@@ -461,7 +461,7 @@ test('the first screen: Observatory in the display face, the one sentence, four 
   // The spec-309 fence stays on the message figures.
   for (const key of ['messagesSent', 'hourMessages']) assert.match(hero, new RegExp(`data-reading="${key}" data-min-spec="309" hidden`));
   // The layout: the Spine's 96 px, five columns, seven columns; nothing viewport-tall.
-  assert.match(css, /\.hero-grid \{[^}]*grid-template-columns: 96px minmax\(0, 5fr\) minmax\(0, 7fr\)/);
+  assert.match(css, /\.hero-grid \{[^}]*grid-template-columns: 96px minmax\(0, 5.5fr\) minmax\(0, 6.5fr\)/);
   assert.ok(!/100s?vh/.test(css.match(/\.hero \{[^}]*\}/)?.[0] ?? ''), 'the hero is not a viewport-height block');
   // The Spine is fed by the head bus and marks the finalized boundary.
   const spine = readFileSync(new URL('../src/observatory/spine.js', import.meta.url), 'utf8');

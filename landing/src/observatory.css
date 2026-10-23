@@ -44,7 +44,7 @@ pre {
 .hero { padding-block: 64px 48px; }
 .hero-grid {
   display: grid;
-  grid-template-columns: 96px minmax(0, 5fr) minmax(0, 7fr);
+  grid-template-columns: 96px minmax(0, 5.5fr) minmax(0, 6.5fr);
   column-gap: var(--gutter);
   row-gap: 48px;
   align-items: start;
