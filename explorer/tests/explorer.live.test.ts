@@ -162,7 +162,7 @@ describe('block view', () => {
     const headNumber = header.number.toNumber();
     const { status, body } = await get(`/block/${headNumber}`);
     expect(status).toBe(200);
-    expect(body).toContain(`<h1>Block ${headNumber}</h1>`);
+    expect(body).toContain(`<h1 class="nw-figure nw-figure--xl">${headNumber}</h1>`);
     expect(body).toContain(header.hash.toHex());
   });
 
@@ -203,7 +203,7 @@ describe('extrinsic view', () => {
     expect(body).toContain(transfer.sender);
     expect(body).toContain(transfer.recipient);
     expect(body).toContain('balances.Transfer');
-    expect(body).toContain('success');
+    expect(body).toContain('SUCCEEDED');
     expect(body).toContain(`href="/block/${transfer.blockNumber}"`);
   });
 
@@ -221,9 +221,9 @@ describe('extrinsic view', () => {
     expect(positions.length).toBeGreaterThan(0);
 
     const { body } = await get(`/extrinsic/${transfer.blockNumber}/${transfer.extrinsicIndex}`);
-    const shown = [...body.matchAll(/<tr><td>(\d+)<\/td><td>[a-zA-Z]+\.[a-zA-Z]+<\/td>/g)].map((match) =>
-      Number(match[1]),
-    );
+    const shown = [
+      ...body.matchAll(/<span class="nw-ledger-index nw-label">(\d+)<\/span><span class="nw-mono">[a-zA-Z]+\.[a-zA-Z]+<\/span>/g),
+    ].map((match) => Number(match[1]));
     expect(shown).toEqual(positions);
   });
 

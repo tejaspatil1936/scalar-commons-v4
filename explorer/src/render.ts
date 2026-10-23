@@ -1,18 +1,51 @@
 /**
- * Server-side HTML rendering.
+ * Server-side HTML rendering, in the Nightwatch chrome.
  *
  * Pure functions from view model to markup: no chain access, no JavaScript
- * shipped to the browser, no client-side framework. An explorer is read-only by
- * nature, so a page that arrives fully rendered is both the simplest thing that
- * works and the one that keeps working when a node is slow — there is no second
- * round trip to fail.
+ * shipped to the browser beyond the activity page's meta refresh, no
+ * client-side framework. An explorer is read-only by nature, so a page that
+ * arrives fully rendered is both the simplest thing that works and the one
+ * that keeps working when a node is slow — there is no second round trip to
+ * fail.
  *
- * Every interpolated value goes through `escapeHtml`, because every value on
- * these pages came off a public chain and is therefore attacker-supplied.
+ * Every figure is a Reading filled from the node (or the index) at request
+ * time and carries an `AS OF <UTC>` tag and a receipt naming the RPC or
+ * storage item it came from; a read that failed renders `unavailable` and the
+ * reason, never a guess. Every interpolated value goes through `escapeHtml`,
+ * because every value on these pages came off a public chain and is therefore
+ * attacker-supplied.
  */
 
+import {
+  address as addressChip,
+  agentName,
+  band,
+  code,
+  copy,
+  curve,
+  curvePaths,
+  field,
+  filter,
+  footer,
+  formatInt,
+  head,
+  lampFilled,
+  ledger,
+  pager,
+  quiet,
+  rail,
+  raw,
+  reading,
+  spine,
+  tag,
+  topBar,
+  utc,
+  type LedgerRow,
+  type RailEntry,
+  type State,
+} from './chrome-templates.js';
 import { escapeHtml, formatBalance, formatTimestamp, shortHash } from './format.js';
-import { accountPath, activityPath, blockPath, extrinsicPath } from './routes.js';
+import { accountPath, activityPath, blockPath, extrinsicPath, SEARCH_PATH } from './routes.js';
 import type {
   AccountView,
   ActivityEntry,
@@ -21,101 +54,146 @@ import type {
   BlockView,
   ChainInfo,
   EventView,
+  ExtrinsicSummary,
   ExtrinsicView,
   HomeView,
   Outcome,
+  Read,
+  Source,
 } from './types.js';
 
-const STYLES = `
-:root { color-scheme: dark; --bg:#0d1117; --raised:#151b23; --border:#2a3340; --text:#e8edf3;
-  --dim:#a3b0c0; --accent:#6fd3c7; --ok:#7ddba3; --bad:#f08c8c; }
-* { box-sizing: border-box; }
-body { margin:0; padding:0 1.5rem 4rem; background:var(--bg); color:var(--text);
-  font:400 16px/1.6 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-header, main, footer { max-width:64rem; margin-inline:auto; }
-header { display:flex; flex-wrap:wrap; gap:1rem; align-items:baseline; justify-content:space-between;
-  padding:1.5rem 0; border-bottom:1px solid var(--border); }
-.wordmark { font-size:.8125rem; font-weight:600; letter-spacing:.16em; text-transform:uppercase;
-  color:var(--accent); text-decoration:none; }
-.chain { color:var(--dim); font-size:.8125rem; }
-nav a { font-size:.8125rem; margin-right:1rem; }
-.kind { display:inline-block; padding:0 .45rem; border:1px solid var(--border); border-radius:.25rem;
-  font-size:.75rem; white-space:nowrap; color:var(--accent); }
-.kind.slash, .kind.dispute { color:var(--bad); }
-.kind.heartbeat { color:var(--dim); }
-form.filter { display:flex; flex-wrap:wrap; gap:.5rem; margin:1rem 0; }
-form.filter input { flex:1 1 24rem; min-width:0; padding:.4rem .6rem; background:var(--raised); color:var(--text);
-  border:1px solid var(--border); border-radius:.25rem; font:inherit; font-size:.875rem; }
-form.filter button { padding:.4rem .9rem; background:var(--raised); color:var(--accent);
-  border:1px solid var(--border); border-radius:.25rem; font:inherit; font-size:.875rem; cursor:pointer; }
-a { color:var(--accent); }
-h1 { font-size:1.5rem; margin:2rem 0 .5rem; }
-h2 { font-size:1rem; margin:2rem 0 .5rem; color:var(--dim); text-transform:uppercase; letter-spacing:.08em; }
-code, .mono, td, th { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; }
-table { width:100%; border-collapse:collapse; font-size:.875rem; }
-th, td { text-align:left; padding:.5rem .6rem; border-bottom:1px solid var(--border); vertical-align:top;
-  word-break:break-all; }
-th { color:var(--dim); font-weight:600; }
-.kv th { width:14rem; }
-.empty { color:var(--dim); font-style:italic; }
-.ok { color:var(--ok); }
-.bad { color:var(--bad); }
-.unknown { color:var(--dim); }
-footer { padding-top:2rem; color:var(--dim); font-size:.8125rem; }
-`;
+/**
+ * Layout glue the chrome does not carry yet: the explorer Spine spans its grid
+ * column instead of the margin form's 96 px, and the search form, the raw
+ * disclosure and the share bar get their spacing. Layout only — no colour,
+ * no face, no size outside the chrome's scale — and a request for the chrome
+ * (landing/src/chrome/README.md, "Asking for a change") rather than a theme.
+ */
+const EXPLORER_LAYOUT_CSS = `.x-col-4{grid-column:1/span 4}.x-col-8{grid-column:5/span 8}.x-col-6{grid-column:span 6}@media(max-width:390px){.x-col-4,.x-col-8,.x-col-6{grid-column:1/-1}}.nw-spine--explorer{width:100%}.nw-search{margin-block:24px}.nw-raw-details summary{cursor:pointer;list-style:none}.nw-raw-details[open] summary{margin-bottom:8px}.nw-share{min-width:2px}.nw-section-head .nw-tag{margin-left:auto}.nw-section-head .nw-tag+.nw-tag{margin-left:0}`;
+
+/** The source a view carries for a figure it did not read: a leader to nothing, with the reason. */
+const NOT_READ: Source = { method: 'RPC', url: 'not read in this view', fetchedAt: null, block: null, raw: null };
+
+/** What the lamp and footer know about the chain at render time. */
+interface Frame {
+  readonly chain: ChainInfo | null;
+  readonly renderedAt: string | null;
+  readonly best: number | null;
+  readonly finalized: number | null;
+  readonly headAgeMs: number | null;
+  readonly indexerLine?: string | null;
+  readonly refreshSeconds?: number;
+}
+
+/** The lamp as the server fills it. Lit only when the newest block is under 30 s old at render — the lamp rule. */
+function lampFor(frame: Frame): string {
+  if (frame.best === null) {
+    return lampFilled({ state: 'connecting', lit: false, text: 'not connected' });
+  }
+  const asOf = frame.renderedAt ? ` · as of ${utc(frame.renderedAt)}` : '';
+  if (frame.headAgeMs === null) {
+    return lampFilled({ state: 'normal', lit: false, text: `block ${formatInt(frame.best)}${asOf}` });
+  }
+  if (frame.headAgeMs >= 30_000) {
+    const minutes = Math.floor(frame.headAgeMs / 60_000);
+    return lampFilled({ state: 'stalled', lit: false, text: `last block ${formatInt(frame.best)} · ${minutes} min ago · stalled` });
+  }
+  const finality = frame.finalized === null ? 'finality —' : `finality ${formatInt(frame.best - frame.finalized)}`;
+  return lampFilled({ state: 'normal', lit: true, text: `block ${formatInt(frame.best)} · ${finality} · normal` });
+}
 
 /**
- * Wraps a page body in the shared chrome. `chain` is null before a connection exists.
- *
- * `refreshSeconds` makes the page reload itself — the one way a server-rendered,
- * script-free page stays live.
+ * Wraps a page body in the chrome: the bar with the lamp, the frame, the
+ * footer. `refreshSeconds` makes the page reload itself — the one way a
+ * server-rendered, script-free page stays live.
  */
-function layout(
-  title: string,
-  chain: ChainInfo | null,
-  body: string,
-  refreshSeconds?: number,
-  footer = "Read directly from the node's runtime metadata. Nothing on this page is cached or hand-written.",
-): string {
-  const identity = chain
-    ? `${escapeHtml(chain.chain)} · ${escapeHtml(chain.specName)}/${chain.specVersion} · ${escapeHtml(
-        chain.tokenSymbol,
-      )}`
-    : 'not connected';
+function layout(title: string, frame: Frame, body: string): string {
+  const facts = {
+    genesisHash: frame.chain?.genesisHash ?? '—',
+    specVersion: frame.chain?.specVersion ?? '—',
+    nodeVersion: frame.chain ? frame.chain.specName : null,
+    builtAt: frame.renderedAt,
+    block: frame.best,
+  };
+  const refresh =
+    frame.refreshSeconds === undefined ? '' : `\n<meta http-equiv="refresh" content="${frame.refreshSeconds}">`;
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">${
-    refreshSeconds === undefined ? '' : `\n<meta http-equiv="refresh" content="${refreshSeconds}">`
-  }
-<title>${escapeHtml(title)}</title>
-<style>${STYLES}</style>
+${head({ title, description: 'Scalar Commons block explorer: blocks, extrinsics, accounts and agent activity read from the node at request time.', extraHead: `<style>${EXPLORER_LAYOUT_CSS}</style>${refresh}` })}
 </head>
 <body>
-<header>
-  <a class="wordmark" href="/">Scalar Commons Explorer</a>
-  <nav><a href="${activityPath()}">Agent activity</a></nav>
-  <span class="chain">${identity}</span>
-</header>
-<main>
+${topBar({ current: 'explorer', lampHtml: lampFor(frame) })}
+<main class="nw-frame">
 ${body}
 </main>
-<footer>${escapeHtml(footer)}</footer>
+${footer({ facts, extraLine: frame.indexerLine ?? null })}
 </body>
 </html>
 `;
 }
 
-/** Renders a dispatch outcome, keeping "unknown" visibly distinct from "success". */
-function outcomeCell(outcome: Outcome): string {
+/** `AS OF <UTC>` — the render time every page states, in the built style (no dot, dim). */
+const asOfTag = (renderedAt: string | null): string =>
+  tag({ state: 'built', text: `AS OF ${renderedAt ? (utc(renderedAt) ?? '—') : '—'}` });
+
+const sectionHead = (label: string, count: number | null = null, extra = ''): string =>
+  `<div class="nw-section-head"><h2 class="nw-label">${escapeHtml(label)}${
+    count === null ? '' : ` · ${formatInt(count)}`
+  }</h2>${extra}</div>`;
+
+/**
+ * One Reading from one `Read`. A failed read, or one the view did not make,
+ * renders `unavailable` with the reason as the sub-line, in sage.
+ */
+function readingOf<T>(
+  label: string,
+  read: Read<T> | undefined,
+  format: (value: T) => string,
+  options: { size?: 'xl' | 'l' | 'm' | 'body'; href?: string | null; state?: State; figureHtml?: (value: T) => string; sub?: string | null } = {},
+): string {
+  if (read === undefined) {
+    return reading({ label, figure: 'unavailable', size: 'body', className: 'is-unavailable nw-sage', sub: 'not read in this view', source: NOT_READ });
+  }
+  if (read.value === null && read.reason !== null) {
+    return reading({ label, figure: 'unavailable', size: 'body', className: 'is-unavailable nw-sage', sub: read.reason, source: read.source });
+  }
+  const value = read.value as T;
+  return reading({
+    label,
+    figure: format(value),
+    figureHtml: options.figureHtml ? options.figureHtml(value) : null,
+    size: options.size ?? 'm',
+    href: options.href ?? null,
+    state: options.state ?? 'record',
+    sub: options.sub ?? null,
+    source: read.source,
+  });
+}
+
+/** A reading whose value the view already holds (a header field, a balance), with its source. */
+function fact(label: string, figure: string, source: Source, options: { size?: 'xl' | 'l' | 'm' | 'body'; href?: string | null; figureHtml?: string | null; state?: State } = {}): string {
+  return reading({ label, figure, size: options.size ?? 'body', href: options.href ?? null, figureHtml: options.figureHtml ?? null, state: options.state ?? 'record', source });
+}
+
+const sourceAt = (method: string, url: string, block: number | null, fetchedAt: string | null, computed: string | null = null): Source => ({
+  method,
+  url,
+  fetchedAt,
+  block,
+  raw: null,
+  computed,
+});
+
+/** Renders a dispatch outcome as its tag, keeping "unknown" visibly distinct from "success". */
+function outcomeTag(outcome: Outcome): string {
   switch (outcome.kind) {
     case 'success':
-      return '<span class="ok">success</span>';
+      return tag({ state: 'sealed', text: 'SUCCEEDED' });
     case 'failed':
-      return `<span class="bad">failed: ${escapeHtml(outcome.reason)}</span>`;
+      return tag({ state: 'dispute', text: `FAILED · ${outcome.reason}` });
     case 'unknown':
-      return '<span class="unknown">outcome not recorded</span>';
+      return tag({ state: 'record', text: 'OUTCOME NOT RECORDED' });
   }
 }
 
@@ -131,173 +209,366 @@ function outcomeCell(outcome: Outcome): string {
  */
 function signerCell(isSigned: boolean, signer: string | null, unsignedLabel: string): string {
   if (signer !== null) {
-    return accountLink(signer);
+    return addressChip(signer, { href: accountPath(signer) });
   }
   return isSigned
-    ? '<span class="empty">signed (its address is not an AccountId)</span>'
-    : `<span class="empty">${unsignedLabel}</span>`;
+    ? '<span class="nw-sage">signed (its address is not an AccountId)</span>'
+    : `<span class="nw-sage">${escapeHtml(unsignedLabel)}</span>`;
 }
 
 function accountLink(address: string): string {
-  return `<a class="mono" href="${escapeHtml(accountPath(address))}">${escapeHtml(address)}</a>`;
+  return `<a class="nw-mono" href="${escapeHtml(accountPath(address))}">${escapeHtml(address)}</a>`;
 }
 
 function blockLinkByNumber(number: number): string {
-  return `<a href="${escapeHtml(blockPath({ kind: 'number', number }))}">${number}</a>`;
+  return `<a href="${escapeHtml(blockPath({ kind: 'number', number }))}">${formatInt(number)}</a>`;
 }
 
 function blockLinkByHash(hash: string): string {
-  return `<a class="mono" href="${escapeHtml(blockPath({ kind: 'hash', hash }))}">${escapeHtml(
-    shortHash(hash),
-  )}</a>`;
+  return `<a class="nw-mono" href="${escapeHtml(blockPath({ kind: 'hash', hash }))}">${escapeHtml(shortHash(hash))}</a>`;
 }
 
-function kvTable(rows: readonly (readonly [string, string])[]): string {
-  const body = rows
-    .map(([key, value]) => `<tr><th>${escapeHtml(key)}</th><td>${value}</td></tr>`)
-    .join('\n');
-  return `<table class="kv"><tbody>\n${body}\n</tbody></table>`;
-}
+const hashWithCopy = (hash: string): string =>
+  `<span class="nw-copyable nw-mono">${escapeHtml(hash)}${copy(hash, 'Copy hash')}</span>`;
 
-/** The index page: which chain this is, and the way in to the block view. */
+const rawDetails = (value: unknown): string => `<details class="nw-raw-details"><summary class="nw-label">▸ raw</summary>${raw(value)}</details>`;
+
+const extrinsicLedgerRow = (blockNumber: number, extrinsic: ExtrinsicSummary): LedgerRow => ({
+  id: `${blockNumber}-${extrinsic.index}`,
+  cells: [
+    `<a href="${escapeHtml(extrinsicPath({ kind: 'number', number: blockNumber }, extrinsic.index))}">${formatInt(blockNumber)}-${extrinsic.index}</a>`,
+    `<a class="nw-mono" href="${escapeHtml(extrinsicPath({ kind: 'number', number: blockNumber }, extrinsic.index))}">${escapeHtml(shortHash(extrinsic.hash, 6))}</a>`,
+    escapeHtml(`${extrinsic.section}.${extrinsic.method}`),
+    signerCell(extrinsic.isSigned, extrinsic.signer, 'unsigned'),
+    outcomeTag(extrinsic.outcome),
+  ],
+});
+
+const eventLedgerRow = (blockNumber: number | null, event: EventView & { extrinsicIndex?: number | null }): LedgerRow => ({
+  id: blockNumber === null ? String(event.index) : `${blockNumber}-${event.index}`,
+  cells: [
+    String(event.index),
+    escapeHtml(`${event.section}.${event.method}`),
+    event.fields.map((f) => `${escapeHtml(f.name)}: ${escapeHtml(f.value)}`).join('<br>'),
+    event.extrinsicIndex === undefined || event.extrinsicIndex === null || blockNumber === null
+      ? ''
+      : `<a href="${escapeHtml(extrinsicPath({ kind: 'number', number: blockNumber }, event.extrinsicIndex))}">${formatInt(blockNumber)}-${event.extrinsicIndex}</a>`,
+    rawDetails(event.fields),
+  ],
+});
+
+// ── home ─────────────────────────────────────────────────────────────────────
+
+/** The index page: the search field, the six readings, the Spine, the ledgers, the pool. */
 export function renderHome(view: HomeView): string {
-  const body = `<h1>Scalar Commons block explorer</h1>
-<h2>Chain</h2>
-${kvTable([
-  ['Chain', escapeHtml(view.chain.chain)],
-  ['Runtime', `${escapeHtml(view.chain.specName)} spec ${view.chain.specVersion}`],
-  ['Token', `${escapeHtml(view.chain.tokenSymbol)} (${view.chain.tokenDecimals} decimals)`],
-  ['SS58 format', String(view.chain.ss58Format)],
-  ['Genesis hash', `<span class="mono">${escapeHtml(view.chain.genesisHash)}</span>`],
-  ['Head', `${blockLinkByNumber(view.head.number)} ${blockLinkByHash(view.head.hash)}`],
-])}
-<p><a href="${activityPath()}">Agent activity</a> — messages, registrations, heartbeats, agreements, disputes, oracle votes and slashes, newest first.</p>`;
+  const r = view.readings;
+  const renderedAt = r?.renderedAt ?? null;
+  const headSource = sourceAt('RPC', 'chain_getHeader', view.head.number, renderedAt);
+  const balance = (value: bigint): string => formatBalance(value, view.chain.tokenDecimals, view.chain.tokenSymbol);
 
-  return layout('Scalar Commons Explorer', view.chain, body);
+  const search = `<form class="nw-search" method="get" action="${SEARCH_PATH}">${field({
+    name: 'q',
+    label: 'Search',
+    placeholder: 'block number, hash, extrinsic, address, agent name',
+  })}</form>`;
+
+  const readings = `<div class="nw-row">
+${fact('Best', formatInt(view.head.number), headSource, { size: 'm', href: blockPath({ kind: 'number', number: view.head.number }), state: r && r.headAgeMs !== null && r.headAgeMs < 30_000 ? 'live' : 'record' })}
+${readingOf('Finalized', r?.finalized, (f) => formatInt(f.number), { href: r?.finalized.value ? blockPath({ kind: 'number', number: r.finalized.value.number }) : null })}
+${readingOf('Era', r?.era, (e) => `${formatInt(e.number)} · ${formatInt(e.elapsed)} / ${formatInt(e.length)}`)}
+${readingOf('Session', r?.session, (s) => `${formatInt(s.index)} · ${formatInt(s.elapsed)} / ${formatInt(s.length)}`)}
+${readingOf('Validators', r?.validators, (n) => formatInt(n))}
+${readingOf('Issuance', r?.issuance, balance)}
+</div>`;
+
+  const recent = r?.recent.value ?? [];
+  const finalizedNumber = r?.finalized.value?.number ?? null;
+  const spineHtml =
+    r === undefined || r.recent.value === null
+      ? readingOf('Recent blocks', r?.recent, () => '')
+      : spine({
+          form: 'explorer',
+          ariaLabel: `The newest ${recent.length} blocks`,
+          ticks: recent.map((block, position) => ({
+            number: block.number,
+            newest: position === 0 && r.headAgeMs !== null && r.headAgeMs < 30_000,
+            final: finalizedNumber !== null && block.number <= finalizedNumber,
+            html: `<span class="nw-mono">${blockLinkByNumber(block.number)}</span><span class="nw-label">${escapeHtml(
+              block.timestampMs === null ? 'no timestamp' : (utc(formatTimestamp(block.timestampMs)) ?? ''),
+            )}</span><span class="nw-mono">${block.extrinsics.length} ex</span><span class="nw-mono">${
+              block.author ? addressChip(block.author, { href: accountPath(block.author) }) : '<span class="nw-sage">author —</span>'
+            } · ${block.events.length} ev</span>`,
+          })),
+        });
+
+  const lastExtrinsics = recent.flatMap((block) => block.extrinsics.map((extrinsic) => extrinsicLedgerRow(block.number, extrinsic))).slice(0, 12);
+  const lastEvents = recent.flatMap((block) => block.events.map((event) => eventLedgerRow(block.number, event))).slice(0, 12);
+  const ledgers = `${sectionHead('Extrinsics', null, asOfTag(renderedAt))}
+${lastExtrinsics.length === 0 ? '<p class="nw-small nw-dim">No extrinsics in the blocks read.</p>' : ledger({ rows: lastExtrinsics })}
+${sectionHead('Events', null, asOfTag(renderedAt))}
+${lastEvents.length === 0 ? '<p class="nw-small nw-dim">No events in the blocks read.</p>' : ledger({ rows: lastEvents })}`;
+
+  const pending =
+    r === undefined || r.pending.value === null
+      ? readingOf('Pending in the pool', r?.pending, () => '')
+      : `${readingOf('Pending in the pool', r.pending, (pool) => formatInt(pool.length))}
+${
+  r.pending.value.length === 0
+    ? ''
+    : ledger({
+        rows: r.pending.value.map((extrinsic) => ({
+          id: extrinsic.hash,
+          cells: ['', `<span class="nw-mono">${escapeHtml(shortHash(extrinsic.hash, 6))}</span>`, escapeHtml(`${extrinsic.section}.${extrinsic.method}`), extrinsic.signer ? addressChip(extrinsic.signer, { href: accountPath(extrinsic.signer) }) : '', tag({ state: 'live', text: 'PENDING · in the pool' })],
+        })),
+      })
+}`;
+
+  const body = `<section class="nw-section nw-stack">
+<div class="nw-section-head"><h1 class="nw-h3">${escapeHtml(view.chain.chain)}</h1>${asOfTag(renderedAt)}${tag({ state: 'record', text: `SPEC ${view.chain.specVersion} · ${view.chain.tokenSymbol}` })}</div>
+${search}
+${readings}
+<p class="nw-small nw-dim">Head ${blockLinkByNumber(view.head.number)} ${blockLinkByHash(view.head.hash)} · <a href="${escapeHtml(activityPath())}">Agent activity</a></p>
+<div class="nw-grid">
+<div class="x-col-4">${sectionHead('Blocks', null, asOfTag(renderedAt))}${spineHtml}</div>
+<div class="x-col-8">${ledgers}</div>
+</div>
+${pending}
+</section>`;
+
+  const indexerLine =
+    view.indexer === undefined
+      ? null
+      : view.indexer.value === null
+        ? `indexer api.scalarnet.io · <span class="nw-sage">unavailable · ${escapeHtml(view.indexer.reason ?? '')}</span>`
+        : `indexer api.scalarnet.io · syncedHeight ${formatInt(view.indexer.value.syncedHeight)} · ${formatInt(
+            Math.max(0, view.head.number - view.indexer.value.syncedHeight),
+          )} behind`;
+
+  return layout('Scalar Commons Explorer', {
+    chain: view.chain,
+    renderedAt,
+    best: view.head.number,
+    finalized: finalizedNumber,
+    headAgeMs: r?.headAgeMs ?? null,
+    indexerLine,
+  }, body);
 }
+
+// ── block ────────────────────────────────────────────────────────────────────
 
 /** A block, and the list of extrinsics that is the way through to everything else. */
 export function renderBlock(view: BlockView, chain: ChainInfo): string {
-  const extrinsics = view.extrinsics
-    .map(
-      (extrinsic) => `<tr>
-  <td><a href="${escapeHtml(
-    extrinsicPath({ kind: 'number', number: view.number }, extrinsic.index),
-  )}">${view.number}-${extrinsic.index}</a></td>
-  <td>${escapeHtml(`${extrinsic.section}.${extrinsic.method}`)}</td>
-  <td>${signerCell(extrinsic.isSigned, extrinsic.signer, 'unsigned')}</td>
-  <td>${outcomeCell(extrinsic.outcome)}</td>
-</tr>`,
-    )
-    .join('\n');
+  const d = view.detail;
+  const renderedAt = d?.renderedAt ?? null;
+  const best = d?.best ?? null;
+  const headerSource = sourceAt('RPC', 'chain_getBlock', best, renderedAt);
+  const finality =
+    d === undefined || d.finalized.value === null
+      ? tag({ state: 'record', text: 'FINALITY UNAVAILABLE' })
+      : d.finalized.value
+        ? tag({ state: 'sealed', text: 'FINALIZED' })
+        : tag({ state: 'live', text: 'BEST · not final' });
+  const prev = view.number > 0 ? quiet({ text: `← ${formatInt(view.number - 1)}`, href: blockPath({ kind: 'number', number: view.number - 1 }) }) : '';
+  const next = best !== null && view.number < best ? quiet({ text: `${formatInt(view.number + 1)} →`, href: blockPath({ kind: 'number', number: view.number + 1 }) }) : '';
+
+  const events = d?.events ?? view.extrinsics.flatMap((extrinsic) => (extrinsic.events ?? []).map((event) => ({ ...event, extrinsicIndex: extrinsic.index })));
+  const counts = `${formatInt(view.extrinsics.length)} extrinsics · ${formatInt(events.length)} events`;
+
+  const col = (html: string): string => `<div class="x-col-6">${html}</div>`;
+  const receipts = `<div class="nw-grid">
+${col(fact('Hash', view.hash, headerSource, { figureHtml: hashWithCopy(view.hash) }))}
+${col(fact('Parent', view.parentHash, headerSource, { href: blockPath({ kind: 'hash', hash: view.parentHash }) }))}
+${col(fact('State root', view.stateRoot, headerSource))}
+${col(fact('Extrinsics root', view.extrinsicsRoot, headerSource))}
+${col(fact('Time', formatTimestamp(view.timestampMs), sourceAt('STORAGE', 'timestamp.now', best, renderedAt)))}
+${col(readingOf('Author', d?.author, (author) => author ?? 'not in the pre-digest', { size: 'body', figureHtml: (author) => (author ? addressChip(author, { href: accountPath(author) }) : '<span class="nw-sage">not in the pre-digest</span>') }))}
+${col(readingOf('Slot', d?.slot, (slot) => slot ?? 'not in the pre-digest', { size: 'body' }))}
+${col(
+  d === undefined
+    ? readingOf('Era · session', undefined, () => '')
+    : reading({
+        label: 'Era · session',
+        figure: `${d.era.value === null ? 'unavailable' : formatInt(d.era.value)} · ${d.session.value === null ? 'unavailable' : formatInt(d.session.value)}`,
+        size: 'body',
+        sub: [d.era.reason, d.session.reason].filter((x): x is string => x !== null).join(' · ') || null,
+        source: { ...d.era.source, url: 'agents.eraNumber · session.currentIndex' },
+      }),
+)}
+${col(fact('Spec', String(view.specVersion), sourceAt('RPC', 'state_getRuntimeVersion', best, renderedAt)))}
+${col(readingOf('Weight', d?.weight, (weight) => weight, { size: 'body' }))}
+${col(fact('Counts', counts, headerSource))}
+</div>`;
 
   const list =
     view.extrinsics.length === 0
-      ? '<p class="empty">This block has no extrinsics.</p>'
-      : `<table><thead><tr><th>Extrinsic</th><th>Call</th><th>Signer</th><th>Outcome</th></tr></thead>
-<tbody>
-${extrinsics}
-</tbody></table>`;
+      ? '<p class="nw-small nw-dim">This block has no extrinsics.</p>'
+      : ledger({ sheet: true, rows: view.extrinsics.map((extrinsic) => extrinsicLedgerRow(view.number, extrinsic)) });
 
-  const body = `<h1>Block ${view.number}</h1>
-${kvTable([
-  ['Hash', `<span class="mono">${escapeHtml(view.hash)}</span>`],
-  ['Parent', `<a class="mono" href="${escapeHtml(blockPath({ kind: 'hash', hash: view.parentHash }))}">${escapeHtml(view.parentHash)}</a>`],
-  ['Time', escapeHtml(formatTimestamp(view.timestampMs))],
-  ['State root', `<span class="mono">${escapeHtml(view.stateRoot)}</span>`],
-  ['Extrinsics root', `<span class="mono">${escapeHtml(view.extrinsicsRoot)}</span>`],
-  ['Runtime', `spec ${view.specVersion}`],
-])}
-<h2>Extrinsics (${view.extrinsics.length})</h2>
-${list}`;
-
-  return layout(`Block ${view.number}`, chain, body);
-}
-
-function eventRows(events: readonly EventView[]): string {
-  if (events.length === 0) {
-    return '<p class="empty">No events were recorded for this extrinsic.</p>';
+  const groups = new Map<number | null, (EventView & { extrinsicIndex: number | null })[]>();
+  for (const event of events) {
+    const key = event.extrinsicIndex;
+    const group = groups.get(key) ?? [];
+    group.push(event);
+    groups.set(key, group);
   }
-  const rows = events
-    .map((event) => {
-      const fields = event.fields
-        .map((field) => `${escapeHtml(field.name)}: ${escapeHtml(field.value)}`)
-        .join('<br>');
-      return `<tr><td>${event.index}</td><td>${escapeHtml(
-        `${event.section}.${event.method}`,
-      )}</td><td>${fields}</td></tr>`;
-    })
-    .join('\n');
-  return `<table><thead><tr><th>#</th><th>Event</th><th>Fields</th></tr></thead><tbody>
-${rows}
-</tbody></table>`;
+  const eventsHtml =
+    events.length === 0
+      ? `<p class="nw-small nw-dim">${d === undefined && view.extrinsics.every((e) => e.events === undefined) ? 'Events were not read in this view.' : 'No events were recorded in this block.'}</p>`
+      : [...groups.entries()]
+          .map(
+            ([extrinsicIndex, group]) =>
+              `<div class="nw-stack"><p class="nw-label">${
+                extrinsicIndex === null
+                  ? 'block hooks'
+                  : `extrinsic <a href="${escapeHtml(extrinsicPath({ kind: 'number', number: view.number }, extrinsicIndex))}">${formatInt(view.number)}-${extrinsicIndex}</a>`
+              }</p>${ledger({ rows: group.map((event) => eventLedgerRow(view.number, event)) })}</div>`,
+          )
+          .join('\n');
+
+  const body = `<section class="nw-section nw-stack">
+<div class="nw-section-head"><span class="nw-label">Block</span><h1 class="nw-figure nw-figure--xl">${formatInt(view.number).replace(/,/g, '')}</h1>${finality}${asOfTag(renderedAt)}</div>
+<p class="nw-small">${prev} ${next}</p>
+${receipts}
+${sectionHead('Extrinsics', view.extrinsics.length)}
+${list}
+${sectionHead('Events', events.length)}
+${eventsHtml}
+</section>`;
+
+  return layout(`Block ${view.number}`, { chain, renderedAt, best, finalized: null, headAgeMs: null }, body);
 }
+
+// ── extrinsic ────────────────────────────────────────────────────────────────
 
 /** One extrinsic, including the accounts it touched — the hop into the account view. */
 export function renderExtrinsic(view: ExtrinsicView, chain: ChainInfo): string {
-  const args =
+  const renderedAt = view.renderedAt ?? null;
+  const src = sourceAt('RPC', 'chain_getBlock', view.block.number, renderedAt);
+  const col = (html: string): string => `<div class="x-col-6">${html}</div>`;
+  const callName = `${view.section}.${view.method}`;
+
+  const receipts = `<div class="nw-grid">
+${col(fact('Block', formatInt(view.block.number), src, { href: blockPath({ kind: 'number', number: view.block.number }) }))}
+${col(fact('Block hash', view.block.hash, src))}
+${col(fact('Index', `${formatInt(view.block.number)}-${view.index}`, src))}
+${col(fact('Signer', '', src, { figureHtml: signerCell(view.isSigned, view.signer, 'unsigned (inherent)') }))}
+${col(fact('Nonce', view.nonce === null ? '—' : String(view.nonce), src))}
+${col(fact('Tip', view.tip === null ? '—' : formatBalance(view.tip, chain.tokenDecimals, chain.tokenSymbol), src))}
+${col(fact('Length', `${formatInt(view.lengthBytes)} bytes`, src))}
+</div>`;
+
+  const callText =
     view.args.length === 0
-      ? '<p class="empty">This call takes no arguments.</p>'
-      : `<table><thead><tr><th>Argument</th><th>Type</th><th>Value</th></tr></thead><tbody>
-${view.args
-  .map(
-    (arg) =>
-      `<tr><td>${escapeHtml(arg.name)}</td><td>${escapeHtml(arg.type)}</td><td>${escapeHtml(
-        arg.value,
-      )}</td></tr>`,
-  )
-  .join('\n')}
-</tbody></table>`;
+      ? `${callName}()`
+      : `${callName}(\n${view.args.map((arg) => `  ${arg.name}: ${arg.type} = ${arg.value}`).join(',\n')}\n)`;
+  const callBlock = `${sectionHead('Call')}${code({ text: callText, lang: 'call' })}${rawDetails(view.args)}`;
 
   const accounts =
     view.accounts.length === 0
-      ? '<p class="empty">This extrinsic named no accounts.</p>'
-      : `<ul>${view.accounts.map((address) => `<li>${accountLink(address)}</li>`).join('')}</ul>`;
+      ? '<p class="nw-small nw-dim">This extrinsic named no accounts.</p>'
+      : `<ul class="nw-stack">${view.accounts.map((address) => `<li>${accountLink(address)}</li>`).join('')}</ul>`;
 
-  const body = `<h1>Extrinsic ${view.block.number}-${view.index}</h1>
-${kvTable([
-  ['Call', escapeHtml(`${view.section}.${view.method}`)],
-  ['Block', `${blockLinkByNumber(view.block.number)} <span class="mono">${escapeHtml(view.block.hash)}</span>`],
-  ['Hash', `<span class="mono">${escapeHtml(view.hash)}</span>`],
-  ['Signer', signerCell(view.isSigned, view.signer, 'unsigned (inherent)')],
-  ['Nonce', view.nonce === null ? '<span class="empty">—</span>' : String(view.nonce)],
-  [
-    'Tip',
-    view.tip === null
-      ? '<span class="empty">—</span>'
-      : escapeHtml(formatBalance(view.tip, chain.tokenDecimals, chain.tokenSymbol)),
-  ],
-  ['Length', `${view.lengthBytes} bytes`],
-  ['Outcome', outcomeCell(view.outcome)],
-])}
-<h2>Arguments</h2>
-${args}
-<h2>Accounts touched</h2>
+  const events =
+    view.events.length === 0
+      ? '<p class="nw-small nw-dim">No events were recorded for this extrinsic.</p>'
+      : ledger({ rows: view.events.map((event) => eventLedgerRow(null, event)) });
+
+  const terms = view.disputeTerms;
+  const next =
+    terms === undefined
+      ? ''
+      : `${sectionHead('What happens next')}<div class="nw-row">
+${readingOf('Dispute bounty', terms.bountyBps, (bps) => `${bps / 100}% · ${formatInt(bps)} bps`)}
+${readingOf('Burned on dispute', terms.burnBps, (bps) => `${bps / 100}% · ${formatInt(bps)} bps`)}
+${readingOf('Settled by', terms.settles, (who) => who, { size: 'body' })}
+</div>`;
+
+  const body = `<section class="nw-section nw-stack">
+<div class="nw-section-head"><h1 class="nw-h2">${escapeHtml(callName)}</h1>${outcomeTag(view.outcome)}${asOfTag(renderedAt)}</div>
+<p class="nw-mono">${hashWithCopy(view.hash)}</p>
+${receipts}
+${callBlock}
+${sectionHead('Accounts touched', view.accounts.length)}
 ${accounts}
-<h2>Events</h2>
-${eventRows(view.events)}`;
+${sectionHead('Events', view.events.length)}
+${events}
+${next}
+</section>`;
 
-  return layout(`Extrinsic ${view.block.number}-${view.index}`, chain, body);
+  return layout(`Extrinsic ${view.block.number}-${view.index}`, { chain, renderedAt, best: view.block.number, finalized: null, headAgeMs: null }, body);
 }
+
+// ── account ──────────────────────────────────────────────────────────────────
 
 /** An account: the state the runtime holds for it, at the block it was read. */
 export function renderAccount(view: AccountView, chain: ChainInfo): string {
-  const balance = (value: bigint): string =>
-    escapeHtml(formatBalance(value, chain.tokenDecimals, chain.tokenSymbol));
+  const roles = view.roles;
+  const renderedAt = roles?.renderedAt ?? null;
+  const balanceSource = sourceAt('STORAGE', 'system.account', view.at.number, renderedAt);
+  const balance = (value: bigint): string => formatBalance(value, chain.tokenDecimals, chain.tokenSymbol);
 
-  const body = `<h1>Account</h1>
-${kvTable([
-  ['Address', `<span class="mono">${escapeHtml(view.address)}</span>`],
-  ['Public key', `<span class="mono">${escapeHtml(view.publicKey)}</span>`],
-  ['Free', balance(view.free)],
-  ['Reserved', balance(view.reserved)],
-  ['Frozen', balance(view.frozen)],
-  ['Nonce', String(view.nonce)],
-  ['State read at', `${blockLinkByNumber(view.at.number)} <span class="mono">${escapeHtml(view.at.hash)}</span>`],
-])}`;
+  const name = roles?.agentName.value ?? null;
+  const operator = name !== null && name.startsWith('swarm-');
+  const isAgent = name !== null || (roles?.agentStake.value ?? null) !== null;
+  const tags = [
+    roles?.validator.value === true ? tag({ state: 'record', text: 'VALIDATOR STASH' }) : '',
+    (roles?.bonded.value ?? null) !== null ? tag({ state: 'record', text: 'BONDED' }) : '',
+    isAgent ? tag({ state: 'record', text: 'AGENT' }) : '',
+    operator ? tag({ state: 'operator', text: 'OPERATOR-RUN' }) : '',
+  ].join('');
 
-  return layout('Account', chain, body);
+  const balances = `<div class="nw-row">
+${fact('Free', balance(view.free), balanceSource, { size: 'm' })}
+${fact('Reserved', balance(view.reserved), balanceSource, { size: 'm' })}
+${fact('Frozen', balance(view.frozen), balanceSource, { size: 'm' })}
+${fact('Total', balance(view.free + view.reserved), { ...balanceSource, computed: 'free + reserved' }, { size: 'm' })}
+</div>`;
+
+  const col = (html: string): string => `<div class="x-col-6">${html}</div>`;
+  const roleReadings = isAgent
+    ? `${sectionHead('Agent')}<div class="nw-grid">
+${col(readingOf('Name', roles?.agentName, (n) => n ?? 'no metadata on chain', { size: 'body', figureHtml: (n) => (n ? agentName({ name: n, operator: n.startsWith('swarm-') }) : '<span class="nw-sage">no metadata on chain</span>') }))}
+${col(readingOf('Stake', roles?.agentStake, (stake) => (stake === null ? 'none' : balance(stake))))}
+</div>`
+    : `${sectionHead('Staking')}<div class="nw-grid">
+${col(readingOf('Bonded', roles?.bonded, (controller) => controller ?? 'not bonded', { size: 'body' }))}
+${col(readingOf('Validator', roles?.validator, (v) => (v ? 'in session.validators' : 'not in session.validators'), { size: 'body' }))}
+</div>`;
+
+  const history = view.history;
+  const entries: RailEntry[] =
+    history?.value?.map((row, position) => ({
+      time: row.timestampMs === null ? `block ${formatInt(row.blockNumber)}` : (utc(formatTimestamp(row.timestampMs)) ?? ''),
+      state: position === 0 ? 'newest' : row.success === false ? 'dispute' : 'final',
+      html: `<a href="${escapeHtml(extrinsicPath({ kind: 'number', number: row.blockNumber }, row.index))}">${escapeHtml(`${row.section}.${row.method}`)}</a> <span class="nw-label">${formatInt(row.blockNumber)}-${row.index}</span>`,
+    })) ?? [];
+  const historyHtml =
+    history === undefined
+      ? readingOf('History', undefined, () => '')
+      : history.value === null
+        ? readingOf('History', history, () => '')
+        : entries.length === 0
+          ? '<p class="nw-small nw-dim">No activity in the index for this address.</p>'
+          : rail({ entries });
+
+  const body = `<section class="nw-section nw-stack">
+<div class="nw-section-head"><h1 class="nw-h2">${name === null ? escapeHtml(view.address) : agentName({ name, operator })}</h1>${tags}${asOfTag(renderedAt)}</div>
+<p class="nw-mono">${hashWithCopy(view.address)}</p>
+${balances}
+${roleReadings}
+<div class="nw-grid">
+${col(fact('Public key', view.publicKey, balanceSource))}
+${col(fact('Nonce', String(view.nonce), balanceSource))}
+${col(fact('State read at', `${formatInt(view.at.number)}`, sourceAt('RPC', 'chain_getHeader', view.at.number, renderedAt), { href: blockPath({ kind: 'number', number: view.at.number }), figureHtml: `${formatInt(view.at.number)} <span class="nw-mono">${escapeHtml(view.at.hash)}</span>` }))}
+</div>
+${sectionHead('History', null, filter([{ href: accountPath(view.address), label: 'all', current: true }, { href: activityPath(view.address), label: 'agent activity' }]))}
+${historyHtml}
+</section>`;
+
+  return layout(name ?? 'Account', { chain, renderedAt, best: view.at.number, finalized: null, headAgeMs: null }, body);
 }
+
+// ── activity ─────────────────────────────────────────────────────────────────
 
 /**
  * How often the newest page of the activity feed reloads itself.
@@ -318,22 +589,21 @@ const KIND_LABELS: Readonly<Record<string, string>> = {
   slash: 'slash',
 };
 
-function kindBadge(kind: string): string {
-  const label = KIND_LABELS[kind] ?? kind;
-  return `<span class="kind ${escapeHtml(kind)}">${escapeHtml(label)}</span>`;
+const KIND_STATES: Readonly<Record<string, State>> = { dispute: 'dispute', slash: 'slashed' };
+
+function kindTag(kind: string): string {
+  return tag({ state: KIND_STATES[kind] ?? 'record', text: (KIND_LABELS[kind] ?? kind).toUpperCase() });
 }
 
 /** An agent: a link to their own activity, plus the hop into their account view. */
 function agentLink(address: string): string {
-  return `<a class="mono" href="${escapeHtml(activityPath(address))}">${escapeHtml(address)}</a> <a href="${escapeHtml(
-    accountPath(address),
-  )}" title="account">↗</a>`;
+  return `<a class="nw-mono" href="${escapeHtml(activityPath(address))}">${escapeHtml(address)}</a> <a href="${escapeHtml(accountPath(address))}" title="account">↗</a>`;
 }
 
 function activityFieldValue(field: ActivityField, chain: ChainInfo): string {
   switch (field.kind) {
     case 'account':
-      return `<a class="mono" href="${escapeHtml(activityPath(field.value))}">${escapeHtml(field.value)}</a>`;
+      return `<a class="nw-mono" href="${escapeHtml(activityPath(field.value))}">${escapeHtml(field.value)}</a>`;
     case 'balance':
       return escapeHtml(formatBalance(BigInt(field.value), chain.tokenDecimals, chain.tokenSymbol));
     case 'plain':
@@ -341,27 +611,30 @@ function activityFieldValue(field: ActivityField, chain: ChainInfo): string {
   }
 }
 
-function activityRow(entry: ActivityEntry, chain: ChainInfo): string {
+function activityRow(entry: ActivityEntry, chain: ChainInfo): LedgerRow {
   const where =
     entry.extrinsicIndex === null
-      ? `${blockLinkByNumber(entry.blockNumber)}`
-      : `${blockLinkByNumber(entry.blockNumber)} · <a href="${escapeHtml(
-          extrinsicPath({ kind: 'number', number: entry.blockNumber }, entry.extrinsicIndex),
-        )}">${entry.blockNumber}-${entry.extrinsicIndex}</a>`;
-  // Accounts are already listed under Agents; the field table keeps them so
-  // their role (buyer, provider, who) is still readable.
-  const fields = entry.fields
-    .map((field) => `${escapeHtml(field.name)}: ${activityFieldValue(field, chain)}`)
-    .join('<br>');
-  const agents =
-    entry.agents.length === 0 ? '<span class="empty">none named</span>' : entry.agents.map(agentLink).join('<br>');
-  return `<tr id="${escapeHtml(entry.id)}">
-  <td>${where}<br><span class="empty">${escapeHtml(entry.id)} · ${escapeHtml(formatTimestamp(entry.timestampMs))}</span></td>
-  <td>${kindBadge(entry.kind)}<br>${escapeHtml(`${entry.section}.${entry.method}`)}</td>
-  <td>${agents}</td>
-  <td>${fields === '' ? '<span class="empty">—</span>' : fields}</td>
-</tr>`;
+      ? blockLinkByNumber(entry.blockNumber)
+      : `${blockLinkByNumber(entry.blockNumber)} · <a href="${escapeHtml(extrinsicPath({ kind: 'number', number: entry.blockNumber }, entry.extrinsicIndex))}">${entry.blockNumber}-${entry.extrinsicIndex}</a>`;
+  const fields = entry.fields.map((field) => `${escapeHtml(field.name)}: ${activityFieldValue(field, chain)}`).join('<br>');
+  const agents = entry.agents.length === 0 ? '<span class="nw-sage">none named</span>' : entry.agents.map(agentLink).join('<br>');
+  return {
+    id: entry.id,
+    cells: [
+      `${escapeHtml(entry.id)}<br>${escapeHtml(formatTimestamp(entry.timestampMs))}`,
+      `${where}<br>${escapeHtml(`${entry.section}.${entry.method}`)}`,
+      `${kindTag(entry.kind)}<br>${fields === '' ? '<span class="nw-sage">—</span>' : fields}`,
+      agents,
+      '',
+    ],
+  };
 }
+
+const activityRailEntry = (entry: ActivityEntry, chain: ChainInfo, position: number): RailEntry => ({
+  time: formatTimestamp(entry.timestampMs) === 'unknown' ? `block ${formatInt(entry.blockNumber)}` : (utc(formatTimestamp(entry.timestampMs)) ?? ''),
+  state: position === 0 ? 'newest' : entry.kind === 'dispute' ? 'dispute' : entry.kind === 'slash' ? 'slash' : 'final',
+  html: activityRow(entry, chain).cells.slice(0, 3).join(' · '),
+});
 
 /**
  * The agent-activity feed: one stream of what agents did, newest first.
@@ -371,62 +644,139 @@ function activityRow(entry: ActivityEntry, chain: ChainInfo): string {
  * under them as new rows push the old ones down.
  */
 export function renderActivity(view: ActivityView, chain: ChainInfo): string {
-  const scope =
-    view.agent === null
-      ? 'every agent'
-      : `<span class="mono">${escapeHtml(view.agent)}</span> (<a href="${escapeHtml(
-          accountPath(view.agent),
-        )}">account</a> · <a href="${escapeHtml(activityPath())}">show every agent</a>)`;
+  const agentReadings = view.agentReadings;
+  const renderedAt = agentReadings?.renderedAt ?? null;
+  const balance = (value: bigint): string => formatBalance(value, chain.tokenDecimals, chain.tokenSymbol);
 
-  const form = `<form class="filter" method="get" action="/activity">
-  <input type="text" name="agent" placeholder="Filter by agent address (SS58)" value="${escapeHtml(
-    view.agent ?? '',
-  )}" autocomplete="off" spellcheck="false">
-  <button type="submit">Filter</button>
-</form>`;
-
-  const table =
-    view.entries.length === 0
-      ? `<p class="empty">No agent activity ${
-          view.offset > 0 ? 'this far back' : 'in the indexed history'
-        }${view.agent === null ? '' : ' for this agent'}.</p>`
-      : `<table><thead><tr><th>When</th><th>Activity</th><th>Agents</th><th>Details</th></tr></thead>
-<tbody>
-${view.entries.map((entry) => activityRow(entry, chain)).join('\n')}
-</tbody></table>`;
-
-  const pager: string[] = [];
-  if (view.offset > 0) {
-    pager.push(`<a href="${escapeHtml(activityPath(view.agent))}">Newest</a>`);
-  }
-  if (view.offset + view.entries.length < view.total) {
-    pager.push(`<a href="${escapeHtml(activityPath(view.agent, view.offset + view.limit))}">Older →</a>`);
-  }
+  const form = `<form class="nw-search" method="get" action="/activity">${field({
+    name: 'agent',
+    label: 'Filter by agent address (SS58)',
+    placeholder: 'agent address (SS58)',
+    value: view.agent ?? '',
+  })}</form>`;
 
   const reach =
     view.historyFrom === null
       ? 'The indexer holds no blocks yet.'
       : `History reaches back to block ${view.historyFrom}, the oldest the indexer holds.`;
   const live = view.offset === 0 ? ` This page refreshes every ${ACTIVITY_REFRESH_SECONDS}s.` : '';
+  const empty = `<p class="nw-small nw-dim">No agent activity ${view.offset > 0 ? 'this far back' : 'in the indexed history'}${
+    view.agent === null ? '' : ' for this agent'
+  }.</p>`;
 
-  const body = `<h1>Agent activity</h1>
-<p>Showing ${scope}: ${view.total} event${view.total === 1 ? '' : 's'}, newest first. ${escapeHtml(reach)}${live}</p>
+  const paging = pager({
+    from: view.total === 0 ? 0 : view.offset + 1,
+    to: Math.min(view.total, view.offset + view.entries.length),
+    total: view.total,
+    prevHref: view.offset > 0 ? activityPath(view.agent) : null,
+    nextHref: view.offset + view.entries.length < view.total ? activityPath(view.agent, view.offset + view.limit) : null,
+  });
+
+  const receiptLine = `<p class="nw-small nw-dim">Activity read from the indexer's index of finalized blocks; field types from the node's runtime metadata. ${escapeHtml(reach)}${live}</p>`;
+
+  let body: string;
+  if (view.agent === null || agentReadings === undefined) {
+    const scope =
+      view.agent === null
+        ? 'every agent'
+        : `<span class="nw-mono">${escapeHtml(view.agent)}</span> (<a href="${escapeHtml(accountPath(view.agent))}">account</a> · <a href="${escapeHtml(activityPath())}">show every agent</a>)`;
+    body = `<section class="nw-section nw-stack">
+<div class="nw-section-head"><h1 class="nw-h2">Agent activity</h1>${asOfTag(renderedAt)}</div>
+<p class="nw-small">Showing ${scope}: ${view.total} event${view.total === 1 ? '' : 's'}, newest first.</p>
 ${form}
-${table}
-${pager.length === 0 ? '' : `<p>${pager.join(' · ')}</p>`}`;
+${view.entries.length === 0 ? empty : ledger({ rows: view.entries.map((entry) => activityRow(entry, chain)) })}
+${paging}
+${receiptLine}
+</section>`;
+  } else {
+    const a = agentReadings;
+    const name = a.name;
+    const operator = name !== null && name.startsWith('swarm-');
+    const stateTags = [a.decayed ? tag({ state: 'record', text: 'DECAYED' }) : '', a.cooldown ? tag({ state: 'record', text: 'COOLDOWN' }) : ''].join('');
+    const readings = `<div class="nw-row">
+${readingOf('Earned all time', a.earnedAllTime, (v) => (v === null ? '' : balance(v)))}
+${readingOf('Earned this era', a.earnedThisEra, (v) => (v === null ? '' : balance(v)))}
+${readingOf('Agreements open', a.agreementsOpen, (v) => (v === null ? '' : formatInt(v)))}
+${readingOf('In dispute', a.inDispute, (v) => (v === null ? '' : formatInt(v)), { state: (a.inDispute.value ?? 0) > 0 ? 'dispute' : 'record' })}
+${readingOf('Counterparties', a.counterparties, (v) => formatInt(v.length))}
+</div>`;
+
+    const series = a.earningsByEra.value;
+    let curveHtml: string;
+    if (series === null) {
+      curveHtml = readingOf('Earnings by era', a.earningsByEra, () => '');
+    } else {
+      const ordered = [...series].sort((x, y) => x.era - y.era);
+      const values = ordered.map((row) => Number(row.amount) / 10 ** chain.tokenDecimals);
+      const paths = curvePaths(values, 1200, 200);
+      const table = ordered.map((row) => [`era ${formatInt(row.era)}`, balance(row.amount)]);
+      curveHtml =
+        paths === null
+          ? `<p class="nw-small nw-dim">${ordered.length === 0 ? 'No settled era with earnings in the index for this agent.' : `One era in the index: era ${formatInt(ordered[0]?.era ?? 0)} · ${balance(ordered[0]?.amount ?? 0n)}.`}</p>`
+          : curve({
+              id: 'earnings',
+              width: 1200,
+              height: 200,
+              pathLine: paths.pathLine,
+              pathArea: paths.pathArea,
+              end: paths.end,
+              labels: [balance(ordered.reduce((m, r) => (r.amount > m ? r.amount : m), 0n)), '', balance(0n)],
+              alt: `Earnings by era for ${name ?? view.agent}, ${ordered.length} eras`,
+              table,
+            });
+    }
+
+    const counterparties = a.counterparties.value ?? [];
+    const most = counterparties.reduce((m, c) => Math.max(m, c.count), 0);
+    const counterpartyRows: LedgerRow[] = counterparties.map((c) => ({
+      id: c.address,
+      cells: [
+        String(c.count),
+        addressChip(c.address, { href: activityPath(c.address) }),
+        `<span class="nw-share" style="width:${most === 0 ? 0 : Math.round((c.count / most) * 100)}%"></span>`,
+        '',
+        '',
+      ],
+    }));
+
+    body = `<section class="nw-section nw-stack">
+<div class="nw-section-head"><h1 class="nw-h2">${name === null ? escapeHtml(view.agent) : agentName({ name, operator })}</h1>${stateTags}${asOfTag(renderedAt)}</div>
+<p class="nw-small"><span class="nw-mono">${escapeHtml(view.agent)}</span> (<a href="${escapeHtml(accountPath(view.agent))}">account</a> · <a href="${escapeHtml(activityPath())}">show every agent</a>)</p>
+${form}
+${readings}
+${sectionHead('Earnings by era', null, asOfTag(renderedAt))}
+${curveHtml}
+${sectionHead('Counterparties', counterparties.length)}
+${counterpartyRows.length === 0 ? readingOf('Counterparties', a.counterparties, () => 'none in the index') : ledger({ rows: counterpartyRows })}
+${sectionHead('Watch-log', view.total)}
+${view.entries.length === 0 ? empty : rail({ entries: view.entries.map((entry, position) => activityRailEntry(entry, chain, position)) })}
+${paging}
+${receiptLine}
+</section>`;
+  }
 
   return layout(
     'Agent activity',
-    chain,
+    {
+      chain,
+      renderedAt,
+      best: null,
+      finalized: null,
+      headAgeMs: null,
+      ...(view.offset === 0 ? { refreshSeconds: ACTIVITY_REFRESH_SECONDS } : {}),
+    },
     body,
-    view.offset === 0 ? ACTIVITY_REFRESH_SECONDS : undefined,
-    "Activity read from the indexer's index of finalized blocks; field types from the node's runtime metadata.",
   );
 }
 
-/** An error page. The reason is chain- or user-supplied, so it is escaped like any other value. */
+// ── errors ───────────────────────────────────────────────────────────────────
+
+/** An error page as a Band. The reason is chain- or user-supplied, so it is escaped like any other value. */
 export function renderError(status: number, message: string, chain: ChainInfo | null): string {
-  const body = `<h1>${status}</h1>
-<p>${escapeHtml(message)}</p>`;
-  return layout(`${status}`, chain, body);
+  const body = `<section class="nw-section nw-stack">
+<p class="nw-figure nw-figure--xl nw-sage">${status}</p>
+${band({ text: `${status} · ${message}`, alarm: status >= 500 })}
+<p class="nw-small"><a href="/">Explorer home</a></p>
+</section>`;
+  return layout(`${status}`, { chain, renderedAt: null, best: null, finalized: null, headAgeMs: null }, body);
 }

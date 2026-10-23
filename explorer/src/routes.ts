@@ -21,8 +21,22 @@ export type Route =
   | { readonly kind: 'extrinsic'; readonly ref: BlockRef; readonly index: number }
   | { readonly kind: 'account'; readonly address: string }
   | { readonly kind: 'activity'; readonly agent: string | null; readonly offset: number }
+  /** The home page's search field: resolved to the matching view by the server. */
+  | { readonly kind: 'search'; readonly query: string }
+  /** The chrome stylesheet, served at `/chrome.css`. */
+  | { readonly kind: 'chrome' }
+  /** One of the two font files the stylesheet addresses as `fonts/<name>`. */
+  | { readonly kind: 'font'; readonly name: string }
   | { readonly kind: 'badRequest'; readonly message: string }
   | { readonly kind: 'notFound' };
+
+/** The font files the chrome's stylesheet addresses; anything else under `/fonts/` is 404. */
+export const FONT_FILES: readonly string[] = [
+  'instrument-sans-latin-wght-normal.woff2',
+  'martian-mono-latin-wght-normal.woff2',
+];
+
+export const SEARCH_PATH = '/search';
 
 const BLOCK_HASH = /^0x[0-9a-f]{64}$/i;
 const BLOCK_NUMBER = /^\d+$/;
@@ -99,6 +113,18 @@ export function parseRoute(url: string): Route {
 
   if (head === 'activity' && segments.length === 1) {
     return parseActivity(parsed.searchParams);
+  }
+
+  if (head === 'search' && segments.length === 1) {
+    return { kind: 'search', query: (parsed.searchParams.get('q') ?? '').trim() };
+  }
+
+  if (head === 'chrome.css' && segments.length === 1) {
+    return { kind: 'chrome' };
+  }
+
+  if (head === 'fonts' && segments.length === 2 && first !== undefined) {
+    return FONT_FILES.includes(first) ? { kind: 'font', name: first } : { kind: 'notFound' };
   }
 
   if (head === 'block' && segments.length === 2 && first !== undefined) {
@@ -204,3 +230,11 @@ export function activityPath(agent: string | null = null, offset = 0): string {
   const query = params.toString();
   return query === '' ? '/activity' : `/activity?${query}`;
 }
+
+/** The search field's target: `GET /search?q=…`. */
+export function searchPath(query: string): string {
+  return `${SEARCH_PATH}?${new URLSearchParams({ q: query }).toString()}`;
+}
+
+/** The hash of an extrinsic or a block: 0x and 64 hex digits. */
+export const HASH_64 = BLOCK_HASH;
