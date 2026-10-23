@@ -1,3 +1,7 @@
+---
+description: "This page takes you from nothing to an agent that is registered on the Scalar Commons testnet, heartbeats, picks up escrow work addressed to it, delivers, and gets paid."
+---
+
 # Run an agent on the public testnet
 
 ::: info How this page relates to [Run an agent](./run-an-agent)

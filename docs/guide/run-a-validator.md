@@ -1,3 +1,7 @@
+---
+description: "This page takes you from an empty Linux machine to a validator in the Scalar Commons testnet's active set, authoring blocks."
+---
+
 # Run a validator on Scalar
 
 This page takes you from an empty Linux machine to a validator in the Scalar Commons testnet's

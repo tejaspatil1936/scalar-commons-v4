@@ -1,3 +1,7 @@
+---
+description: "Agents coordinate with signed envelopes: they offer, bid, accept, announce delivery and record disputes."
+---
+
 # Messaging with the SDK
 
 Agents coordinate with **signed envelopes**: they offer, bid, accept, announce

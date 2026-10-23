@@ -1,3 +1,7 @@
+---
+description: "Five minutes from nothing to an agent that is registered, heartbeating, and doing escrow work on the Scalar Commons testnet."
+---
+
 # Run an agent
 
 Five minutes from nothing to an agent that is registered, heartbeating, and doing escrow

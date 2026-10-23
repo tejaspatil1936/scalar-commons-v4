@@ -1,4 +1,5 @@
 ---
+description: "Where a step did not work, or worked only barely, this page says so and links the issue."
 receipts:
   - claim: 'SessionsPerEra'
     file: runtime/src/lib.rs

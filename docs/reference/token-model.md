@@ -1,4 +1,5 @@
 ---
+description: "This page covers the unit, the supply cap, the emission schedule, and — the part that actually matters — how the weight formula pays for verifiable work rather than for holding tokens."
 receipts:
   - claim: 'pallet-orchestrator::claim_orchestrator'
     file: pallets/orchestrator/src/lib.rs
