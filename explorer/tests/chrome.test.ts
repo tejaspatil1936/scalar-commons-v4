@@ -494,3 +494,38 @@ describe('the chrome over HTTP', () => {
     expect(await response.text()).toContain('404 · no such page: /not-a-view');
   });
 });
+
+describe('layout faults seen at 1440 px against the public node', () => {
+  it('renders the six home readings stacked in a wrapping row, and issuance as whole CMN', () => {
+    const html = renderHome(HOME);
+    expect(html).toContain('<div class="nw-row x-wrap">');
+    expect(html.match(/nw-reading nw-reading--stack/g)?.length).toBeGreaterThanOrEqual(6);
+    expect(html).toContain('18,000,000,000 CMN');
+    expect(html).toContain('18000000000000000000000 plancks · whole CMN');
+    expect(html).toMatch(/\.x-wrap\{grid-auto-flow:row;grid-template-columns:repeat\(3,minmax\(0,1fr\)\)/);
+  });
+
+  it('prints the spine row time as HH:MM:SS with the full UTC on the title, and sizes the spine columns to fit', () => {
+    const html = renderHome(HOME);
+    expect(html).toContain('title="2026-08-18 21:01:00 UTC">21:01:00</span>');
+    expect(html).toContain('.nw-spine--explorer .nw-spine-tick{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,.6fr) minmax(0,2fr)}');
+    expect(html).toContain('.nw-spine--explorer .nw-spine-tick>span:nth-child(4){display:none}');
+  });
+
+  it('renders every hash-bearing reading stacked and full-width so a 66-character hash never sets the page width', () => {
+    const block = renderBlock(BLOCK, CHAIN);
+    for (const label of ['Hash', 'Parent', 'State root', 'Extrinsics root']) {
+      expect(block).toMatch(new RegExp(`<div class="x-col-12"><div class="nw-reading nw-reading--stack x-wide">\\s*<div class="nw-reading-line"><span class="nw-label">${label}</span>`));
+    }
+    expect(block).toContain('.x-wide .nw-figure,.x-hash{overflow-wrap:anywhere;word-break:break-all}');
+    expect(renderExtrinsic(EXTRINSIC, CHAIN)).toContain('<p class="nw-mono x-hash">');
+    expect(renderAccount(ACCOUNT, CHAIN)).toMatch(/<div class="x-col-12"><div class="nw-reading nw-reading--stack x-wide">\s*<div class="nw-reading-line"><span class="nw-label">Public key<\/span>/);
+  });
+
+  it("prints the node's version string from system_version in the footer, not the spec name", () => {
+    const html = renderHome({ ...HOME, chain: { ...CHAIN, nodeVersion: '4.0.0-5f5e3c9439f' } });
+    expect(html).toContain('spec 309 · node 4.0.0-5f5e3c9439f');
+    expect(renderHome(HOME)).toContain('spec 309 · node —');
+    expect(renderHome(HOME)).not.toContain('node scalar-commons');
+  });
+});

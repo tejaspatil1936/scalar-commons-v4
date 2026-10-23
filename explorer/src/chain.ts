@@ -244,6 +244,7 @@ export async function connectExplorerChain(options: ConnectOptions): Promise<Exp
     tokenDecimals: api.registry.chainDecimals[0] ?? 12,
     ss58Format,
     genesisHash: api.genesisHash.toHex(),
+    nodeVersion: (await api.rpc.system.version()).toString(),
   };
 
   /** Normalises any accepted address form to this chain's SS58 format. */
