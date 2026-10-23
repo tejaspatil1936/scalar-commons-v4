@@ -379,7 +379,8 @@ test('one URL: no ?sky and no ?present, and no three.js, GSAP or WebGL anywhere 
   // Every page's own script, one each; the observatory's two are among them and nothing else of the observatory's.
   const scripts = readdirSync(out).filter((name) => name.endsWith('.js')).sort();
   assert.deepEqual(scripts.filter((name) => name.startsWith('observatory')), ['observatory-graph.js', 'observatory.js']);
-  assert.ok(scripts.includes('pulse.js'));
+  // The other pages' own one script each (scripts/pages/*.mjs and the pulse); this page never names them.
+  for (const own of ['404.js', 'faucet.js', 'oversight.js', 'pulse.js']) assert.ok(scripts.includes(own), `dist lacks ${own}`);
   assert.deepEqual([...page.matchAll(/<script[^>]* src="([^"]+)"/g)].map((m) => m[1]), ['observatory.js'], 'the page loads one script');
   assert.ok(!page.includes('observatory-graph'), 'the page never names the graph bundle');
   assert.ok(!/from"\.\/observatory-/.test(bundle), 'observatory.js imports no chunk statically');
