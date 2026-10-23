@@ -804,7 +804,7 @@ function presenterHarness({ screens = 3 } = {}) {
     documentElement: html,
     body,
     hidden: false,
-    querySelector: (sel) => (sel === '.sb-present' ? button : null),
+    querySelector: (sel) => (sel === '.nw-present, .sb-present' ? button : null),
     querySelectorAll: (sel) => (sel === '[data-present-screen]' ? deck : []),
     createElement: () => ({ ...attrs(), className: '', textContent: '', remove() { body.children = body.children.filter((c) => c !== this); } }),
     addEventListener: (name, fn) => { handlers[name] = fn; },

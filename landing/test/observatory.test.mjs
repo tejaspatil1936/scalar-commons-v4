@@ -190,35 +190,25 @@ test('the upgrade record: 305, 306, 307, 309 all applied, each agreeing with its
 });
 
 test('the upgrade rail renders every row with its hash in full, copyable, and a chain confirmation slot', () => {
+  // The chrome's Rail: one entry per row, newest on top, the one in force lit.
+  const rail = page.match(/<ol class="nw-rail upgrade-rail">[\s\S]*?<\/ol>/)?.[0] ?? '';
+  assert.ok(rail, 'the upgrades are a Rail');
   for (const upgrade of history.upgrades) {
-    assert.match(page, new RegExp(`<li class="rail-marker rail-${upgrade.status}[^"]*" style="--x:[0-9.]+%" data-spec="${upgrade.specVersion}"`));
-    assert.match(page, new RegExp(`<li class="upgrade" data-spec="${upgrade.specVersion}" data-status="${upgrade.status}"`));
+    assert.match(rail, new RegExp(`<div class="upgrade" data-spec="${upgrade.specVersion}" data-status="${upgrade.status}"`));
     if (upgrade.wasm) {
       assert.ok(page.includes(upgrade.wasm.sha256), `sha256 for ${upgrade.specVersion} not rendered in full`);
       assert.ok(page.includes(`data-copy="${upgrade.wasm.sha256}"`), `sha256 for ${upgrade.specVersion} has no copy control`);
       assert.ok(page.includes(`data-confirm-block="${upgrade.appliedAtBlock}"`), `${upgrade.specVersion} has no chain-confirmation slot`);
+      assert.ok(rail.includes(`SEALED · BLOCK ${upgrade.appliedAtBlock.toLocaleString('en-US')}`), `${upgrade.specVersion} has no block under its tick`);
     }
   }
-  // Markers sit in order, left to right, equally spaced; the block number is
-  // printed under each applied one. Every row is applied now that 309 has
-  // shipped, so there is no scheduled marker at the end.
-  const xs = [...page.matchAll(/rail-marker rail-\w+" style="--x:([0-9.]+)%/g)].map((m) => Number(m[1]));
-  assert.deepEqual([...xs].sort((a, b) => a - b), xs);
-  assert.deepEqual(xs, railPositions(history.upgrades.length).map((x) => Number(x.toFixed(2))));
-  for (const upgrade of history.upgrades.filter((u) => u.status === 'applied')) {
-    assert.ok(page.includes(`<span class="rail-meta mono">#${upgrade.appliedAtBlock.toLocaleString('en-US')}</span>`), `${upgrade.specVersion} has no block under its marker`);
-  }
-  // The dashed future begins past the LAST marker, whatever the row count.
-  //
-  // This used to read `future > xs[2] && future < xs[3]`, which encoded the
-  // shape "three applied rows and one scheduled one at the end" — true only
-  // while 309 was unapplied. Now that every row is applied the future starts
-  // past the last marker (92% -> 98%), and the old form failed on a page that
-  // was correct. Written against the last element so the next upgrade does not
-  // need this line edited.
-  const future = Number(page.match(/class="rail"[^>]*style="--future:([0-9.]+)%"/)[1]);
-  assert.ok(future > xs[xs.length - 1], `the dashed future (${future}%) must begin past the last marker (${xs[xs.length - 1]}%)`);
-  assert.ok(future <= 100, `the dashed future (${future}%) must stay on the rail`);
+  // Newest on top; exactly one lit tick, on the runtime in force; the rest sage.
+  const specs = [...rail.matchAll(/data-spec="(\d+)"/g)].map((m) => Number(m[1]));
+  assert.deepEqual(specs, history.upgrades.map((u) => u.specVersion).reverse());
+  assert.equal((rail.match(/nw-rail-tick is-newest/g) ?? []).length, 1);
+  assert.equal((rail.match(/nw-rail-tick is-final/g) ?? []).length, history.upgrades.filter((u) => u.status === 'applied').length - 1);
+  assert.ok(railPositions(4).length === 4, 'the horizontal positions helper is kept for the library');
+  assert.match(section('upgrades'), /<p class="nw-small nw-dim upgrade-gap">308 was never shipped<\/p>/);
 });
 
 test('the script reads only indexer endpoints that exist, with fields the indexer emits', () => {
@@ -331,7 +321,27 @@ test('no instrument loops forever or ignores reduced motion', () => {
   const css = readFileSync(new URL('../src/observatory.css', import.meta.url), 'utf8');
   assert.ok(!/infinite/.test(css), 'observatory.css declares an infinite animation');
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)/);
-  assert.match(css, /@media \(prefers-color-scheme: light\)/);
+  // One theme: the light scheme is gone (brief §2.1).
+  assert.ok(!/prefers-color-scheme: light/.test(css), 'observatory.css still carries a light scheme');
+  // Extended to the new components: the instruments' sheets, the spine, the
+  // lamp and the chrome's behaviour loop nothing. The one permitted loop is
+  // the loading leader (`nw-travel`) in chrome.css, only while a Reading loads,
+  // and it stops under reduced motion.
+  for (const name of readdirSync(new URL('../src/observatory/instruments/', import.meta.url)).filter((n) => n.endsWith('.css'))) {
+    const sheet = readFileSync(new URL(`../src/observatory/instruments/${name}`, import.meta.url), 'utf8');
+    assert.ok(!/infinite|@keyframes/.test(sheet), `${name} declares an animation`);
+  }
+  const chrome = readFileSync(new URL('../src/chrome/chrome.css', import.meta.url), 'utf8');
+  const loops = [...chrome.matchAll(/animation:[^;]*infinite/g)];
+  assert.equal(loops.length, 1, 'the chrome has one loop');
+  assert.match(chrome, /\.nw-reading\.is-loading \.nw-leader::before \{[^}]*animation: nw-travel[^}]*infinite/);
+  assert.match(chrome.slice(chrome.indexOf('@media (prefers-reduced-motion: reduce)')), /\.nw-reading\.is-loading \.nw-leader::before \{ display: none; \}/);
+  const chromeBehaviour = fileURLToPath(new URL('../src/chrome/behaviour/', import.meta.url));
+  for (const name of readdirSync(chromeBehaviour)) {
+    const src = readFileSync(join(chromeBehaviour, name), 'utf8');
+    assert.ok(!/requestAnimationFrame\(function loop|animation-iteration-count|infinite/.test(src), `${name} declares a loop`);
+  }
+  assert.ok(!/setInterval\(/.test(readFileSync(new URL('../src/observatory/spine.js', import.meta.url), 'utf8')), 'the spine ticks on the bus only');
 });
 
 const css = readFileSync(new URL('../src/observatory.css', import.meta.url), 'utf8');
@@ -383,134 +393,130 @@ test('one URL: no ?sky and no ?present, and no three.js, GSAP or WebGL anywhere 
   assert.ok(!page.includes('data-reading="sky"') && !css.includes('.sky'), 'no sky slot or rule is left behind');
 });
 
-const statusbarHtml = () => page.match(/<header class="statusbar reading"[\s\S]*?<\/header>/)?.[0] ?? '';
+// ── the Nightwatch design contract (brief §2–§5.2) ────────────────────────────
+const tokensCss = readFileSync(new URL('../src/chrome/tokens.css', import.meta.url), 'utf8');
+const chromeCss = readFileSync(new URL('../src/chrome/chrome.css', import.meta.url), 'utf8');
+const tokens = Object.fromEntries([...tokensCss.matchAll(/(--[a-z0-9-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]));
+const barHtml = () => page.match(/<header class="nw-bar" data-bar>[\s\S]*?<\/header>/)?.[0] ?? '';
 const heroHtml = () => page.match(/<header class="hero"[\s\S]*?<\/header>/)?.[0] ?? '';
 /** Every declaration block of a stylesheet, as [selector, body]. */
 const blocks = (source) => [...source.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => [m[1].trim(), m[2]]);
-const themes = () => [...css.matchAll(/:root\s*\{([^}]*)\}/g)].slice(0, 2).map((m) => Object.fromEntries([...m[1].matchAll(/(--[a-z0-9-]+):\s*([^;]+);/g)].map((d) => [d[1], d[2].trim()])));
+const facts = JSON.parse(readFileSync(new URL('../chain-facts.json', import.meta.url), 'utf8'));
 
-test('the top bar: two zones, 56 px, sticky, a bottom hairline — wordmark and nav on the left; the status pill and two quiet text buttons on the right', () => {
-  const bar = statusbarHtml();
-  assert.ok(bar, 'the status bar is a header at the top of the page');
-  assert.ok(page.indexOf('<header class="statusbar reading"') < page.indexOf('<header class="hero"'));
-  const left = bar.match(/<div class="sb-left">([\s\S]*?)<\/div>/)?.[1] ?? '';
-  assert.match(left, /<a class="wordmark" href="observatory">/);
-  assert.match(left, /<nav class="site-nav"[\s\S]*Overview[\s\S]*Observatory[\s\S]*Docs/);
-  const right = bar.slice(bar.indexOf('<div class="sb-right">'));
-  // The pill: dot · state · block N · finality, in that order.
-  const pill = right.match(/<p class="sb-pill"[^>]*>([\s\S]*?)<\/p>/)?.[1] ?? '';
-  const order = ['pulse-dot', 'sb-state', 'sb-block', 'sb-finality'].map((c) => pill.indexOf(`class="${c}"`));
-  assert.ok(order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), `the pill reads dot · state · block · finality: ${order}`);
-  assert.match(right, /<button type="button" class="btn sb-sources" role="switch" aria-checked="false">Sources<\/button>/);
-  assert.match(right, /<button type="button" class="btn sb-present" aria-pressed="false" aria-keyshortcuts="P">Present<\/button>/);
-  assert.match(css, /--bar-height: 56px/);
-  assert.match(rule('.statusbar'), /position: sticky/);
-  assert.match(rule('.statusbar'), /border-bottom: 1px solid var\(--border\)/);
-  assert.match(rule('.btn'), /min-height: 32px/);
+test('the top bar: the chrome’s bar before the first screen — wordmark, nav with the current page, the lamp, Sources, ⌘K and Present', () => {
+  const bar = barHtml();
+  assert.ok(bar, 'the bar is the chrome’s header at the top of the page');
+  assert.ok(page.indexOf('<header class="nw-bar" data-bar>') < page.indexOf('<header class="hero"'));
+  assert.match(bar, /<a class="nw-wordmark" href="\.\/">Scalar Commons<\/a>/);
+  assert.match(bar, /<nav class="nw-nav nw-label" aria-label="Site" id="nw-nav">[\s\S]*<a href="observatory" aria-current="page">Observatory<\/a>[\s\S]*<\/nav>/);
+  assert.match(bar, /<span class="nw-lamp" data-lamp data-state="connecting" data-lit="false" role="status" aria-live="off">/);
+  assert.match(bar, /connecting · wss:\/\/rpc\.scalarnet\.io/);
+  assert.match(bar, /<button type="button" class="nw-sources nw-label" role="switch" aria-checked="false" data-sources-switch>Sources/);
+  assert.match(bar, /data-palette-open/);
+  assert.match(bar, /<button type="button" class="nw-quiet nw-present" aria-pressed="false" aria-keyshortcuts="P">Present<\/button>/);
+  // No status pill: the lamp carries the chain's state, fed from the head bus in main.js.
+  assert.ok(!/sb-pill|statusbar/.test(page), 'the status pill is gone');
+  assert.ok(bundle.includes('data-lamp') && /finality/.test(bundle), 'the bundle wires the lamp');
+  assert.ok(!bundle.includes('.sb-state'), 'the bundle no longer drives the pill');
+  // The bar's height is the token; its sheet turns pine-1 once scrolled.
+  assert.match(chromeCss, /\.nw-bar \{[^}]*height: var\(--bar\)/);
+  assert.match(chromeCss, /\.nw-bar\.is-scrolled/);
 });
 
-test('the hero: no second wordmark; the title, one sentence, the figures with hairlines between — height, agents registered, operator-run with its plain note, agreements open — the last hour, the live line; left five of twelve, centred against the agent panel on the right seven', () => {
+test('the first screen: Observatory in the display face, the one sentence, four Readings at figure-xl with live stubs, the operator-run note verbatim, the last hour at figure-m, the margin Spine', () => {
   const hero = heroHtml();
   assert.match(hero, /<header class="hero" data-instrument="hero" data-present-screen aria-labelledby="hero-h">/);
-  assert.ok(!/class="wordmark|Scalar Commons<\/|Scalar Commons</.test(hero), 'the wordmark lives in the top bar only');
-  const text = hero.match(/<div class="hero-text">[\s\S]*?<p class="live-line"[\s\S]*?<\/p>\s*<\/div>/)?.[0] ?? '';
-  assert.match(text, /^<div class="hero-text">\s*<h1 id="hero-h">Observatory<\/h1>\s*<p class="dek">A public test network where AI agents contract, escrow and settle work — read live from the chain\.<\/p>/);
-  const figures = [...text.matchAll(/<div class="reading hero-figure" data-reading="([^"]+)"[^>]*>([\s\S]*?)<\/div>/g)];
-  assert.deepEqual(figures.map((m) => m[1]), ['heroHeight', 'agents', 'operatorRun', 'activeAgreements', 'messagesSent']);
-  assert.deepEqual(figures.map((m) => m[2].match(/<p class="reading-label">([^<]+)<\/p>/)?.[1]), ['Height', 'Agents registered', 'Operator-run', 'Agreements open', 'Messages sent']);
-  for (const [, key, block] of figures) {
-    assert.ok(block.indexOf('reading-value') < block.indexOf('reading-label'), `${key}: the caption sits directly under its figure`);
-    assert.ok(!/\d/.test(block.match(/<p class="reading-value[^>]*>([\s\S]*?)<\/p>/)[1].replace(/<[^>]+>/g, '')), `${key} ships a figure`);
+  assert.ok(!/nw-wordmark|Scalar Commons<\//.test(hero), 'the wordmark lives in the top bar only');
+  assert.match(hero, /<ol class="nw-spine nw-spine--margin" data-spine role="img" aria-label="[^"]+"><\/ol>/, 'the margin Spine, empty until the head bus fills it');
+  assert.ok(hero.indexOf('nw-spine') < hero.indexOf('<h1'), 'the Spine runs down the left');
+  assert.match(hero, /<h1 class="nw-display" id="hero-h">Observatory<\/h1>\s*<p class="nw-body dek">The public chain, read from a running node\. Every figure names its source\.<\/p>/);
+  const figures = [...hero.matchAll(/<div class="nw-reading[^"]*" data-reading="([^"]+)"[^>]*>[\s\S]*?<span class="reading-value nw-figure nw-figure--([a-z]+)"/g)].map((m) => [m[1], m[2]]);
+  assert.deepEqual(figures.slice(0, 5), [['heroHeight', 'xl'], ['agents', 'xl'], ['operatorRun', 'm'], ['activeAgreements', 'xl'], ['messagesSent', 'xl']]);
+  assert.deepEqual([...hero.matchAll(/<span class="nw-label reading-label">([^<]+)<\/span>/g)].map((m) => m[1]).slice(0, 5), ['Height', 'Agents registered', 'Operator-run', 'Agreements open', 'Messages sent']);
+  // Every one is live: its stub says so, and its receipt names the declared source.
+  for (const [key] of figures) {
+    const block = hero.match(new RegExp(`data-reading="${key}"[\\s\\S]*?<div class="nw-receipt" data-receipt>[\\s\\S]*?data-raw>`))[0];
+    assert.match(block, /<button class="nw-stub" type="button" data-state="connecting" aria-label="CONNECTING · show the source" aria-expanded="false"><\/button>/, `${key} has no stub: CONNECTING until the first read, then LIVE from the readout`);
+    assert.match(block, /<div data-request>(GET api\.scalarnet\.io\/v1\/|WS rpc\.scalarnet\.io\/chain_)/, `${key} names no endpoint`);
+    assert.match(block, /<div data-fetched>fetched — · —<\/div>/, `${key} ships a fetch time`);
   }
-  // Operator-run sits next to agents registered, and its note is said plainly, in the page, beside it.
-  const order = ['data-reading="agents"', 'data-reading="operatorRun"'].map((k) => text.indexOf(k));
-  assert.ok(order[0] < order[1]);
-  assert.match(
-    text,
-    /<p class="hero-note" id="operator-note">Agents run by the Scalar Commons team to exercise the network\. Identified on-chain by the swarm- prefix\.<\/p>/,
-  );
-  assert.match(text, /data-reading="operatorRun" aria-describedby="operator-note"/);
-  assert.ok(!/<details[^>]*>[\s\S]*operator-note/.test(text), 'the note is never behind a disclosure');
-  assert.match(rule('.hero-note'), /color: var\(--text-dim\)/);
-  // Hairlines between them.
-  assert.match(css, /\.hero-figure \+ \.hero-figure,\s*\.hero-note \{\s*border-top: 1px solid var\(--border\)/);
-  assert.match(css, /\.hero-figure:nth-child\(3\),\s*\.hero-note \{[^}]*border-left: 1px solid var\(--border\)/);
-  // Activity in the last hour: four figures, each a figure-l with its label, under the hero's figures.
-  const hour = text.match(/<section class="hour" aria-labelledby="hour-h">[\s\S]*?<\/section>/)?.[0] ?? '';
-  assert.ok(text.indexOf('hero-figures') < text.indexOf('class="hour"'), 'under the hero figures');
-  assert.match(hour, /<h2 class="eyebrow hour-title" id="hour-h">Activity in the last hour<\/h2>/);
-  const hourKeys = [...hour.matchAll(/data-reading="([^"]+)"/g)].map((m) => m[1]);
-  // `hourMessages` is spec-309-fenced: it is in the markup but `hidden` until
-  // the chain reports 309 (see instruments/messaging.js).
-  assert.deepEqual(hourKeys, ['hourOracle', 'hourSettled', 'hourDisputes', 'hourSlashes', 'hourMessages']);
-  assert.deepEqual([...hour.matchAll(/<p class="reading-label">([^<]+)<\/p>/g)].map((m) => m[1]), ['Oracle answers', 'Agreements settled', 'Disputes opened', 'Slashes', 'Messages sent']);
-  assert.match(hour, /class="readings figure-row hour-figures"/);
-  for (const key of hourKeys) assert.ok(Object.values(SOURCES).some((s) => s.readings?.includes(key)), `${key} has a source`);
-  assert.match(text, /<p class="live-line" data-state="connecting"><span class="pulse-dot" aria-hidden="true"><\/span> <span class="ll-state">Connecting<\/span> <span class="ll-finality">finality —<\/span><\/p>/);
-  // The grid: 5 + 7 of 12, the left column centred against the panel.
-  assert.match(rule('.hero-text'), /grid-column: 1 \/ span 5/);
-  assert.match(rule('.hero-text'), /align-self: center/);
-  assert.match(rule('.hero-panel'), /grid-column: 6 \/ span 7/);
-  // The 24/40 rhythm.
-  assert.match(rule('.hero h1'), /margin: 0 0 var\(--space-4\)/);
-  assert.match(rule('.dek'), /margin: 0 0 var\(--space-5\)/);
-  assert.match(rule('.hero-figures'), /margin: 0 0 var\(--space-5\)/);
-  assert.match(rule('.hour'), /margin: 0 0 var\(--space-5\)/);
-  // As tall as its content plus 64 px: no 100vh, no dead band.
-  assert.ok(!/100s?vh/.test(rule('.hero') + rule('.hero-grid')), 'the hero is not a viewport-height block');
-  assert.match(rule('.hero-grid'), /padding-block: var\(--space-6\) 0/);
+  // The operator-run note, verbatim, beside the figure and never behind a disclosure.
+  assert.match(hero, /<p class="hero-note nw-small nw-dim" id="operator-note">Agents run by the Scalar Commons team to exercise the network\. Identified on-chain by the swarm- prefix\.<\/p>/);
+  assert.ok(hero.indexOf('data-reading="operatorRun"') < hero.indexOf('id="operator-note"') && hero.indexOf('id="operator-note"') < hero.indexOf('data-reading="activeAgreements"'));
+  assert.ok(!/<details[^>]*>[\s\S]*operator-note/.test(hero), 'the note is never behind a disclosure');
+  // Activity in the last hour: the label, then the figure-m row; disputes in vermilion, slashes in ice, each colour with its word.
+  const hour = hero.match(/<section class="hour" aria-labelledby="hour-h">[\s\S]*?<\/section>/)?.[0] ?? '';
+  assert.match(hour, /<h2 class="nw-label hour-title" id="hour-h">Activity in the last hour<\/h2>/);
+  assert.match(chromeCss, /\.nw-label \{[^}]*text-transform: uppercase/);
+  assert.match(hour, /<p class="hour-note nw-small nw-dim" hidden><\/p>/, 'the index-behind sentence has its slot');
+  assert.deepEqual([...hour.matchAll(/data-reading="([^"]+)"/g)].map((m) => m[1]), ['hourOracle', 'hourSettled', 'hourDisputes', 'hourSlashes', 'hourMessages']);
+  for (const key of ['hourOracle', 'hourSettled', 'hourDisputes', 'hourSlashes', 'hourMessages']) assert.match(hour, new RegExp(`data-reading="${key}"[\\s\\S]*?nw-figure nw-figure--m`), `${key} is not figure-m`);
+  assert.match(hour, /class="nw-reading nw-reading--stack is-loading is-vermilion" data-reading="hourDisputes"/);
+  assert.match(hour, /class="nw-reading nw-reading--stack is-loading is-ice" data-reading="hourSlashes"/);
+  assert.match(css, /\.is-vermilion \.nw-figure \{ color: var\(--vermilion\); \}/);
+  assert.match(css, /\.is-ice \.nw-figure \{ color: var\(--ice\); \}/);
+  // The spec-309 fence stays on the message figures.
+  for (const key of ['messagesSent', 'hourMessages']) assert.match(hero, new RegExp(`data-reading="${key}" data-min-spec="309" hidden`));
+  // The layout: the Spine's 96 px, five columns, seven columns; nothing viewport-tall.
+  assert.match(css, /\.hero-grid \{[^}]*grid-template-columns: 96px minmax\(0, 5fr\) minmax\(0, 7fr\)/);
+  assert.ok(!/100s?vh/.test(css.match(/\.hero \{[^}]*\}/)?.[0] ?? ''), 'the hero is not a viewport-height block');
+  // The Spine is fed by the head bus and marks the finalized boundary.
+  const spine = readFileSync(new URL('../src/observatory/spine.js', import.meta.url), 'utf8');
+  assert.match(spine, /ctx\.bus\.on\('head'/);
+  assert.match(spine, /ctx\.bus\.on\('finalized'/);
+  assert.match(spine, /is-newest/);
+  assert.match(spine, /TICKS = 100/);
 });
 
-test('the agent activity panel: a title at h3, the Network graph switch, one legend, the field, one live line, one footnote, the list paginated', () => {
+test('the agent activity panel: the title as a label, the Network graph switch, one legend, the field on canvas, one live line, one footnote, the list behind its disclosure', () => {
   const panel = heroHtml().match(/<figure class="panel hero-panel instrument"[\s\S]*?<\/figure>/)?.[0] ?? '';
-  // Set in the h3 style; an h2 element so the outline runs h1 → h2 → h3 without a gap.
-  assert.match(panel, /<figcaption class="panel-head">\s*<h2 class="panel-title" id="panel-h">Agent activity<\/h2>\s*<button type="button" class="btn graph-toggle" role="switch" aria-checked="false">Network graph<\/button>/);
-  assert.match(css, /\.chart-title,\s*\.panel-title \{[^}]*font-size: var\(--t-h3\)/);
-  assert.match(rule('.panel'), /padding: var\(--space-4\)/);
-  assert.match(rule('.legend'), /font-size: var\(--t-label\)/);
-  const legend = panel.match(/<ul class="legend field-legend"[^>]*>([\s\S]*?)<\/ul>/)?.[1] ?? '';
+  assert.match(panel, /<figcaption class="panel-head">\s*<h2 class="nw-label panel-title" id="panel-h">Agent activity<\/h2>\s*<button type="button" class="nw-quiet graph-toggle" role="switch" aria-checked="false">Network graph<\/button>/);
+  const legend = panel.match(/<ul class="legend field-legend nw-label"[^>]*>([\s\S]*?)<\/ul>/)?.[1] ?? '';
   assert.deepEqual([...legend.matchAll(/<\/span>([^<]+)<\/li>/g)].map((m) => m[1]), ['Idle', 'Working', 'In dispute', 'Slashed, last hour', 'Operator-run']);
-  assert.match(panel, /<canvas class="field-canvas" role="img" aria-label="[^"]+"><\/canvas>\s*<div class="tooltip field-tip" role="tooltip" hidden><\/div>/);
-  assert.match(panel, /<p class="field-live" role="status" aria-live="off">/);
+  // The legend's marks are the state tokens, each beside its word.
+  for (const [cls, token] of [['dot-working', 'filament'], ['dot-disputed', 'vermilion'], ['dot-slashed', 'ice'], ['dot-ring', 'clay'], ['dot-idle', 'sage']]) {
+    assert.match(css, new RegExp(`\\.${cls}[^{]*\\{ color: var\\(--${token}\\); \\}`), `${cls} is not ${token}`);
+  }
+  assert.match(panel, /<canvas class="field-canvas" role="img" aria-label="[^"]+"><\/canvas>\s*<div class="tooltip field-tip nw-tag" role="tooltip" hidden><\/div>/);
+  assert.match(panel, /<p class="field-live nw-receipt-line" role="status" aria-live="off">/);
   assert.equal((panel.match(/class="panel-foot /g) ?? []).length, 2, 'one footnote per view');
-  // One legend and one footnote show at a time: the graph's are hidden until its switch is on.
-  assert.match(css, /\.graph-legend,\s*\.graph-host,\s*\.graph-note,\s*\.hero-panel\[data-graph\] \.field-legend,\s*\.hero-panel\[data-graph\] \.field-host,\s*\.hero-panel\[data-graph\] \.field-live,\s*\.hero-panel\[data-graph\] \.field-foot \{\s*display: none;/);
-  // The graph's counts are a list beside the plate, not text on it.
-  assert.match(panel, /<ol class="graph-bundles" aria-label="[^"]+" hidden><\/ol>/);
-  assert.match(panel, /<details class="disclosure agents-list"><summary>The same agents as a list<\/summary>/);
-  assert.match(panel, /<div class="list-pager" hidden>\s*<button type="button" class="btn" data-step="prev">Previous<\/button>/);
+  assert.match(css, /\.graph-legend, \.graph-host, \.graph-note,\s*\.hero-panel\[data-graph\] \.field-legend, \.hero-panel\[data-graph\] \.field-host,\s*\.hero-panel\[data-graph\] \.field-live, \.hero-panel\[data-graph\] \.field-foot \{ display: none; \}/);
+  assert.match(panel, /<ol class="graph-bundles nw-mono" aria-label="[^"]+" hidden><\/ol>/);
+  assert.match(panel, /<details class="disclosure agents-list"><summary class="nw-quiet">The same agents as a list<\/summary>/);
+  assert.match(panel, /<div class="list-pager nw-pager nw-label" hidden>\s*<button type="button" class="nw-quiet" data-step="prev">← previous<\/button>/);
   assert.ok(!/data-reading=/.test(panel), 'no figure inside the frame');
   // The field draws on canvas, with no physics: the graph's d3-force is only in its own bundle.
   const field = readFileSync(new URL('../src/observatory/instruments/agent-field.js', import.meta.url), 'utf8');
   assert.ok(!/from ['"]d3-force|forceSimulation\(/.test(field), 'no physics in the field');
   assert.match(field, /import\(new URL\(GRAPH_BUNDLE, import\.meta\.url\)\.href\)/, 'the graph is fetched on first use');
+  // The panel sits on pine-2 with the one radius; no border, no shadow.
+  assert.match(css, /\.panel \{[^}]*background: var\(--pine-2\); border-radius: var\(--radius\)/);
 });
 
-test('the river under the hero: a titled strip, 140 px, the content width, its axis and FINAL marker labelled', () => {
+test('the river under the first screen: a titled strip at 140 px across the content width, newest filament, final sage', () => {
   const after = page.slice(page.indexOf('</header>', page.indexOf('<header class="hero"')));
-  const strip = after.match(/<figure class="frame river-strip" aria-labelledby="river-h">[\s\S]*?<\/figure>/)?.[0] ?? '';
+  const strip = after.match(/<figure class="nw-frame river-strip" aria-labelledby="river-h">[\s\S]*?<\/figure>/)?.[0] ?? '';
   assert.ok(strip, 'the strip follows the hero directly, inside the content frame');
   assert.ok(after.indexOf('river-strip') < after.indexOf('<main>'));
-  assert.match(strip, /<h2 class="chart-title" id="river-h">Blocks arriving now<\/h2>/);
+  assert.match(strip, /<h2 class="nw-label" id="river-h">Blocks arriving now<\/h2>/);
   assert.match(strip, /<canvas class="hero-river" role="img" aria-label="[^"]+"><\/canvas>/);
-  assert.match(rule('.hero-river'), /height: 140px/);
+  assert.match(css, /\.hero-river, \.pulse-canvas \{ display: block; width: 100%; height: 140px; \}/);
+  // The canvas reads its colours by the names context.js resolves, each an alias of a token: live is filament, settled is sage.
+  assert.match(css, /--live: var\(--filament\);/);
+  assert.match(css, /--settled: var\(--sage\);/);
   const pulse = readFileSync(new URL('../src/observatory/instruments/pulse.js', import.meta.url), 'utf8');
   assert.ok(!/compact: true/.test(pulse), 'the strip is drawn with its labels, like the full river');
   assert.match(pulse, /FINAL ·/);
 });
 
-test('sections: an eyebrow, an h2, one sentence, the instrument and a row of figures, 104 px apart', () => {
-  const sections = [...page.matchAll(/<section id="([a-z]+)" class="section" data-instrument="([a-z-]+)" data-present-screen data-reveal aria-labelledby="\1-h">([\s\S]*?)<\/section>/g)];
+test('sections: a numbered label, the instrument, then the Readings in a row — the Day Bar over Economy, eight points for Validators, four strips for History, the Rail, the commands as code blocks', () => {
+  const sections = [...page.matchAll(/<section id="([a-z]+)" class="section nw-section" data-instrument="([a-z-]+)" data-present-screen data-reveal aria-labelledby="\1-h">([\s\S]*?)<\/section>/g)];
   assert.deepEqual(sections.map((m) => m[1]), ['chain', 'economy', 'validators', 'history', 'upgrades', 'verify']);
   const names = ['Chain', 'Economy', 'Validators', 'History', 'Upgrades', 'Verify'];
   sections.forEach(([, id, , body], i) => {
-    assert.match(body, new RegExp(`<p class="eyebrow">0${i + 1} · ${names[i]}</p>\\s*<h2 id="${id}-h">[^<]{8,60}</h2>\\s*<p class="lede">`), `${id}: eyebrow, then h2, then the sentence`);
-    const lede = body.match(/<p class="lede">([\s\S]*?)<\/p>/)[1].replace(/<[^>]+>/g, '');
-    assert.ok(lede.length <= 120 && !/[.!?] [A-Z]/.test(lede), `${id}: one plain sentence`);
-    assert.ok(body.indexOf('class="lede"') < body.indexOf('class="instrument'), `${id}: the sentence precedes the instrument`);
-    if (/class="readings/.test(body)) {
-      assert.ok(body.indexOf('class="instrument') < body.indexOf('class="readings'), `${id}: the figures follow the instrument`);
-    }
+    assert.match(body, new RegExp(`<h2 class="nw-label section-head" id="${id}-h">0${i + 1} · ${names[i]}</h2>`), `${id}: the number and the name as a label`);
+    assert.ok(!/<p class="lede">|class="eyebrow"/.test(body), `${id}: no heading sentence the brief does not give`);
+    if (/class="readings/.test(body)) assert.ok(body.indexOf('class="instrument') < body.indexOf('class="readings'), `${id}: the figures follow the instrument`);
   });
   const keys = (id) => [...section(id).matchAll(/data-reading="([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(keys('chain'), ['bestBlock', 'finalizedBlock', 'finalityLag', 'blocksPerMinute']);
@@ -518,203 +524,236 @@ test('sections: an eyebrow, an h2, one sentence, the instrument and a row of fig
   assert.deepEqual(keys('validators'), ['validators', 'nodeHealth']);
   assert.deepEqual(keys('history'), ['blockTime', 'agreementsCumulative', 'emissionCumulative', 'agentsOverTime']);
   assert.deepEqual(keys('upgrades'), ['specVersion', 'lastUpgrade']);
-  assert.match(section('verify'), /<details class="disclosure verify">/);
-  // Figure rows: equal widths, hairlines between, no boxes; figures at figure-l with label captions under them.
-  assert.match(rule('.figure-row'), /grid-auto-columns: minmax\(0, 1fr\)/);
-  assert.match(rule('.figure-row > .reading + .reading'), /border-left: 1px solid var\(--border\)/);
-  assert.ok(!/border: 1px/.test(rule('.figure-row > .reading')), 'no box round a figure');
-  for (const [, block] of section('chain').matchAll(/<div class="reading" data-reading="[^"]+">([\s\S]*?)<\/div>/g)) {
-    assert.ok(block.indexOf('reading-value') < block.indexOf('reading-label'), 'a section figure carries its caption under it');
+  assert.deepEqual(keys('verify'), ['genesis']);
+  // Rows of Readings are the chrome's grid; nothing boxed, nothing bordered.
+  assert.match(section('chain'), /<div class="readings nw-row">/);
+  assert.match(chromeCss, /\.nw-row \{ display: grid; grid-auto-flow: column; grid-auto-columns: minmax\(0, 1fr\)/);
+  // 02 · Economy: the Day Bar (four segments, progressbar in blocks, sticky at 12 px), its labels empty until the browser reads the eras.
+  const economy = section('economy');
+  assert.match(economy, /<div class="nw-daybar" data-daybar role="progressbar" aria-valuemin="0" aria-valuenow="0" aria-valuemax="3600" aria-label="[^"]+">/);
+  assert.equal((economy.match(/nw-daybar-seg/g) ?? []).length, 4);
+  assert.equal((economy.match(/nw-daybar-seg is-current/g) ?? []).length, 1);
+  for (const [, label] of economy.matchAll(/<span class="nw-label" data-daybar-label>([^<]*)<\/span>/g)) assert.equal(label, '', 'a Day Bar label is the browser’s to fill');
+  assert.match(css, /\.nw-daybar \{ position: sticky; top: 12px;/);
+  assert.match(css, /\.dial \{ display: none; \}/);
+  // 03 · Validators: the ring on a 240 px circle, the list, the ring note, the hosts record.
+  const validators = section('validators');
+  assert.match(validators, /<svg class="ring" role="img" aria-label="[^"]+"><\/svg>/);
+  assert.match(css, /\.ring \{ width: 240px; height: 240px;/);
+  assert.match(allCss, /\.ring \.ring-node\.is-authoring \{ fill: var\(--filament\); \}/);
+  assert.match(allCss, /\.ring \.ring-node \{ fill: var\(--bone\); \}/);
+  assert.ok(validators.indexOf('class="instrument-note ring-note"') < validators.indexOf('status-record'));
+  // 04 · History: four strips, each a labelled plot with its figure and receipt line.
+  const strips = [...section('history').matchAll(/<figure class="strip reading" data-reading="([^"]+)">([\s\S]*?)<\/figure>/g)];
+  assert.equal(strips.length, 4);
+  for (const [, key, block] of strips) {
+    assert.match(block, /<h3 class="nw-label reading-label">[^<]+<\/h3>/, `${key} has no label`);
+    assert.match(block, /<div class="strip-plot" data-plot><\/div>/, `${key} has no plot`);
+    assert.match(block, /<span class="nw-receipt-line" data-receipt-line>GET api\.scalarnet\.io\/v1\//, `${key} names no source`);
   }
-  assert.match(rule('.section'), /padding-block: var\(--space-7\)/);
-  assert.match(rule('.section-grid'), /gap: var\(--space-5\)/);
-  // Charts: titles in h3, axes in mono at 0.75 rem in the secondary colour, one zero line.
-  for (const [, key, block] of page.matchAll(/<figure class="strip reading" data-reading="([^"]+)">([\s\S]*?)<\/figure>/g)) {
-    assert.match(block, /<h3 class="chart-title reading-label">[^<]+<\/h3>/, `${key} has no h3 title`);
-    assert.match(block, /<p class="strip-caption">[^<]{10,80}<\/p>/, `${key} has no one-line caption`);
+  assert.match(allCss, /\.strip-plot \.plot-label \{[^}]*fill: var\(--bone-dim\)/);
+  const history = readFileSync(new URL('../src/observatory/instruments/history.js', import.meta.url), 'utf8');
+  assert.equal((history.match(/'plot-zero'/g) ?? []).length, 4, 'one zero line per strip');
+  // 06 · Verify: the commands as the chrome's code blocks with Copy; the posture rows under the record label; no badge.
+  const verify = section('verify');
+  assert.equal((verify.match(/<figure class="nw-code nw-copyable" data-lang="sh">/g) ?? []).length, 5);
+  assert.equal((verify.match(/aria-label="Copy this block">Copy<\/button>/g) ?? []).length, 5);
+  assert.match(verify, /<h3 class="nw-label">Security posture · Record, not live<\/h3>/);
+  assert.ok(!/badge|shield/i.test(verify), 'no badge');
+  for (const [, body] of verify.matchAll(/<div class="posture-row"[^>]*>([\s\S]*?)<\/div>/g)) {
+    if (/not yet recorded/.test(body)) continue;
+    assert.match(body, /<span class="posture-source nw-mono">/, 'a recorded value names its source document');
+    assert.match(body, /as of \d{4}-\d{2}-\d{2}/, 'a recorded value carries its date');
   }
-  assert.match(rule('.strip-plot .plot-label', allCss), /font-family: var\(--font-mono\)/);
-  assert.match(rule('.strip-plot .plot-label', allCss), /font-size: var\(--t-mono\)/);
-  assert.match(rule('.strip-plot .plot-label', allCss), /fill: var\(--text-dim\)/);
-  const strips = readFileSync(new URL('../src/observatory/instruments/history.js', import.meta.url), 'utf8');
-  assert.equal((strips.match(/'plot-zero'/g) ?? []).length, 4, 'one zero line per strip');
 });
 
-test('fonts: Source Serif 4 (optical size 60) for display and figures, Inter for the interface, JetBrains Mono for sources — self-hosted, swapped, metric-matched; nothing else ships', () => {
+test('fonts: the chrome’s two faces only — Instrument Sans and Martian Mono, self-hosted and preloaded; this page declares no face of its own', () => {
   const fonts = readdirSync(join(out, 'fonts')).sort();
-  assert.deepEqual(fonts, ['instrument-sans-latin-wght-normal.woff2', 'inter-latin-wght-normal.woff2', 'jetbrains-mono-latin-400-normal.woff2', 'martian-mono-latin-wght-normal.woff2', 'source-serif-4-latin-opsz-normal.woff2']);
-  assert.ok(!/Instrument Serif|instrument-serif|IBM Plex|ibm-plex/i.test(css + page), 'Instrument Serif and IBM Plex are gone');
-  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-  for (const gone of ['@fontsource/instrument-serif', '@fontsource/ibm-plex-mono', '@fontsource/ibm-plex-sans']) assert.ok(!(gone in (pkg.devDependencies ?? {})), `${gone} is still installed`);
-  const faces = [...css.matchAll(/@font-face\s*\{([^}]*)\}/g)].map((m) => m[1]);
-  for (const family of ['Source Serif 4', 'Inter', 'JetBrains Mono']) {
-    const face = faces.find((f) => f.includes(`font-family: "${family}";`));
-    assert.ok(face && /font-display: swap/.test(face), `${family} is not self-hosted with font-display: swap`);
-    const fallback = faces.find((f) => f.includes(`font-family: "${family} Fallback";`));
-    assert.ok(fallback && /size-adjust: [\d.]+%/.test(fallback) && /ascent-override/.test(fallback) && /descent-override/.test(fallback), `${family} has no metric-matched fallback`);
-  }
-  assert.match(css, /--font-serif: "Source Serif 4", "Source Serif 4 Fallback"/);
-  assert.match(css, /--font-sans: "Inter", "Inter Fallback"/);
-  assert.match(css, /--font-mono: "JetBrains Mono", "JetBrains Mono Fallback"/);
-  assert.match(rule('h1,\nh2'), /font-family: var\(--font-serif\)/);
-  assert.match(rule('h1,\nh2'), /font-variation-settings: "opsz" 60/);
-  assert.match(rule('h1,\nh2'), /font-weight: 500/);
-  assert.match(rule('.reading-value'), /font-family: var\(--font-serif\)/);
-  assert.match(rule('.reading-value'), /font-variation-settings: "opsz" 60/);
-  assert.match(rule('.reading-value'), /font-weight: 400/);
-  assert.match(rule('body'), /font: 400 var\(--t-body\) \/ 1\.6 var\(--font-sans\)/);
-  assert.match(rule('body'), /font-feature-settings: "cv11", "ss01"/);
-  assert.match(rule('.reading-label'), /font-weight: 500/);
-  assert.match(rule('.eyebrow'), /font-weight: 600/);
-  assert.match(css, /--measure: 62ch/);
-  // Mono only for sources, hashes, addresses and the river's axis.
-  for (const selector of ['.reading-prov', '.hash', '.agent-list', '.validator-list']) {
-    assert.match(rule(selector, allCss), /font-family: var\(--font-mono\)/, `${selector} is not mono`);
-  }
-  for (const selector of ['.reading-value', '.reading-label', '.eyebrow', '.btn', '.legend', '.constellation-tip']) {
-    assert.ok(!/var\(--font-mono\)/.test(rule(selector, allCss)), `${selector} is set in mono`);
-  }
-  assert.match(page, /<link rel="preload" href="fonts\/source-serif-4-latin-opsz-normal\.woff2" as="font" type="font\/woff2" crossorigin>/);
-  assert.match(page, /<link rel="preload" href="fonts\/inter-latin-wght-normal\.woff2" as="font" type="font\/woff2" crossorigin>/);
+  for (const file of ['instrument-sans-latin-wght-normal.woff2', 'martian-mono-latin-wght-normal.woff2']) assert.ok(fonts.includes(file), `${file} is not in dist/fonts`);
+  assert.match(page, /<link rel="preload" href="fonts\/instrument-sans-latin-wght-normal\.woff2" as="font" type="font\/woff2" crossorigin>/);
+  assert.match(page, /<link rel="preload" href="fonts\/martian-mono-latin-wght-normal\.woff2" as="font" type="font\/woff2" crossorigin>/);
+  assert.ok(!/source-serif|inter-latin|jetbrains/.test(page), 'the page preloads none of the old faces');
+  assert.ok(!/@font-face/.test(allCss), 'observatory.css declares no face: the chrome does');
+  assert.ok(!/Source Serif|Inter|JetBrains|Instrument Serif|IBM Plex/.test(allCss), 'no old family is named');
+  assert.ok(!/fonts\.googleapis|cdn\./.test(page), 'no third-party font');
+  assert.equal((chromeCss.match(/@font-face/g) ?? []).length, 2);
+  for (const family of ['Instrument Sans', 'Martian Mono']) assert.ok(chromeCss.includes(`font-family: "${family}"`), `${family} is self-hosted by the chrome`);
+  assert.match(chromeCss, /font-display: swap/);
+  // Mono is for figures, labels, receipts, hashes and addresses; the sans for words.
+  assert.equal(tokens['--font-mono'], '"Martian Mono", ui-monospace, monospace');
+  assert.equal(tokens['--font-sans'], '"Instrument Sans", system-ui, sans-serif');
+  assert.match(css, /--font-serif: var\(--font-sans\);/, 'the instruments’ serif name resolves to the sans');
 });
 
-test('figures: real tabular lining figures — the digit-cell workaround is gone', () => {
-  assert.match(rule('.reading-value'), /font-variant-numeric: tabular-nums lining-nums/);
+test('figures: tabular lining figures from the token; a live figure fills through the chrome’s setFigure path and never ships a digit', () => {
+  assert.match(chromeCss, /\.nw-figure \{ font: var\(--figure-m\); font-variant-numeric: tabular-nums lining-nums;/);
+  assert.match(css, /\.mono,\ncode,\npre \{[^}]*font-variant-numeric: tabular-nums lining-nums/);
+  for (const [, inner] of page.matchAll(/<span class="reading-value[^"]*"[^>]*>([\s\S]*?)<\/span>/g)) assert.ok(!/\d/.test(inner), `a figure ships: ${inner}`);
   assert.ok(!/\.dc\b|dcells/.test(allCss), 'no digit-cell rule is left');
   for (const [file, src] of clientSources()) assert.ok(!/setDigits|dcells/.test(src), `${file} still builds digit cells`);
-  // Numeric interface text is tabular too.
-  for (const selector of ['.sb-pill', '.live-line', '.mono,\ncode,\npre']) {
-    assert.match(rule(selector), /font-variant-numeric: tabular-nums/, `${selector} is not tabular`);
-  }
+  // The readout fills the figure, the stub's state and the receipt's lines; an error is "unavailable" plus the reason, never the old value.
+  const readout = readFileSync(new URL('../src/observatory/readout.js', import.meta.url), 'utf8');
+  assert.match(readout, /markState\(target, live \? 'live' : 'record'\)/);
+  assert.match(readout, /setAttribute\('data-state', state\)/);
+  assert.match(readout, /\[data-fetched\]/);
+  assert.match(readout, /\[data-raw\]/);
+  assert.match(readout, /textContent = 'unavailable'/);
+  assert.match(bundle, /raw (?:↗|\\u2197)/);
 });
 
-test('type scale: nine sizes in rem, and every font size in the stylesheet is one of them', () => {
-  const scale = {
-    display: ['4.5rem', '1'], 'figure-xl': ['4rem', '1'], h2: ['2.25rem', '1.15'], 'figure-l': ['2.5rem', '1'],
-    h3: ['1.25rem', '1.3'], body: ['1.0625rem', '1.6'], label: ['0.875rem', '1.4'], eyebrow: ['0.75rem', '1.2'], mono: ['0.75rem', '1.5'],
-  };
-  for (const [name, [size, line]] of Object.entries(scale)) {
-    assert.match(css, new RegExp(`--t-${name}: ${size.replace('.', '\\.')};`), `--t-${name} is not ${size}`);
-    assert.match(css, new RegExp(`--lh-${name}: ${line.replace('.', '\\.')};`), `--lh-${name} is not ${line}`);
-  }
-  assert.match(rule('.hero h1'), /font-size: var\(--t-display\)/);
-  assert.match(rule('.hero h1'), /letter-spacing: -0\.02em/);
-  assert.match(rule('.hero-figure .reading-value'), /font-size: var\(--t-figure-xl\)/);
-  assert.match(rule('h2'), /font-size: var\(--t-h2\)/);
-  assert.match(rule('h2'), /letter-spacing: -0\.01em/);
-  assert.match(rule('.reading-value'), /font-size: var\(--t-figure-l\)/);
-  assert.match(rule('h3'), /font-size: var\(--t-h3\)/);
-  assert.match(rule('.reading-label'), /font-size: var\(--t-label\)/);
-  assert.match(rule('.eyebrow'), /font-size: var\(--t-eyebrow\)/);
-  assert.match(rule('.eyebrow'), /letter-spacing: 0\.12em/);
-  assert.match(rule('.eyebrow'), /text-transform: uppercase/);
-  // Only the scale: presenter mode, which sets figures for a room, is the one stated exception.
+test('type scale: every font size in this page’s stylesheets is a token from tokens.css (presenter’s 160 px room figure is the stated exception)', () => {
+  const faces = Object.keys(tokens).filter((name) => /^--(display|h2|h3|body|small|figure-(xl|l|m)|label|mono)$/.test(name));
+  assert.equal(faces.length, 10, 'the closed scale has ten faces');
   for (const [selector, body] of blocks(allCss)) {
-    if (selector.startsWith('html[data-present]') || selector.startsWith(':root') || selector.startsWith('@font-face')) continue;
-    for (const [, value] of body.matchAll(/font-size:\s*([^;]+);/g)) {
-      assert.match(value, /var\(--t-[a-z0-9-]+\)|^inherit$/, `${selector} sets font-size: ${value}, off the scale`);
-    }
+    if (selector.startsWith('html[data-present]') || selector.startsWith(':root')) continue;
+    for (const [, value] of body.matchAll(/font-size:\s*([^;]+);/g)) assert.match(value, /^inherit$/, `${selector} sets font-size: ${value}, off the scale`);
     for (const [, value] of body.matchAll(/(?:^|;)\s*font:\s*([^;]+);/g)) {
-      assert.match(value, /var\(--t-[a-z0-9-]+\)/, `${selector} sets font: ${value}, off the scale`);
+      const name = value.match(/^var\((--[a-z0-9-]+)\)$/)?.[1];
+      assert.ok(name && faces.includes(name), `${selector} sets font: ${value}, off the scale`);
     }
   }
+  assert.match(css, /html\[data-present\] \.section \.nw-figure, html\[data-present\] \.hero \.nw-figure--xl \{ font: var\(--figure-xl\); font-size: 160px; \}/);
+  // The display, the labels and the figures take their faces from the chrome's classes.
+  assert.match(page, /<h1 class="nw-display" id="hero-h">/);
+  assert.match(chromeCss, /\.nw-display \{ font: var\(--display\)/);
+  assert.match(chromeCss, /\.nw-figure--xl \{ font: var\(--figure-xl\)/);
+  assert.match(chromeCss, /\.nw-label \{[^}]*font: var\(--label\)/);
 });
 
-test('colour: the plate, surface, hairline, text and secondary as briefed; secondary text passes WCAG AA on both themes; one teal for live, amber for disputes only; no gradients, glow or glass', () => {
-  const [dark, light] = themes();
-  assert.equal(dark['--bg'], '#0b0e12');
-  assert.equal(dark['--surface'], '#11151b');
-  assert.equal(dark['--border'], '#1f252d');
-  assert.equal(dark['--text'], '#e8eaed');
-  assert.equal(dark['--text-dim'], '#a3acb7');
-  assert.equal(light['--bg'], '#f7f6f2');
-  for (const [name, scheme] of [['dark', dark], ['light', light]]) {
-    for (const ground of ['--bg', '--surface']) {
-      for (const ink of ['--text', '--text-dim']) {
-        const ratio = contrast(scheme[ink], scheme[ground]);
-        assert.ok(ratio >= 4.5, `${name}: ${ink} on ${ground} is ${ratio.toFixed(2)}:1, under AA`);
-      }
-    }
-    assert.ok(contrast(scheme['--accent'], scheme['--bg']) >= 4.5, `${name}: the accent is too faint to read as text`);
-    assert.ok(contrast(scheme['--disputed'], scheme['--bg']) >= 4.5, `${name}: amber is too faint to read as text`);
-    // The field's cells are marks, not text: each state's ink stands 3:1 off the plate (WCAG 1.4.11).
-    for (const ink of ['--idle', '--accent', '--disputed', '--slash']) {
-      assert.ok(contrast(scheme[ink], scheme['--bg']) >= 3, `${name}: ${ink} is too faint for a cell`);
-    }
-    assert.equal(scheme['--live'], 'var(--accent)');
-    assert.equal(scheme['--active'], 'var(--accent)');
+test('colour: one theme from the tokens — no hex in this page’s stylesheets, every pair at WCAG AA, filament only on what is live, vermilion and ice with their words, no gradient, no shadow but the glow', () => {
+  assert.ok(!/#[0-9a-f]{3,8}\b/i.test(allCss.replace(/\/\*[\s\S]*?\*\//g, '')), 'observatory.css names a colour that is not a token');
+  assert.ok(!/prefers-color-scheme/.test(allCss), 'one theme');
+  const used = new Set([...allCss.matchAll(/var\((--[a-z0-9-]+)\)/g)].map((m) => m[1]));
+  const aliases = new Set([...(css.match(/:root \{([^}]*)\}/)?.[1] ?? '').matchAll(/(--[a-z0-9-]+):/g)].map((m) => m[1]));
+  for (const name of used) assert.ok(name in tokens || aliases.has(name), `${name} is neither a token nor one of the instruments' aliases`);
+  for (const name of aliases) {
+    const value = css.match(new RegExp(`${name}: var\\((--[a-z0-9-]+)\\);`))?.[1];
+    assert.ok(value && value in tokens, `alias ${name} does not resolve to a token`);
   }
-  for (const [selector, body] of blocks(allCss)) {
-    if (/var\(--disputed\)/.test(body)) assert.match(selector, /disput/, `amber used outside a dispute: ${selector}`);
-    if (/var\(--slash\)/.test(body)) assert.match(selector, /slash/, `red used outside a slash: ${selector}`);
+  // Contrast, computed from tokens.css.
+  for (const ground of ['--pine-0', '--pine-1', '--pine-2']) {
+    for (const ink of ['--bone', '--bone-dim']) assert.ok(contrast(tokens[ink], tokens[ground]) >= 4.5, `${ink} on ${ground} is under AA`);
   }
-  // Red is for slashes only in the client too: the one ink name `slash` is drawn only for a slashed cell.
-  for (const [file, src] of clientSources()) {
-    for (const m of src.matchAll(/color\('slash'\)|'slash'/g)) assert.match(file, /agent-field|context/, `${file} uses the slash red: ${m[0]}`);
+  for (const ground of ['--pine-0', '--pine-1']) {
+    assert.ok(contrast(tokens['--sage'], tokens[ground]) >= 3, `sage on ${ground} is under 3:1`);
+    for (const ink of ['--filament', '--vermilion', '--ice', '--clay']) assert.ok(contrast(tokens[ink], tokens[ground]) >= 4.5, `${ink} on ${ground} is under AA as text`);
   }
-  assert.ok(!/gradient\(|box-shadow|text-shadow|backdrop-filter|blur\(/.test(allCss), 'no gradients, glow or glass');
-  for (const [file, src] of clientSources()) {
-    assert.ok(!/shadowBlur|createLinearGradient|createRadialGradient/.test(src), `${file} draws a glow or gradient`);
+  // State colours sit only where their word does: vermilion on disputes, ice on slashes, clay on operator-run.
+  for (const [selector, body] of blocks(css)) {
+    if (selector === ':root') continue; // the instruments' aliases, each a token
+    if (/var\(--vermilion\)/.test(body)) assert.match(selector, /vermilion|disput|failed/, `vermilion outside a dispute: ${selector}`);
+    if (/var\(--ice\)/.test(body)) assert.match(selector, /ice|slash/, `ice outside a slash: ${selector}`);
+    if (/var\(--clay\)/.test(body)) assert.match(selector, /ring|hero-sub/, `clay outside operator-run: ${selector}`);
   }
+  assert.match(page, /class="nw-reading nw-reading--stack is-loading is-vermilion" data-reading="hourDisputes"[\s\S]*?<span class="nw-label reading-label">Disputes opened/);
+  assert.match(page, /class="nw-reading nw-reading--stack is-loading is-ice" data-reading="hourSlashes"[\s\S]*?<span class="nw-label reading-label">Slashes/);
+  // No gradient, no shadow but the glow token, no blur, no glass.
+  assert.ok(!/gradient\(|text-shadow|backdrop-filter|blur\(/.test(allCss), 'no gradient, blur or glass');
+  for (const [, value] of allCss.matchAll(/box-shadow:\s*([^;]+);/g)) assert.equal(value.trim(), 'var(--glow)', `a shadow that is not the glow: ${value}`);
+  for (const [file, src] of clientSources()) assert.ok(!/createLinearGradient|createRadialGradient/.test(src), `${file} draws a gradient`);
+  // Borders: none on this page but the three the brief allows, which the chrome draws.
+  assert.ok(!/border(?:-[a-z]+)?:\s*(?!0|none)/.test(allCss.replace(/border-radius/g, '').replace(/--border:/g, '')), 'observatory.css draws a border');
 });
 
-test('components: one button, one disclosure, one tooltip, one focus ring; 40 px hit targets on touch', () => {
-  assert.match(rule(':focus-visible'), /outline: 2px solid var\(--accent\)/);
-  assert.match(rule(':focus-visible'), /outline-offset: 2px/);
-  assert.match(rule('.disclosure > summary'), /min-height: 32px/);
+test('components: the chrome’s controls only — every button is a chrome control, every disclosure the one style, the focus ring and the tooltip are the chrome’s', () => {
   const buttons = [...page.matchAll(/<button[^>]*class="([^"]*)"/g)].map((m) => m[1]);
-  assert.ok(buttons.every((c) => /\bbtn\b|\bcopy\b/.test(c)), `a button outside the one style: ${buttons.join(' | ')}`);
-  assert.match(rule('.copy'), /^/); // copy controls share .btn in markup
+  assert.ok(buttons.length >= 10);
+  assert.ok(buttons.every((c) => /\bnw-(?:stub|sources|menu|quiet|copy|button)\b/.test(c)), `a button outside the chrome: ${buttons.filter((c) => !/\bnw-/.test(c)).join(' | ')}`);
+  assert.ok(!/\bbtn\b/.test(page), 'the old button class is gone');
   for (const [, cls] of page.matchAll(/<details class="([^"]*)"/g)) assert.match(cls, /\bdisclosure\b/, `a disclosure outside the one style: ${cls}`);
-  // The tooltip: the constellation's tip and a figure's source on hover are the same component.
-  const tip = rule('.tooltip');
-  for (const decl of ['background: var(--surface)', 'border: 1px solid var(--border)', 'padding: var(--space-2) var(--space-3)']) {
-    assert.ok(tip.includes(decl), `.tooltip lacks ${decl}`);
-  }
-  const hover = css.match(/html:not\(\[data-sources\]\) \[data-reading\]:hover > \.reading-prov,\s*html:not\(\[data-sources\]\) \[data-reading\]:focus-within > \.reading-prov \{([^}]*)\}/)?.[1] ?? '';
-  for (const decl of ['background: var(--surface)', 'border: 1px solid var(--border)', 'padding: var(--space-2) var(--space-3)']) {
-    assert.ok(hover.includes(decl), `the source tooltip lacks ${decl}`);
-  }
-  const coarse = css.slice(css.indexOf('@media (pointer: coarse)'));
-  assert.match(coarse, /min-height: 40px/);
+  assert.match(chromeCss, /:focus-visible \{ outline: 1px solid var\(--filament\); outline-offset: 4px; \}/);
+  assert.ok(!/:focus-visible/.test(css), 'this page draws no focus ring of its own');
+  // The field's and the graph's tips are tags.
+  assert.match(page, /<div class="tooltip field-tip nw-tag" role="tooltip" hidden>/);
+  assert.match(page, /<div class="tooltip constellation-tip nw-tag" role="tooltip" hidden>/);
+  assert.match(css, /\.tooltip \{ position: absolute; pointer-events: none;/);
+  // Copy is the chrome's: "Copy" on hover, "Copied" in filament for 1.2 s.
+  assert.ok(bundle.includes("'Copied'") || bundle.includes('"Copied"'));
+  assert.match(chromeCss, /\.nw-copy\.is-copied \{ color: var\(--filament\)/);
+  // Hit targets stay 40 px on touch (requested of the chrome in chrome/requests/phase3.css; carried here meanwhile).
+  assert.match(css.slice(css.indexOf('@media (pointer: coarse)')), /\.nw-stub, \.nw-quiet, \.nw-copy, \.nw-sources, \.nw-menu \{ min-height: 40px; \}/);
+  assert.match(readFileSync(new URL('../src/chrome/requests/phase3.css', import.meta.url), 'utf8'), /pointer: coarse/);
 });
 
-test('provenance: hidden by default; Sources shows every line in place and is remembered; hovering a figure shows its source as a tooltip', () => {
+test('provenance: every Reading wears a stub that tears to a receipt — request, fetched · block, raw ↗ — Sources tears them all and is remembered; scripts off is a Band with the build time', () => {
   assert.match(page, /<script>try\{if\(localStorage\.getItem\("observatory:sources"\)==="1"\)document\.documentElement\.setAttribute\("data-sources",""\)\}catch\(e\)\{\}<\/script>/);
-  assert.match(rule('.reading-prov'), /display: none/);
-  assert.match(css, /html\[data-sources\] \.reading-prov \{\s*display: block;\s*position: static;/);
-  assert.ok((page.match(/class="reading-prov"/g) ?? []).length >= 18, 'every figure still carries its line');
   assert.ok(bundle.includes('observatory:sources'), 'the bundle remembers the choice');
+  const readings = [...page.matchAll(/<div class="nw-reading[^"]*" data-reading="([^"]+)"[\s\S]*?<div class="nw-receipt" data-receipt>([\s\S]*?)<\/div>\s*<\/div>/g)];
+  assert.ok(readings.length >= 20, `every Reading carries a receipt, found ${readings.length}`);
+  for (const [, key, receipt] of readings) {
+    assert.match(receipt, /^<div data-request>(?:GET api\.scalarnet\.io\/v1\/[^<]+|WS rpc\.scalarnet\.io\/[a-zA-Z_]+)<\/div><div data-fetched>fetched — · —<\/div><div><span data-raw>raw —<\/span>$/, `${key}: the receipt is not the request, the fetch and the raw bytes`);
+  }
+  for (const [, key] of readings) {
+    const sourceOf = Object.entries(SOURCES).find(([, s]) => s.readings?.includes(key))[1];
+    if (sourceOf.kind === 'api') assert.ok(page.includes(`GET ${new URL(sourceOf.path, API_ORIGIN).href.replace('https://', '').replace(/&/g, '&amp;')}`), `${key} names an endpoint other than its source`);
+  }
+  assert.equal((page.match(/class="nw-receipt-line" data-receipt-line/g) ?? []).length, readings.length + 4, 'one inline receipt line per Reading and per strip');
+  assert.match(chromeCss, /html\[data-sources\] \.nw-receipt-line \{ display: block; \}/);
+  assert.match(chromeCss, /\.nw-reading\.is-torn \.nw-receipt, html\[data-sources\] \.nw-reading:not\(\[data-sealed="true"\]\) \.nw-receipt \{ display: block;/);
+  // The records tear nothing: the posture file is sealed and says so; no Reading is drawn from it.
+  assert.match(section('verify'), /<div class="posture-record" data-record="true">/);
+  // Scripts off: the Band, with the build's time and block from chain-facts.json; no figure in a value slot.
+  const band = page.match(/<noscript><div class="nw-frame"><div class="nw-band" role="status">([\s\S]*?)<\/div><\/div><\/noscript>/)?.[1] ?? '';
+  const builtAt = facts.provenance.fetchedAt.replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
+  assert.equal(band.replace(/<span class="nw-receipt-line">[\s\S]*$/, ''), `Scripts are off. Every figure on this page is from the build, ${builtAt}, and carries its source. Nothing will move.`);
+  assert.ok(band.includes(`block ${facts.provenance.readAtBlock.toLocaleString('en-US')}`), 'the band’s receipt names the build’s block');
+  assert.ok(page.indexOf('<noscript>') < page.indexOf('<main>'));
 });
 
-test('motion: figures tween, sections fade up 12 px once by IntersectionObserver, the new block slides into the river; nothing loops; reduced motion turns it off', () => {
-  assert.match(css, /html\.reveal-ready \[data-reveal\]:not\(\.is-in\) \{\s*opacity: 0;\s*transform: translateY\(12px\);/);
-  assert.ok(!/@keyframes|animation:/.test(allCss), 'no keyframe animation at all');
+test('motion: attack and cool on colour, opacity, translateY and shadow only; the reveal once by IntersectionObserver; nothing loops; reduced motion honoured', () => {
+  assert.ok(!/@keyframes|animation:/.test(allCss), 'this page declares no keyframe animation: the chrome’s loading leader is the one loop');
+  for (const [selector, body] of blocks(allCss)) {
+    for (const [, value] of body.matchAll(/transition:\s*([^;]+);/g)) {
+      for (const part of value.split(',')) assert.match(part.trim(), /^(?:none|opacity|transform|color|background(?:-color)?|box-shadow)\b/, `${selector} transitions ${part.trim()}`);
+    }
+    for (const [, value] of body.matchAll(/transform:\s*([^;]+);/g)) assert.match(value, /^(?:none|translateY\()/, `${selector} transforms with ${value}`);
+  }
+  assert.match(css, /html\.reveal-ready \[data-reveal\]:not\(\.is-in\) \{ opacity: 0; transform: translateY\(12px\); \}/);
+  assert.match(css, /\[data-reveal\] \{ transition: opacity var\(--t-ui\) var\(--ease-ui\), transform var\(--t-ui\) var\(--ease-ui\); \}/);
   assert.ok(bundle.includes('IntersectionObserver'));
   const reduced = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce)'));
-  assert.match(reduced, /\[data-reveal\] \{\s*opacity: 1;\s*transform: none;\s*transition: none;/);
+  assert.match(reduced, /\[data-reveal\] \{ opacity: 1; transform: none; transition: none; \}/);
+  // The chrome's warm/cool: the timings are tokens, honoured under reduced motion.
+  assert.match(chromeCss, /var\(--t-attack\)/);
+  assert.match(chromeCss, /var\(--t-cool\)/);
+  assert.match(chromeCss.slice(chromeCss.indexOf('@media (prefers-reduced-motion: reduce)')), /transition: none/);
+  // The spine and the lamp move on the head bus only; the hidden tab adds nothing.
+  const spine = readFileSync(new URL('../src/observatory/spine.js', import.meta.url), 'utf8');
+  assert.match(spine, /doc\.hidden\) return/);
+  const main = readFileSync(new URL('../src/observatory/main.js', import.meta.url), 'utf8');
+  assert.match(main, /ctx\.bus\.on\('head', \(\{ number \}\) => handle\.update/);
+  assert.match(main, /ctx\.bus\.on\('socket'/);
+  assert.equal((main.match(/setInterval\(/g) ?? []).length, 1, 'main.js holds the one interval, for the river’s stall check');
   const pulse = readFileSync(new URL('../src/observatory/instruments/pulse.js', import.meta.url), 'utf8');
   assert.match(pulse, /animateArrival/);
 });
 
-test('presenter mode: the Present button and P, the hero first, then the six sections, figures for a room', () => {
+test('presenter mode: the Present button and P, the first screen then the six sections, figures at 160 px, the Spine and receipts hidden', () => {
   assert.ok(!page.includes('data-present=""') && !/present=1/.test(page), 'nothing in the page turns it on from the URL');
   const screens = [...page.matchAll(/<(header|section)(?: id="([a-z]+)")?[^>]*data-present-screen/g)].map((m) => m[2] ?? 'hero');
   assert.deepEqual(screens, ['hero', 'chain', 'economy', 'validators', 'history', 'upgrades', 'verify']);
-  for (const selector of ['html[data-present] .site-nav', 'html[data-present] .reading-prov', 'html[data-present] footer', 'html[data-present] [data-present-screen][data-present-active]', 'html[data-present] .river-strip']) {
+  for (const selector of ['html[data-present] .nw-nav', 'html[data-present] .nw-receipt-line', 'html[data-present] .nw-foot', 'html[data-present] [data-present-screen][data-present-active]', 'html[data-present] .river-strip']) {
     assert.ok(css.includes(selector), `observatory.css has no rule for ${selector}`);
   }
-  assert.match(css, /html\[data-present\] \.section \.reading-value \{\s*font-size: clamp\(3rem, 8\.5vw, 160px\)/);
+  assert.match(css, /font-size: 160px/);
+  const presenter = readFileSync(new URL('../src/observatory/presenter.js', import.meta.url), 'utf8');
+  assert.match(presenter, /querySelector\('\.nw-present, \.sb-present'\)/);
   for (const key of ['Escape', 'aria-pressed']) assert.ok(bundle.includes(key), `the bundle does not handle ${key}`);
   assert.ok(!/<script/i.test(index), 'index.html stays script-free');
 });
 
-test('identity: the wordmark with the mark in the top bar and the footer; no favicon; the landing page untouched', () => {
-  assert.match(statusbarHtml(), /<a class="wordmark" href="observatory"><svg class="mark"/);
-  assert.match(page.slice(page.indexOf('<footer')), /<a class="wordmark" href="observatory"><svg class="mark"/);
+test('identity: the chrome’s wordmark in the bar, the chrome’s footer with the build’s facts and the disclaimer; no favicon; no second wordmark', () => {
+  assert.match(barHtml(), /<a class="nw-wordmark" href="\.\/">Scalar Commons<\/a>/);
+  assert.equal((page.match(/Scalar Commons<\/a>/g) ?? []).length, 1, 'one wordmark');
+  const footer = page.match(/<footer class="nw-foot" data-footer>[\s\S]*?<\/footer>/)?.[0] ?? '';
+  assert.ok(footer, 'the footer is the chrome’s');
+  assert.match(footer, /<span class="nw-label">Chain<\/span>[\s\S]*<span class="nw-label">Build<\/span>[\s\S]*<span class="nw-label">Govern<\/span>/);
+  const short = `${facts.provenance.genesisHash.slice(0, 6)}…${facts.provenance.genesisHash.slice(-4)}`;
+  assert.ok(footer.includes(`<span>genesis ${short}</span>`), 'the genesis hash comes from chain-facts.json');
+  assert.ok(footer.includes(`<span>spec ${facts.provenance.specVersion} · node ${facts.provenance.nodeVersion ?? '—'}</span>`), 'spec and node come from the record, a missing node version printed as a dash');
+  assert.ok(footer.includes(`against block ${facts.provenance.readAtBlock.toLocaleString('en-US')}`), 'the build’s block');
+  assert.match(footer, /<p class="nw-foot-line">Testnet — the token has no value and the chain may be reset\.<\/p>/);
   assert.ok(!/rel="icon"/.test(page) && !/rel="icon"/.test(index));
   assert.ok(!readdirSync(out).includes('favicon.svg'));
-  const footer = page.slice(page.indexOf('<footer'));
-  assert.match(footer, /class="merge" data-reading="lastMerge"/);
-  assert.match(footer, /<details class="disclosure howto">/);
+  assert.ok(!/class="merge"|howto|wordmark-text|<svg class="mark"/.test(page), 'the old footer is gone');
 });

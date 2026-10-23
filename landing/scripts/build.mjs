@@ -52,8 +52,8 @@ const posture = readJson('../public/posture.json');
 const status = readJson('../public/status.json');
 // The stylesheet ships minified, inlined in the page for first paint and as a
 // file for reading; the source in src/ stays the readable copy.
-const css = (await transform(observatoryCss(), { loader: 'css', minify: true })).code.trim();
-writeFileSync(join(outDir, 'observatory.html'), renderObservatory({ history, posture, status, css }));
+const css = (await transform(`${chromeCss()}\n${observatoryCss()}`, { loader: 'css', minify: true })).code.trim();
+writeFileSync(join(outDir, 'observatory.html'), renderObservatory({ history, posture, status, css, facts }));
 writeFileSync(join(outDir, 'observatory.css'), css);
 copyFileSync(here('../runtime-history.json'), join(outDir, 'runtime-history.json'));
 copyFileSync(here('../public/posture.json'), join(outDir, 'posture.json'));

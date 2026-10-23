@@ -1,0 +1,8 @@
+/* Request from Phase 3 (site: observatory) — to merge into chrome.css by the main thread.
+   Why: the brief's components row asks for 40 px hit targets on touch, and the
+   observatory's old stylesheet held that rule; chrome.css has no coarse-pointer
+   rule yet, so the observatory carries this copy in observatory.css until the
+   chrome does. */
+@media (pointer: coarse) {
+  .nw-stub, .nw-quiet, .nw-copy, .nw-sources, .nw-menu { min-height: 40px; }
+}

@@ -58,7 +58,7 @@ function typing(target) {
 
 export function init(doc, ctx, { setTimer = setTimeout, clearTimer = clearTimeout } = {}) {
   const html = doc.documentElement;
-  const button = doc.querySelector('.sb-present');
+  const button = doc.querySelector('.nw-present, .sb-present');
   const screens = [...doc.querySelectorAll('[data-present-screen]')];
   if (screens.length === 0) return null;
 
