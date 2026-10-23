@@ -229,8 +229,10 @@ export function createExplorerServer(options: ExplorerServerOptions): Server {
   }
 
   /** Resolves the search field to the page it names, or null when nothing matches. */
-  async function resolveSearch(query: string): Promise<string | null> {
-    if (query === '') return null;
+  async function resolveSearch(raw: string): Promise<string | null> {
+    if (raw === '') return null;
+    // The explorer prints block numbers and extrinsic ids with separators ("1,167,523-0"); a pasted copy resolves too.
+    const query = /^\d{1,3}(?:,\d{3})+(?:-\d+)?$/.test(raw) ? raw.replace(/,/g, '') : raw;
     const ref = parseBlockRef(query);
     if (ref?.kind === 'number') return blockPath(ref);
     const id = parseExtrinsicId(query);

@@ -60,7 +60,7 @@ function markRead(keys, ok) {
     const cell = $(`[data-read="${key}"]`);
     if (!cell) continue;
     if (!ok && cell.querySelector('.sc-skeleton')) cell.innerHTML = muted('Not read');
-    if (ok) cell.textContent = `Block ${M.int(S.head ?? cfg.builtAtBlock)}, ${M.clock(Date.now())}`;
+    if (ok) cell.textContent = `Block ${M.int(S.head ?? cfg.builtAtBlock)}, ${M.utc(Date.now())}`;
     else if (!cell.querySelector('.sc-badge')) cell.insertAdjacentHTML('beforeend', ` ${badge('Stale')}`);
   }
 }
@@ -298,7 +298,8 @@ async function readLists() {
       const open = $('[data-stat="agreements"] [data-value]')?.textContent ?? '';
       setStat('inDispute', `${M.int(d.agents)} or more`, escapeHtml(`From the ${M.int(escrows.value.items.length)} agreements the indexer could read${open ? ` of ${open} open` : ''}`));
     }
-    markRead(['escrows'], true);
+    // A cut-off list leaves the open-disputes count from the build's full scan, so the row keeps its build time.
+    if (!escrows.value.truncated) markRead(['escrows'], true);
   } else {
     stale(['disputes', 'inDispute']);
     markRead(['escrows'], false);

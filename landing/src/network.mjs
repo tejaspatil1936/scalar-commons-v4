@@ -71,7 +71,7 @@ export const SOURCES = [
   ['era', 'Era and next settlement', '<code>agents.eraNumber</code>, <code>emissions.eraStartBlock</code>, <code>emissions.EraDuration</code>'],
   ['agents', 'Registered agents', '<code>agents.counterForAgentStake</code>'],
   ['agentList', 'Operator-run, active, newest agents', 'Indexer <code>/v1/agents</code>'],
-  ['escrows', 'Open disputes, agents in dispute', 'Indexer <code>/v1/escrows</code>'],
+  ['escrows', 'Open disputes, agents in dispute', 'Indexer <code>/v1/escrows</code>; at build, every agreement in <code>escrow.agreements</code>'],
   ['agreements', 'Open agreements', '<code>escrow.activeAgreementCount</code>'],
   ['messages', 'Messages sent', 'Indexer <code>/v1/events?section=messages&amp;method=MessageSent</code>'],
   ['authors', 'Validators table, recent blocks', '<code>session.queuedKeys</code>, <code>babe.authorities</code>, <code>chain_getBlock</code>, <code>chain_getHeader</code>'],
@@ -168,9 +168,9 @@ ${liveTable(
   const settleCaption = `≈ ${utc(f.settleAt)}`;
   const paramRows = [
     ['Era length', `${int(f.eraBlocks)} blocks (${duration((f.eraBlocks * f.blockMs) / 1000)})`],
-    ['Era start', `<span data-param="eraStart">${blockLink(s.eraStartBlock)}</span>`],
+    ['Era started at block', `<span data-param="eraStart">${blockLink(s.eraStartBlock)}</span>`],
     ['Emission per era at launch', escapeHtml(cmn(c.emissions.initialEmissionsPerEra, dec, sym))],
-    ['Minimum emission per era', escapeHtml(cmn(c.emissions.floorEmissionPerEra, dec, sym))],
+    ['Minimum emission per era (when an agent qualifies)', escapeHtml(cmn(c.emissions.floorEmissionPerEra, dec, sym))],
     ['Target emission per agent', escapeHtml(cmn(c.emissions.targetEmissionPerAgent, dec, sym))],
     ['Minimum era volume to qualify', escapeHtml(cmn(c.emissions.minQualifyingVol, dec, sym))],
     ['Velocity bonus, at most', escapeHtml(`+${bps(c.emissions.velocityBonusBps)}`)],
@@ -182,7 +182,7 @@ ${liveTable(
       { key: 'issued', label: `Issued so far (${sym})`, value: `<span title="${escapeHtml(cmnExact(f.issued, dec, sym))}">${escapeHtml(cmnShort(f.issued, dec, ''))}</span>`, caption: `${f.pct} % of the cap` },
       { key: 'cap', label: `Supply cap (${sym})`, value: `<span title="${escapeHtml(cmnExact(f.cap, dec, sym))}">${escapeHtml(cmnShort(f.cap, dec, ''))}</span>`, caption: 'Fixed in the runtime' },
       { key: 'lastEmission', label: `Last era emission (${sym})`, value: pending(), caption: '' },
-      { key: 'settlement', label: 'Next settlement', value: int(f.nextSettlement), caption: escapeHtml(settleCaption) },
+      { key: 'settlement', label: 'Next settlement (block)', value: int(f.nextSettlement), caption: escapeHtml(settleCaption) },
     ],
     { id: 'emissions-stats', label: 'Emissions' },
   )}

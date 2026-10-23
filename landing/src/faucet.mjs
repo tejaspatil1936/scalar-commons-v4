@@ -73,7 +73,7 @@ export function renderFaucet({ facts, css, builtAt }) {
         <div class="fc-api-body">
           <p class="sc-small">Request test CMN for an address:</p>
           ${codeBlock(CURL.drip, { label: 'Copy the request command' })}
-          <p class="sc-small">Check an address's balance:</p>
+          <p class="sc-small">Check an address’s balance:</p>
           ${codeBlock(CURL.balance, { label: 'Copy the balance command' })}
         </div>
       </details>

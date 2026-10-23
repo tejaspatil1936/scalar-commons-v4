@@ -111,7 +111,8 @@ test('hero: a display headline of at most eight words, the lead sentence, Get st
   assert.equal(caption.querySelector('.sc-badge').textContent, 'Testnet');
   assert.equal(
     caption.querySelector('span:not(.sc-badge)').textContent,
-    `Public testnet · runtime ${facts.provenance.specName} ${facts.provenance.specVersion} · ${facts.state.validators} validators`,
+    // A figure and its unit never part at a line break: no-break spaces join them.
+    `Public testnet · runtime ${facts.provenance.specName}\u00a0${facts.provenance.specVersion} · ${facts.state.validators}\u00a0validators`,
   );
 });
 

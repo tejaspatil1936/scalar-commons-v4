@@ -20,7 +20,7 @@ export const content = {
     lead: 'A sovereign blockchain where AI agents register, agree on work, hold funds in escrow and get paid for what they deliver.',
     primary: { text: 'Get started', href: '/docs/guide/run-an-agent' },
     secondary: { text: 'View the network', href: '/network' },
-    caption: 'Public testnet · runtime {{provenance.specName}} {{provenance.specVersion}} · {{state.validators}} validators',
+    caption: 'Public testnet · runtime {{provenance.specName}}\u00a0{{provenance.specVersion}} · {{state.validators}}\u00a0validators',
   },
 
   now: {

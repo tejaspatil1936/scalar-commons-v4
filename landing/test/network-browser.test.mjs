@@ -66,6 +66,6 @@ test('activity in plain words, with the dispute badge, and a filter chip reads t
 
 test('the sources table says when each figure was last read', () => {
   for (const key of ['height', 'agentList', 'escrows', 'messages', 'activity', 'slashes']) {
-    assert.match(document.querySelector(`[data-read="${key}"]`).textContent, /^Block 100, \d{2}:\d{2}:\d{2} UTC$/, key);
+    assert.match(document.querySelector(`[data-read="${key}"]`).textContent, /^Block 100, \d{1,2} [A-Z][a-z]{2} \d{4}, \d{2}:\d{2} UTC$/, key);
   }
 });

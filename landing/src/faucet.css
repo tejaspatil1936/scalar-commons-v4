@@ -25,7 +25,7 @@
 .fc-api-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-3); margin-top: var(--s-4); }
 .fc-api-body .sc-small { color: var(--text-2); }
 /* A command wraps inside the space the copy button leaves it, rather than scrolling under the button on a phone. */
-.fc-api-body .sc-code pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.fc-api-body .sc-code pre { white-space: pre-wrap; overflow-wrap: normal; }
 
 /* Under 640 px the button goes under the field (and its error), full width. */
 @media (max-width: 640px) {

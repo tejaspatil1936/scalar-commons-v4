@@ -339,3 +339,22 @@
 .VPLocalSearchBox .shell input::-webkit-search-cancel-button { display: none; }
 /* the search sheet's key hints: a token fill, not the default translucent grey */
 .VPLocalSearchBox .shell .search-keyboard-shortcuts kbd { background: var(--bg-2); border-color: var(--border); }
+
+/* ── review fixes: the header's nav as the site's, callout links, tables, code ── */
+/* VitePress's scoped rules win over the plain selectors above; repeat the class. */
+.VPNavBar .VPNavBarMenuLink.VPNavBarMenuLink { color: var(--text-2); border-bottom: 2px solid transparent; }
+.VPNavBar .VPNavBarMenuLink.VPNavBarMenuLink:hover { color: var(--text); }
+.VPNavBar .VPNavBarMenuLink.VPNavBarMenuLink.active { color: var(--text); border-bottom-color: var(--accent); }
+/* Links and inline code inside a callout keep the link and text colours. */
+.vp-doc .custom-block.custom-block a { color: var(--accent); }
+.vp-doc .custom-block.custom-block :not(pre) > code { color: var(--text); }
+/* On a desktop a table is a table and its cells wrap; under 640 px it scrolls in its own box. */
+@media (min-width: 641px) {
+  .vp-doc table { display: table; }
+}
+.vp-doc td :not(pre) > code { overflow-wrap: anywhere; }
+/* The copy button owns the code block's top-right corner, visible at rest; no language label. */
+.vp-doc div[class*='language-'] > span.lang { display: none; }
+.vp-doc div[class*='language-'] > button.copy { opacity: 1; }
+/* Long outline entries wrap instead of ending in an ellipsis. */
+.VPDocOutlineItem .outline-link { white-space: normal; overflow: visible; text-overflow: clip; }

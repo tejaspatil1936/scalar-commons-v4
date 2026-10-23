@@ -61,6 +61,11 @@ a:hover, a:focus-visible { text-decoration: underline; }
 .sc-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); }
 .sc-between { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--s-3); }
 main { display: block; }
+/* A short page (the 404, the faucet) keeps its footer at the bottom of the window. */
+body:has(> main) { min-height: 100vh; display: flex; flex-direction: column; }
+body > main { flex: 1 0 auto; }
+/* The footer's own top margin is the last section's gap; the section adds none below. */
+main > .sc-section:last-child { padding-bottom: 0; }
 
 /* ── header ───────────────────────────────────────────────────────────────── */
 .sc-header { position: sticky; top: 0; z-index: 40; background: var(--bg); border-bottom: 1px solid var(--border); }
@@ -81,7 +86,7 @@ main { display: block; }
 .sc-menu > summary:hover { background: var(--bg-2); }
 .sc-menu-panel { position: absolute; left: 0; right: 0; top: 100%; background: var(--bg); border-bottom: 1px solid var(--border); box-shadow: var(--menu-shadow); padding: var(--s-2) var(--gutter) var(--s-4); }
 .sc-menu-panel a { display: flex; align-items: center; gap: var(--s-2); min-height: var(--s-7); font: var(--body); font-weight: 500; color: var(--text); border-bottom: 1px solid var(--border); }
-.sc-menu-panel a[aria-current="page"] { color: var(--accent); }
+.sc-menu-panel a[aria-current="page"] { color: var(--text); font-weight: 600; text-decoration-line: underline; text-decoration-color: var(--accent); text-decoration-thickness: 2px; text-underline-offset: var(--s-2); }
 .sc-menu .sc-icon-close { display: none; }
 .sc-menu[open] .sc-icon-close { display: inline-block; }
 .sc-menu[open] .sc-icon-menu { display: none; }

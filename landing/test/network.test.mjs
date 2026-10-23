@@ -71,7 +71,7 @@ test('validators, recent blocks, activity: the tables, filter chips and explorer
 });
 
 test('emissions and agents: the stats the brief lists, the era’s parameters as a two-column table, no curve', () => {
-  assert.deepEqual(statLabels('emissions-stats'), ['Issued so far (CMN)', 'Supply cap (CMN)', 'Last era emission (CMN)', 'Next settlement']);
+  assert.deepEqual(statLabels('emissions-stats'), ['Issued so far (CMN)', 'Supply cap (CMN)', 'Last era emission (CMN)', 'Next settlement (block)']);
   assert.deepEqual(statLabels('agents-stats'), ['Registered', 'Active (heartbeat within grace)', 'In dispute', 'Slashed last hour']);
   assert.match(main, /<table class="sc-table sc-kv">[\s\S]*Era length/);
   assert.deepEqual([...main.match(/id="agents-table"[\s\S]*?<\/thead>/)[0].matchAll(/<th[^>]*>([^<]+)</g)].map((m) => m[1]), ['Name or address', 'Registered at block', 'Operator-run', 'Status']);
