@@ -374,6 +374,15 @@ export const OPERATOR_NOTE =
 
 export const DEK = 'The public chain, read from a running node. Every figure names its source.';
 
+/**
+ * The presenter's comb Spine (round 1 §3): horizontal, 240 ticks across
+ * 1,600 px, newest at the right, shown only in presenter mode at the foot of
+ * every screen. Empty until the head bus fills it.
+ */
+function combFrame() {
+  return `<div class="present-comb" aria-hidden="true">${T.spine({ ticks: [], form: 'comb', ariaLabel: 'The last 240 blocks, newest at the right' }).replace('data-spine ', 'data-spine-comb ')}</div>`;
+}
+
 /** The margin Spine's frame: the browser fills its hundred ticks from the head bus. */
 function spineFrame() {
   return T.spine({ ticks: [], form: 'margin', ariaLabel: 'The last hundred blocks, newest on top' });
@@ -526,6 +535,7 @@ ${Object.keys(SECTIONS)
   .map((name) => renderSection(name, { history, posture, status }))
   .join('\n')}
 </main>
+${combFrame()}
 ${T.footer({ facts: footerFacts(chainFacts) })}
 ${T.palette()}
 <p class="sr-status nw-visually-hidden" role="status" aria-live="polite"></p>

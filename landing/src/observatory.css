@@ -170,6 +170,12 @@ html[data-present] [data-present-screen][data-present-active] { display: block; 
 /* The type scale is closed: the room's figures are the largest style, --figure-xl, never a size of their own. */
 html[data-present] .section .nw-figure, html[data-present] .hero .nw-figure { font: var(--figure-xl); }
 html[data-present] .hero-spine { display: none; }
+/* With the margin Spine gone the first screen is two columns, so the text does not fall into the Spine's 96 px. */
+html[data-present] .hero-grid { grid-template-columns: minmax(0, 5.5fr) minmax(0, 6.5fr); }
+/* The comb Spine: presenter only, at the foot of every screen; 240 ticks across 1,600 px, newest at the right, the oldest clipped on a narrower screen. */
+.present-comb { display: none; }
+html[data-present] .present-comb { display: flex; justify-content: flex-end; overflow: hidden; position: fixed; left: 0; right: 0; bottom: var(--s-5); z-index: 20; background: var(--paper); }
+html[data-present] .present-comb .nw-spine--comb { flex: none; }
 
 /* ── motion: nothing moves on its own except the chain (brief §4); no scroll reveal ── */
 @media (prefers-reduced-motion: reduce) {

@@ -14,8 +14,42 @@
 // reduced motion it appears in place.
 
 export const TICKS = 100;
+/** The presenter's comb: 240 ticks across 1,600 px, newest at the right. */
+export const COMB_TICKS = 240;
+
+/** The comb Spine, fed by the same bus: a tick appended at the right per block, final ticks marked, nothing else. */
+function initComb(doc, ctx) {
+  const comb = doc.querySelector('[data-spine-comb]');
+  if (!comb) return null;
+  let finalized = null;
+  const markFinal = () => {
+    if (finalized === null) return;
+    for (const li of comb.children) if (Number(li.dataset.block) <= finalized) li.classList.add('is-final');
+  };
+  const onHead = ({ number }) => {
+    if (!Number.isFinite(number) || doc.hidden) return;
+    const last = comb.lastElementChild;
+    if (last && Number(last.dataset.block) >= number) return;
+    const li = doc.createElement('li');
+    li.className = 'nw-spine-tick is-newest';
+    li.dataset.block = String(number);
+    last?.classList.remove('is-newest');
+    comb.append(li);
+    while (comb.children.length > COMB_TICKS) comb.firstElementChild.remove();
+    markFinal();
+  };
+  ctx.bus.on('head', onHead);
+  ctx.bus.on('poll', onHead);
+  ctx.bus.on('finalized', ({ number }) => {
+    if (!Number.isFinite(number)) return;
+    finalized = number;
+    markFinal();
+  });
+  return comb;
+}
 
 export function init(doc, ctx) {
+  initComb(doc, ctx);
   const spine = doc.querySelector('[data-spine]');
   if (!spine) return null;
   const { formatInteger } = ctx.format;

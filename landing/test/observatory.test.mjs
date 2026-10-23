@@ -794,6 +794,15 @@ test('presenter mode: the Present button and P, the first screen then the six se
   }
   assert.match(css, /html\[data-present\] \.section \.nw-figure, html\[data-present\] \.hero \.nw-figure \{ font: var\(--figure-xl\); \}/);
   assert.ok(!/160px/.test(css), 'no size outside the scale, not even in the room');
+  // The comb Spine (round 1 §3, round 2 §4): presenter only, 240 ticks across 1,600 px, newest at the right, fed by the same bus as the margin Spine.
+  assert.match(page, /<div class="present-comb" aria-hidden="true"><ol class="nw-spine nw-spine--comb" data-spine-comb role="img" aria-label="[^"]+"><\/ol><\/div>/);
+  assert.match(chromeCss, /\.nw-spine--comb \.nw-spine-tick \{ width: calc\(1600px \/ 240\);/);
+  const spineJs = readFileSync(new URL('../src/observatory/spine.js', import.meta.url), 'utf8');
+  assert.match(spineJs, /COMB_TICKS = 240/);
+  assert.match(spineJs, /comb\.append\(li\)/);
+  assert.match(css, /\.present-comb \{ display: none; \}/);
+  assert.match(css, /html\[data-present\] \.present-comb \{ display: flex;/);
+  assert.match(css, /html\[data-present\] \.hero-grid \{ grid-template-columns: minmax\(0, 5\.5fr\) minmax\(0, 6\.5fr\); \}/);
   const presenter = readFileSync(new URL('../src/observatory/presenter.js', import.meta.url), 'utf8');
   assert.match(presenter, /querySelector\('\.nw-present, \.sb-present'\)/);
   for (const key of ['Escape', 'aria-pressed']) assert.ok(bundle.includes(key), `the bundle does not handle ${key}`);
