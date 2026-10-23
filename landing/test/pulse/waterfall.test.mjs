@@ -23,6 +23,7 @@ import {
   ROWS_VISIBLE,
   TOKENS,
   columnsOf,
+  createWaterfall,
   geometry,
   glyphOf,
   glyphToken,
@@ -178,4 +179,48 @@ test('readTokens: every colour and the timings come off :root at draw time; noth
   assert.deepEqual(TOKENS, ['paper', 'paper-2', 'ink', 'ink-2', 'ink-3', 'rule', 'rule-2', 'font-mono'], 'the Ledger’s names, and no hue');
   for (const name of TOKENS.filter((n) => n !== 'font-mono')) assert.ok(declared(name), `--${name} is a token in tokens.css`);
   for (const gone of ['pine-0', 'bone', 'bone-dim', 'sage', 'leader', 'filament', 'vermilion', 'clay']) assert.ok(!TOKENS.includes(gone), `${gone} is gone`);
+});
+
+test('the Waterfall draws in the Ledger’s inks only: every glyph on a mock canvas is one of the tokens, the dispute is dashed 2/2 down the rows, and nothing glows', () => {
+  const tokensCss = readFileSync(new URL('../../src/chrome/tokens.css', import.meta.url), 'utf8');
+  const declared = (name) => tokensCss.match(new RegExp(`--${name}:\\s*([^;]+);`))?.[1].trim();
+  const win = {
+    document: { hidden: false, documentElement: {} },
+    matchMedia: () => ({ matches: false }),
+    getComputedStyle: () => ({ getPropertyValue: (name) => (name === '--t-shift' ? '240ms' : name === '--t-cool' ? '1800ms' : declared(name.slice(2)) ?? '') }),
+  };
+  const calls = [];
+  const context = {
+    fillStyle: '', globalAlpha: 1, font: '', textBaseline: '', textAlign: '', shadowBlur: 0, shadowColor: '',
+    clearRect() {},
+    fillRect(x, y, w, h) { calls.push({ style: this.fillStyle, x, y, w, h }); },
+    fillText() {},
+  };
+  const ctx = { motion: { reduced: () => true, tween: () => () => {} }, fitCanvas: () => () => ({ context, width: 600, height: 400 }) };
+  const wf = createWaterfall({}, { ctx, win });
+  wf.setAgents([{ address: A, id: 1 }, { address: B, id: 2, name: 'swarm-b' }, { address: C, id: 3 }]);
+  wf.setState('live');
+  wf.block(100);
+  for (const kind of ['agreement', 'message', 'settled', 'dispute', 'oracle', 'registered']) {
+    wf.event({ event: { blockNumber: 100 }, row: rowOf(kind), parties: { from: A, to: kind === 'oracle' || kind === 'registered' ? null : C }, key: kind === 'dispute' ? 'd1' : null });
+  }
+  wf.block(101);
+  calls.length = 0; // one whole draw: the field as it stands after block 102
+  wf.block(102);
+  const inks = new Set(['paper', 'paper-2', 'ink', 'ink-2', 'ink-3', 'rule', 'rule-2'].map(declared));
+  assert.ok(calls.length > 0, 'something was drawn');
+  for (const call of calls) assert.ok(inks.has(call.style), `a mark drawn in ${call.style}, not a Ledger token`);
+  assert.equal(context.shadowBlur, 0, 'no glow');
+  // The open dispute continues into the new rows as 2 px dashes at a 4 px pitch, in ink.
+  const dashes = calls.filter((c) => c.style === declared('ink') && c.h === 1 && c.w === DASH);
+  assert.ok(dashes.length >= 4, 'the dispute line is dashed down the rows');
+  const rows = new Map();
+  for (const dash of dashes) rows.set(dash.y, [...(rows.get(dash.y) ?? []), dash.x]);
+  assert.ok(rows.size >= 2, 'the dashed line repeats on more than one row');
+  for (const xs of rows.values()) for (let i = 1; i < xs.length; i += 1) assert.equal(xs[i] - xs[i - 1], 2 * DASH, '2 px on, 2 px off');
+  // The operator-run head is a double tick: two 1 px rows at y 0 and 2, in ink-3.
+  const heads = calls.filter((c) => c.style === declared('ink-3') && c.h === 1 && (c.y === 0 || c.y === 2));
+  assert.ok(heads.some((c) => c.y === 0) && heads.some((c) => c.y === 2), 'a double head for swarm-b');
+  // The joined agent's head is printed ink.
+  assert.ok(calls.some((c) => c.style === declared('ink') && c.y === 0 && c.h === 1), 'the joined head in ink');
 });
