@@ -21,7 +21,7 @@ const sample = JSON.parse(
 const html = renderOversight({ sample, css: '/* css */' });
 
 test('the page says what it is, and names the chain it read', () => {
-  assert.match(html, /<title>Agent messaging — oversight sample — Scalar Commons<\/title>/);
+  assert.match(html, /<title>What an operator can and cannot read — Scalar Commons<\/title>/); // Nightwatch (§5.7): the title is the brief's
   assert.ok(html.includes(TITLE));
   assert.ok(html.includes(sample.provenance.chainName), 'the chain’s own name must appear');
   assert.ok(html.includes(sample.provenance.genesisHash), 'and its genesis hash');
@@ -42,9 +42,9 @@ test('the three sentences are all present, in order, above everything else', () 
 
 test('the devnet caveat is in the open, not behind the disclosure', () => {
   const label = html.indexOf('ov-label');
-  const disclosure = html.indexOf('<details');
+  const disclosure = html.indexOf('ov-htr'); // Nightwatch: HOW TO READ THIS is five rows, no longer a <details> disclosure
   assert.ok(label > 0, 'the label must be rendered');
-  assert.ok(label < disclosure, 'and it must come before the first disclosure');
+  assert.ok(label < disclosure, 'and it must come before HOW TO READ THIS');
   assert.ok(html.includes(sample.provenance.networkNote), 'in the record’s own words');
 });
 
@@ -111,16 +111,18 @@ test('the summary figures come from the record, and the self-check is one of the
 });
 
 test('the Sources switch, presenter mode and the nav entry are all wired', () => {
-  assert.ok(html.includes('class="btn sb-sources"'), 'Sources');
-  assert.ok(html.includes('aria-keyshortcuts="P"'), 'presenter mode on the P key');
-  assert.ok((html.match(/data-present-screen/g) ?? []).length >= 2, 'at least two presenter screens');
+  // Nightwatch: the chrome's bar carries the Sources switch and the lamp; Present is the Observatory's alone (brief §3).
+  assert.ok(html.includes('data-sources-switch'), 'Sources');
+  assert.ok(html.includes('data-lamp'), 'the lamp');
+  assert.ok((html.match(/class="nw-section/g) ?? []).length >= 2, 'at least two sections');
   assert.equal(OVERSIGHT_NAV.label, 'Oversight');
   assert.match(html, /<a href="oversight" aria-current="page">Oversight<\/a>/);
 });
 
 test('"How to read this" is a disclosure and covers all four questions the brief named', () => {
-  assert.ok(html.includes('<summary>How to read this</summary>'));
-  for (const phrase of ['What is public to everyone', 'What was encrypted', 'What was decrypted', 'What your browser just checked']) {
+  // Nightwatch (§5.7): HOW TO READ THIS is a label over five rows, verbatim.
+  assert.ok(html.includes('>How to read this</span>'));
+  for (const phrase of ['Public to everyone', 'Encrypted', 'Decrypted, by whom', 'Re-checked by your browser', 'Not checked here']) {
     assert.ok(html.includes(phrase), `missing: ${phrase}`);
   }
 });

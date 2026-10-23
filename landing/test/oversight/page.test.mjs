@@ -56,14 +56,15 @@ async function boot(fetchImpl, { token }) {
   return dom.window.document;
 }
 
+// Nightwatch: the chain's state is a status Tag ([data-ov-status]) under the title, not a bar.
 const badgeOf = (doc, id) => doc.querySelector(`[data-row="${id}"] [data-check="commitment"] .ov-badge`);
 const provOf = (doc, id) => doc.querySelector(`[data-row="${id}"] [data-prov="row"]`);
 
 test('offline: the hash check still runs, and the page says it is offline', async () => {
   const doc = await boot(() => Promise.reject(new Error('no network')), { token: 'offline' });
 
-  assert.match(doc.querySelector('.ov-bar .sb-state').textContent, /offline — showing recorded values/);
-  assert.equal(doc.querySelector('.ov-bar').dataset.state, 'offline');
+  assert.match(doc.querySelector('[data-ov-status] [data-status-text]').textContent, /offline — showing recorded values/);
+  assert.equal(doc.querySelector('[data-ov-status]').dataset.state, 'offline');
 
   const readable = sample.rows.filter((r) => r.plaintext !== null);
   for (const row of readable) {
@@ -113,8 +114,8 @@ test('live: a row whose block the node serves is re-read and reported as live', 
 
   const doc = await boot(fetchImpl, { token: 'live' });
 
-  assert.match(doc.querySelector('.ov-bar .sb-state').textContent, /live at block #703710/);
-  assert.equal(doc.querySelector('.ov-bar').dataset.state, 'live');
+  assert.match(doc.querySelector('[data-ov-status] [data-status-text]').textContent, /live at block #703710/);
+  assert.equal(doc.querySelector('[data-ov-status]').dataset.state, 'live');
 
   for (const { row } of byBlock.values()) {
     const prov = provOf(doc, row.id).textContent;
@@ -182,7 +183,7 @@ test('a node on a different chain is refused rather than decoded', async () => {
     return Promise.reject(new Error('should never be asked for a block'));
   };
   const doc = await boot(fetchImpl, { token: 'otherchain' });
-  assert.match(doc.querySelector('.ov-bar .sb-state').textContent, /different chain/);
+  assert.match(doc.querySelector('[data-ov-status] [data-status-text]').textContent, /different chain/);
   assert.match(provOf(doc, sample.rows[0].id).textContent, /is not this sample's chain/);
   // The in-page hash check still ran, against the recorded commitment.
   const readable = sample.rows.find((r) => r.plaintext !== null);

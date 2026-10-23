@@ -27,7 +27,7 @@ function blakejsAlias() {
   }
 }
 
-export default async function buildOversight({ outDir, here, readJson, transform, build, common }) {
+export default async function buildOversight({ outDir, here, readJson, facts, transform, build, common }) {
   const sample = readJson('../public/oversight-sample.json');
   const css = (await transform(oversightCss(), { loader: 'css', minify: true })).code.trim();
   writeFileSync(join(outDir, 'oversight.css'), css);
@@ -40,7 +40,7 @@ export default async function buildOversight({ outDir, here, readJson, transform
     entryPoints: [here('../src/oversight/main.js')],
     outfile: join(outDir, 'oversight.js'),
   });
-  writeFileSync(join(outDir, 'oversight.html'), renderOversight({ sample, css }));
+  writeFileSync(join(outDir, 'oversight.html'), renderOversight({ sample, css, facts }));
   const bytes = Object.values(bundle.metafile.outputs)[0]?.bytes ?? 0;
   console.log(
     `built ${outDir}/oversight.html; oversight.js ${(bytes / 1024).toFixed(1)} kB from ${sample.rows.length} recorded rows at block #${sample.provenance.generatedAtBlock}`,

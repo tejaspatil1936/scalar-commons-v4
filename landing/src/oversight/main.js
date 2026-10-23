@@ -16,8 +16,7 @@
 // and the page says "offline — showing recorded values". The hash check still
 // runs: it is arithmetic on bytes that are already here.
 
-import * as presenter from '../observatory/presenter.js';
-import * as sources from '../observatory/sources.js';
+import { initChrome } from '../chrome/behaviour/index.js';
 import { createRpc } from './rpc.js';
 import { decodeSendCall, verifyRow } from './verify.js';
 
@@ -48,16 +47,56 @@ function setBadge(element, state, text, title = '') {
   else element.removeAttribute('title');
 }
 
-/** The top bar's one line about whether the chain answered. */
+/** The status Tag under the title: one line about whether the chain answered. */
 function setBarState(state, text, detail = '') {
-  const bar = document.querySelector('.ov-bar');
+  const bar = document.querySelector('[data-ov-status]');
   if (!bar) return;
   bar.dataset.state = state;
-  const label = bar.querySelector('.sb-state');
+  const label = bar.querySelector('[data-status-text]');
   if (label) label.textContent = text;
-  const network = bar.querySelector('.sb-network');
+  const network = bar.querySelector('[data-status-network]');
   if (network && detail) network.textContent = detail;
 }
+
+const utcNow = () => new Date().toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
+
+/** The fifth figure, the reader's own: how many plaintexts this browser hashed to their commitment, and against which commitment. */
+function setRecheck(count, total, { live, block = null }) {
+  const el = document.querySelector('[data-reading="rechecked"]');
+  if (!el) return;
+  el.classList.remove('is-loading');
+  const value = el.querySelector('[data-reading-value]');
+  if (value) value.textContent = `${count} of ${total}`;
+  el.querySelector('.nw-stub')?.setAttribute('data-state', live ? 'live' : 'record');
+  const fetched = el.querySelector('[data-fetched]');
+  if (fetched) fetched.textContent = `fetched ${utcNow()} · ${block === null ? 'recorded commitment' : `block ${block}`}`;
+}
+
+/**
+ * Decrypted bodies lift once on scroll-in (--t-ui, the chrome's rule); under
+ * reduced motion, or without an IntersectionObserver, they are already lifted.
+ */
+function liftOnScroll() {
+  const bars = [...document.querySelectorAll('[data-lift] .nw-redaction')];
+  const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduced || typeof IntersectionObserver === 'undefined') {
+    for (const bar of bars) bar.classList.add('is-lifted');
+    return;
+  }
+  const io = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        entry.target.classList.add('is-lifted');
+        io.unobserve(entry.target);
+      }
+    },
+    { threshold: 0.4 },
+  );
+  for (const bar of bars) io.observe(bar);
+}
+
+const countOk = (rowEls) => rowEls.filter((el) => el.querySelector('[data-check="commitment"] .ov-badge')?.dataset.state === 'ok').length;
 
 /**
  * The commitment check, which never depends on the network: the plaintext and
@@ -120,7 +159,10 @@ function renderProvenance(rowEl, { read, live, verdict }) {
     parts.push('extrinsic hash and fields agree with the record');
   }
   if (verdict.commitment?.matches === false) disagrees = true;
-  if (disagrees) rowEl.dataset.disagrees = '';
+  if (disagrees) {
+    rowEl.dataset.disagrees = '';
+    rowEl.querySelector('.ov-disagree')?.removeAttribute('hidden');
+  }
   line.textContent = parts.join(' · ');
 }
 
@@ -144,8 +186,12 @@ function markField(rowEl, selector, recorded, liveValue) {
 
 async function boot() {
   const ctx = createContext();
-  sources.init(document, ctx);
-  presenter.init(document, ctx);
+  try {
+    initChrome();
+  } catch {
+    // a browser without the chrome's globals still gets the record and the hash check
+  }
+  liftOnScroll();
 
   let sample;
   try {
@@ -176,6 +222,7 @@ async function boot() {
     for (const rowEl of rowEls) {
       renderProvenance(rowEl, { read: { ok: false, endpoint, error: identity.error }, live: null, verdict: {} });
     }
+    setRecheck(countOk(rowEls), rowEls.length, { live: false });
     ctx.announce(
       'The chain could not be reached from this browser, so every row shows the recorded values. The hash check ran here on the recorded commitment.',
     );
@@ -195,6 +242,7 @@ async function boot() {
         verdict: {},
       });
     }
+    setRecheck(countOk(rowEls), rowEls.length, { live: false });
     return;
   }
 
@@ -233,7 +281,8 @@ async function boot() {
     renderProvenance(rowEl, { read, live, verdict });
   }
 
-  const verified = rowEls.filter((el) => el.querySelector('[data-check="commitment"] .ov-badge')?.dataset.state === 'ok').length;
+  const verified = countOk(rowEls);
+  setRecheck(verified, rowEls.length, { live: true, block: identity.bestBlock });
   ctx.announce(`${verified} of ${rowEls.length} rows re-read from the chain and their commitments recomputed in this browser.`);
 }
 
