@@ -127,20 +127,6 @@ function text(str, facts) {
   });
 }
 
-// The old site nav, kept only for the Observatory page, which still imports it
-// until its own phase moves it onto the plain chrome.
-const NAV = [
-  { key: 'overview', label: 'Overview', href: './' },
-  { key: 'observatory', label: 'Observatory', href: 'observatory' },
-  { key: 'docs', label: 'Docs', href: 'https://scalarnet.io/docs/' },
-];
-export function renderNav(current, extra = []) {
-  const items = [...NAV, ...extra]
-    .map((item) => `<li><a href="${escapeHtml(item.href)}"${item.key === current ? ' aria-current="page"' : ''}>${escapeHtml(item.label)}</a></li>`)
-    .join('');
-  return `    <nav class="site-nav" aria-label="Site"><ul>${items}</ul></nav>`;
-}
-
 // ── the genesis mint: total issuance at block 0 ─────────────────────────────
 // chain-facts.json does not carry it yet (state.genesisIssuancePlancks). Until
 // it does, the token table names the storage it lives in and the page's script

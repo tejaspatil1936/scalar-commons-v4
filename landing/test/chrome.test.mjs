@@ -135,14 +135,6 @@ const walk = (dir, keep) => {
   visit(root);
   return out;
 };
-// TRANSITIONAL: the Ledger chrome kept for pages not yet rebuilt (deleted in
-// the oversight phase), and the page stylesheets each later phase replaces.
-// Each phase removes its own entries; the final phase empties both lists.
-export const LEGACY_DIRS = ['landing/src/chrome-legacy/'];
-export const NOT_YET_REBUILT = [
-  'landing/src/oversight.css',
-];
-const exempt = (path) => LEGACY_DIRS.some((d) => path.startsWith(d)) || NOT_YET_REBUILT.some((d) => path.startsWith(d));
 
 const COLOUR_FILES = () =>
   [
@@ -150,14 +142,14 @@ const COLOUR_FILES = () =>
     ...walk('landing/public/', (n) => /\.svg$/.test(n)),
     ...walk('docs/.vitepress/theme/', (n) => /\.(css|vue|ts|svg)$/.test(n)),
     ...walk('explorer/src/', (n) => /\.(css|ts|svg)$/.test(n)),
-  ].filter((u) => !LEGACY_DIRS.some((d) => rel(u).startsWith(d)) && !/\/chrome\/tokens\.css$/.test(u.pathname));
+  ].filter((u) => !/\/chrome\/tokens\.css$/.test(u.pathname));
 export const STYLE_SHEETS = () => {
   const sheets = [
     ...walk('landing/src/', (n) => n.endsWith('.css')),
     ...walk('docs/.vitepress/theme/', (n) => n.endsWith('.css')),
     ...walk('explorer/src/', (n) => n.endsWith('.css')),
   ]
-    .filter((u) => !exempt(rel(u)) && !/\/chrome\/tokens\.css$/.test(u.pathname))
+    .filter((u) => !/\/chrome\/tokens\.css$/.test(u.pathname))
     .map((u) => [rel(u), readFileSync(u, 'utf8')]);
   // The explorer's page-scoped rules live in TypeScript template strings.
   for (const file of ['explorer/src/render.ts', 'explorer/src/explorer-css.ts']) {
@@ -345,4 +337,19 @@ test('components: buttons, cards, stats, tables, badges, tabs, search, code, cal
   assert.deepEqual(ICONS, ['search', 'menu', 'close', 'external-link', 'copy', 'check', 'chevron-right', 'chevron-down', 'arrow-right', 'warning', 'info']);
   assert.match(icon('search'), /viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1\.5"/);
   assert.throws(() => icon('sparkles'));
+});
+
+test('one chrome: the Ledger chrome, its fonts and the deleted pages are gone from every surface (§8)', () => {
+  for (const gone of ['landing/src/chrome-legacy', 'explorer/src/chrome-legacy', 'docs/.vitepress/theme/chrome-legacy', 'landing/src/pulse', 'landing/src/pulse.css', 'landing/src/observatory/instruments', 'landing/src/chrome/curve.mjs', 'landing/src/chrome/print.css']) {
+    assert.ok(!existsSync(new URL(gone, REPO)), `${gone} still exists`);
+  }
+  for (const name of ['lamp', 'palette', 'stubs', 'bar', 'digits', 'fit', 'print']) assert.ok(!existsSync(new URL(`landing/src/chrome/behaviour/${name}.js`, REPO)), `behaviour/${name}.js still exists`);
+  const pkg = read('../package.json');
+  for (const dep of ['source-serif', 'ibm-plex', 'd3-', 'force-graph', 'gsap']) assert.ok(!pkg.includes(dep), `landing/package.json still lists ${dep}`);
+  const sources = [...walk('landing/src/', (n) => /\.(css|m?js)$/.test(n)), ...walk('landing/scripts/', (n) => /\.m?js$/.test(n)), ...walk('docs/.vitepress/theme/', (n) => /\.(css|ts|vue)$/.test(n)), ...walk('explorer/src/', (n) => /\.(css|ts)$/.test(n))];
+  for (const u of sources) {
+    const text = readFileSync(u, 'utf8');
+    assert.ok(!/chrome-legacy/.test(text.replace(/\/\/.*$/gm, '')), `${rel(u)} reaches for chrome-legacy`);
+    assert.ok(!/\bnw-[a-z]/.test(text), `${rel(u)} carries an nw-* class`);
+  }
 });

@@ -1,215 +1,200 @@
-// The /oversight page frame.
+// The /oversight page frame, on the plain chrome (SITE-REDESIGN.md §4, §10.7).
 //
-// What is held here is what the page must not quietly lose: the three
-// sentences, the devnet label out in the open rather than behind a disclosure,
-// every row of the sample rendered (including the ones that could not be
-// read), the thread grouped, the honest explorer caveat, and — the important
-// one — no secret and no filesystem path anywhere in the markup.
+// What is held here: the URL, the data and the claims are unchanged (the three
+// sentences, the devnet caveat in the open, every row of the sample, the
+// thread grouped, the honest explorer caveat, no secret anywhere); the page is
+// drawn with the shared chrome and nothing legacy; it has a table of contents
+// and collapsible groups with only the first open; it contacts no node; and no
+// count, date or hash in it is typed by hand.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { JSDOM } from 'jsdom';
 
-import { EXPLANATION, FIGURES, TITLE, renderOversight } from '../src/oversight.mjs';
-import { escapeHtml } from '../src/render.mjs';
-import { OVERSIGHT_NAV } from '../src/oversight.mjs'; // was ../src/observatory.mjs: this checkout's observatory.mjs has no OVERSIGHT_NAV
+import { EXPLANATION, HOW_TO_READ, TITLE, figuresOf, groupsOf, renderOversight, standfirst } from '../src/oversight.mjs';
+import { formatInt } from '../src/chrome/templates.mjs';
 
-const sample = JSON.parse(
-  readFileSync(fileURLToPath(new URL('../public/oversight-sample.json', import.meta.url)), 'utf8'),
-);
-const html = renderOversight({ sample, css: '/* css */' });
+const read = (relative) => readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
+const sample = JSON.parse(read('../public/oversight-sample.json'));
+const facts = JSON.parse(read('../chain-facts.json'));
+const html = renderOversight({ sample, facts, css: '/* css */' });
+const doc = new JSDOM(html).window.document;
+const text = (el) => el.textContent.replace(/\s+/g, ' ').trim();
 
-test('the page says what it is, and names the chain it read', () => {
-  assert.match(html, /<title>What an operator can and cannot read — Scalar Commons<\/title>/); // Nightwatch (§5.7): the title is the brief's
-  assert.ok(html.includes(TITLE));
+test('the page keeps its title and names the chain it read', () => {
+  assert.match(html, /<title>What an operator can and cannot read — Scalar Commons<\/title>/);
+  assert.equal(text(doc.querySelector('h1')), TITLE);
   assert.ok(html.includes(sample.provenance.chainName), 'the chain’s own name must appear');
-  assert.ok(html.includes(sample.provenance.genesisHash), 'and its genesis hash');
+  assert.ok(html.includes(sample.provenance.genesisHash), 'and its genesis hash (in a title)');
   assert.ok(html.includes(sample.provenance.endpoint), 'and where it was read from');
+  assert.match(html, /<link rel="canonical" href="https:\/\/scalarnet\.io\/oversight">/);
 });
 
-test('the three sentences are all present, in order, above everything else', () => {
-  assert.equal(EXPLANATION.length, 3, 'the brief asked for three sentences');
+test('it is drawn with the new chrome: one banner, one main, one footer, and no legacy import', () => {
+  assert.equal(doc.querySelectorAll('header.sc-header').length, 1);
+  assert.equal(doc.querySelectorAll('header, [role="banner"]').length, 1, 'one banner landmark');
+  assert.equal(doc.querySelectorAll('main#main').length, 1);
+  assert.equal(doc.querySelectorAll('footer.sc-footer').length, 1);
+  for (const file of ['../src/oversight.mjs', '../src/oversight/main.js', '../src/oversight-assets.mjs', '../scripts/pages/oversight.mjs', '../scripts/build-oversight-standalone.mjs']) {
+    assert.ok(!read(file).includes('chrome-legacy'), `${file} must not import chrome-legacy`);
+  }
+  assert.ok(!/class="nw-|class="ov-badge|nw-label|nw-tag/.test(html), 'no Ledger classes left');
+});
+
+test('it is not in the primary nav, and the footer links it as "Privacy demo"', () => {
+  const nav = doc.querySelector('nav.sc-nav');
+  assert.ok(![...nav.querySelectorAll('a')].some((a) => /oversight/i.test(a.href)), 'not in the nav');
+  assert.equal(nav.querySelector('[aria-current]'), null, 'no nav item claims to be this page');
+  const link = [...doc.querySelectorAll('footer a')].find((a) => text(a) === 'Privacy demo');
+  assert.equal(link?.getAttribute('href'), '/oversight');
+});
+
+test('all content sits inside landmarks, and every <li> is inside a list', () => {
+  for (const child of doc.body.children) {
+    assert.ok(['HEADER', 'MAIN', 'FOOTER', 'SCRIPT', 'NOSCRIPT'].includes(child.tagName) || child.classList.contains('sc-skip'), `outside a landmark: <${child.tagName.toLowerCase()} class="${child.className}">`);
+  }
+  for (const li of doc.querySelectorAll('li')) assert.ok(['OL', 'UL'].includes(li.parentElement.tagName), 'an <li> outside a list');
+  const ids = [...doc.querySelectorAll('[id]')].map((e) => e.id);
+  assert.equal(new Set(ids).size, ids.length, 'ids are unique');
+});
+
+test('a table of contents at the top links every section and every group, and each link lands', () => {
+  const toc = doc.querySelector('nav.ov-toc');
+  assert.ok(toc, 'there is a table of contents');
+  const main = doc.querySelector('main');
+  assert.ok(main.innerHTML.indexOf('ov-toc') < main.innerHTML.indexOf('class="ov-section"'), 'it comes before the sections');
+  const targets = [...toc.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+  for (const id of ['#about', '#thread', '#messages', '#record']) assert.ok(targets.includes(id), `the table of contents misses ${id}`);
+  for (const href of targets) assert.ok(doc.getElementById(href.slice(1)), `${href} goes nowhere`);
+  for (const g of groupsOf(sample.rows.filter((r) => !sample.summary.thread.rowIds.includes(r.id)))) assert.ok(targets.includes(`#${g.id}`), `the group ${g.title} is not in the table of contents`);
+});
+
+test('messages sit in collapsible groups: the first open, the rest collapsed', () => {
+  const groups = [...doc.querySelectorAll('details.ov-group')];
+  assert.ok(groups.length >= 2);
+  assert.equal(groups[0].open, true, 'the first group is open');
+  for (const g of groups.slice(1)) assert.equal(g.open, false, `${g.id} should start collapsed`);
+  for (const g of groups) assert.ok(g.querySelector('summary h3'), 'each group is titled');
+});
+
+test('every row of the sample is rendered once, with its block, kind and commitment', () => {
+  const rows = [...doc.querySelectorAll('[data-row]')];
+  assert.equal(rows.length, sample.rows.length);
+  assert.equal(new Set(rows.map((r) => r.dataset.row)).size, sample.rows.length, 'no row repeated');
+  for (const r of sample.rows) {
+    const el = doc.querySelector(`[data-row="${r.id}"]`);
+    assert.equal(el.dataset.block, String(r.block));
+    assert.equal(el.dataset.kind, r.kind);
+    if (r.payloadHashOnChain) assert.ok(el.innerHTML.includes(r.payloadHashOnChain), `row ${r.id} lost its commitment`);
+    if (r.reason) assert.ok(text(el).includes(r.reason), `row ${r.id} lost its reason`);
+    if (r.plaintext) assert.ok(el.querySelector('.sc-code code').textContent === r.plaintext, `row ${r.id} lost its plaintext`);
+  }
+  const thread = [...doc.querySelectorAll('#thread-messages [data-row]')].map((e) => e.dataset.row);
+  assert.deepEqual(thread, sample.summary.thread.rowIds, 'the thread is grouped, in order');
+});
+
+test('each message is headed by its kind in words, not the wire name', () => {
+  for (const h of doc.querySelectorAll('.ov-kind')) {
+    assert.doesNotMatch(text(h), /^[A-Z][a-z]+[A-Z]/, `"${text(h)}" shows a wire name such as DeliveryNotice`);
+  }
+  const notice = sample.rows.find((r) => r.kind === 'DeliveryNotice');
+  if (notice) assert.match(text(doc.querySelector(`[data-row="${notice.id}"] .ov-kind`)), /^Delivery notice, block /);
+});
+
+test('message text in a code block keeps the mono face instead of the browser default', () => {
+  assert.match(read('../src/oversight.css'), /\.sc-code code \{ font: var\(--mono\); \}/);
+});
+
+test('the claims are unchanged: three sentences, how to read this, the devnet caveat, the explorer caveat', () => {
+  assert.equal(EXPLANATION.length, 3);
   let at = -1;
   for (const sentence of EXPLANATION) {
-    const found = html.indexOf(sentence);
+    const found = html.indexOf(sentence.replace(/’/g, '’'));
     assert.ok(found > 0, `missing: ${sentence.slice(0, 40)}…`);
-    assert.ok(found > at, 'the sentences must stay in order');
+    assert.ok(found > at, 'in order');
     at = found;
   }
-  assert.ok(at < html.indexOf('ov-rows'), 'they come before the rows');
+  for (const [term] of HOW_TO_READ) assert.ok(html.includes(term), `missing: ${term}`);
+  assert.ok(html.includes(sample.provenance.networkNote.replace(/’/g, '’')), 'the devnet caveat is in the open');
+  assert.ok(text(doc.body).includes(sample.provenance.explorer.note), 'the explorer caveat is said');
+  assert.ok(!html.includes('href="https://explorer.scalarnet.io/activity?agent='), 'no link to an explorer that does not index this chain');
 });
 
-test('the devnet caveat is in the open, not behind the disclosure', () => {
-  const label = html.indexOf('ov-label');
-  const disclosure = html.indexOf('ov-htr'); // Nightwatch: HOW TO READ THIS is five rows, no longer a <details> disclosure
-  assert.ok(label > 0, 'the label must be rendered');
-  assert.ok(label < disclosure, 'and it must come before HOW TO READ THIS');
-  assert.ok(html.includes(sample.provenance.networkNote), 'in the record’s own words');
+test('it contacts no node: no localhost, no RPC endpoint, no connecting or offline header text', () => {
+  for (const file of ['../src/oversight.mjs', '../src/oversight/main.js']) {
+    const src = read(file);
+    assert.ok(!/createRpc|from '\.\/rpc\.js'|httpEndpoint/.test(src.replace(/^\s*\/\/.*$/gm, '')), `${file} still reaches for a node`);
+  }
+  assert.ok(!/127\.0\.0\.1:\d+\/?"|localhost:\d+/.test(html.replace(new RegExp(sample.provenance.endpoint.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '')), 'no localhost URL in the markup except the recorded read-from address');
+  assert.ok(!/href="(?:https?|wss?):\/\/127\.0\.0\.1/.test(html), 'and never as a link');
+  assert.ok(!/CONNECTING|OFFLINE|showing recorded values/i.test(html));
+  const note = [...doc.querySelectorAll('.sc-callout')].find((c) => /contacts no node/.test(text(c)));
+  assert.ok(note, 'the live state is said in a plain callout in the page');
 });
 
-test('every row of the sample is rendered, with its block, kind and commitment', () => {
-  const rendered = [...html.matchAll(/data-row="([^"]+)"/g)].map((m) => m[1]);
-  assert.equal(rendered.length, sample.rows.length, 'no row may be dropped');
-  assert.deepEqual(new Set(rendered), new Set(sample.rows.map((r) => r.id)));
-  for (const row of sample.rows) {
-    assert.ok(html.includes(`data-block="${row.block}"`), `row ${row.id}: block`);
-    if (row.payloadHashOnChain) assert.ok(html.includes(row.payloadHashOnChain), `row ${row.id}: commitment`);
+test('the figures come from the record, and nothing on the page is a hand-typed count', () => {
+  const values = [...doc.querySelectorAll('.sc-stat-value')].map(text);
+  assert.deepEqual(values, figuresOf(sample.summary).map((f) => f.value));
+  assert.equal(values[1], `${formatInt(sample.summary.decryptedCount)} of ${formatInt(sample.summary.rows)}`);
+  assert.ok(text(doc.querySelector('.sc-lead')) === standfirst(sample.rows.length));
+  const src = read('../src/oversight.mjs').replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
+  const strings = [...src.matchAll(/'([^'\\]|\\.)*'|`([^`\\]|\\.)*`/g)].map((m) => m[0].replace(/\$\{[^}]*\}/g, ''));
+  for (const s of strings) {
+    assert.ok(!/\b\d{2,}\b/.test(s.replace(/blake2b-256|blake2_256|repeat\(\d|minmax\(0, 1fr\)/g, '')), `a literal number in ${s.slice(0, 60)}`);
+    assert.ok(!/\b(one|two|three|four|five|six|seven|eight|nine|ten|twelve|twenty|forty)\s+(messages|rows|keys|agents|validators|blocks)\b/i.test(s), `a number in words: ${s.slice(0, 60)}`);
   }
 });
 
-test('rows the operator could not open are rendered, greyed, and give their reason', () => {
-  const shut = sample.rows.filter((r) => r.plaintext === null);
-  assert.ok(shut.length > 0, 'the sample must contain some');
-  assert.equal((html.match(/ov-row is-quiet/g) ?? []).length, shut.length, 'each one is dimmed');
-  for (const row of shut) {
-    assert.ok(html.includes(row.reason), `row ${row.id}: its reason must be on the page`);
-    assert.ok(!html.includes('"plaintext":'), 'and no raw JSON row is dumped into the markup');
-  }
-  assert.ok(html.includes('Sealed — no key held'), 'the no-key label the brief asked for, verbatim');
-});
-
-test('a decrypted plaintext is shown as text, and claims only an in-browser check it will actually run', () => {
-  const open = sample.rows.find((r) => r.decrypted);
-  assert.ok(open, 'the sample must contain a decrypted row');
-  assert.ok(html.includes('Hashing in your browser…'), 'the commitment badge starts as pending, not as a claim');
-  assert.ok(html.includes('Signature verified (operator)'), 'the signature is attributed to the operator’s tool');
-  assert.ok(
-    !html.includes('Plaintext hashes to on-chain commitment ✓'),
-    'the page must NOT ship a pre-baked tick for a check the browser has not done yet',
-  );
-});
-
-test('the thread is grouped, in order, and the other rows are not repeated', () => {
-  const ids = sample.summary.thread.rowIds;
-  const threadBlock = html.slice(html.indexOf('ov-rows-thread'), html.indexOf('02 · The sample'));
-  for (const id of ids) assert.ok(threadBlock.includes(`data-row="${id}"`), `${id} belongs in the thread block`);
-  const kinds = ids.map((id) => sample.rows.find((r) => r.id === id).kind);
-  assert.deepEqual(kinds, ['Offer', 'Accept', 'DeliveryNotice'], 'the three steps, in order');
-  for (const id of ids) {
-    assert.equal((html.match(new RegExp(`data-row="${id}"`, 'g')) ?? []).length, 1, `${id} is rendered once`);
-  }
-});
-
-test('the explorer link is honest about which chain the explorer indexes', () => {
-  assert.equal(sample.provenance.explorer.indexesThisChain, false, 'this sample is a devnet');
-  assert.ok(html.includes('Not in explorer.scalarnet.io'), 'so no row may link into it');
-  assert.ok(!html.includes('explorer.scalarnet.io/activity?agent='), 'and no such href may be emitted');
-  const publicSample = {
-    ...sample,
-    provenance: { ...sample.provenance, explorer: { ...sample.provenance.explorer, indexesThisChain: true } },
-  };
-  const publicHtml = renderOversight({ sample: publicSample, css: '' });
-  assert.ok(publicHtml.includes('explorer.scalarnet.io/activity?agent='), 'on the public chain the link appears');
-});
-
-test('the summary figures come from the record, and the self-check is one of them', () => {
-  assert.deepEqual(FIGURES.map(([key]) => key), ['selfCheck', 'decryptedCount', 'noKeyHeldCount', 'signaturesVerified']);
-  assert.ok(html.includes(sample.summary.selfCheck), 'the self-check result is stated on the page');
-  assert.ok(html.includes(`${sample.summary.decryptedCount} of ${sample.summary.rows}`));
-  assert.ok(html.includes(`${sample.summary.noKeyHeldCount} of ${sample.summary.rows}`));
-});
-
-test('the Sources switch, presenter mode and the nav entry are all wired', () => {
-  // Nightwatch: the chrome's bar carries the Sources switch and the lamp; Present is the Observatory's alone (brief §3).
-  assert.ok(html.includes('data-sources-switch'), 'Sources');
-  assert.ok(html.includes('data-lamp'), 'the lamp');
-  assert.ok((html.match(/class="nw-section/g) ?? []).length >= 2, 'at least two sections');
-  assert.equal(OVERSIGHT_NAV.label, 'Oversight');
-  assert.match(html, /<a href="oversight" aria-current="page">Oversight<\/a>/);
-});
-
-test('"How to read this" is a disclosure and covers all four questions the brief named', () => {
-  // Nightwatch (§5.7): HOW TO READ THIS is a label over five rows, verbatim.
-  assert.ok(html.includes('>How to read this</span>'));
-  for (const phrase of ['Public to everyone', 'Encrypted', 'Decrypted, by whom', 'Re-checked by your browser', 'Not checked here']) {
-    assert.ok(html.includes(phrase), `missing: ${phrase}`);
-  }
+test('sentence case: no uppercase labels and no buzzwords on the page', () => {
+  const words = text(doc.querySelector('main'));
+  assert.ok(!/\b[A-Z]{4,}\b(?<!NaCl)/.test(words.replace(/\b(CMN|RPC|JSON|UTC|HTTP|WSS|NACL|SCALE)\b/g, '')), 'no all-caps labels');
+  assert.ok(!/[!]/.test(words.replace(/<!--[\s\S]*?-->/g, '')), 'no exclamation marks');
+  for (const w of ['seamless', 'cutting-edge', 'revolutionary', 'unlock', 'empower', 'supercharge', 'next-gen', 'blazing']) assert.ok(!words.toLowerCase().includes(w));
 });
 
 test('no secret and no private path reaches the markup', () => {
   for (const forbidden of ['.mnemonic', 'master.seed', '/home/dev', 'secretKey', 'suri', 'SURI']) {
     assert.ok(!html.includes(forbidden), `the page must not contain ${forbidden}`);
   }
-  // A mnemonic is twelve or more lowercase words in a row; nothing on this page
-  // should look like one.
   assert.ok(!/\b([a-z]{3,8}\s){11}[a-z]{3,8}\b/.test(html.replace(/<[^>]+>/g, ' ')), 'no mnemonic-shaped run of words');
 });
 
 test('the standalone copy inlines its data and its script, and the hosted one does not', () => {
-  const standalone = renderOversight({ sample, css: '', inlineData: true, standalone: true, inlineScript: 'console.log(1)' });
+  const standalone = renderOversight({ sample, facts, css: '', inlineData: true, standalone: true, inlineScript: 'console.log(1)' });
   assert.ok(standalone.includes('id="oversight-sample"'), 'the sample rides inside the file');
   assert.ok(standalone.includes('console.log(1)'), 'and so does the script');
-  assert.ok(!standalone.includes('src="oversight.js"'), 'with nothing left to fetch');
-  assert.ok(standalone.includes('data-standalone'));
-  assert.ok(html.includes('src="oversight.js"'), 'the hosted page still loads its script by URL');
-  assert.ok(!html.includes('id="oversight-sample"'), 'and fetches its data');
+  assert.ok(!standalone.includes('src="/oversight.js"'), 'with nothing left to fetch');
+  assert.ok(html.includes('src="/oversight.js"'), 'the hosted page loads its script by URL');
+  assert.ok(!html.includes('id="oversight-sample"'), 'and carries no second copy of the data');
 });
 
 test('a record missing the provenance the page depends on fails the build', () => {
-  for (const key of ['explorer', 'httpEndpoint', 'callIndex']) {
+  for (const key of ['explorer', 'callIndex', 'genesisHash']) {
     const broken = { ...sample, provenance: { ...sample.provenance, [key]: undefined } };
-    assert.throws(() => renderOversight({ sample: broken }), new RegExp(`provenance\\.${key} is missing`));
+    assert.throws(() => renderOversight({ sample: broken, facts }), new RegExp(`provenance\\.${key} is missing`));
   }
   const noThread = { ...sample, summary: { ...sample.summary, thread: null } };
-  assert.throws(() => renderOversight({ sample: noThread }), /no complete thread/);
+  assert.throws(() => renderOversight({ sample: noThread, facts }), /no complete thread/);
+  assert.throws(() => renderOversight({ sample }), /chain-facts\.json/);
 });
 
-test('the script escapes a closing tag inside the inlined data, so markup cannot break out', () => {
-  const nasty = {
-    ...sample,
-    rows: [{ ...sample.rows[0], plaintext: '</script><script>alert(1)</script>' }],
-  };
-  const standalone = renderOversight({ sample: nasty, css: '', inlineData: true, inlineScript: '' });
+test('a closing tag inside the inlined data cannot break out of the markup', () => {
+  const nasty = { ...sample, rows: [{ ...sample.rows[0], plaintext: '</script><script>alert(1)</script>' }] };
+  const standalone = renderOversight({ sample: nasty, facts, css: '', inlineData: true, inlineScript: '' });
   const json = standalone.slice(standalone.indexOf('id="oversight-sample"'));
   assert.ok(!json.slice(0, json.indexOf('</script>')).includes('<script>'), 'no raw script tag survives in the data block');
   assert.ok(!standalone.includes('<script>alert(1)</script>'), 'and none in the rendered row either');
 });
 
-test('every row says WHY it reads the way it does, so public is never confusable with decrypted', () => {
-  const sealedOpen = sample.rows.find((r) => r.decrypted);
-  const plain = sample.rows.find((r) => r.bodyType === 'Plain');
-  assert.ok(sealedOpen && plain, 'the sample must contain both kinds');
-  // Compared through escapeHtml: an apostrophe reaches the markup as &#39;, so
-  // a raw-string comparison would fail on copy that is in fact present.
-  assert.ok(html.includes(escapeHtml(sealedOpen.reason)), 'a decrypted row states the key it was opened with');
-  assert.match(sealedOpen.reason, /opened with the operator\u2019s escrowed key/);
-  assert.ok(html.includes(escapeHtml(plain.reason)), 'a plaintext row states that it needed no key');
-  assert.match(plain.reason, /Plain \u2014 public on chain/);
-  // Every row, readable or not, carries its reason somewhere.
-  for (const row of sample.rows) {
-    if (row.reason) assert.ok(html.includes(escapeHtml(row.reason)), `row ${row.id}: reason missing from the page`);
+test('oversight.css is page-scoped and draws only with tokens', () => {
+  const css = read('../src/oversight.css').replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.ok(!/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i.test(css), 'no colour literal');
+  assert.ok(!/text-transform|letter-spacing|animation|box-shadow|gradient|dotted|double/.test(css));
+  for (const [, prop, value] of css.matchAll(/(margin[a-z-]*|padding[a-z-]*|gap)\s*:\s*([^;}]+)/g)) {
+    assert.ok(/^(0|auto|var\(--s-[1-9]\)|calc\([^)]*\)|\s)+$/.test(value.replace(/var\(--s-[1-9]\)/g, 'var(--s-1)').trim()) || /^[\s0]*$/.test(value), `${prop}: ${value} is off the spacing scale`);
   }
-});
-
-test('oversight.css draws in the Ledger: no hue; a message is a ruled entry, not a card; a disagreement is a dotted ink rule and its word; the redactions are the chrome’s', () => {
-  const css = readFileSync(fileURLToPath(new URL('../src/oversight.css', import.meta.url)), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
-  assert.ok(!/#[0-9a-f]{3,8}\b|\b(?:rgba?|hsla?)\(/i.test(css), 'a colour literal');
-  for (const [, name] of css.matchAll(/var\(--([a-z0-9-]+)\)/g)) {
-    if (/^(?:s-\d+|gutter|bar|content|radius|t-|ease-)/.test(name)) continue;
-    if (['display', 'h2', 'h3', 'body', 'small', 'figure-xl', 'figure-l', 'figure-m', 'figure-s', 'label', 'mono'].includes(name)) continue;
-    assert.ok(['paper', 'paper-2', 'paper-3', 'ink', 'ink-2', 'ink-3', 'rule', 'rule-2'].includes(name), `--${name} is not a Ledger token`);
-  }
-  assert.ok(!/filament|vermilion|--ice|--clay|--pine|--bone|--sage|--glow|box-shadow|text-shadow|italic|font-size\s*:/.test(css), 'a Nightwatch token, a shadow, an italic or a font-size');
-  // A rule is a line, never a frame.
-  for (const [, prop, value] of css.matchAll(/(border(?!-radius)[a-z-]*)\s*:\s*([^;]+);/g)) {
-    if (/^border-color$/.test(prop)) continue; // a 6 px mark's outline (the tag's language), set by the chrome's .nw-dot shape
-    if (prop === 'border' && /^1px solid var\(--rule-2\)$/.test(value.trim())) continue; // the mark itself: a 6 px outlined dot
-    assert.match(prop, /^border-(?:top|bottom)$/, `a border that is not a top or bottom rule: ${prop}`);
-    assert.match(value.trim(), /^1px solid var\(--rule(?:-2)?\)$/, value);
-  }
-  assert.match(css, /\.ov-row \{[^}]*border-top: 1px solid var\(--rule\);/, 'a message sits under a hairline');
-  assert.ok(!/\.ov-row \{[^}]*background/.test(css), 'and is not a card');
-  assert.match(css, /\.ov-row\[data-disagrees\]::before \{[^}]*radial-gradient\(circle, var\(--ink\) 1px, transparent 1px\)/, 'a disagreement is a dotted ink rule');
-  assert.match(html, /<span class="nw-tag ov-disagree" data-state="dispute" hidden><span class="nw-dot" aria-hidden="true"><\/span>DISAGREES WITH THE RECORD<\/span>/, 'and its word');
-  const chrome = readFileSync(fileURLToPath(new URL('../src/chrome-legacy/chrome.css', import.meta.url)), 'utf8');
-  assert.match(chrome, /\.nw-redaction \{[^}]*background: var\(--ink\); color: var\(--paper\);/, 'sealed: a solid ink bar, the words in paper');
-  assert.match(chrome, /\.nw-redaction\.is-lifted \{ transform: translateY\(-8px\); opacity: 0\.25; \}/, 'lifted: ink at 25 %, raised 8 px');
-  assert.match(chrome, /\.nw-redaction--hash span \{ background: var\(--rule-2\); \}/);
-  assert.match(chrome, /\.nw-redaction--hash span\.is-on \{ background: var\(--ink\); \}/, 'hash-only: the grid in ink and rule-2');
-  assert.ok(html.includes('no key held'), 'the sealed bar says so');
-  // Alignment (round-2 §2.5): the five summary figures are one .nw-row, so the chrome sets them at one size by count.
-  assert.match(html, /<div class="nw-row ov-figures">/);
-  assert.equal((html.slice(html.indexOf('nw-row ov-figures')).match(/data-reading="/g) ?? []).length >= 5, true);
-  assert.equal((html.match(/class="nw-redaction nw-redaction--hash"/g) ?? []).length, sample.rows.filter((r) => r.bodyType === 'None' && r.payloadHashOnChain).length, 'one 32×2 grid per hash-only row');
+  for (const [, value] of css.matchAll(/font\s*:\s*([^;}]+)/g)) assert.match(value.trim(), /^var\(--(display|h1|h2|h3|lead|body|small|caption|stat|mono)\)$/);
+  assert.ok(!/^\s*\.(?!ov)[a-z]/m.test(css.replace(/^\s*\.ov[^{]*\{[^}]*\}/gm, '')), 'every rule is scoped to the page (.ov…)');
 });

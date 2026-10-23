@@ -2,8 +2,7 @@
 // VitePress and not resolvable from docs/, so the container rule is written
 // here (the same algorithm: a fence of three or more colons, the name, an
 // optional label, closed by a colon fence of at least the opening length).
-// The rendered markup is the chrome's `marginNote` from templates.mjs:
-// <aside class="nw-note"> leader · <div class="nw-note-body"> label · text.
+// It renders as the chrome's info callout (see the renderer rules below).
 import type MarkdownIt from 'markdown-it'
 import type StateBlock from 'markdown-it/lib/rules_block/state_block.mjs'
 

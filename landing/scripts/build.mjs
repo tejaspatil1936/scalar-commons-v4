@@ -16,8 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { build, transform } from 'esbuild';
 import { content } from '../src/content.mjs';
 import { renderPage } from '../src/render.mjs';
-import { chromeCss, CHROME_FONTS as LEGACY_FONTS } from '../src/chrome-legacy/assets.mjs';
-import { CHROME_FONTS, chromeCss as plainChromeCss } from '../src/chrome/assets.mjs';
+import { CHROME_FONTS, chromeCss } from '../src/chrome/assets.mjs';
 
 const here = (relative) => fileURLToPath(new URL(relative, import.meta.url));
 const readJson = (relative) => JSON.parse(readFileSync(here(relative), 'utf8'));
@@ -34,16 +33,15 @@ mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'index.html'), html);
 // styles.css is the plain chrome (tokens, fonts, chrome) and the home page's
 // own rules, minified — the one stylesheet the home page links.
-const homeCss = `${plainChromeCss()}\n${readFileSync(here('../src/home.css'), 'utf8')}`;
+const homeCss = `${chromeCss()}\n${readFileSync(here('../src/home.css'), 'utf8')}`;
 writeFileSync(join(outDir, 'styles.css'), (await transform(homeCss, { loader: 'css', minify: true })).code.trim());
 // home.js: the one plain script (no bundle, no import), minified.
 const homeJs = (await transform(readFileSync(here('../src/home/refresh.js'), 'utf8'), { loader: 'js', minify: true, target: 'es2022' })).code.trim();
 writeFileSync(join(outDir, 'home.js'), homeJs);
 
 mkdirSync(join(outDir, 'fonts'), { recursive: true });
-// The chrome's two faces (Inter, JetBrains Mono) for every rebuilt page;
-// LEGACY_FONTS are the transitional Ledger faces the pages not yet rebuilt still load.
-for (const [source, name] of [...CHROME_FONTS, ...LEGACY_FONTS]) {
+// The chrome's two faces (Inter, JetBrains Mono), the only fonts any page loads.
+for (const [source, name] of CHROME_FONTS) {
   copyFileSync(here(`../node_modules/${source}`), join(outDir, 'fonts', name));
 }
 // The favicon and the social preview image every page's head names.
