@@ -11,6 +11,8 @@ or runtime logic is involved.
 
 This file covers the five validators. The indexer, explorer and faucet that read
 from them are in [`products/README.md`](products/README.md).
+Prometheus/Grafana and the self-hosted telemetry that watch them are in
+[`monitoring/README.md`](monitoring/README.md).
 
 > **ROUND15 changed the network's identity.** Going from 3 to 5 authorities is a
 > different genesis, therefore a different chain. The chainspec was regenerated
@@ -57,6 +59,7 @@ deploy/
 ├── finality-check.sh           sample best + FINALIZED height on every node
 ├── snapshot.sh                 consistent state snapshot of one node
 ├── reset-chain.sh              DESTRUCTIVE wipe back to genesis
+├── monitoring/                 Prometheus + Grafana + substrate-telemetry (loopback, SSH tunnel)
 ├── hardening/
 │   ├── sshd.conf               no passwords, no keyboard-interactive, no root login
 │   ├── apply.sh                install it to /etc/ssh/sshd_config.d/, validate, reload

@@ -1,0 +1,128 @@
+# Scalar Commons — devnet monitoring stack.
+#
+#   prometheus          127.0.0.1:9090   scrapes the five validators + node-exporter
+#   grafana             127.0.0.1:3000   dashboard 13840 (Polkadot Essentials), provisioned
+#   node-exporter       127.0.0.1:9100   host metrics for the dashboard's "Server Health" row
+#   telemetry-core      127.0.0.1:8000   substrate-telemetry aggregator; the browser's /feed
+#   telemetry-shard     127.0.0.1:8001   validators submit here (--telemetry-url)
+#   telemetry-frontend  127.0.0.1:3001   substrate-telemetry web UI
+#
+# EVERY port is bound to 127.0.0.1. Nothing here authenticates a caller except
+# Grafana, and Grafana's login is not a reason to expose it: access is by SSH
+# tunnel only. See README.md "Access".
+#
+# Two networking modes, chosen per service, not for convenience:
+#
+#   host      prometheus, grafana, node-exporter. The validators' prometheus
+#             endpoints bind 127.0.0.1:9615-9619 on the HOST (no
+#             --prometheus-external), and a container on a bridge network has
+#             its own loopback, so it could not reach them. Host networking plus
+#             an explicit 127.0.0.1 listen address keeps them off every public
+#             interface. Grafana shares the host network so it reaches
+#             prometheus on 127.0.0.1:9090 the same way.
+#
+#   bridge    the three telemetry services. They only need to reach each other
+#             (shard -> core by service name); the host reaches them through
+#             ports published on 127.0.0.1 explicitly. A bare "8001:8001" would
+#             publish on 0.0.0.0 and Docker's iptables rules bypass ufw — the
+#             127.0.0.1: prefix is what keeps them private, so never drop it.
+#
+# Images are pinned. Bump deliberately, one at a time, and re-run install.sh.
+
+name: scalar-monitoring
+
+services:
+  prometheus:
+    image: prom/prometheus:v3.15.0
+    network_mode: host
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}
+      - --web.listen-address=127.0.0.1:9090
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.12.1
+    network_mode: host
+    pid: host
+    command:
+      - --path.rootfs=/host
+      - --web.listen-address=127.0.0.1:9100
+    volumes:
+      # ro, not the upstream ro,rslave: rslave refuses to start on a host
+      # whose / is not a shared mount, and seeing mounts added after start is
+      # not worth that failure mode.
+      - /:/host:ro
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.4.11
+    network_mode: host
+    depends_on:
+      - prometheus
+    environment:
+      GF_SERVER_HTTP_ADDR: 127.0.0.1
+      GF_SERVER_HTTP_PORT: "3000"
+      # Written by install.sh into .env (mode 0600) on first run, never
+      # overwritten. Compose refuses to start without it rather than falling
+      # back to admin/admin.
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?run install.sh first - it generates .env}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /var/lib/grafana/dashboards/substrate-13840.json
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+
+  telemetry-core:
+    image: parity/substrate-telemetry-backend:master-74def27a
+    read_only: true
+    command: ["telemetry_core", "--listen", "0.0.0.0:8000"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    restart: unless-stopped
+
+  telemetry-shard:
+    image: parity/substrate-telemetry-backend:master-74def27a
+    read_only: true
+    depends_on:
+      - telemetry-core
+    command:
+      - telemetry_shard
+      - --listen
+      - 0.0.0.0:8001
+      - --core
+      - http://telemetry-core:8000/shard_submit
+    ports:
+      - "127.0.0.1:8001:8001"
+    restart: unless-stopped
+
+  telemetry-frontend:
+    image: parity/substrate-telemetry-frontend:master-74def27a
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx:uid=101,gid=101
+      - /var/run:uid=101,gid=101
+      - /app/tmp:uid=101,gid=101
+    environment:
+      # The BROWSER opens this websocket, not the container — so it is
+      # "localhost" from the operator's laptop, which is where the SSH tunnel
+      # delivers port 8000. Tunnel 8000 along with 3001 or the UI stays empty.
+      SUBSTRATE_TELEMETRY_URL: ws://localhost:8000/feed
+    ports:
+      - "127.0.0.1:3001:8000"
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:
