@@ -1,11 +1,16 @@
-/* /observatory — Nightwatch.
+/* /observatory — the Ledger.
    The chrome (src/chrome/tokens.css + chrome.css) is inlined before this
    file; this file lays the page out and names nothing of its own: no colour
-   that is not a token, no font-size outside the scale, a border only where
-   the brief allows one, no gradient, no shadow but --glow. One theme. */
+   that is not a token, no font-size at all (every font is one of the eleven
+   styles), every space a step of the --s scale, no gradient, no shadow.
+   Nothing is coloured: state is carried by fill, outline, hatching and the
+   word beside it. One theme, light. */
 
 /* The instruments' canvases read their colours by these names (context.js
-   THEME_NAMES); each is a token, so the page has one palette. */
+   THEME_NAMES) at draw time; each is a Ledger token, so the page has one
+   palette and a canvas never holds a literal. A state is never a hue: live is
+   solid ink, settled an ink-3 or rule-2 outline, dispute a 45° hatch of ink,
+   slashed an X, operator-run a double outline or a tick at the left. */
 :root {
   --bg: var(--paper);
   --surface: var(--paper-2);
@@ -21,7 +26,7 @@
   --slash: var(--ink);
   --idle: var(--ink-3);
   --paid: var(--ink);
-  --font-serif: var(--font-serif);
+  --field: var(--paper-2);
 }
 
 .mono,
@@ -50,6 +55,9 @@ pre {
   align-items: start;
 }
 .hero-spine { position: sticky; top: calc(var(--bar) + var(--s-5)); }
+/* The Spine shifts down one pitch (8 px) as a tick is born, over --t-shift; reduced motion places it at once (spine.js). */
+.hero-spine .nw-spine { transition: transform var(--t-shift) var(--ease-ui); }
+.hero-spine .nw-spine.is-shifting { transform: translateY(calc(-1 * var(--s-2))); transition: none; }
 .hero-text { min-width: 0; }
 .hero h1 { margin: 0 0 var(--s-5); }
 .dek { margin: 0 0 var(--s-7); color: var(--ink-2); }
@@ -59,24 +67,14 @@ pre {
 .hour-title { display: block; margin: 0 0 var(--s-4); }
 .hour-note { margin: 0 0 var(--s-4); }
 .hour-figures { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: var(--s-5); }
-.is-vermilion .nw-figure { color: var(--ink); }
-.is-ice .nw-figure { color: var(--ink); }
-.is-vermilion .nw-stub, .is-ice .nw-stub { opacity: 1; }
 
-/* The agent panel: the field on pine-2, the graph behind its switch. */
+/* The agent panel: the field on paper-2, the graph behind its switch. */
 .panel { margin: 0; padding: var(--s-5); background: var(--paper-2); border-radius: var(--radius); min-width: 0; }
 .panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s-4); margin: 0 0 var(--s-4); }
 .panel-title { margin: 0; }
 .legend { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4); margin: 0 0 var(--s-4); padding: 0; list-style: none; color: var(--ink-2); }
-.legend li { display: inline-flex; align-items: center; gap: var(--s-2); }
-.dot, .swatch { display: inline-block; width: 8px; height: var(--s-2); border-radius: 50%; background: currentColor; }
-.swatch { width: 16px; height: calc(var(--s-1) / 2); border-radius: 0; }
-.dot-idle { color: var(--ink-3); }
-.dot-working, .swatch-active { color: var(--ink); }
-.dot-disputed, .swatch-disputed { color: var(--ink); }
-.dot-slashed { color: var(--ink); }
-.dot-ring { color: var(--ink-2); }
-.swatch-settled { color: var(--ink-3); }
+/* The legend's marks are the chrome's tags: each state's mark before its word (solid, outline, hatch, X, double ring). */
+.legend .nw-tag { color: var(--ink-2); }
 .field-host, .constellation-host { position: relative; }
 .field-canvas, .constellation-canvas { display: block; width: 100%; height: calc(var(--s-10) + var(--s-10)); }
 .graph-legend, .graph-host, .graph-note,
@@ -85,6 +83,8 @@ pre {
 .hero-panel[data-graph] .graph-legend { display: flex; }
 .hero-panel[data-graph] .graph-host, .hero-panel[data-graph] .graph-note { display: block; }
 .tooltip { position: absolute; pointer-events: none; z-index: 2; }
+/* A tip is a chrome tag, whose display beats the UA's [hidden]: a hidden tip stays hidden (it was painting an empty paper-2 tag over the live line). */
+.tooltip[hidden] { display: none; }
 .field-live { display: block; margin: var(--s-4) 0 0; }
 .panel-foot { margin: var(--s-2) 0 0; }
 .agents-list { margin-top: var(--s-4); }
@@ -95,10 +95,10 @@ pre {
 /* The river: a 140 px canvas across the content width. */
 .river-strip { margin: 0 auto var(--s-9); }
 .river-strip figcaption { margin-bottom: var(--s-4); }
-.hero-river, .pulse-canvas { display: block; width: 100%; height: calc(var(--s-9) + var(--s-6) + var(--s-3)); }
+.hero-river { display: block; width: 100%; height: calc(var(--s-9) + var(--s-6) + var(--s-3)); }
 
 /* ── sections ─────────────────────────────────────────────────────────────── */
-.section-grid { display: grid; row-gap: var(--s-7); }
+.section-grid { display: grid; grid-template-columns: minmax(0, 1fr); row-gap: var(--s-7); }
 .section-head { display: block; margin: 0; }
 .instrument { min-width: 0; }
 .notes { display: grid; row-gap: var(--s-4); }
@@ -106,8 +106,7 @@ pre {
 .status-record .status-label { color: var(--ink-3); }
 .instrument-failed { font: var(--small); color: var(--ink); }
 
-/* 02 · Economy: the Day Bar sticks over the section. */
-.nw-daybar { position: sticky; top: var(--s-3); z-index: 1; }
+/* 02 · Economy: the Day Bar sticks over the section, 12 px under the bar (the chrome's rule; this page adds none). */
 
 /* 03 · Validators */
 .ring-host { display: grid; place-items: center; }
@@ -121,6 +120,8 @@ pre {
 .strip-plot { height: calc(var(--s-9) + var(--s-5)); margin-bottom: var(--s-4); }
 .strip-plot svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .strip .reading-value { display: block; margin: 0 0 var(--s-2); }
+/* A strip's unit is a phrase ("of 199 block times within target"), so it takes its own line under the figure rather than run into the next column. */
+.strip .reading-value .nw-unit { display: block; margin-left: 0; margin-top: var(--s-2); white-space: normal; }
 .strip .reading-prov { display: none; margin: 0; font: var(--label); color: var(--ink-2); }
 html[data-sources] .strip .reading-prov { display: block; }
 .fact .reading-prov { display: none; }
@@ -148,8 +149,10 @@ html[data-sources] .fact .reading-prov { display: inline; }
 .posture-record h3 { margin: 0 0 var(--s-4); color: var(--ink-3); }
 
 /* ── readouts: the figure's states, in the readout's class names ─────────── */
-.reading-value .error, .reading-value .unavailable { font: var(--small); color: var(--ink-3); display: block; }
-.reading-value .sub, .reading-value .unit { font: var(--mono); color: var(--ink-2); margin-left: var(--s-2); }
+/* The reason a figure could not be read is a sentence: it wraps in its column (a figure never does). */
+.reading-value .error, .reading-value .unavailable { font: var(--small); color: var(--ink-3); display: block; white-space: normal; }
+/* A sub-line under a figure is words, not the figure: its own line, wrapping in its column. */
+.reading-value .sub { display: block; margin-top: var(--s-2); font: var(--mono); color: var(--ink-2); white-space: normal; }
 .reading-value a { color: inherit; text-decoration: none; }
 .reading-value.is-error, .reading-value.is-absent { color: var(--ink-3); }
 .reading-prov { margin: 0; }
@@ -157,13 +160,24 @@ html[data-sources] .fact .reading-prov { display: inline; }
 .hero-sub .nw-figure { color: var(--ink-2); }
 .nw-reading-sub[data-stale] { color: var(--ink-3); }
 
+/* A stub changes state at once: its fill is the state, not a motion (only a changed digit warms and cools).
+   Page-scoped until the chrome takes chrome/requests/observatory.css. */
+.nw-stub { transition: transform var(--t-ui) var(--ease-ui); }
+
 /* ── presenter ────────────────────────────────────────────────────────────── */
 html[data-present] .nw-nav, html[data-present] .nw-nav-row, html[data-present] .nw-foot,
 html[data-present] .river-strip, html[data-present] .nw-receipt-line, html[data-present] .notes { display: none; }
 html[data-present] [data-present-screen] { display: none; }
 html[data-present] [data-present-screen][data-present-active] { display: block; min-height: 100vh; }
-html[data-present] .section .nw-figure, html[data-present] .hero .nw-figure--xl { font: var(--figure-xl); font: var(--figure-xl); }
+/* The type scale is closed: the room's figures are the largest style, --figure-xl, never a size of their own. */
+html[data-present] .section .nw-figure, html[data-present] .hero .nw-figure { font: var(--figure-xl); }
 html[data-present] .hero-spine { display: none; }
+/* With the margin Spine gone the first screen is two columns, so the text does not fall into the Spine's 96 px. */
+html[data-present] .hero-grid { grid-template-columns: minmax(0, 5.5fr) minmax(0, 6.5fr); }
+/* The comb Spine: presenter only, at the foot of every screen; 240 ticks across 1,600 px, newest at the right, the oldest clipped on a narrower screen. */
+.present-comb { display: none; }
+html[data-present] .present-comb { display: flex; justify-content: flex-end; overflow: hidden; position: fixed; left: 0; right: 0; bottom: var(--s-5); z-index: 20; background: var(--paper); }
+html[data-present] .present-comb .nw-spine--comb { flex: none; }
 
 /* ── motion: nothing moves on its own except the chain (brief §4); no scroll reveal ── */
 @media (prefers-reduced-motion: reduce) {

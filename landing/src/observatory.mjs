@@ -1,5 +1,5 @@
 // Renders /observatory — the static frame the live instruments draw into,
-// in the Nightwatch chrome (src/chrome).
+// in the Ledger chrome (src/chrome).
 //
 // The landing page states figures read off a node at build time. The
 // observatory states nothing at build time except three checked-in records,
@@ -144,8 +144,8 @@ function chainSection() {
     title: 'Chain',
     name: 'pulse',
     number: '01',
-    instrument: `        <canvas class="pulse-canvas" role="img" aria-label="River of recent blocks, newest at the right, each bar as tall as its transaction count, the finalized region tinted"></canvas>
-        <p class="pulse-status nw-visually-hidden" role="status"></p>`,
+    // The river is drawn once, under the first screen (.hero-river); this section keeps only its status line.
+    instrument: `        <p class="pulse-status nw-visually-hidden" role="status"></p>`,
     readings: [
       nwReading({ key: 'bestBlock', label: 'Height', size: 'l' }),
       nwReading({ key: 'finalizedBlock', label: 'Finalized', size: 'l' }),
@@ -374,6 +374,15 @@ export const OPERATOR_NOTE =
 
 export const DEK = 'The public chain, read from a running node. Every figure names its source.';
 
+/**
+ * The presenter's comb Spine (round 1 §3): horizontal, 240 ticks across
+ * 1,600 px, newest at the right, shown only in presenter mode at the foot of
+ * every screen. Empty until the head bus fills it.
+ */
+function combFrame() {
+  return `<div class="present-comb" aria-hidden="true">${T.spine({ ticks: [], form: 'comb', ariaLabel: 'The last 240 blocks, newest at the right' }).replace('data-spine ', 'data-spine-comb ')}</div>`;
+}
+
 /** The margin Spine's frame: the browser fills its hundred ticks from the head bus. */
 function spineFrame() {
   return T.spine({ ticks: [], form: 'margin', ariaLabel: 'The last hundred blocks, newest on top' });
@@ -405,8 +414,8 @@ ${nwReading({ key: 'messagesSent', label: 'Messages sent', size: 'xl', minSpec: 
         <div class="readings nw-row hour-figures">
 ${nwReading({ key: 'hourOracle', label: 'Oracle answers' })}
 ${nwReading({ key: 'hourSettled', label: 'Agreements settled' })}
-${nwReading({ key: 'hourDisputes', label: 'Disputes opened', className: 'is-vermilion' })}
-${nwReading({ key: 'hourSlashes', label: 'Slashes', className: 'is-ice' })}
+${nwReading({ key: 'hourDisputes', label: 'Disputes opened', className: 'is-dispute' })}
+${nwReading({ key: 'hourSlashes', label: 'Slashes', className: 'is-slashed' })}
 ${nwReading({ key: 'hourMessages', label: 'Messages sent', minSpec: 309 })}
         </div>
       </section>
@@ -416,20 +425,20 @@ ${nwReading({ key: 'hourMessages', label: 'Messages sent', minSpec: 309 })}
         <h2 class="nw-label panel-title" id="panel-h">Agent activity</h2>
         <button type="button" class="nw-quiet graph-toggle" role="switch" aria-checked="false">Network graph</button>
       </figcaption>
-      <ul class="legend field-legend nw-label" aria-label="Cell colours">
-        <li><span class="dot dot-idle" aria-hidden="true"></span>Idle</li>
-        <li><span class="dot dot-working" aria-hidden="true"></span>Working</li>
-        <li><span class="dot dot-disputed" aria-hidden="true"></span>In dispute</li>
-        <li><span class="dot dot-slashed" aria-hidden="true"></span>Slashed, last hour</li>
-        <li><span class="dot dot-ring" aria-hidden="true"></span>Operator-run</li>
+      <ul class="legend field-legend" aria-label="Ember marks">
+        <li class="nw-tag" data-state="live"><span class="nw-dot" aria-hidden="true"></span>Heartbeat multiplier</li>
+        <li class="nw-tag" data-state="dispute"><span class="nw-dot" aria-hidden="true"></span>In dispute</li>
+        <li class="nw-tag" data-state="slashed"><span class="nw-dot" aria-hidden="true"></span>Slashed, last hour</li>
+        <li class="nw-tag" data-state="operator"><span class="nw-dot" aria-hidden="true"></span>Operator-run</li>
+        <li class="nw-tag" data-state="record"><span class="nw-dot" aria-hidden="true"></span>Unstaking</li>
       </ul>
-      <ul class="legend graph-legend nw-label" aria-label="Line colours">
-        <li><span class="swatch swatch-active" aria-hidden="true"></span>Open</li>
-        <li><span class="swatch swatch-disputed" aria-hidden="true"></span>Disputed</li>
-        <li><span class="swatch swatch-settled" aria-hidden="true"></span>Settled</li>
+      <ul class="legend graph-legend" aria-label="Line marks">
+        <li class="nw-tag" data-state="live"><span class="nw-dot" aria-hidden="true"></span>Open</li>
+        <li class="nw-tag" data-state="dispute"><span class="nw-dot" aria-hidden="true"></span>Disputed</li>
+        <li class="nw-tag" data-state="settled"><span class="nw-dot" aria-hidden="true"></span>Settled</li>
       </ul>
       <div class="field-host">
-        <canvas class="field-canvas" role="img" aria-label="Agent activity: one cell per registered agent, coloured by what it is doing now"></canvas>
+        <canvas class="field-canvas" role="img" aria-label="Agent activity: one ember per registered agent, as dark as its heartbeat multiplier"></canvas>
         <div class="tooltip field-tip nw-tag" role="tooltip" hidden></div>
       </div>
       <div class="graph-host">
@@ -440,7 +449,7 @@ ${nwReading({ key: 'hourMessages', label: 'Messages sent', minSpec: 309 })}
         <ol class="graph-bundles nw-mono" aria-label="Pairs with more lines than the graph draws" hidden></ol>
       </div>
       <p class="field-live nw-receipt-line" role="status" aria-live="off">reading the agent list…</p>
-      <p class="panel-foot field-foot nw-small nw-dim">One cell per agent. External agents come first, then operator-run, each in order of registration.</p>
+      <p class="panel-foot field-foot nw-small nw-dim">One ember per agent. External agents come first, then operator-run, each in order of registration.</p>
       <p class="panel-foot graph-note nw-small nw-dim"></p>
       <details class="disclosure agents-list"><summary class="nw-quiet">The same agents as a list</summary>
         <ol class="agent-list nw-mono" aria-live="off"></ol>
@@ -453,7 +462,12 @@ ${nwReading({ key: 'hourMessages', label: 'Messages sent', minSpec: 309 })}
     </figure>
   </div>
 </header>
-<figure class="nw-frame river-strip" aria-labelledby="river-h">
+${riverStrip()}`;
+}
+
+/** The river, drawn once on the page: the titled strip under the first screen (section 01 keeps only its status line). */
+function riverStrip() {
+  return `<figure class="nw-frame river-strip" aria-labelledby="river-h">
   <figcaption><h2 class="nw-label" id="river-h">Blocks arriving now</h2></figcaption>
   <canvas class="hero-river" role="img" aria-label="River of recent blocks, newest at the right, each bar as tall as its transaction count, the newest final block marked"></canvas>
 </figure>`;
@@ -473,6 +487,27 @@ function noscriptBand(facts) {
     receipt: `${T.requestLine({ method: 'WS', url: p.rpc })} · fetched ${T.utc(p.fetchedAt)} · block ${T.formatInt(p.readAtBlock)}`,
   })}</div></noscript>`;
 }
+
+/**
+ * The two heartbeat periods the EmberBank needs, from chain-facts.json's
+ * runtime constants (read off the node at build time, with the spec they were
+ * read at), and the block time that turns them into words.
+ */
+export function heartbeatRecord(facts) {
+  const agents = facts.constants?.agents ?? {};
+  const record = {
+    grace: Number(agents.heartbeatGracePeriod),
+    decay: Number(agents.heartbeatDecayPeriod),
+    blockMs: Number(facts.constants?.babe?.expectedBlockTime),
+    source: 'chain-facts.json',
+    specVersion: facts.provenance.specVersion,
+    readAtBlock: facts.provenance.readAtBlock,
+  };
+  for (const key of ['grace', 'decay', 'blockMs']) if (!Number.isFinite(record[key]) || record[key] <= 0) throw new Error(`chain-facts.json has no ${key} for the EmberBank`);
+  return record;
+}
+
+const jsonScript = (id, value) => `<script type="application/json" id="${id}">${JSON.stringify(value).replace(/</g, '\\u003c')}</script>`;
 
 /** chain-facts.json, read when the caller passes no facts (the tests call renderObservatory without them). */
 const readFacts = () => JSON.parse(readFileSync(new URL('../chain-facts.json', import.meta.url), 'utf8'));
@@ -500,11 +535,13 @@ ${Object.keys(SECTIONS)
   .map((name) => renderSection(name, { history, posture, status }))
   .join('\n')}
 </main>
+${combFrame()}
 ${T.footer({ facts: footerFacts(chainFacts) })}
 ${T.palette()}
 <p class="sr-status nw-visually-hidden" role="status" aria-live="polite"></p>
 <script type="application/json" id="runtime-history">${JSON.stringify(history).replace(/</g, '\\u003c')}</script>
 <script type="application/json" id="security-posture">${JSON.stringify(posture).replace(/</g, '\\u003c')}</script>
+${jsonScript('heartbeat-record', heartbeatRecord(chainFacts))}
 </body>
 </html>
 `;
@@ -514,8 +551,10 @@ ${T.palette()}
 const HARNESS_SECTION = { pulse: 'chain', era: 'economy', economy: 'economy', posture: 'verify' };
 
 /** A page holding one instrument's section, for the dev harness. */
-export function renderHarness(name, { history, posture, status, css = '' }) {
-  const body = name === 'agent-field' || name === 'constellation' ? hero() : renderSection(HARNESS_SECTION[name] ?? name, { history, posture, status });
+export function renderHarness(name, { history, posture, status, css = '', facts = null }) {
+  const section = name === 'agent-field' || name === 'constellation' ? hero() : renderSection(HARNESS_SECTION[name] ?? name, { history, posture, status });
+  // The river draws into the strip, so the chain's harness carries it.
+  const body = name === 'pulse' ? `${riverStrip()}\n${section}` : section;
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -528,6 +567,7 @@ ${body}
 <p class="sr-status nw-visually-hidden" role="status" aria-live="polite"></p>
 <script type="application/json" id="runtime-history">${JSON.stringify(history).replace(/</g, '\\u003c')}</script>
 <script type="application/json" id="security-posture">${JSON.stringify(posture).replace(/</g, '\\u003c')}</script>
+${jsonScript('heartbeat-record', heartbeatRecord(facts ?? readFacts()))}
 </body>
 </html>
 `;

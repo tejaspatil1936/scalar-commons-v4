@@ -27,6 +27,10 @@ import * as presenter from './presenter.js';
 import * as hero from './hero.js';
 import * as sources from './sources.js';
 import { STALL_CHECK_MS } from './statusbar.js';
+import { indexBehind } from './hour.js';
+
+/** How often the lamp re-reads the index's position: the hour's own /v1/status cadence (hour.js), so the poll is shared. */
+const LAMP_STATUS_MS = 30_000;
 
 /** Each instrument and the element it draws into, in boot order. */
 const INSTRUMENTS = [
@@ -72,6 +76,19 @@ function lamp(ctx) {
   ctx.bus.on('head', ({ number }) => handle.update({ block: number }));
   ctx.bus.on('poll', ({ number, finalized }) => handle.update({ block: number, finalized: Number.isFinite(finalized) ? finalized : undefined }));
   ctx.bus.on('finalized', ({ number }) => handle.update({ finalized: number }));
+  // Index behind (round 2 §4): the indexer's own report on /v1/status — finalized blocks it has not synced yet — shared with the hour's poll.
+  ctx.watch(
+    'status',
+    (record) => {
+      if (!record?.ok) return;
+      try {
+        handle.update({ indexBehind: indexBehind(record.data, ctx.field) });
+      } catch {
+        // A status body without the two heights says nothing about the index; the lamp keeps its last word.
+      }
+    },
+    LAMP_STATUS_MS,
+  );
   ctx.bus.on('socket', ({ state }) => {
     handle.update({ open: state === 'open' });
     // Disconnected: every live stub goes sage with `as of <UTC>`; the next read relights it.

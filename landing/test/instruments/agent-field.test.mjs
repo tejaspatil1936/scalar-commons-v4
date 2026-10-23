@@ -26,9 +26,15 @@ import {
   footnote,
   parseColour,
   mixColour,
+  EMBER,
+  heartbeatMultiplier,
+  bankLayout,
+  emberOrigin,
+  emberAt,
+  spanWords,
 } from '../../src/observatory/instruments/agent-field.js';
 import { hourCount, FIGURES } from '../../src/observatory/instruments/last-hour.js';
-import { indexHour, lagNote } from '../../src/observatory/hour.js';
+import { indexHour, lagNote, indexBehind } from '../../src/observatory/hour.js';
 import { field } from '../../src/observatory/data.js';
 
 const agent = (i, extra = {}) => ({
@@ -159,8 +165,8 @@ test('the live line and the footnote say what is there, and what could not be re
   assert.equal(liveLine({ agents: 2000, active: 286, disputed: 3 }, fmt), '2,000 agents · 286 active now · 3 in dispute');
   assert.equal(liveLine({ agents: 1, active: 0, disputed: 0 }, fmt), '1 agent · 0 active now · 0 in dispute');
   assert.equal(liveLine({ agents: 512, active: null, disputed: null, floor: true }, fmt), '≥ 512 agents · activity unavailable · disputes unavailable');
-  assert.match(footnote({ size: 1, truncated: false, scanLimit: 512, listed: 40, total: 40 }, fmt), /^One cell per agent\. External agents come first, then operator-run/);
-  assert.match(footnote({ size: 3, truncated: false, scanLimit: 512, listed: 2000, total: 2000 }, fmt), /^One cell per 3 agents; working cells are in the same share as working agents, and any dispute or slash shows\. /);
+  assert.match(footnote({ size: 1, truncated: false, scanLimit: 512, listed: 40, total: 40 }, fmt), /^One ember per agent\. External agents come first, then operator-run/);
+  assert.match(footnote({ size: 3, truncated: false, scanLimit: 512, listed: 2000, total: 2000 }, fmt), /^One ember per 3 agents; working embers are in the same share as working agents, and any dispute or slash shows\. /);
   assert.match(footnote({ size: 1, truncated: true, scanLimit: 512, listed: 512, total: 512 }, fmt), /; the indexer's live scan stops at 512 agents, so 512 are drawn\.$/);
 });
 
@@ -216,4 +222,46 @@ test('the last hour is the index’s newest 600 blocks, not 600 blocks back from
   );
   assert.equal(lagNote({ to: 905_399, behind: 2 }, fmt), '', 'an index two blocks behind is not news');
   assert.throws(() => indexHour({ chain: { bestBlock: 1 } }, field), /indexer\.syncedHeight/);
+});
+
+test('the EmberBank: the heartbeat multiplier is pallets/agents heartbeat_multiplier (lib.rs 1987–2004), to the integer', () => {
+  // The runtime's own periods (chain-facts.json at spec 309): an 18 h grace and a 90-day decay at 6 s blocks.
+  const k = { grace: 10_800, decay: 1_296_000 };
+  assert.equal(heartbeatMultiplier(1_000, 1_000, k), 100, 'a heartbeat this block');
+  assert.equal(heartbeatMultiplier(1_000, 1_000 + k.grace, k), 100, 'the last block of the grace (since <= grace)');
+  assert.equal(heartbeatMultiplier(0, k.grace + 1, k), 100, '90 × 1 / decay floors to 0');
+  assert.equal(heartbeatMultiplier(0, k.grace + k.decay / 2, k), 55, 'half way down the decay: 100 − 45');
+  assert.equal(heartbeatMultiplier(0, k.grace + k.decay, k), 10, 'the end of the decay is the floor');
+  assert.equal(heartbeatMultiplier(0, k.grace + 10 * k.decay, k), 10, 'over is capped at decay; never under the floor');
+  assert.equal(heartbeatMultiplier(5_000, 1_000, k), 100, 'a heartbeat ahead of the head saturates to zero blocks since');
+  assert.equal(spanWords(k.grace, 6_000), '18 h');
+  assert.equal(spanWords(k.decay, 6_000), '90 days');
+});
+
+test('the EmberBank: 24×3 embers in rows of up to 24 at 4 px gaps and a 24 px pitch; the plate is as tall as its rows', () => {
+  assert.deepEqual(EMBER, { width: 24, height: 3, gap: 4, pitch: 24, perRow: 24 });
+  const wide = bankLayout(204, 2000, 8);
+  assert.equal(wide.cols, 24, 'never more than 24 to a row');
+  assert.equal(wide.rows, 9);
+  assert.equal(wide.height, 9 * 24 + 16);
+  const panel = bankLayout(204, 540, 8);
+  assert.equal(panel.cols, Math.floor((540 - 16 + 4) / 28));
+  assert.equal(panel.height % 8, 0, 'on the 8 px rhythm');
+  const first = emberOrigin(panel, 0);
+  const second = emberOrigin(panel, 1);
+  const below = emberOrigin(panel, panel.cols);
+  assert.equal(second.x - first.x, 28, '24 px ember + 4 px gap');
+  assert.equal(below.y - first.y, 24, '24 px row pitch');
+  assert.equal(emberAt(panel, first.x + 1, first.y + 1), 0);
+  assert.equal(emberAt(panel, below.x + 1, below.y + 1), panel.cols);
+  assert.equal(emberAt(panel, -5, 0), -1);
+  assert.equal(emberAt(bankLayout(0, 540), 10, 10), -1);
+});
+
+test('the lamp’s index-behind figure: finalized blocks the index has not synced, from one /v1/status body', () => {
+  const status = (finalizedBlock, syncedHeight, bestBlock = finalizedBlock + 2) => ({ chain: { bestBlock, finalizedBlock }, indexer: { syncedHeight } });
+  assert.equal(indexBehind(status(1_163_379, 1_163_379), field), 0, 'in step: the best block’s finality lag is not the index’s');
+  assert.equal(indexBehind(status(1_163_400, 1_163_379), field), 21);
+  assert.equal(indexBehind(status(1_163_379, 1_163_380), field), 0, 'never negative');
+  assert.throws(() => indexBehind({ chain: {} }, field), 'a body without the heights is an error, not a zero');
 });
