@@ -62,10 +62,12 @@ test('the build emits the observatory page, its bundle, stylesheet, fonts and re
   for (const name of ['observatory.html', 'observatory.js', 'observatory.css', 'runtime-history.json', 'posture.json', 'status.json', 'fonts']) {
     assert.ok(files.includes(name), `build produced no ${name} (got: ${files.join(', ')})`);
   }
+  // dist/fonts holds the chrome's two faces and nothing else (brief §2.1).
   const fonts = readdirSync(join(out, 'fonts'));
-  for (const face of ['source-serif-4', 'inter', 'jetbrains-mono']) {
+  for (const face of ['instrument-sans', 'martian-mono']) {
     assert.ok(fonts.some((f) => f.startsWith(face) && f.endsWith('.woff2')), `no ${face} woff2 in dist/fonts`);
   }
+  assert.deepEqual(fonts.sort(), ['instrument-sans-latin-wght-normal.woff2', 'martian-mono-latin-wght-normal.woff2']);
   assert.match(page, /^<!doctype html>/i);
   assert.match(page, /<script type="module" src="observatory\.js"><\/script>/);
   // The stylesheet is inlined for first paint; the same bytes ship as a file.
