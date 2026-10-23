@@ -231,6 +231,9 @@ server {
         root <LANDING_DIST>;
         index index.html;
         try_files $uri $uri/ $uri.html =404;
+        # An unknown path shows the site's own 404 page (landing/dist/404.html,
+        # SITE-REDESIGN.md §5.4) instead of nginx's bare one; the status stays 404.
+        error_page 404 /404.html;
     }
 }
 
@@ -271,6 +274,33 @@ server {
     # proxy_set_header line below would hand the per-IP limit back to the
     # attacker. If you add one, copy the whole proxy block.
     location / {
+        # CORS for the one browser client, the faucet form on https://<DOMAIN>/faucet
+        # (SITE-REDESIGN.md §5.3): the site's origin only, never `*` — this is a
+        # dispenser. Security headers repeated because this block declares
+        # add_header — see the note at the top of the file.
+        add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+        add_header X-Content-Type-Options    "nosniff" always;
+        add_header X-Frame-Options           "DENY" always;
+        add_header Referrer-Policy           "no-referrer" always;
+        add_header Access-Control-Allow-Origin  "https://<DOMAIN>" always;
+        add_header Access-Control-Allow-Methods "POST, GET, OPTIONS" always;
+        add_header Access-Control-Allow-Headers "content-type" always;
+
+        # Preflight short-circuit: answer OPTIONS at the edge with 204 instead
+        # of forwarding it to a faucet that has no CORS opinion and answers 405.
+        if ($request_method = OPTIONS) {
+            add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+            add_header X-Content-Type-Options    "nosniff" always;
+            add_header X-Frame-Options           "DENY" always;
+            add_header Referrer-Policy           "no-referrer" always;
+            add_header Access-Control-Allow-Origin  "https://<DOMAIN>" always;
+            add_header Access-Control-Allow-Methods "POST, GET, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "content-type" always;
+            add_header Access-Control-Max-Age       "86400" always;
+            add_header Content-Length 0;
+            return 204;
+        }
+
         proxy_pass http://127.0.0.1:8082;
         proxy_http_version 1.1;
         proxy_set_header Host              $host;
