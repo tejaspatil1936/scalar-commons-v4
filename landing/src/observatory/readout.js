@@ -52,6 +52,36 @@ export function provenance(target, record, extra = '') {
     prov.append(...wrappableLabel(record.label));
   }
   prov.append(` · ${utcTime(record.at)}${extra ? ` · ${extra}` : ''}`);
+  receipt(target, record, extra);
+}
+
+/**
+ * The chrome's receipt under a Reading: `fetched <UTC> · block n`, the raw
+ * bytes, and the inline receipt line. The request line is the build's.
+ */
+export function receipt(target, record, extra = '') {
+  const fetched = target.querySelector('[data-fetched]');
+  const block = record.block ?? record.atBlock ?? null;
+  if (fetched) fetched.textContent = `fetched ${utcTime(record.at)}${Number.isFinite(block) ? ` · block ${formatInteger(block)}` : ''}${extra ? ` · ${extra}` : ''}`;
+  const raw = target.querySelector('[data-raw]');
+  const url = snapshotUrl(record);
+  if (raw && url) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.setAttribute('data-raw', '');
+    a.textContent = 'raw ↗';
+    raw.replaceWith(a);
+  }
+  const line = target.querySelector('.nw-receipt-line');
+  if (line) line.textContent = `${record.label} · ${utcTime(record.at)}${Number.isFinite(block) ? ` · block ${formatInteger(block)}` : ''}`;
+}
+
+/** The Reading's stub takes the figure's state; the loading leader stops. */
+function markState(target, state) {
+  target.classList.remove('is-loading');
+  target.querySelector('.nw-stub')?.setAttribute('data-state', state);
 }
 
 /**
@@ -116,6 +146,7 @@ export function showValue(target, record, { value, prefix = '', unit = '', sub =
   const before = slot.dataset.number;
   slot.classList.remove('is-loading', 'is-error', 'is-absent');
   slot.classList.toggle('is-live', live);
+  markState(target, live ? 'live' : 'record');
 
   const digits = document.createElement('span');
   digits.className = 'digits';
@@ -156,6 +187,7 @@ export function showError(target, record, reason = record?.error ?? 'unavailable
   const slot = target.querySelector('.reading-value');
   slot.classList.remove('is-loading', 'is-absent', 'is-live');
   slot.classList.add('is-error');
+  markState(target, 'record');
   delete slot.dataset.number;
   delete slot.dataset.shown;
   const word = document.createElement('span');
@@ -175,6 +207,7 @@ export function showAbsent(target, record, reason) {
   const slot = target.querySelector('.reading-value');
   slot.classList.remove('is-loading', 'is-error', 'is-live');
   slot.classList.add('is-absent');
+  markState(target, 'record');
   delete slot.dataset.number;
   delete slot.dataset.shown;
   const dash = document.createElement('span');
