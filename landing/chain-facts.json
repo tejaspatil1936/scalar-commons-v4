@@ -9,11 +9,11 @@
     "metadataVersion": 15,
     "genesisHash": "0xff6882b49ad61dd3128a6e834b4f81704a3824ce358f2f69fe765ca07cf803d1",
     "ss58Format": 42,
-    "readAtBlock": 1166072,
-    "readAtBlockHash": "0x9ed1be710564ba25e7eb38de011fe4e7531e6fde01cdf406055c0acc15b0dd5f",
-    "finalizedAtRead": 1166071,
+    "readAtBlock": 1167191,
+    "readAtBlockHash": "0x86cd379820caab05fa5d30bd052b169a887e4e4417e03ab951c5aa9f9aacd4b3",
+    "finalizedAtRead": 1167189,
     "nodeVersion": "4.0.0-5f5e3c9439f",
-    "fetchedAt": "2026-10-23T19:35:11.368Z"
+    "fetchedAt": "2026-10-23T21:27:08.713Z"
   },
   "token": {
     "symbol": "CMN",
@@ -135,210 +135,211 @@
     "operatorRunAgents": 140,
     "openDisputes": 399,
     "eraStartBlock": 1164639,
-    "eraElapsedBlocks": 1433,
+    "eraElapsedBlocks": 2552,
     "recentBlocks": [
       {
-        "number": 1166072,
+        "number": 1167191,
         "extrinsics": 1,
         "final": false
       },
       {
-        "number": 1166071,
+        "number": 1167190,
+        "extrinsics": 1,
+        "final": false
+      },
+      {
+        "number": 1167189,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166070,
+        "number": 1167188,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166069,
+        "number": 1167187,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166068,
+        "number": 1167186,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166067,
+        "number": 1167185,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166066,
+        "number": 1167184,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166065,
+        "number": 1167183,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166064,
+        "number": 1167182,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166063,
+        "number": 1167181,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166062,
+        "number": 1167180,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166061,
+        "number": 1167179,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166060,
+        "number": 1167178,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166059,
+        "number": 1167177,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166058,
+        "number": 1167176,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166057,
+        "number": 1167175,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166056,
+        "number": 1167174,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166055,
+        "number": 1167173,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166054,
+        "number": 1167172,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166053,
+        "number": 1167171,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166052,
+        "number": 1167170,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166051,
+        "number": 1167169,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166050,
+        "number": 1167168,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166049,
+        "number": 1167167,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166048,
+        "number": 1167166,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166047,
+        "number": 1167165,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166046,
+        "number": 1167164,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166045,
+        "number": 1167163,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166044,
+        "number": 1167162,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166043,
+        "number": 1167161,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166042,
+        "number": 1167160,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166041,
+        "number": 1167159,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166040,
+        "number": 1167158,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166039,
+        "number": 1167157,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166038,
+        "number": 1167156,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166037,
+        "number": 1167155,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166036,
+        "number": 1167154,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166035,
+        "number": 1167153,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1166034,
-        "extrinsics": 1,
-        "final": true
-      },
-      {
-        "number": 1166033,
+        "number": 1167152,
         "extrinsics": 1,
         "final": true
       }
     ],
-    "totalIssuancePlancks": "6054836317051050017125",
+    "totalIssuancePlancks": "6054836317050833702831",
+    "genesisIssuancePlancks": "6010250000010000000000",
     "eraNumber": 173,
     "lastSettledEra": "172",
     "alpha": 8000,

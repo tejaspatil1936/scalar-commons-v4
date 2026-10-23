@@ -20,6 +20,7 @@ a { color: var(--accent); text-decoration: none; transition: color .15s, backgro
 a:hover, a:focus-visible { text-decoration: underline; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 ::selection { background: var(--bg-2); }
+[hidden] { display: none !important; }
 .sc-sr { position: absolute; width: 1px; height: calc(var(--s-1) / 4); margin: calc(-1 * var(--s-1) / 4); padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .sc-icon { display: inline-block; width: 20px; height: 20px; flex: none; vertical-align: middle; }
 .sc-icon-sm { width: 16px; height: 16px; }
@@ -90,7 +91,7 @@ main { display: block; }
 .sc-footer-cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s-5); }
 .sc-footer-col h2 { font: var(--small); font-weight: 600; color: var(--text); margin-bottom: var(--s-3); }
 .sc-footer-col li + li { margin-top: var(--s-2); }
-.sc-footer-col a { font: var(--small); color: var(--text-2); }
+.sc-footer-col a { display: inline-flex; align-items: center; gap: var(--s-1); font: var(--small); color: var(--text-2); }
 .sc-footer-col a:hover, .sc-footer-col a:focus-visible { color: var(--accent); }
 .sc-footer-value { display: grid; gap: var(--s-1); font: var(--small); color: var(--text-2); }
 .sc-footer-value code { font: var(--mono); color: var(--text); overflow-wrap: anywhere; }
@@ -169,6 +170,8 @@ main { display: block; }
 /* ── code block ───────────────────────────────────────────────────────────── */
 .sc-code { position: relative; background: var(--bg-2); border-radius: var(--radius); }
 .sc-code pre { padding: var(--s-4); padding-right: calc(var(--s-8) + var(--s-5)); overflow-x: auto; font: var(--mono); color: var(--text); white-space: pre; }
+/* The browser gives <code> its own monospace; the block's face wins. */
+.sc-code pre code { font: inherit; }
 .sc-copy { display: inline-flex; align-items: center; gap: var(--s-1); padding: var(--s-1) var(--s-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text-2); font: var(--caption); font-weight: 500; cursor: pointer; transition: color .15s, background-color .15s, border-color .15s; }
 .sc-copy:hover { color: var(--text); border-color: var(--control); }
 .sc-code .sc-copy { position: absolute; top: var(--s-3); right: var(--s-3); }
@@ -222,9 +225,14 @@ main { display: block; }
   .sc-header-end { gap: var(--s-2); }
   .sc-search-row { flex-direction: column; }
 }
-/* Under 420 px the wordmark, Get started and the menu button share 342 px: the
-   menu keeps its icon and its accessible name ("Menu") and drops the visible word. */
+/* Under 420 px the wordmark, Get started and the menu button (icon + "Menu")
+   share 342 px: the button and the menu tighten to the smaller steps to fit. */
 @media (max-width: 420px) {
-  .sc-menu > summary { padding: 0 var(--s-2); }
-  .sc-menu > summary > span { position: absolute; width: 1px; height: calc(var(--s-1) / 4); margin: calc(-1 * var(--s-1) / 4); overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .sc-header-inner, .sc-header-end { gap: var(--s-2); }
+  .sc-header-end .sc-btn { padding: 0 var(--s-3); }
+  .sc-menu > summary { padding: 0 var(--s-2); gap: var(--s-1); }
+}
+/* Narrower still (360 px phones), the wordmark may take two lines. */
+@media (max-width: 380px) {
+  .sc-wordmark { white-space: normal; line-height: 1.1; }
 }

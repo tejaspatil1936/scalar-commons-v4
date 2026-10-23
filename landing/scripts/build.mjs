@@ -12,19 +12,19 @@
 // one script, no chunks, no WebGL and no animation library (the scroll
 // reveal is the browser's IntersectionObserver). /pulse is bundled the same
 // way into its own one script, with force-graph and gsap, which no other
-// page loads. The landing page itself still ships no script at all.
+// page loads. The home page ships one plain script, home.js (src/home/
+// refresh.js minified, never bundled), that refreshes its four live figures.
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build, transform } from 'esbuild';
 import { content } from '../src/content.mjs';
-import { sourceClaims } from '../src/source-claims.mjs';
 import { renderPage } from '../src/render.mjs';
 import { renderObservatory } from '../src/observatory.mjs';
 import { renderPulse } from '../src/pulse.mjs';
 import { FONTS, observatoryCss } from '../src/observatory-assets.mjs';
 import { chromeCss } from '../src/chrome-legacy/assets.mjs';
-import { CHROME_FONTS } from '../src/chrome/assets.mjs';
+import { CHROME_FONTS, chromeCss as plainChromeCss } from '../src/chrome/assets.mjs';
 
 const here = (relative) => fileURLToPath(new URL(relative, import.meta.url));
 const readJson = (relative) => JSON.parse(readFileSync(here(relative), 'utf8'));
@@ -34,14 +34,18 @@ const facts = readJson('../chain-facts.json');
 // renderPage throws on an unresolvable placeholder, so a page that would state a
 // figure the chain never reported fails the build instead of shipping.
 const builtAt = new Date().toISOString();
-const html = renderPage({ facts, content, sourceClaims, builtAt });
+const html = renderPage({ facts, content, builtAt });
 
 const outDir = process.env.LANDING_OUT_DIR ?? here('../dist');
 mkdirSync(outDir, { recursive: true });
 writeFileSync(join(outDir, 'index.html'), html);
-// styles.css is the chrome: tokens, chrome and print, minified — the one
-// stylesheet the script-free home page links.
-writeFileSync(join(outDir, 'styles.css'), (await transform(chromeCss(), { loader: 'css', minify: true })).code.trim());
+// styles.css is the plain chrome (tokens, fonts, chrome) and the home page's
+// own rules, minified — the one stylesheet the home page links.
+const homeCss = `${plainChromeCss()}\n${readFileSync(here('../src/home.css'), 'utf8')}`;
+writeFileSync(join(outDir, 'styles.css'), (await transform(homeCss, { loader: 'css', minify: true })).code.trim());
+// home.js: the one plain script (no bundle, no import), minified.
+const homeJs = (await transform(readFileSync(here('../src/home/refresh.js'), 'utf8'), { loader: 'js', minify: true, target: 'es2022' })).code.trim();
+writeFileSync(join(outDir, 'home.js'), homeJs);
 
 // /observatory: a static frame whose live figures the reader's browser fetches.
 // The two sets of figures it is built with are checked-in records, and both
@@ -123,7 +127,7 @@ for (const name of readdirSync(pagesDir).filter((n) => n.endsWith('.mjs')).sort(
 }
 
 console.log(
-  `built ${outDir}/index.html (${(html.length / 1024).toFixed(1)} kB) from ${facts.provenance.specName} spec ` +
+  `built ${outDir}/index.html (${(html.length / 1024).toFixed(1)} kB, home.js ${(homeJs.length / 1024).toFixed(1)} kB) from ${facts.provenance.specName} spec ` +
     `${facts.provenance.specVersion}, metadata v${facts.provenance.metadataVersion}, block ` +
     `#${facts.provenance.readAtBlock}; observatory.js ${(bundleBytes / 1024).toFixed(1)} kB` +
     `, observatory-graph.js (on demand) ${(chunkBytes / 1024).toFixed(1)} kB; pulse.js ${(pulseBytes / 1024).toFixed(1)} kB`,

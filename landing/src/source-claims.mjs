@@ -1,6 +1,9 @@
-// The descriptive claims the pages make, each pinned to the line of runtime
-// source that backs it — the brief's ledger (section 7) first, then the older
-// rows the docs still cite.
+// The descriptive claims the site makes about the runtime, each pinned to the
+// line of source that backs it — the old ledger's rows first, then the older
+// rows the docs still cite. The plain home page (SITE-REDESIGN.md §5.1) no
+// longer prints this list; its sentences ("emissions reward verified work",
+// "stake does not earn by itself", "no vote can lift the limits") rest on it,
+// and test/claims.test.mjs keeps every row true against the tree.
 //
 // Numbers on the page are covered by chain-facts.json: they come out of live
 // metadata and `npm run verify:chain` re-checks them. Sentences like "stake
@@ -14,7 +17,7 @@
 export const sourceClaims = [
   {
     ledger: 1,
-    claim: 'The supply cap is 100 B CMN; 18 B were minted at genesis',
+    claim: 'The supply cap is 100 B CMN; the mainnet genesis allocation is 18 B (the testnet’s genesis differs: read it from the chain)',
     file: 'runtime/src/lib.rs',
     line: 83,
     snippet: 'pub const SUPPLY_CAP: Balance = 100_000_000_000 * CMN;',

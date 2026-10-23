@@ -1,0 +1,47 @@
+/*
+ * The home page (SITE-REDESIGN.md §5.1): the few rules the chrome does not
+ * already draw, scoped to .home. Tokens only: colours, the type scale and the
+ * 4–96 px spacing steps from tokens.css.
+ */
+/* hidden must win over a component's own display (callout, badge) */
+.home [hidden] { display: none; }
+
+/* hero: no band, no image; a headline, one sentence, two buttons, one caption */
+.home-hero { padding-block: var(--s-9) var(--s-8); }
+.home-headline { max-width: 20ch; }
+.home-lead { margin-top: var(--s-4); }
+.home-hero .sc-actions { margin-top: var(--s-6); }
+.home-hero-caption { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); margin-top: var(--s-5); }
+.home-hero + .sc-section { border-top: 1px solid var(--border); }
+
+/* network right now: the warning above the row, the caption and the text button below it */
+.home-notice { margin-bottom: var(--s-4); }
+.home-after { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s-3); margin-top: var(--s-4); }
+.home-after .sc-caption { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2); }
+
+/* how it works: three numbered steps and one static diagram */
+.home-steps { counter-reset: step; }
+.home-step { display: grid; align-content: start; gap: var(--s-2); counter-increment: step; }
+.home-step::before { content: "Step " counter(step); font: var(--small); font-weight: 500; color: var(--text-2); }
+.home-step p { color: var(--text-2); max-width: 65ch; }
+.home-diagram { margin-top: var(--s-7); }
+.home-diagram svg { width: 100%; height: auto; }
+.home-diagram rect { fill: var(--bg-2); stroke: var(--border); }
+.home-diagram text { fill: var(--text); font: var(--small); font-weight: 500; }
+.home-arrow { fill: none; stroke: var(--text-2); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+
+/* what's on chain and token */
+.home-modules td:first-child { width: 30%; font-weight: 500; color: var(--text); }
+.home-prose { display: grid; gap: var(--s-4); margin-top: var(--s-5); max-width: 65ch; }
+
+/* build on it: the two endpoints under the cards */
+.home-endpoints { display: flex; flex-wrap: wrap; gap: var(--s-5) var(--s-7); margin-top: var(--s-6); }
+.home-endpoints li { display: grid; gap: var(--s-1); min-width: 0; }
+.home-endpoints code { color: var(--text); overflow-wrap: anywhere; }
+
+@media (max-width: 640px) {
+  .home-hero { padding-block: var(--s-8) var(--s-7); }
+  /* At phone width the three steps already stack in order; the diagram would
+     only repeat them at a size too small to read. */
+  .home-diagram { display: none; }
+}

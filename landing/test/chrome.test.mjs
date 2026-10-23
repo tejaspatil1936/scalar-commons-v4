@@ -288,6 +288,8 @@ test('header: wordmark, the four nav items in order, GitHub, one Get started but
   assert.equal((h.match(/sc-btn-primary/g) ?? []).length, 1);
   assert.match(h, /href="\/docs\/guide\/run-an-agent">Get started<\/a>/);
   assert.match(h, /<details class="sc-menu">\s*<summary aria-label="Menu">/, 'the menu works without a script');
+  assert.match(h, /<summary aria-label="Menu">[\s\S]*?<span>Menu<\/span>[\s\S]*?<\/summary>/, 'the menu button is an icon and the word Menu');
+  assert.ok(!/\.sc-menu > summary > span\s*\{[^}]*(clip|position: absolute)/.test(read('../src/chrome/chrome.css')), 'the word Menu stays visible at every width');
   assert.match(h, /<a class="sc-skip" href="#main">Skip to content<\/a>/);
   for (const gone of ['AS BUILT', 'Sources', '⌘K', 'Present', 'connecting', 'Oversight', 'Pulse', 'Observatory']) assert.ok(!h.includes(gone), `the header carries ${gone}`);
   assert.match(header({ site: 'https://scalarnet.io' }), /href="https:\/\/scalarnet\.io\/network"/);

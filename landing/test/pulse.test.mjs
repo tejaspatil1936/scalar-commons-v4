@@ -37,7 +37,6 @@ function build() {
 const out = build();
 const page = readFileSync(join(out, 'pulse.html'), 'utf8');
 const observatory = readFileSync(join(out, 'observatory.html'), 'utf8');
-const index = readFileSync(join(out, 'index.html'), 'utf8');
 const bundle = readFileSync(join(out, 'pulse.js'), 'utf8');
 const observatoryBundle = readFileSync(join(out, 'observatory.js'), 'utf8');
 const css = readFileSync(new URL('../src/pulse.css', import.meta.url), 'utf8');
@@ -68,7 +67,6 @@ test('Pulse is the current page in the chrome’s top bar, with the lamp; the la
   assert.match(page, /<a href="pulse" aria-current="page">Pulse<\/a>/);
   assert.match(page, /<a href="observatory">Observatory<\/a>/);
   assert.match(page, /<span class="nw-lamp" data-lamp data-state="connecting" data-lit="false"/, 'the lamp ships unlit and connecting');
-  assert.match(index, /<a href="pulse">Pulse<\/a>/, 'the landing page’s nav names Pulse, as the chrome’s nav does on every page');
 });
 
 test('three Readings with the brief’s labels and the bottom strip’s three, every one live, sourced from data.js, and empty of digits at build time', () => {
