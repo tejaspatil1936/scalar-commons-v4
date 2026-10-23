@@ -213,7 +213,7 @@ export function lampFilled({
 }
 
 export function sourcesSwitch(): string {
-  return `<button type="button" class="nw-sources nw-label" role="switch" aria-checked="false" data-sources-switch>Sources<span class="nw-switch" aria-hidden="true"></span></button>`;
+  return `<button type="button" class="nw-sources nw-label" role="switch" aria-checked="false" data-sources-switch><span class="nw-sources-word">Sources</span><span class="nw-switch" aria-hidden="true"></span></button>`;
 }
 
 export function button({

@@ -3,7 +3,7 @@
 // src/content.mjs, which is what makes the honesty tests meaningful. The layout
 // is Nightwatch (src/chrome); every figure is a Reading with its source.
 import { escapeHtml } from './chrome/html.mjs';
-import { band, code, copy, curve, footer, formatInt, leader, reading, tag, topBar, utc } from './chrome/templates.mjs';
+import { band, code, copy, curve, footer, formatInt, leader, reading, tag, topBar, utc, utcDay } from './chrome/templates.mjs';
 import { curvePaths, sample } from './chrome/curve.mjs';
 import { ledgerRows as ledgerOf } from './source-claims.mjs';
 
@@ -426,7 +426,7 @@ export function renderPage({ facts, content, sourceClaims, builtAt = null }) {
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-${topBar({ current: 'home', lampHtml: tag({ state: 'built', text: `AS BUILT · ${utc(facts_.builtAt)}` }) })}
+${topBar({ current: 'home', lampHtml: tag({ state: 'built', text: 'AS BUILT', detail: utcDay(facts_.builtAt) }) })}
 <main>
 ${hero(content, facts)}
 ${river(content, facts)}

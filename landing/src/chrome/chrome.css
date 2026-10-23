@@ -95,9 +95,9 @@ button, input { font: inherit; color: inherit; }
   transition: background var(--t-ui) var(--ease-ui);
 }
 .nw-bar.is-scrolled { background: var(--pine-1); }
-.nw-bar-inner { height: 100%; display: flex; align-items: center; gap: 32px; }
+.nw-bar-inner { height: 100%; display: flex; align-items: center; gap: 24px; }
 .nw-wordmark { font: 500 1.0625rem/1 var(--font-sans); color: var(--bone); white-space: nowrap; }
-.nw-nav { display: flex; align-items: center; gap: 24px; flex: 1; }
+.nw-nav { display: flex; align-items: center; gap: 16px; flex: 1; }
 .nw-nav a { position: relative; padding-block: 6px; color: var(--bone-dim); transition: color var(--t-ui) var(--ease-ui); }
 .nw-nav a:hover { color: var(--bone); }
 .nw-nav a[aria-current="page"] { color: var(--filament); }
@@ -105,12 +105,14 @@ button, input { font: inherit; color: inherit; }
   content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
   background: var(--filament); box-shadow: var(--glow);
 }
-.nw-bar-right { display: flex; align-items: center; gap: 24px; margin-left: auto; }
+/* The right side gives way before the frame does: the lamp's text is the one thing
+   allowed to shorten with an ellipsis, so the bar never spills past the grid. */
+.nw-bar-right { display: flex; align-items: center; gap: 24px; margin-left: auto; min-width: 0; }
 .nw-menu { display: none; }
 .nw-nav-row { display: none; }
 
 /* lamp */
-.nw-lamp { display: inline-flex; align-items: center; gap: 12px; white-space: nowrap; }
+.nw-lamp { display: inline-flex; align-items: center; gap: 12px; white-space: nowrap; min-width: 0; }
 .nw-lamp-dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--sage);
@@ -122,7 +124,7 @@ button, input { font: inherit; color: inherit; }
 .nw-lamp[data-state="lagging"] .nw-lamp-dot { box-shadow: none; }
 .nw-lamp[data-state="stalled"] .nw-lamp-dot { background: var(--vermilion); box-shadow: none; }
 .nw-lamp.is-ticking .nw-lamp-dot { box-shadow: 0 0 32px rgba(255, 227, 163, 0.18); }
-.nw-lamp-text { color: var(--bone-dim); }
+.nw-lamp-text { color: var(--bone-dim); overflow: hidden; text-overflow: ellipsis; }
 .nw-lamp .nw-alarm { color: var(--vermilion); }
 
 /* sources switch */
@@ -163,7 +165,7 @@ button, input { font: inherit; color: inherit; }
 .nw-reading-figure { display: inline-flex; align-items: baseline; gap: 8px; flex: none; min-width: 0; }
 .nw-reading-figure .nw-figure { overflow-wrap: anywhere; }
 /* A number never breaks inside itself: a figure that does not fit drops, whole, to the next line. */
-.nw-reading-figure .nw-figure--xl, .nw-reading-figure .nw-figure--l, .nw-reading-figure .nw-figure--m { overflow-wrap: normal; white-space: nowrap; }
+.nw-reading-figure .nw-figure--xl, .nw-reading-figure .nw-figure--l { overflow-wrap: normal; white-space: nowrap; }
 .nw-figure .nw-unit { font: var(--label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--bone-dim); margin-left: 8px; }
 .nw-reading-sub { font: var(--small); color: var(--bone-dim); }
 .nw-reading--stack .nw-reading-line { flex-direction: column; align-items: flex-start; gap: 8px; }
@@ -429,6 +431,16 @@ html[data-sources] .nw-receipt-line { display: block; }
   .nw-foot-col { grid-column: span 4; }
   .nw-foot-facts { grid-column: 1 / -1; text-align: left; }
 }
+/* Under 480 px the bar keeps the lamp, the switch and ⌘K but drops the words
+   beside them: the lamp's text, the word "Sources" and the menu's page name stay
+   for screen readers only; Present and the AS BUILT tag (its time is in the
+   footer and the band) leave the bar. */
+@media (max-width: 480px) {
+  .nw-bar-inner { gap: 12px; }
+  .nw-bar-right { gap: 12px; }
+  .nw-present, .nw-bar .nw-tag[data-state="built"] { display: none; }
+  .nw-lamp-text, .nw-sources-word, .nw-bar .nw-tag-detail, .nw-menu > span:first-child { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+}
 @media (max-width: 390px) {
   :root { --gutter: 20px; --bar: 64px; }
   .nw-grid, .nw-row { grid-auto-flow: row; grid-template-columns: minmax(0, 1fr); }
@@ -484,7 +496,8 @@ html[data-sources] .nw-receipt-line { display: block; }
 .nw-gate { margin-top: 48px; max-width: 72ch; }
 .nw-gate .nw-body { margin-top: 12px; }
 .nw-where > div { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
-.nw-ledger-claims { display: grid; row-gap: 32px; }
+.nw-ledger-claims { display: grid; grid-template-columns: minmax(0, 1fr); row-gap: 32px; }
+.nw-ledger-claim { min-width: 0; }
 .nw-ledger-claim .nw-code { margin-top: 12px; padding: 12px 24px; }
 .nw-more { margin-top: 32px; }
 .nw-more > summary { list-style: none; cursor: pointer; }

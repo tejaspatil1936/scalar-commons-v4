@@ -414,7 +414,7 @@ test('the top bar: the chrome’s bar before the first screen — wordmark, nav 
   assert.match(bar, /<nav class="nw-nav nw-label" aria-label="Site" id="nw-nav">[\s\S]*<a href="observatory" aria-current="page">Observatory<\/a>[\s\S]*<\/nav>/);
   assert.match(bar, /<span class="nw-lamp" data-lamp data-state="connecting" data-lit="false" role="status" aria-live="off">/);
   assert.match(bar, /connecting · wss:\/\/rpc\.scalarnet\.io/);
-  assert.match(bar, /<button type="button" class="nw-sources nw-label" role="switch" aria-checked="false" data-sources-switch>Sources/);
+  assert.match(bar, /<button type="button" class="nw-sources nw-label" role="switch" aria-checked="false" data-sources-switch><span class="nw-sources-word">Sources<\/span>/);
   assert.match(bar, /data-palette-open/);
   assert.match(bar, /<button type="button" class="nw-quiet nw-present" aria-pressed="false" aria-keyshortcuts="P">Present<\/button>/);
   // No status pill: the lamp carries the chain's state, fed from the head bus in main.js.

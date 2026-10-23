@@ -68,3 +68,8 @@
   .ov-htr-row, .ov-field { flex-direction: column; align-items: flex-start; gap: 8px; }
   .ov-htr-row .nw-leader, .ov-field .nw-leader { width: 24px; flex: none; margin-inline: 0; }
 }
+
+/* Narrow screens: the status line wraps instead of widening the page, and a
+   hash or address breaks wherever it must — a record is read, not scrolled. */
+.ov-status { white-space: normal; }
+.ov code.nw-mono { overflow-wrap: anywhere; word-break: break-all; }

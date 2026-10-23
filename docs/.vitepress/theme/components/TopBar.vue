@@ -65,7 +65,7 @@ onUnmounted(() => window.removeEventListener('scroll', onScroll))
         <span>Docs</span><span>Menu</span>
       </button>
       <div class="nw-bar-right">
-        <span class="nw-tag" data-state="built">AS BUILT · block {{ formatInt(facts.block) }}</span>
+        <span class="nw-tag" data-state="built">AS BUILT<span class="nw-tag-detail"> · block {{ formatInt(facts.block) }}</span></span>
         <button
           type="button"
           class="nw-sources nw-label"

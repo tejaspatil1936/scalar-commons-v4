@@ -57,6 +57,8 @@ export function requestLine(source) {
 
 /** UTC to the second, the way every receipt prints time. */
 export const utc = (iso) => (iso ? String(iso).replace('T', ' ').replace(/\.\d+Z$/, 'Z').replace(/Z$/, ' UTC') : null);
+/** The UTC day alone, for the bar's AS BUILT tag; the full time is in the footer. */
+export const utcDay = (iso) => (iso ? utc(iso).slice(0, 10) : null);
 
 /**
  * The receipt under a figure: the request, when and at which block it was
@@ -110,9 +112,11 @@ export function reading({ key, label, figure = null, size = 'm', state = 'record
 </div>`;
 }
 
-export function tag({ state = 'record', text }) {
+export function tag({ state = 'record', text, detail = null }) {
   const dot = state === 'built' ? '' : '<span class="nw-dot" aria-hidden="true"></span>';
-  return `<span class="nw-tag" data-state="${escapeHtml(state)}">${dot}${escapeHtml(text)}</span>`;
+  // The detail (a time, a block) is the part a narrow bar may hide; the word stays.
+  const tail = detail === null ? '' : `<span class="nw-tag-detail"> · ${escapeHtml(detail)}</span>`;
+  return `<span class="nw-tag" data-state="${escapeHtml(state)}">${dot}${escapeHtml(text)}${tail}</span>`;
 }
 
 /** The lamp, unlit and connecting until the socket opens. The text is the client's to set. */
@@ -121,7 +125,7 @@ export function lamp({ rpc = RPC_WSS } = {}) {
 }
 
 export function sourcesSwitch() {
-  return `<button type="button" class="nw-sources nw-label" role="switch" aria-checked="false" data-sources-switch>Sources<span class="nw-switch" aria-hidden="true"></span></button>`;
+  return `<button type="button" class="nw-sources nw-label" role="switch" aria-checked="false" data-sources-switch><span class="nw-sources-word">Sources</span><span class="nw-switch" aria-hidden="true"></span></button>`;
 }
 
 export function button({ text, type = 'button', className = '', disabled = false, name = null }) {

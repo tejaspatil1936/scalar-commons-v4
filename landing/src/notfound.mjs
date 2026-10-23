@@ -3,7 +3,7 @@
 // built page by edit distance (from the route list the build embeds; omitted
 // when nothing is close), and the way out. The words are the brief's; every
 // figure is a Reading with its source.
-import { band, footer, head, reading, tag, topBar, utc } from './chrome/templates.mjs';
+import { band, footer, head, reading, tag, topBar, utc, utcDay } from './chrome/templates.mjs';
 
 export const SENTENCE = 'Nothing is logged at this address.';
 
@@ -20,7 +20,7 @@ export function renderNotFound({ facts, css, routes = ROUTES }) {
 ${head({ title: 'Not found — Scalar Commons', description: SENTENCE, css, scripts: ['404.js'], boot: true })}
 </head>
 <body>
-${topBar({ current: 'none', lampHtml: tag({ state: 'built', text: `AS BUILT · ${utc(now)}` }) })}
+${topBar({ current: 'none', lampHtml: tag({ state: 'built', text: 'AS BUILT', detail: utcDay(now) }) })}
 <main class="nw-frame nw-section" data-routes="${routes.join(' ')}">
   <p class="nw-figure nw-figure--xl nw-dim">404</p>
   <p class="nw-h3">${SENTENCE}</p>
