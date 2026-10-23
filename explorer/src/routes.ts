@@ -32,8 +32,9 @@ export type Route =
 
 /** The font files the chrome's stylesheet addresses; anything else under `/fonts/` is 404. */
 export const FONT_FILES: readonly string[] = [
-  'instrument-sans-latin-wght-normal.woff2',
-  'martian-mono-latin-wght-normal.woff2',
+  'source-serif-4-latin-opsz-normal.woff2',
+  'ibm-plex-mono-latin-400-normal.woff2',
+  'ibm-plex-mono-latin-500-normal.woff2',
 ];
 
 export const SEARCH_PATH = '/search';

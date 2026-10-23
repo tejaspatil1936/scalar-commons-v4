@@ -1,18 +1,18 @@
 /* 03 · validator ring — eight points on a 240 px circle: the authoring validator filament, the rest bone. Tokens only. */
-.ring .ring-node { fill: var(--bone); }
-.ring .ring-node.is-authoring { fill: var(--filament); }
-.ring .ring-latest { fill: var(--filament); }
-.ring .ring-halo { fill: none; stroke: var(--leader); }
-.ring .ring-tick, .ring .ring-vote-tick { stroke: var(--leader); }
-.ring .ring-vote-tick.is-seen { stroke: var(--sage); }
-.ring .ring-label, .ring .ring-caption, .ring .ring-label-index, .ring .ring-label-addr { font: var(--label); fill: var(--bone-dim); }
-.ring .ring-sealing { font: var(--label); fill: var(--filament); }
-.ring .ring-centre { font: var(--figure-m); fill: var(--bone); }
-.ring[data-state="unavailable"] .ring-centre { fill: var(--sage); }
-.ring-key, .ring-list-head, .ring-status { font: var(--label); color: var(--bone-dim); margin: 16px 0 0; }
+.ring .ring-node { fill: var(--ink); }
+.ring .ring-node.is-authoring { fill: var(--ink); }
+.ring .ring-latest { fill: var(--ink); }
+.ring .ring-halo { fill: none; stroke: var(--rule-2); }
+.ring .ring-tick, .ring .ring-vote-tick { stroke: var(--rule-2); }
+.ring .ring-vote-tick.is-seen { stroke: var(--ink-3); }
+.ring .ring-label, .ring .ring-caption, .ring .ring-label-index, .ring .ring-label-addr { font: var(--label); fill: var(--ink-2); }
+.ring .ring-sealing { font: var(--label); fill: var(--ink); }
+.ring .ring-centre { font: var(--figure-m); fill: var(--ink); }
+.ring[data-state="unavailable"] .ring-centre { fill: var(--ink-3); }
+.ring-key, .ring-list-head, .ring-status { font: var(--label); color: var(--ink-2); margin: var(--s-4) 0 0; }
 .ring-status a { color: inherit; }
-.validator-list .v-addr a { color: var(--bone); }
-.validator-list .v-addr a:hover { color: var(--filament); }
-.validator-list .v-mark { color: var(--filament); }
-.validator-list li.is-unmapped .v-index, .validator-list li.is-unmapped .v-addr { color: var(--sage); }
-.validator-list li.v-unavailable .v-meta { color: var(--sage); }
+.validator-list .v-addr a { color: var(--ink); }
+.validator-list .v-addr a:hover { color: var(--ink); }
+.validator-list .v-mark { color: var(--ink); }
+.validator-list li.is-unmapped .v-index, .validator-list li.is-unmapped .v-addr { color: var(--ink-3); }
+.validator-list li.v-unavailable .v-meta { color: var(--ink-3); }

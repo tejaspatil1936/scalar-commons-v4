@@ -7,21 +7,21 @@
 /* The instruments' canvases read their colours by these names (context.js
    THEME_NAMES); each is a token, so the page has one palette. */
 :root {
-  --bg: var(--pine-0);
-  --surface: var(--pine-1);
-  --grid: var(--leader);
-  --text: var(--bone);
-  --text-dim: var(--bone-dim);
-  --border: var(--leader);
-  --live: var(--filament);
-  --settled: var(--sage);
-  --active: var(--filament);
-  --disputed: var(--vermilion);
-  --slashed: var(--ice);
-  --slash: var(--ice);
-  --idle: var(--sage);
-  --paid: var(--filament);
-  --font-serif: var(--font-sans);
+  --bg: var(--paper);
+  --surface: var(--paper-2);
+  --grid: var(--rule-2);
+  --text: var(--ink);
+  --text-dim: var(--ink-2);
+  --border: var(--rule-2);
+  --live: var(--ink);
+  --settled: var(--ink-3);
+  --active: var(--ink);
+  --disputed: var(--ink);
+  --slashed: var(--ink);
+  --slash: var(--ink);
+  --idle: var(--ink-3);
+  --paid: var(--ink);
+  --font-serif: var(--font-serif);
 }
 
 .mono,
@@ -30,139 +30,139 @@ pre {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums lining-nums;
 }
-.dim { color: var(--bone-dim); }
+.dim { color: var(--ink-2); }
 .visually-hidden {
   position: absolute;
   width: 1px;
-  height: 1px;
+  height: calc(var(--s-1) / 4);
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
 }
 
 /* ── first screen ─────────────────────────────────────────────────────────── */
-.hero { padding-block: 64px 48px; }
+.hero { padding-block: var(--s-8) var(--s-7); }
 .hero-grid {
   display: grid;
   grid-template-columns: 96px minmax(0, 5.5fr) minmax(0, 6.5fr);
   column-gap: var(--gutter);
-  row-gap: 48px;
+  row-gap: var(--s-7);
   align-items: start;
 }
-.hero-spine { position: sticky; top: calc(var(--bar) + 24px); }
+.hero-spine { position: sticky; top: calc(var(--bar) + var(--s-5)); }
 .hero-text { min-width: 0; }
-.hero h1 { margin: 0 0 24px; }
-.dek { margin: 0 0 48px; color: var(--bone-dim); }
-.hero-figures { margin: 0 0 48px; }
+.hero h1 { margin: 0 0 var(--s-5); }
+.dek { margin: 0 0 var(--s-7); color: var(--ink-2); }
+.hero-figures { margin: 0 0 var(--s-7); }
 .hero-note { margin: 0; max-width: 60ch; }
-.hour { margin: 0 0 32px; }
-.hour-title { display: block; margin: 0 0 16px; }
-.hour-note { margin: 0 0 16px; }
-.hour-figures { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 24px; }
-.is-vermilion .nw-figure { color: var(--vermilion); }
-.is-ice .nw-figure { color: var(--ice); }
+.hour { margin: 0 0 var(--s-6); }
+.hour-title { display: block; margin: 0 0 var(--s-4); }
+.hour-note { margin: 0 0 var(--s-4); }
+.hour-figures { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: var(--s-5); }
+.is-vermilion .nw-figure { color: var(--ink); }
+.is-ice .nw-figure { color: var(--ink); }
 .is-vermilion .nw-stub, .is-ice .nw-stub { opacity: 1; }
 
 /* The agent panel: the field on pine-2, the graph behind its switch. */
-.panel { margin: 0; padding: 24px; background: var(--pine-2); border-radius: var(--radius); min-width: 0; }
-.panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin: 0 0 16px; }
+.panel { margin: 0; padding: var(--s-5); background: var(--paper-2); border-radius: var(--radius); min-width: 0; }
+.panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s-4); margin: 0 0 var(--s-4); }
 .panel-title { margin: 0; }
-.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0 0 16px; padding: 0; list-style: none; color: var(--bone-dim); }
-.legend li { display: inline-flex; align-items: center; gap: 8px; }
-.dot, .swatch { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-.swatch { width: 16px; height: 2px; border-radius: 0; }
-.dot-idle { color: var(--sage); }
-.dot-working, .swatch-active { color: var(--filament); }
-.dot-disputed, .swatch-disputed { color: var(--vermilion); }
-.dot-slashed { color: var(--ice); }
-.dot-ring { color: var(--clay); }
-.swatch-settled { color: var(--sage); }
+.legend { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4); margin: 0 0 var(--s-4); padding: 0; list-style: none; color: var(--ink-2); }
+.legend li { display: inline-flex; align-items: center; gap: var(--s-2); }
+.dot, .swatch { display: inline-block; width: 8px; height: var(--s-2); border-radius: 50%; background: currentColor; }
+.swatch { width: 16px; height: calc(var(--s-1) / 2); border-radius: 0; }
+.dot-idle { color: var(--ink-3); }
+.dot-working, .swatch-active { color: var(--ink); }
+.dot-disputed, .swatch-disputed { color: var(--ink); }
+.dot-slashed { color: var(--ink); }
+.dot-ring { color: var(--ink-2); }
+.swatch-settled { color: var(--ink-3); }
 .field-host, .constellation-host { position: relative; }
-.field-canvas, .constellation-canvas { display: block; width: 100%; height: 320px; }
+.field-canvas, .constellation-canvas { display: block; width: 100%; height: calc(var(--s-10) + var(--s-10)); }
 .graph-legend, .graph-host, .graph-note,
 .hero-panel[data-graph] .field-legend, .hero-panel[data-graph] .field-host,
 .hero-panel[data-graph] .field-live, .hero-panel[data-graph] .field-foot { display: none; }
 .hero-panel[data-graph] .graph-legend { display: flex; }
 .hero-panel[data-graph] .graph-host, .hero-panel[data-graph] .graph-note { display: block; }
 .tooltip { position: absolute; pointer-events: none; z-index: 2; }
-.field-live { display: block; margin: 16px 0 0; }
-.panel-foot { margin: 8px 0 0; }
-.agents-list { margin-top: 16px; }
+.field-live { display: block; margin: var(--s-4) 0 0; }
+.panel-foot { margin: var(--s-2) 0 0; }
+.agents-list { margin-top: var(--s-4); }
 .agents-list summary { cursor: pointer; list-style: none; }
-.agent-list { margin: 16px 0 0; padding-left: 24px; }
-.list-pager { display: flex; gap: 16px; align-items: center; margin-top: 16px; }
+.agent-list { margin: var(--s-4) 0 0; padding-left: var(--s-5); }
+.list-pager { display: flex; gap: var(--s-4); align-items: center; margin-top: var(--s-4); }
 
 /* The river: a 140 px canvas across the content width. */
-.river-strip { margin: 0 auto 96px; }
-.river-strip figcaption { margin-bottom: 16px; }
-.hero-river, .pulse-canvas { display: block; width: 100%; height: 140px; }
+.river-strip { margin: 0 auto var(--s-9); }
+.river-strip figcaption { margin-bottom: var(--s-4); }
+.hero-river, .pulse-canvas { display: block; width: 100%; height: calc(var(--s-9) + var(--s-6) + var(--s-3)); }
 
 /* ── sections ─────────────────────────────────────────────────────────────── */
-.section-grid { display: grid; row-gap: 48px; }
+.section-grid { display: grid; row-gap: var(--s-7); }
 .section-head { display: block; margin: 0; }
 .instrument { min-width: 0; }
-.notes { display: grid; row-gap: 16px; }
-.instrument-note { margin: 0; font: var(--small); color: var(--bone-dim); max-width: 60ch; }
-.status-record .status-label { color: var(--sage); }
-.instrument-failed { font: var(--small); color: var(--vermilion); }
+.notes { display: grid; row-gap: var(--s-4); }
+.instrument-note { margin: 0; font: var(--small); color: var(--ink-2); max-width: 60ch; }
+.status-record .status-label { color: var(--ink-3); }
+.instrument-failed { font: var(--small); color: var(--ink); }
 
 /* 02 · Economy: the Day Bar sticks over the section. */
-.nw-daybar { position: sticky; top: 12px; z-index: 1; }
+.nw-daybar { position: sticky; top: var(--s-3); z-index: 1; }
 
 /* 03 · Validators */
 .ring-host { display: grid; place-items: center; }
-.ring { width: 240px; height: 240px; overflow: visible; }
-.validator-list { margin: 24px 0 0; padding: 0; list-style: none; font: var(--mono); display: grid; row-gap: 8px; }
+.ring { width: 240px; height: calc(var(--s-10) + var(--s-8) + var(--s-4)); overflow: visible; }
+.validator-list { margin: var(--s-5) 0 0; padding: 0; list-style: none; font: var(--mono); display: grid; row-gap: var(--s-2); }
 .validator-list a { color: inherit; text-decoration: underline dotted; text-underline-offset: 4px; }
 
 /* 04 · History: the strips. */
 .strip { margin: 0; min-width: 0; }
-.strip figcaption { margin-bottom: 16px; }
-.strip-plot { height: 120px; margin-bottom: 16px; }
+.strip figcaption { margin-bottom: var(--s-4); }
+.strip-plot { height: calc(var(--s-9) + var(--s-5)); margin-bottom: var(--s-4); }
 .strip-plot svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.strip .reading-value { display: block; margin: 0 0 8px; }
-.strip .reading-prov { display: none; margin: 0; font: var(--label); color: var(--bone-dim); }
+.strip .reading-value { display: block; margin: 0 0 var(--s-2); }
+.strip .reading-prov { display: none; margin: 0; font: var(--label); color: var(--ink-2); }
 html[data-sources] .strip .reading-prov { display: block; }
 .fact .reading-prov { display: none; }
 html[data-sources] .fact .reading-prov { display: inline; }
 
 /* 05 · Upgrades */
-.upgrade-rail { margin-top: 24px; }
-.upgrade-title { display: flex; align-items: center; gap: 16px; margin: 0 0 8px; }
-.upgrade-change { margin: 0 0 8px; }
-.upgrade-facts { margin: 0 0 8px; color: var(--bone-dim); }
-.upgrade-hash { position: relative; margin: 0; overflow-wrap: anywhere; padding-right: 64px; }
-.upgrade-hash .hash { color: var(--bone); }
-.confirm[data-state="confirmed"] { color: var(--sage); }
-.upgrade-gap { margin: 24px 0 0 48px; }
+.upgrade-rail { margin-top: var(--s-5); }
+.upgrade-title { display: flex; align-items: center; gap: var(--s-4); margin: 0 0 var(--s-2); }
+.upgrade-change { margin: 0 0 var(--s-2); }
+.upgrade-facts { margin: 0 0 var(--s-2); color: var(--ink-2); }
+.upgrade-hash { position: relative; margin: 0; overflow-wrap: anywhere; padding-right: var(--s-8); }
+.upgrade-hash .hash { color: var(--ink); }
+.confirm[data-state="confirmed"] { color: var(--ink-3); }
+.upgrade-gap { margin: var(--s-5) 0 0 var(--s-7); }
 
 /* 06 · Verify */
-.facts { margin: 0; display: grid; row-gap: 16px; }
-.fact { display: grid; row-gap: 4px; }
+.facts { margin: 0; display: grid; row-gap: var(--s-4); }
+.fact { display: grid; row-gap: var(--s-1); }
 .fact dd { margin: 0; overflow-wrap: anywhere; }
-.posture { margin: 0; display: grid; row-gap: 16px; }
-.posture-row { display: grid; row-gap: 4px; }
-.posture-row dd { margin: 0; font: var(--body); display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; }
-.posture-source { color: var(--bone-dim); }
-.not-recorded { color: var(--sage); }
-.posture-record h3 { margin: 0 0 16px; color: var(--sage); }
+.posture { margin: 0; display: grid; row-gap: var(--s-4); }
+.posture-row { display: grid; row-gap: var(--s-1); }
+.posture-row dd { margin: 0; font: var(--body); display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4); align-items: baseline; }
+.posture-source { color: var(--ink-2); }
+.not-recorded { color: var(--ink-3); }
+.posture-record h3 { margin: 0 0 var(--s-4); color: var(--ink-3); }
 
 /* ── readouts: the figure's states, in the readout's class names ─────────── */
-.reading-value .error, .reading-value .unavailable { font: var(--small); color: var(--sage); display: block; }
-.reading-value .sub, .reading-value .unit { font: var(--mono); color: var(--bone-dim); margin-left: 8px; }
+.reading-value .error, .reading-value .unavailable { font: var(--small); color: var(--ink-3); display: block; }
+.reading-value .sub, .reading-value .unit { font: var(--mono); color: var(--ink-2); margin-left: var(--s-2); }
 .reading-value a { color: inherit; text-decoration: none; }
-.reading-value.is-error, .reading-value.is-absent { color: var(--sage); }
+.reading-value.is-error, .reading-value.is-absent { color: var(--ink-3); }
 .reading-prov { margin: 0; }
 .nw-reading > .reading-prov { display: none; }
-.hero-sub .nw-figure { color: var(--clay); }
-.nw-reading-sub[data-stale] { color: var(--sage); }
+.hero-sub .nw-figure { color: var(--ink-2); }
+.nw-reading-sub[data-stale] { color: var(--ink-3); }
 
 /* ── presenter ────────────────────────────────────────────────────────────── */
 html[data-present] .nw-nav, html[data-present] .nw-nav-row, html[data-present] .nw-foot,
 html[data-present] .river-strip, html[data-present] .nw-receipt-line, html[data-present] .notes { display: none; }
 html[data-present] [data-present-screen] { display: none; }
 html[data-present] [data-present-screen][data-present-active] { display: block; min-height: 100vh; }
-html[data-present] .section .nw-figure, html[data-present] .hero .nw-figure--xl { font: var(--figure-xl); font-size: 160px; }
+html[data-present] .section .nw-figure, html[data-present] .hero .nw-figure--xl { font: var(--figure-xl); font: var(--figure-xl); }
 html[data-present] .hero-spine { display: none; }
 
 /* ── motion: nothing moves on its own except the chain (brief §4); no scroll reveal ── */
@@ -172,7 +172,7 @@ html[data-present] .hero-spine { display: none; }
 
 /* Hit targets on touch: 40 px for every control (also requested of the chrome in chrome/requests/phase3.css). */
 @media (pointer: coarse) {
-  .nw-stub, .nw-quiet, .nw-copy, .nw-sources, .nw-menu { min-height: 40px; }
+  .nw-stub, .nw-quiet, .nw-copy, .nw-sources, .nw-menu { min-height: calc(var(--s-6) + var(--s-2)); }
 }
 
 /* ── width ────────────────────────────────────────────────────────────────── */
@@ -185,8 +185,8 @@ html[data-present] .hero-spine { display: none; }
   .hero-spine { display: none; }
 }
 @media (max-width: 480px) {
-  .nw-frame { padding-inline: 20px; }
+  .nw-frame { padding-inline: calc(var(--s-4) + var(--s-1)); }
   .hero h1 { font: var(--h2); }
   .hour-figures, .readings { grid-auto-flow: row; grid-template-columns: minmax(0, 1fr); }
-  .field-canvas, .constellation-canvas { height: 240px; }
+  .field-canvas, .constellation-canvas { height: calc(var(--s-10) + var(--s-8) + var(--s-4)); }
 }

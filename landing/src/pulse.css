@@ -8,63 +8,63 @@
    1440×900. No footer: the disclaimer lives in the strip at --small, never
    smaller than --label. */
 
-.pulse-body { background: var(--pine-0); color: var(--bone); font: var(--body); }
+.pulse-body { background: var(--paper); color: var(--ink); font: var(--body); }
 
 /* The instrument takes the whole viewport width, not the 1200 px content frame: at 1440 every registered agent is a 4 px column with a 1 px gap. */
 .pulse {
   --pulse-feed: 320px;
   box-sizing: border-box;
   margin-inline: auto;
-  padding: 24px var(--gutter) 16px;
+  padding: var(--s-5) var(--gutter) var(--s-4);
   height: calc(100vh - var(--bar));
   min-height: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto auto;
-  row-gap: 24px;
+  row-gap: var(--s-5);
 }
 
 /* the three Readings */
 .pulse-readings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: var(--gutter); }
-.pulse-figure .nw-receipt-line { color: var(--bone-dim); }
+.pulse-figure .nw-receipt-line { color: var(--ink-2); }
 
 /* the stage: the Waterfall and the feed */
 .pulse-stage { display: grid; grid-template-columns: minmax(0, 1fr) var(--pulse-feed); column-gap: var(--gutter); min-height: 0; }
-.pulse-waterfall { position: relative; margin: 0; min-height: 0; background: var(--pine-1); border-radius: var(--radius); overflow: hidden; }
+.pulse-waterfall { position: relative; margin: 0; min-height: 0; background: var(--paper-2); border-radius: var(--radius); overflow: hidden; }
 .pulse-canvas { display: block; width: 100%; height: 100%; }
 .pulse-band { position: absolute; inset: 0 0 auto 0; z-index: 1; }
 
-.pulse-feed { display: flex; flex-direction: column; gap: 12px; min-height: 0; min-width: 0; }
-.pulse-feed-head { display: inline-flex; align-items: center; gap: 12px; margin: 0; color: var(--bone-dim); }
+.pulse-feed { display: flex; flex-direction: column; gap: var(--s-3); min-height: 0; min-width: 0; }
+.pulse-feed-head { display: inline-flex; align-items: center; gap: var(--s-3); margin: 0; color: var(--ink-2); }
 /* A lamp dot outside the lamp: lit while the feed is live (also requested of the chrome in requests/phase4.css). */
-.nw-lamp-dot[data-lit="true"] { background: var(--filament); box-shadow: var(--glow); }
-.pulse-feed-note { margin: 0; color: var(--sage); }
-.pulse-feed-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; overflow: hidden; color: var(--bone); font-variant-numeric: tabular-nums lining-nums; }
+.nw-lamp-dot[data-lit="true"] { background: var(--ink); box-shadow: none; }
+.pulse-feed-note { margin: 0; color: var(--ink-3); }
+.pulse-feed-lines { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s-3); overflow: hidden; color: var(--ink); font-variant-numeric: tabular-nums lining-nums; }
 .pulse-feed-lines li { overflow-wrap: anywhere; }
-.pulse-feed-age { color: var(--bone-dim); white-space: nowrap; }
+.pulse-feed-age { color: var(--ink-2); white-space: nowrap; }
 
 /* the legend row */
-.pulse-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; color: var(--bone-dim); }
-.pulse-legend li { display: inline-flex; align-items: center; gap: 8px; }
-.pulse-legend-glyph { display: block; width: 24px; height: 12px; }
-.pulse-operators { margin-left: auto; color: var(--clay); }
+.pulse-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3) var(--s-5); color: var(--ink-2); }
+.pulse-legend li { display: inline-flex; align-items: center; gap: var(--s-2); }
+.pulse-legend-glyph { display: block; width: 24px; height: var(--s-3); }
+.pulse-operators { margin-left: auto; color: var(--ink-2); }
 
 /* the bottom strip */
-.pulse-strip { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 12px var(--gutter); }
-.pulse-strip-left { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px 48px; }
-.pulse-strip-reading { gap: 4px; }
-.pulse-strip-reading .nw-figure--body { color: var(--bone); }
-.pulse-strip-right { display: flex; align-items: baseline; flex-wrap: wrap; gap: 24px; color: var(--bone-dim); }
-.pulse-disclaimer { margin: 0; color: var(--bone-dim); }
+.pulse-strip { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: var(--s-3) var(--gutter); }
+.pulse-strip-left { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-3) var(--s-7); }
+.pulse-strip-reading { gap: var(--s-1); }
+.pulse-strip-reading .nw-figure--body { color: var(--ink); }
+.pulse-strip-right { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--s-5); color: var(--ink-2); }
+.pulse-disclaimer { margin: 0; color: var(--ink-2); }
 
 @media (max-width: 1024px) {
   .pulse { height: auto; }
-  .pulse-stage { grid-template-columns: minmax(0, 1fr); row-gap: 24px; }
+  .pulse-stage { grid-template-columns: minmax(0, 1fr); row-gap: var(--s-5); }
   .pulse-waterfall { height: 50vh; }
 }
 
 @media (max-width: 390px) {
-  .pulse { padding-inline: 20px; row-gap: 16px; }
-  .pulse-readings { grid-template-columns: minmax(0, 1fr); row-gap: 16px; }
+  .pulse { padding-inline: calc(var(--s-4) + var(--s-1)); row-gap: var(--s-4); }
+  .pulse-readings { grid-template-columns: minmax(0, 1fr); row-gap: var(--s-4); }
   .pulse-figure .nw-figure--l { font: var(--figure-m); }
   .pulse-waterfall { height: 40vh; }
   .pulse-operators { margin-left: 0; }

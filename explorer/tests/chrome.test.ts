@@ -112,7 +112,7 @@ describe('renderHome in the chrome', () => {
 
   it('serves the shell: the linked stylesheet, the preloads, the bar, the lamp and the footer disclaimer', () => {
     expect(html).toContain('<link rel="stylesheet" href="/chrome.css">');
-    expect(html).toContain('href="/fonts/martian-mono-latin-wght-normal.woff2" as="font"');
+    expect(html).toContain('href="/fonts/ibm-plex-mono-latin-400-normal.woff2" as="font"');
     expect(html).toContain('class="nw-bar"');
     expect(html).toContain('data-lamp data-state="normal" data-lit="true"');
     expect(html).toContain('block 42 · finality 2 · normal');
@@ -359,9 +359,10 @@ describe('renderActivity, agent-scoped, in the chrome', () => {
     expect(html).toContain('COOLDOWN');
   });
 
-  it('draws EARNINGS BY ERA as an SVG curve with the pooled light and a table fallback', () => {
+  it('draws EARNINGS BY ERA as an SVG curve with a flat ink pool (no gradient) and a table fallback', () => {
     expect(html).toContain('class="nw-curve"');
-    expect(html).toContain('stop-color="#ffe3a3"');
+    expect(html).toContain('class="nw-curve-pool"');
+    expect(html).not.toContain('linearGradient');
     expect(html).toContain('<td>era 6</td><td>3 CMN</td>');
   });
 
@@ -390,14 +391,14 @@ describe('search and chrome routes', () => {
     expect(parseRoute(searchPath('42'))).toEqual({ kind: 'search', query: '42' });
     expect(parseRoute('/search?q=%20hello%20')).toEqual({ kind: 'search', query: 'hello' });
     expect(parseRoute('/chrome.css')).toEqual({ kind: 'chrome' });
-    expect(parseRoute('/fonts/martian-mono-latin-wght-normal.woff2')).toEqual({ kind: 'font', name: 'martian-mono-latin-wght-normal.woff2' });
+    expect(parseRoute('/fonts/ibm-plex-mono-latin-400-normal.woff2')).toEqual({ kind: 'font', name: 'ibm-plex-mono-latin-400-normal.woff2' });
     expect(parseRoute('/fonts/evil.woff2')).toEqual({ kind: 'notFound' });
   });
 
   it('reads the stylesheet as tokens + chrome + print, byte-for-byte from the synced copy', () => {
     const dir = defaultChromeDir();
     const css = readChromeStylesheet(dir);
-    expect(css).toContain('--pine-0: #0f1f18');
+    expect(css).toContain('--paper:   #fcfcfc;');
     expect(css).toContain('.nw-reading');
     expect(css).toContain('@media print');
     const landing = fileURLToPath(new URL('../../landing/src/chrome/chrome.css', import.meta.url));
@@ -457,8 +458,8 @@ describe('the chrome over HTTP', () => {
     const css = await fetch(`${base}/chrome.css`);
     expect(css.status).toBe(200);
     expect(css.headers.get('content-type')).toContain('text/css');
-    expect(await css.text()).toContain('url("fonts/martian-mono-latin-wght-normal.woff2")');
-    const font = await fetch(`${base}/fonts/instrument-sans-latin-wght-normal.woff2`);
+    expect(await css.text()).toContain('url("fonts/ibm-plex-mono-latin-400-normal.woff2")');
+    const font = await fetch(`${base}/fonts/source-serif-4-latin-opsz-normal.woff2`);
     expect(font.status).toBe(200);
     expect(font.headers.get('content-type')).toBe('font/woff2');
     expect((await font.arrayBuffer()).byteLength).toBeGreaterThan(1000);

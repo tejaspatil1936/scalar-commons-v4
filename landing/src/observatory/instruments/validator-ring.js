@@ -329,7 +329,7 @@ export class VoteSampler {
   }
 }
 
-/** "seen sealing 3 blocks · last #820,715", or the honest nothing. Counts are floors: only what arrived while the page was open. */
+/** "seen sealing 3 blocks · last block 820,715", or the honest nothing. Counts are floors: only what arrived while the page was open. */
 export function sealedPhrase(sealed, formatInteger) {
   if (!sealed || sealed.count === 0) return 'not seen sealing a block';
   return `seen sealing ${formatInteger(sealed.count)} block${sealed.count === 1 ? '' : 's'} · last #${formatInteger(sealed.last)}`;

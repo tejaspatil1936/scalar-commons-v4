@@ -58,8 +58,8 @@ test('the build emits the pulse page, its one script and its stylesheet, free of
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   for (const dep of ['force-graph', 'gsap']) assert.ok(!(dep in (pkg.dependencies ?? {})) && !(dep in (pkg.devDependencies ?? {})), `${dep} is still a dependency`);
   assert.ok(page.includes('<style>') && !page.includes('<link rel="stylesheet"'), 'the stylesheet is inlined');
-  assert.ok(page.includes('--pine-0:') && page.includes('.nw-bar'), 'the chrome is inlined ahead of the page’s rules');
-  for (const face of ['fonts/instrument-sans-latin-wght-normal.woff2', 'fonts/martian-mono-latin-wght-normal.woff2']) assert.ok(page.includes(`<link rel="preload" href="${face}"`), `${face} is preloaded`);
+  assert.ok(page.includes('--paper:') && page.includes('.nw-bar'), 'the chrome is inlined ahead of the page’s rules');
+  for (const face of ['fonts/source-serif-4-latin-opsz-normal.woff2', 'fonts/ibm-plex-mono-latin-400-normal.woff2']) assert.ok(page.includes(`<link rel="preload" href="${face}"`), `${face} is preloaded`);
   assert.ok(!/fonts\.googleapis|cdn\./.test(page), 'no third party');
 });
 

@@ -64,10 +64,10 @@ test('the build emits the observatory page, its bundle, stylesheet, fonts and re
   }
   // dist/fonts holds the chrome's two faces and nothing else (brief §2.1).
   const fonts = readdirSync(join(out, 'fonts'));
-  for (const face of ['instrument-sans', 'martian-mono']) {
+  for (const face of ['source-serif-4', 'ibm-plex-mono']) {
     assert.ok(fonts.some((f) => f.startsWith(face) && f.endsWith('.woff2')), `no ${face} woff2 in dist/fonts`);
   }
-  assert.deepEqual(fonts.sort(), ['instrument-sans-latin-wght-normal.woff2', 'martian-mono-latin-wght-normal.woff2']);
+  assert.deepEqual(fonts.sort(), ['ibm-plex-mono-latin-400-normal.woff2', 'ibm-plex-mono-latin-500-normal.woff2', 'source-serif-4-latin-opsz-normal.woff2']);
   assert.match(page, /^<!doctype html>/i);
   assert.match(page, /<script type="module" src="observatory\.js"><\/script>/);
   // The stylesheet is inlined for first paint; the same bytes ship as a file.
@@ -571,22 +571,22 @@ test('sections: a numbered label, the instrument, then the Readings in a row —
   }
 });
 
-test('fonts: the chrome’s two faces only — Instrument Sans and Martian Mono, self-hosted and preloaded; this page declares no face of its own', () => {
+test('fonts: the chrome’s two faces only — Source Serif 4 and IBM Plex Mono, self-hosted and preloaded; this page declares no face of its own', () => {
   const fonts = readdirSync(join(out, 'fonts')).sort();
-  for (const file of ['instrument-sans-latin-wght-normal.woff2', 'martian-mono-latin-wght-normal.woff2']) assert.ok(fonts.includes(file), `${file} is not in dist/fonts`);
-  assert.match(page, /<link rel="preload" href="fonts\/instrument-sans-latin-wght-normal\.woff2" as="font" type="font\/woff2" crossorigin>/);
-  assert.match(page, /<link rel="preload" href="fonts\/martian-mono-latin-wght-normal\.woff2" as="font" type="font\/woff2" crossorigin>/);
-  assert.ok(!/source-serif|inter-latin|jetbrains/.test(page), 'the page preloads none of the old faces');
+  for (const file of ['source-serif-4-latin-opsz-normal.woff2', 'ibm-plex-mono-latin-400-normal.woff2', 'ibm-plex-mono-latin-500-normal.woff2']) assert.ok(fonts.includes(file), `${file} is not in dist/fonts`);
+  assert.match(page, /<link rel="preload" href="fonts\/source-serif-4-latin-opsz-normal\.woff2" as="font" type="font\/woff2" crossorigin>/);
+  assert.match(page, /<link rel="preload" href="fonts\/ibm-plex-mono-latin-400-normal\.woff2" as="font" type="font\/woff2" crossorigin>/);
+  assert.ok(!/instrument-sans|martian-mono|inter-latin|jetbrains/.test(page), 'the page preloads none of the old faces');
   assert.ok(!/@font-face/.test(allCss), 'observatory.css declares no face: the chrome does');
-  assert.ok(!/Source Serif|Inter|JetBrains|Instrument Serif|IBM Plex/.test(allCss), 'no old family is named');
+  assert.ok(!/Instrument Sans|Martian Mono|Inter|JetBrains|Instrument Serif/.test(allCss), 'no old family is named');
   assert.ok(!/fonts\.googleapis|cdn\./.test(page), 'no third-party font');
-  assert.equal((chromeCss.match(/@font-face/g) ?? []).length, 2);
-  for (const family of ['Instrument Sans', 'Martian Mono']) assert.ok(chromeCss.includes(`font-family: "${family}"`), `${family} is self-hosted by the chrome`);
+  assert.equal((chromeCss.match(/@font-face/g) ?? []).length, 3, 'one variable serif, the mono at 400 and 500');
+  for (const family of ['Source Serif 4', 'IBM Plex Mono']) assert.ok(chromeCss.includes(`font-family: "${family}"`), `${family} is self-hosted by the chrome`);
   assert.match(chromeCss, /font-display: swap/);
-  // Mono is for figures, labels, receipts, hashes and addresses; the sans for words.
-  assert.equal(tokens['--font-mono'], '"Martian Mono", ui-monospace, monospace');
-  assert.equal(tokens['--font-sans'], '"Instrument Sans", system-ui, sans-serif');
-  assert.match(css, /--font-serif: var\(--font-sans\);/, 'the instruments’ serif name resolves to the sans');
+  // Mono is for figures, labels, receipts, hashes and addresses; the serif for words.
+  assert.equal(tokens['--font-mono'], '"IBM Plex Mono", ui-monospace, monospace');
+  assert.equal(tokens['--font-serif'], '"Source Serif 4", Georgia, serif');
+  assert.ok(!('--font-sans' in tokens), 'no sans face');
 });
 
 test('figures: tabular lining figures from the token; a live figure fills through the chrome’s setFigure path and never ships a digit', () => {

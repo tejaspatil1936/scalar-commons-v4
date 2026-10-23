@@ -1,2 +1,2 @@
 /* The network graph (the agent panel's detail view). Tokens only; its tip shares the agent field's rules. */
-.graph-bundles { margin: 16px 0 0; padding-left: 24px; color: var(--bone-dim); }
+.graph-bundles { margin: var(--s-4) 0 0; padding-left: var(--s-5); color: var(--ink-2); }

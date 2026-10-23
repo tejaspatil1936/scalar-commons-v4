@@ -1,19 +1,17 @@
 /*
- * Nightwatch — the only second face. Printed: a bone page, pine ink, no glow,
- * leaders kept, every receipt line printed, the URL and the time of printing
- * in the foot. Nothing is hidden that a reader on paper could check.
+ * The Ledger, printed: the same page without the bar. Paper and ink are
+ * already the printed colours, so nothing is re-themed; the controls that
+ * only work on a screen leave, every receipt line prints, and the URL and
+ * the time of printing go in the foot. Nothing is hidden that a reader on
+ * paper could check.
  */
 @media print {
-  :root { --pine-0: #efe9d8; --pine-1: #e6dfcc; --pine-2: #ddd5c0; --pine-3: #d3cab3; --bone: #0f1f18; --bone-dim: #3b5546; --sage: #5c6b60; --leader: #7f8a80; --glow: none; }
-  html { background: var(--pine-0); color: var(--bone); }
   .nw-bar, .nw-sources, .nw-tag--kbd, .nw-menu, .nw-palette, .nw-sheet, .nw-copy, .nw-stub, .nw-present { display: none !important; }
-  .nw-lamp-dot, .nw-dot, .nw-rail-tick, .nw-spine-tick::before { box-shadow: none !important; }
   .nw-receipt, .nw-receipt-line { display: block !important; }
   .nw-receipt { width: auto; background: none; padding: 0; }
-  .nw-leader { color: var(--leader); }
-  .nw-reading:hover { background: none; box-shadow: none; }
-  .nw-print-foot { display: block; margin-top: 24px; font: var(--label); color: var(--bone-dim); }
+  .nw-reading:hover { background: none; }
+  .nw-print-foot { display: block; margin-top: var(--s-5); font: var(--label); color: var(--ink-2); }
   .nw-print-foot::before { content: attr(data-url) " · printed " attr(data-printed); }
-  a[href^="http"]::after { content: " (" attr(href) ")"; font: var(--label); color: var(--bone-dim); }
+  a[href^="http"]::after { content: " (" attr(href) ")"; font: var(--label); color: var(--ink-2); }
   .nw-foot { break-inside: avoid; }
 }

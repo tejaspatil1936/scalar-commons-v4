@@ -1,12 +1,12 @@
 /* 04 · history strips — the plot's marks, in the tokens. */
-.strip-plot .plot-label { font-family: var(--font-mono); font: var(--label); fill: var(--bone-dim); }
-.strip-plot .plot-zero { stroke: var(--leader); }
-.strip-plot .plot-tick { stroke: var(--leader); }
-.strip-plot .plot-line { stroke: var(--filament); fill: none; stroke-width: 1.5; }
-.strip-plot .plot-line-secondary { stroke: var(--sage); fill: none; }
-.strip-plot .plot-line-open { stroke: var(--bone-dim); fill: none; }
-.strip-plot .plot-bar { fill: var(--sage); }
-.strip-plot .plot-bar.is-open { fill: var(--filament); }
-.strip-plot .plot-band { fill: var(--pine-2); }
-.strip-plot .plot-band-edge { stroke: var(--leader); }
-.strip-plot .plot-note { font: var(--label); fill: var(--sage); }
+.strip-plot .plot-label { font-family: var(--font-mono); font: var(--label); fill: var(--ink-2); }
+.strip-plot .plot-zero { stroke: var(--rule-2); }
+.strip-plot .plot-tick { stroke: var(--rule-2); }
+.strip-plot .plot-line { stroke: var(--ink); fill: none; stroke-width: 1.5; }
+.strip-plot .plot-line-secondary { stroke: var(--ink-3); fill: none; }
+.strip-plot .plot-line-open { stroke: var(--ink-2); fill: none; }
+.strip-plot .plot-bar { fill: var(--ink-3); }
+.strip-plot .plot-bar.is-open { fill: var(--ink); }
+.strip-plot .plot-band { fill: var(--paper-2); }
+.strip-plot .plot-band-edge { stroke: var(--rule-2); }
+.strip-plot .plot-note { font: var(--label); fill: var(--ink-3); }

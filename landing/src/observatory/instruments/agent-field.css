@@ -1,5 +1,5 @@
 /* The agent field (the first screen's panel): the tip and the list. Tokens only. */
 .field-tip, .constellation-tip { font: var(--label); }
-.agents-list .agent-list a { color: var(--bone); text-decoration: underline dotted; text-underline-offset: 4px; }
-.agents-list .agent-list a:hover { color: var(--filament); }
-.agent-list .dim { color: var(--bone-dim); }
+.agents-list .agent-list a { color: var(--ink); text-decoration: underline dotted; text-underline-offset: 4px; }
+.agents-list .agent-list a:hover { color: var(--ink); }
+.agent-list .dim { color: var(--ink-2); }

@@ -440,7 +440,6 @@ export function curve({
   alt: string;
   table?: readonly (readonly string[])[] | null;
 }): string {
-  const gradId = `nw-pool-${escapeHtml(id)}`;
   const labelHtml = labels
     .map(
       (l, i) =>
@@ -457,7 +456,7 @@ export function curve({
   const tableHtml = table
     ? `<table><tbody>${table.map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`
     : '';
-  return `<figure class="nw-curve" data-curve="${escapeHtml(id)}"><svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${escapeHtml(alt)}"><defs><linearGradient id="${gradId}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#ffe3a3" stop-opacity="0.12"></stop><stop offset="1" stop-color="#ffe3a3" stop-opacity="0"></stop></linearGradient></defs><path class="nw-curve-pool" fill="url(#${gradId})" d="${pathArea}"></path><path class="nw-curve-line" d="${pathLine}"></path>${labelHtml}${tickHtml}${endHtml}</svg>${tableHtml}</figure>`;
+  return `<figure class="nw-curve" data-curve="${escapeHtml(id)}"><svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${escapeHtml(alt)}"><path class="nw-curve-pool" d="${pathArea}"></path><path class="nw-curve-line" d="${pathLine}"></path>${labelHtml}${tickHtml}${endHtml}</svg>${tableHtml}</figure>`;
 }
 
 /**
@@ -564,8 +563,8 @@ export function head({
 <title>${escapeHtml(title)}</title>
 <meta name="description" content="${escapeHtml(description)}">
 <meta name="color-scheme" content="dark">
-<link rel="preload" href="/fonts/instrument-sans-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="/fonts/martian-mono-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/source-serif-4-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="${escapeHtml(cssHref)}">
 ${extraHead}`;
 }

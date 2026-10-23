@@ -199,12 +199,11 @@ export function spine({ ticks, form = 'margin', ariaLabel }) {
  * `ticks` baseline event ticks [{x, state}]; `table` rows for the fallback.
  */
 export function curve({ id, width = 400, height = 120, pathLine, pathArea, labels = [], end = null, ticks = [], alt, table = null }) {
-  const gradId = `nw-pool-${escapeHtml(id)}`;
   const labelHtml = labels.map((l, i) => `<text class="nw-curve-value" x="0" y="${12 + i * ((height - 12) / Math.max(1, labels.length - 1))}">${escapeHtml(l)}</text>`).join('');
   const tickHtml = ticks.map((t) => `<line class="nw-curve-tick" data-state="${escapeHtml(t.state ?? 'settled')}" x1="${t.x}" x2="${t.x}" y1="${height - 6}" y2="${height}"></line>`).join('');
   const endHtml = end ? `<circle class="nw-curve-end" cx="${end[0]}" cy="${end[1]}" r="3"></circle>` : '';
   const tableHtml = table ? `<table><tbody>${table.map((r) => `<tr>${r.map((c) => `<td>${escapeHtml(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>` : '';
-  return `<figure class="nw-curve" data-curve="${escapeHtml(id)}"><svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${escapeHtml(alt)}"><defs><linearGradient id="${gradId}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#ffe3a3" stop-opacity="0.12"></stop><stop offset="1" stop-color="#ffe3a3" stop-opacity="0"></stop></linearGradient></defs><path class="nw-curve-pool" fill="url(#${gradId})" d="${pathArea}"></path><path class="nw-curve-line" d="${pathLine}"></path>${labelHtml}${tickHtml}${endHtml}</svg>${tableHtml}</figure>`;
+  return `<figure class="nw-curve" data-curve="${escapeHtml(id)}"><svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${escapeHtml(alt)}"><path class="nw-curve-pool" d="${pathArea}"></path><path class="nw-curve-line" d="${pathLine}"></path>${labelHtml}${tickHtml}${endHtml}</svg>${tableHtml}</figure>`;
 }
 
 export function redaction({ state = 'sealed', text = 'no key held', hashBits = null }) {
@@ -280,8 +279,8 @@ export function head({ title, description, css, scripts = [], boot = true, extra
 <meta name="description" content="${escapeHtml(description)}">
 <meta name="color-scheme" content="dark">
 ${sourcesBoot}
-<link rel="preload" href="fonts/instrument-sans-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="fonts/martian-mono-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/source-serif-4-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/ibm-plex-mono-latin-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <style>${String(css).replace(/<\/style/gi, '<\\/style')}</style>
 ${extraHead}${scripts.map((s) => `<script type="module" src="${escapeHtml(s)}"></script>`).join('\n')}`;
 }

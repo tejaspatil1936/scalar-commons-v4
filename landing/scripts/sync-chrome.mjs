@@ -14,8 +14,9 @@ const here = (relative) => fileURLToPath(new URL(relative, import.meta.url));
 
 export const CHROME_FILES = ['tokens.css', 'chrome.css', 'print.css'];
 export const CHROME_FONTS = [
-  ['@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2', 'instrument-sans-latin-wght-normal.woff2'],
-  ['@fontsource-variable/martian-mono/files/martian-mono-latin-wght-normal.woff2', 'martian-mono-latin-wght-normal.woff2'],
+  ['@fontsource-variable/source-serif-4/files/source-serif-4-latin-opsz-normal.woff2', 'source-serif-4-latin-opsz-normal.woff2'],
+  ['@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2', 'ibm-plex-mono-latin-400-normal.woff2'],
+  ['@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2', 'ibm-plex-mono-latin-500-normal.woff2'],
 ];
 export const TARGETS = [here('../../docs/.vitepress/theme/chrome'), here('../../explorer/src/chrome')];
 

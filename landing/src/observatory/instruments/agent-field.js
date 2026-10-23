@@ -259,7 +259,7 @@ export function footnote({ size, truncated, scanLimit, listed, total }, formatIn
   return `${unit}. ${order}${cut}.`;
 }
 
-/** Parses '#rgb', '#rrggbb' or 'rgb(r, g, b)' to [r, g, b], or null. */
+/** Parses a token's computed value (three- or six-digit hex, or an RGB triple) to [r, g, b], or null. */
 export function parseColour(text) {
   const s = String(text).trim();
   let m = s.match(/^#([0-9a-f]{3})$/i);

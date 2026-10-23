@@ -95,7 +95,7 @@ test('npm run build emits faucet.html and faucet.js beside oversight.html and ov
   for (const file of ['faucet.html', 'faucet.js', 'faucet.css', 'oversight.html', 'oversight.js', 'oversight.css', 'oversight-sample.json']) assert.ok(files.includes(file), file);
   const page = readFileSync(join(out, 'faucet.html'), 'utf8');
   assert.ok(!/fonts\.googleapis|cdn\./.test(page));
-  assert.ok(page.includes('--pine-0'), 'the chrome is inlined');
+  assert.ok(page.includes('--paper:'), 'the chrome is inlined');
   const script = readFileSync(join(out, 'faucet.js'), 'utf8');
   assert.ok(!/force-graph|gsap|alphaDecay/.test(script), 'the faucet script carries no instrument library');
   assert.ok(/SS58PRE/.test(script), 'the SS58 decoder rides in the bundle');
