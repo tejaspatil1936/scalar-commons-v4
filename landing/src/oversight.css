@@ -1,99 +1,64 @@
 /*
- * /oversight — in the Ledger: black ink on paper, tokens only, no hue. A
- * message is a ledger entry under a hairline rule, not a card. State is fill,
- * outline and the word: a record stub is a rule-2 outline, a live one solid
- * ink; a sealed body is the chrome's Redaction (a solid ink bar, `no key held`
- * in paper), a decrypted body has its bar lifted (ink at 25 %, raised 8 px),
- * a hash-only body is the 32×2 grid in ink and rule-2; a row that disagrees
- * with the record carries a dotted ink rule down its left edge and its word.
- * Requests for the chrome go to src/chrome/requests/, never here.
+ * /oversight — only what the chrome lacks: the collapsible message groups
+ * (a native <details> with the chrome's chevrons), the message table's five
+ * fixed columns, and the stacked lines inside a cell. Tokens only; no colour,
+ * size or step of its own. Status colours mark status text and nothing else.
  */
-/* The first section opens --s-9 under the bar; the rest are --s-10 apart (the chrome's .nw-section). */
-.ov > .nw-section:first-child { padding-top: var(--s-9); }
-.ov-hero .nw-eyebrow { display: inline-flex; }
-.ov-standfirst { margin-top: var(--s-6); max-width: 62ch; }
-.ov-explanation { margin-top: var(--s-5); }
-.ov-label { margin-top: var(--s-6); display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); max-width: 72ch; }
-.ov-status-line { margin-top: var(--s-4); }
-.ov-status[data-state="live"] .nw-dot { background: var(--ink); border-color: var(--ink); }
-.ov-status[data-state="error"] .nw-dot { border-radius: 0; border-color: var(--ink); background: var(--paper); }
-/* The five summary figures are one .nw-row: the chrome sets five at --figure-s.
-   Their labels wrap inside their columns in a box two label-lines tall, so the
-   labels share a top line and the figures a baseline. The self-check is the
-   record's own sentence ("n of m keys match") and stays at --body. */
-.ov-figures { margin-top: var(--s-8); }
-.ov-figures .nw-reading-line > .nw-label { white-space: normal; min-height: var(--s-5); }
-.ov .ov-figures.nw-row .nw-reading-figure .nw-figure--body { font: var(--body); }
-/* HOW TO READ THIS and a message's fields: every row shares the list's three
-   tracks (term · leader · value), so the values start on one line. */
-.ov-htr-list { display: grid; grid-template-columns: max-content minmax(var(--s-6), 1fr) minmax(0, 8fr); row-gap: var(--s-4); }
-.ov-htr-row, .ov-field { display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: baseline; min-width: 0; }
-.ov-htr-row .nw-leader, .ov-field .nw-leader { align-self: start; margin-top: var(--s-3); min-width: 0; }
-.ov-htr-row dd { margin: 0; max-width: 62ch; }
-.ov-lede { margin-top: var(--s-4); max-width: 72ch; }
-.ov-rows { display: grid; gap: 0; margin-top: var(--s-7); }
-.ov-join { display: flex; justify-content: center; height: var(--s-8); align-items: center; }
-.ov-join .nw-leader { width: 2px; height: calc(var(--s-6) + var(--s-2)); flex: none; margin: 0; top: 0; background-size: 2px 6px; background-repeat: repeat-y; }
-.ov-join .nw-leader--arrow::after { right: 0; top: auto; bottom: calc(-1 * var(--s-1)); width: 10px; height: calc(var(--s-1) / 2); background-size: 6px 2px; background-repeat: repeat-x; }
-/* A message: a ledger entry under a 1 px rule; the last one closes with a rule. */
-.ov-row { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-4); padding-block: var(--s-5); border-top: 1px solid var(--rule); transition: opacity var(--t-ui) var(--ease-ui); }
-.ov-rows > .ov-row:last-child { border-bottom: 1px solid var(--rule); }
-.ov-row.is-quiet { opacity: 0.72; }
-/* A disagreement: a dotted ink rule down the left and the word, never a colour. */
-.ov-row[data-disagrees] { padding-left: var(--s-5); }
-.ov-row[data-disagrees]::before { content: ""; position: absolute; left: 0; top: var(--s-5); bottom: var(--s-5); width: 2px; background-image: radial-gradient(circle, var(--ink) 1px, transparent 1px); background-size: 2px 6px; background-repeat: repeat-y; }
+
+/* The two notes above the record, and the contents list. */
+.ov-notes { display: grid; gap: var(--s-3); margin-bottom: var(--s-5); }
+.ov-noscript { margin-top: var(--s-5); }
+.ov-toc { margin-bottom: var(--s-6); }
+
+/* A group: a native disclosure under a hairline; the first open, the rest shut. */
+.ov-groups { border-bottom: 1px solid var(--border); }
+.ov-group { border-top: 1px solid var(--border); }
+.ov-group > summary { list-style: none; display: flex; align-items: center; gap: var(--s-3); padding-block: var(--s-4); cursor: pointer; color: var(--text); }
+.ov-group > summary::-webkit-details-marker { display: none; }
+.ov-group > summary:hover h3, .ov-group > summary:focus-visible h3 { color: var(--accent); }
+/* The title may wrap on a narrow screen; the count and the chevron stay on its first line. */
+.ov-group > summary h3 { flex: 0 1 auto; min-width: 0; transition: color .15s, background-color .15s, border-color .15s; }
+.ov-group > summary .sc-caption { flex: 1 1 auto; white-space: nowrap; }
+.ov-group > summary .sc-icon { color: var(--text-2); }
+.ov-group > summary .sc-icon-chevron-down { display: none; }
+.ov-group[open] > summary .sc-icon-chevron-down { display: inline-block; }
+.ov-group[open] > summary .sc-icon-chevron-right { display: none; }
+.ov-group-body { display: grid; gap: var(--s-4); padding-bottom: var(--s-6); }
+
+/* The message table: five fixed columns, scrolling inside its wrap when the
+   container is narrower than the table (the chrome's rule for every table). */
+.ov-table { table-layout: fixed; min-width: 960px; }
+.ov-table th:nth-child(1) { width: 11%; }
+.ov-table th:nth-child(2) { width: 12%; }
+.ov-table th:nth-child(3) { width: 25%; }
+.ov-table th:nth-child(4) { width: 31%; }
+.ov-table th:nth-child(5) { width: 21%; }
+/* The index has six: block, kind, from, to, body, where shown. */
+.ov-table.ov-index th:nth-child(1) { width: 12%; }
+.ov-table.ov-index th:nth-child(2) { width: 12%; }
+.ov-table.ov-index th:nth-child(3), .ov-table.ov-index th:nth-child(4) { width: 20%; }
+.ov-table.ov-index th:nth-child(5) { width: 14%; }
+.ov-table.ov-index th:nth-child(6) { width: 22%; }
+
+/* Stacked lines in a cell. A party is a label in a fixed first column and,
+   in the second, the agent's name over its address (the copy button appears
+   on hover, as everywhere); an agreement is its account over its number. */
+.ov-cell { display: grid; gap: var(--s-1); min-width: 0; }
+.ov-party { display: grid; grid-template-columns: calc(var(--s-8) + var(--s-3)) minmax(0, 1fr); column-gap: var(--s-2); row-gap: var(--s-1); align-items: baseline; min-width: 0; }
+.ov-party > .ov-k { grid-column: 1; grid-row: 1; }
+.ov-party > :not(.ov-k) { grid-column: 2; justify-self: start; min-width: 0; }
+.ov-k { font: var(--caption); color: var(--text-2); }
+.ov-who { display: grid; gap: var(--s-1); min-width: 0; }
+.ov-plaintext { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ov-checks { display: grid; gap: var(--s-1); }
+.ov-checks li { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-2); min-width: 0; }
+/* Status colour only for the check this page ran itself; the operator's signature check is a recorded claim, in plain text. */
+.ov-checks [data-check="commitment"][data-state="ok"] { color: var(--ok); }
+.ov-checks [data-state="bad"] { color: var(--bad); }
+.ov-checks [data-state="na"], .ov-checks [data-state="pending"] { color: var(--text-2); }
+
+/* A disagreement between the chain and the record: the word, in the status colour, and a mark down the row's left edge. */
+.ov-disagree { color: var(--bad); font-weight: 500; }
 .ov-disagree[hidden] { display: none; }
-.ov-row[data-disagrees] .ov-disagree { display: inline-flex; }
-.ov-row[data-disagrees] .ov-kind, .ov-row[data-disagrees] .ov-prov { color: var(--ink); }
-.ov-row-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3) var(--s-4); }
-.ov-kind { color: var(--ink); }
-.ov-kind[data-live="differs"] { color: var(--ink); text-decoration: underline dotted var(--ink); text-underline-offset: 4px; }
-.ov-when { color: var(--ink-2); }
-.ov-fields { display: grid; grid-template-columns: max-content minmax(var(--s-6), 1fr) minmax(0, 8fr); row-gap: var(--s-2); margin: 0; }
-.ov-field .nw-leader { margin-top: var(--s-2); }
-.ov-field dd { margin: 0; min-width: 0; overflow-wrap: anywhere; font: var(--mono); }
-.ov-who { display: inline-flex; gap: var(--s-2); align-items: baseline; flex-wrap: wrap; }
-.ov-addr { color: var(--ink-2); }
-.ov-hash[data-live="differs"] { color: var(--ink); text-decoration: underline dotted var(--ink); text-underline-offset: 4px; }
-.ov-live-differs { color: var(--ink); font: var(--mono); }
-.ov-prov { display: none; }
-.ov-row:hover .ov-prov, .ov-row:focus-within .ov-prov, .ov-row[data-disagrees] .ov-prov, html[data-sources] .ov-prov { display: block; }
-.ov-body { position: relative; }
-.ov-plaintext { padding: var(--s-5); background: var(--paper-2); border-radius: var(--radius); white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); }
-.ov-lift { position: absolute; left: var(--s-5); top: var(--s-5); z-index: 1; }
-.ov-lift .nw-redaction { min-width: 12ch; }
-.ov-checks { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4); }
-/* The two checks, as tags: 32 px, the word on paper-2, a 6 px mark in the stub's language before it. */
-.ov-badge { display: inline-flex; align-items: center; gap: var(--s-2); height: var(--s-6); padding: 0 var(--s-3); border-radius: var(--radius); background: var(--paper-2); color: var(--ink-2); white-space: nowrap; }
-.ov-badge::before { content: ""; position: relative; width: 6px; height: calc(var(--s-1) * 1.5); border-radius: 50%; flex: none; box-sizing: border-box; border: 1px solid var(--rule-2); background: var(--paper); }
-/* Verified by the operator's tool: a record — outline, not fill. */
-.ov-badge[data-state="ok"] { color: var(--ink); }
-.ov-badge[data-state="ok"]::before { border-color: var(--ink-3); }
-/* Re-checked in this browser: live — solid ink. */
-.ov-check[data-check="commitment"] .ov-badge[data-state="ok"]::before { background: var(--ink); border-color: var(--ink); }
-/* Failed: the word, and an X-like solid square mark (never a colour). */
-.ov-badge[data-state="bad"] { color: var(--ink); }
-.ov-badge[data-state="bad"]::before { border-radius: 0; border-color: var(--ink); background: var(--ink); }
-.ov-badge[data-state="pending"]::before, .ov-badge[data-state="na"]::before { border-color: var(--rule); }
-.ov-links { color: var(--ink-2); }
-.ov-ledger { margin-top: var(--s-7); }
-.ov-ledger a { text-decoration: underline dotted var(--rule-2); text-underline-offset: 4px; }
-.ov-sample .nw-pager { margin-top: var(--s-4); }
-.ov-foot p + p { margin-top: var(--s-4); }
-@media (max-width: 480px) {
-  /* The six-row ledger at 480 px and under: index · extrinsic · state on the first line, the message under them. */
-  .ov-ledger .nw-ledger-row { grid-template-columns: 32px minmax(0, 1fr) auto; row-gap: var(--s-1); padding-block: var(--s-2); }
-  .ov-ledger .nw-ledger-row > :nth-child(3) { grid-column: 2 / -1; grid-row: 2; }
-  .ov-ledger .nw-ledger-row > :nth-child(5) { grid-column: 3; grid-row: 1; }
-  .ov-htr-list, .ov-fields { grid-template-columns: minmax(0, 1fr); }
-  .ov-htr-row, .ov-field { display: flex; flex-direction: column; align-items: flex-start; gap: var(--s-2); }
-  .ov-htr-row .nw-leader, .ov-field .nw-leader { width: 24px; flex: none; margin: 0; }
-}
-
-/* Narrow screens: the status line wraps instead of widening the page, and a
-   hash or address breaks wherever it must — a record is read, not scrolled. */
-.ov-status { white-space: normal; height: auto; min-height: var(--s-6); }
-.ov code.nw-mono { overflow-wrap: anywhere; word-break: break-all; }
-
-/* Round 3's 12 px labels: a check's badge may wrap rather than widen its row. */
-.ov-check .ov-badge { white-space: normal; height: auto; min-height: var(--s-6); padding-block: var(--s-1); }
+.ov-live-differs, [data-live="differs"] { color: var(--bad); }
+.ov-table tr[data-disagrees] td:first-child { border-left: 3px solid var(--bad); }

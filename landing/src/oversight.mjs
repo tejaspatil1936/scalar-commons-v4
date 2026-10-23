@@ -1,58 +1,54 @@
-// Renders /oversight — "What an operator can and cannot read" (brief §5.7).
+// Renders /oversight — "What an operator can and cannot read".
 //
-// Unlike /observatory, this page states its figures at build time, because the
-// sample it shows is a RECORD: one read of a chain by a read-only tool, checked
-// into the repo as landing/public/oversight-sample.json. The page is honest
-// about that by construction — every on-chain field is rendered from the record
-// AND re-read live in the reader's browser, and the row says which of the two
-// it is showing. A row whose live read disagrees with the record is marked as
-// disagreeing — a dotted ink rule down its left edge and the word, never a
-// colour (SITE-ROUND2.md §1.2) — not quietly corrected.
+// This page states its figures at build time, because what it shows is a
+// RECORD: one read of a chain by a read-only tool, checked into the repo as
+// landing/public/oversight-sample.json. Every on-chain field is rendered from
+// the record. The reader's browser recomputes each plaintext's blake2b-256
+// against the chain's commitment (arithmetic on bytes already in the page)
+// and — only when the record names a public node — re-reads each message from
+// the chain and says whether it agrees. The record's node is a local
+// development chain, so the hosted page shows the recorded values, says so in
+// one sentence, and never tries to reach it (SITE-REDESIGN.md, Appendix A 23).
 //
-// The two checks on each row are of different kinds and are labelled as such:
-// the signature was verified by the tool (a record stub, a rule-2 outline on
-// paper: the reader is trusting the record for that one), while the
-// commitment is recomputed in the reader's own browser from the plaintext with
-// a bundled blake2b-256 (a live stub, solid ink). Only the second is something
-// the reader checks for themselves.
-//
-// Drawn on the chrome (src/chrome): head(), topBar(), footer(), Readings,
-// Tags, Redactions, leaders and the Ledger; this file adds no colour or size.
+// Drawn on the shared chrome (src/chrome): page(), section(), stats(),
+// kvTable(), table(), callout(), address(), link(). Nothing here types a
+// figure: every count, date, hash and address comes from the record or from
+// chain-facts.json. The page is long, so it opens with a table of contents and
+// each group of messages is a native <details>: the first open, the rest shut.
 
-import { PULSE_NAV } from './observatory.mjs';
-import { escapeHtml, footer, formatInt, head, leader, ledger, reading, redaction, tag, topBar } from './chrome-legacy/templates.mjs';
+import { isPublicEndpoint } from './oversight/endpoint.js';
+import { CHECK, DISAGREE_WORD, PROVENANCE, RECORDED_ONLY, SIGNATURE, STATUS, kindWord } from './oversight/words.js';
+import { address, callout, escapeHtml, formatInt, formatUtc, icon, kvTable, link, page, section, stats, table, truncateMiddle } from './chrome/templates.mjs';
 
-export { PULSE_NAV };
-/** The nav entry for this page (the branch read it from observatory.mjs, which this checkout does not carry). */
-export const OVERSIGHT_NAV = { key: 'oversight', label: 'Oversight', href: 'oversight' };
+export { isPublicEndpoint, CHECK, DISAGREE_WORD, RECORDED_ONLY, SIGNATURE, STATUS, kindWord };
 
 export const TITLE = 'What an operator can and cannot read';
-export const HEADLINE = TITLE;
+export const DESCRIPTION =
+  'A sample of real agent-to-agent messages from a Scalar Commons development chain: the public metadata every observer sees, the encrypted bodies an operator opened with escrowed keys, and the commitment your own browser recomputes to check that the plaintext is the one the chain committed to.';
 export const STANDFIRST =
   'Forty real messages from a development chain, decrypted by the operator with the keys it holds. This page signs nothing and submits nothing.';
 
 /**
- * The three sentences, in order, under the standfirst. The original brief asked
- * for exactly three and for them to be plain: what is public, what is encrypted,
- * and who holds the keys that opened these particular rows.
+ * The three paragraphs, in order, under the lead: what is public, what is
+ * encrypted, and who holds the keys that opened these particular rows.
  */
 export const EXPLANATION = [
   'Every message these agents send leaves a public record on the chain: who sent it, who received it, when, which agreement it belongs to, what kind of message it was, and a hash of what it said — all of that is readable by anyone, forever.',
   'What it actually said is encrypted from one agent to the other, so the chain carries ciphertext that no observer, including the people running the network, can read.',
-  'This is an oversight instance: the operator runs these agents and holds escrowed copies of their keys, so every encrypted row below that belongs to one of its own agents was opened with the operator’s own keys — rows between agents it does not run stayed shut and are greyed out, and a few rows were never encrypted in the first place.',
+  'This is an oversight instance: the operator runs these agents and holds escrowed copies of their keys, so every encrypted row below that belongs to one of its own agents was opened with the operator’s own keys — rows between agents it does not run stayed shut, and a few rows were never encrypted in the first place.',
 ];
 
-/** The recorded summary figures, in reading order: key into the sample's summary, label. All four are the tool's (record stubs: outline, not fill). */
+/** The recorded summary figures, in reading order: key into the sample's summary, label, caption. */
 export const FIGURES = [
-  ['selfCheck', 'Operator keys matching the chain'],
-  ['decryptedCount', 'Decrypted by the operator'],
-  ['noKeyHeldCount', 'Sealed, no key held'],
-  ['signaturesVerified', 'Signatures verified'],
+  ['selfCheck', 'Operator keys matching the chain', 'published keys, re-derived by the tool'],
+  ['decryptedCount', 'Decrypted by the operator', 'sealed messages opened with escrowed keys'],
+  ['noKeyHeldCount', 'Sealed, no key held', 'between agents the operator does not run'],
+  ['signaturesVerified', 'Signatures verified', 'by the operator’s tool, not by this page'],
 ];
 /** The fifth figure is the reader's own: filled by the browser after it has hashed every plaintext. */
-export const RECHECK = ['rechecked', 'Re-checked in your browser'];
+export const RECHECK = ['rechecked', 'Re-checked in your browser', 'plaintexts hashed to their commitment'];
 
-/** HOW TO READ THIS — five rows, verbatim from the brief. */
+/** How to read this — five rows, verbatim from the brief. */
 export const HOW_TO_READ = [
   ['Public to everyone', 'sender, recipient, kind, agreement tag, block, nonce, payload length, payload hash'],
   ['Encrypted', 'the body, a NaCl box to the recipient’s published key'],
@@ -61,138 +57,128 @@ export const HOW_TO_READ = [
   ['Not checked here', 'signatures, verified by the operator’s tool'],
 ];
 
-export const LEDGER_ROWS = 6;
-export const DISAGREE_WORD = 'DISAGREES WITH THE RECORD';
+/** The groups a message can fall into, after the thread: id, title, intro, membership. */
+export const GROUPS = [
+  {
+    id: 'g-decrypted',
+    title: 'Decrypted by the operator',
+    intro: 'Sealed messages between the operator’s own agents, opened with the escrowed keys it holds. The negotiation above is not repeated here.',
+    holds: (r) => r.bodyType === 'Sealed' && r.decrypted === true,
+  },
+  {
+    id: 'g-plain',
+    title: 'Public on chain',
+    intro: 'Messages sent in plain text. Anyone can read them from the chain; no key was needed.',
+    holds: (r) => r.bodyType === 'Plain',
+  },
+  {
+    id: 'g-sealed',
+    title: 'Sealed, no key held',
+    intro: 'Messages between agents the operator does not run. It holds no key for them, so only the public fields are readable.',
+    holds: (r) => r.bodyType === 'Sealed' && r.decrypted !== true,
+  },
+  {
+    id: 'g-hash-only',
+    title: 'Hash-only',
+    intro: 'Messages whose content never travelled on chain. Only its commitment did, so there is nothing to decrypt.',
+    holds: (r) => r.bodyType === 'None',
+  },
+];
+export const THREAD_GROUP = { id: 'g-thread', title: 'One negotiation, end to end' };
+export const ALL_GROUP = { id: 'g-all', title: 'All messages, in block order' };
 
-const short = (s) => `${String(s).slice(0, 6)}…${String(s).slice(-4)}`;
+export const MESSAGE_COLUMNS = [{ label: 'Block' }, { label: 'Kind' }, { label: 'From and to' }, { label: 'Message' }, { label: 'Checks' }];
+export const INDEX_COLUMNS = [{ label: 'Block' }, { label: 'Kind' }, { label: 'From' }, { label: 'To' }, { label: 'Body' }, { label: 'Shown in' }];
 
-/** A party: the agent's name from the record (operator-run when it carries the swarm prefix) and its short address. */
-function who(addr, name) {
-  const operator = typeof name === 'string' && name.startsWith('swarm-');
-  return `<span class="ov-who" title="${escapeHtml(addr)}">${
-    name ? `<span class="nw-agent${operator ? ' is-operator' : ''}">${escapeHtml(name)}</span> ` : ''
-  }<code class="nw-mono ov-addr">${escapeHtml(short(addr))}</code></span>`;
+const anchorOf = (id) => `msg-${id}`;
+const cell = (...lines) => `<div class="ov-cell">${lines.filter((l) => l !== null && l !== undefined && l !== '').join('')}</div>`;
+const caption = (text, title = null) => `<span class="sc-caption"${title ? ` title="${escapeHtml(title)}"` : ''}>${escapeHtml(text)}</span>`;
+
+/** The record's reason for a row's state, verbatim; it is what keeps "public" and "decrypted" apart. */
+const reasonOf = (r) => r.reason ?? '';
+
+/** "Decrypted" / "Public" / "Sealed" / "Hash-only": the body's state in one or two words, for the index. */
+export const bodyWordOf = (r) =>
+  r.bodyType === 'Sealed' ? (r.decrypted ? 'Decrypted' : 'Sealed, no key held') : r.bodyType === 'Plain' ? 'Public' : r.bodyType === 'None' ? 'Hash-only' : String(r.bodyType ?? 'Unknown');
+
+/** A party line: label, the agent's name from the record, its address (linked to the explorer only when the explorer indexes this chain). */
+function party(label, addr, name, explorer) {
+  const href = explorer.indexesThisChain ? `${explorer.base}?agent=${addr}` : null;
+  return `<div class="ov-party"><span class="ov-k">${escapeHtml(label)}</span>${name ? `<span>${escapeHtml(name)}</span>` : ''}${address(addr, { href })}</div>`;
 }
 
-function badge(state, text, { title = '' } = {}) {
-  return `<span class="ov-badge nw-label" data-state="${escapeHtml(state)}"${title ? ` title="${escapeHtml(title)}"` : ''}>${escapeHtml(text)}</span>`;
+/** The agreement tag, or its honest absence. */
+function agreementLine(r) {
+  if (!r.agreement) return `<div class="ov-party"><span class="ov-k">Agreement</span><span class="sc-muted">None</span></div>`;
+  return `<div class="ov-party"><span class="ov-k">Agreement</span>${address(r.agreement.account)}${caption(`no. ${formatInt(r.agreement.seq)}`)}</div>`;
 }
 
-/** The agreement tag, or the honest absence of one. */
-function agreementOf(row) {
-  if (!row.agreement) return '<span class="ov-none nw-sage">no agreement tag</span>';
-  return `${who(row.agreement.account, null)} <span class="ov-seq nw-label">seq ${escapeHtml(String(row.agreement.seq))}</span>`;
-}
-
-/** The first 64 bits of the on-chain commitment, for the hash-only Redaction's 32×2 grid. */
-const hashBitsOf = (hex) => {
-  const clean = String(hex ?? '').replace(/^0x/, '').slice(0, 16);
-  if (clean.length < 16) return null;
-  return [...clean].flatMap((h) => [8, 4, 2, 1].map((b) => (parseInt(h, 16) & b) !== 0));
-};
-
-const bodyLabelOf = (entry) =>
-  entry.bodyType === 'Sealed' ? (entry.decrypted ? 'Sealed · decrypted' : 'Sealed · not decrypted') : entry.bodyType === 'None' ? 'Hash-only' : 'Plain';
-
-/**
- * One message block. The on-chain fields come from the record and are re-read
- * live by the script. `data-row` is the only attribute the script needs; the
- * rest are there for a reader with view-source.
- */
-function row(entry, { explorer }) {
-  const sealed = entry.bodyType === 'Sealed';
-  const shut = sealed && !entry.decrypted;
-  const hashOnly = entry.bodyType === 'None';
-  const quiet = shut || hashOnly;
-  const bodyLabel = bodyLabelOf(entry);
-
-  // The reason is shown on EVERY row, so a row that was decrypted is never
-  // confusable with one that was always public.
-  let content;
-  if (entry.plaintext) {
-    const lift = entry.decrypted ? `<span class="ov-lift" data-lift>${redaction({ state: 'sealed', text: 'decrypted' })}</span>` : '';
-    content = `<div class="ov-body">${lift}<pre class="ov-plaintext"><code>${escapeHtml(entry.plaintext)}</code></pre></div><p class="ov-why nw-small nw-dim">${escapeHtml(entry.reason ?? '')}</p>`;
-  } else if (hashOnly && hashBitsOf(entry.payloadHashOnChain)) {
-    content = `<div class="ov-body">${redaction({ state: 'hash', hashBits: hashBitsOf(entry.payloadHashOnChain) })}</div><p class="ov-withheld nw-small nw-dim">${escapeHtml(entry.reason ?? 'no content on chain')}</p>`;
-  } else {
-    content = `<div class="ov-body">${redaction({ state: 'sealed', text: 'no key held' })}</div><p class="ov-withheld nw-small nw-dim">${escapeHtml(entry.reason ?? 'no content on chain')}</p>`;
-  }
-
-  // The explorer indexes the public network only; on a devnet the link would
-  // either 404 or, worse, point at an unrelated event on another chain.
-  const explorerCell = explorer.indexesThisChain
-    ? `<a class="ov-explorer nw-quiet" href="${escapeHtml(`${explorer.base}?agent=${entry.from}`)}" target="_blank" rel="noopener">View on explorer.scalarnet.io</a>`
-    : `<span class="ov-explorer is-off nw-sage" title="${escapeHtml(explorer.note)}">Not in explorer.scalarnet.io</span>`;
-
+/** One message as a table row: block and time, kind, parties, message, checks. */
+function messageRow(r, { explorer, recheck }) {
+  const id = r.id;
+  const hasText = r.plaintext !== null && r.plaintext !== undefined;
+  const absent =
+    r.bodyType === 'None' ? 'No content on chain.' : r.bodyType === 'Sealed' ? `Encrypted payload, ${formatInt(r.payloadLen)} bytes; not opened.` : 'No plaintext.';
+  const message = hasText
+    ? cell(caption(reasonOf(r)), `<code class="sc-mono ov-plaintext">${escapeHtml(r.plaintext)}</code>`)
+    : cell(caption(reasonOf(r)), `<span class="sc-muted">${escapeHtml(absent)}</span>`);
   const checks = [
-    `<li class="ov-check" data-check="signature">${
-      entry.signatureVerified
-        ? badge('ok', 'Signature verified (operator)', { title: 'sr25519 over blake2_256("ScalarMsg/v1|" ‖ genesis ‖ SCALE(envelope)), verified by the read-only tool' })
-        : badge('bad', 'Signature did NOT verify (operator)')
-    }</li>`,
-    `<li class="ov-check" data-check="commitment">${entry.plaintext ? badge('pending', 'Hashing in your browser…') : badge('na', 'No plaintext to hash', { title: entry.reason ?? '' })}</li>`,
+    `<li data-check="signature" data-state="${r.signatureVerified ? 'ok' : 'bad'}" title="${escapeHtml(SIGNATURE.method)}">${escapeHtml(r.signatureVerified ? SIGNATURE.ok : SIGNATURE.bad)}</li>`,
+    hasText
+      ? `<li data-check="commitment" data-for="${escapeHtml(id)}" data-state="pending">${escapeHtml(CHECK.pending)}</li>`
+      : `<li data-check="commitment" data-for="${escapeHtml(id)}" data-state="na" title="${escapeHtml(reasonOf(r))}">${escapeHtml(CHECK.none)}</li>`,
+    r.payloadHashOnChain
+      ? `<li>${cell('<span class="ov-k">Commitment on chain</span>', `<span data-field="payloadHash" data-for="${escapeHtml(id)}">${address(r.payloadHashOnChain, { head: 10, tail: 6 })}</span>`)}</li>`
+      : `<li>${cell('<span class="ov-k">Commitment on chain</span>', '<span class="sc-muted">None</span>')}</li>`,
+    recheck ? `<li class="sc-caption" data-prov="row" data-for="${escapeHtml(id)}">${escapeHtml(PROVENANCE.pending)}</li>` : '',
+    `<li class="ov-disagree" data-disagree data-for="${escapeHtml(id)}" hidden>${escapeHtml(DISAGREE_WORD)}</li>`,
   ].join('');
-
-  const fieldRow = (label, html) => `<div class="ov-field"><dt class="nw-label">${label}</dt>${leader()}<dd>${html}</dd></div>`;
-
-  return `<li class="ov-row${quiet ? ' is-quiet' : ''}" id="row-${escapeHtml(entry.id)}" data-row="${escapeHtml(entry.id)}" data-block="${escapeHtml(String(entry.block))}" data-extrinsic-index="${escapeHtml(String(entry.extrinsicIndex))}" data-extrinsic-hash="${escapeHtml(entry.extrinsicHash)}" data-payload-hash="${escapeHtml(entry.payloadHashOnChain ?? '')}" data-kind="${escapeHtml(entry.kind)}">
-  <header class="ov-row-head">
-    <span class="ov-kind nw-h3">${escapeHtml(entry.kind)}</span>
-    ${tag({ state: shut ? 'sealed' : 'record', text: bodyLabel })}
-    <span class="nw-label ov-when" data-body="${escapeHtml(entry.bodyType ?? 'unknown')}">block <span class="nw-mono">#${escapeHtml(String(entry.block))}</span> · ${escapeHtml(entry.timestamp)}</span>
-    <span class="nw-tag ov-disagree" data-state="dispute" hidden><span class="nw-dot" aria-hidden="true"></span>${DISAGREE_WORD}</span>
-  </header>
-  <dl class="ov-fields">
-    ${fieldRow('From', who(entry.from, entry.fromName))}
-    ${fieldRow('To', who(entry.to, entry.toName))}
-    ${fieldRow('Agreement', agreementOf(entry))}
-    ${fieldRow('Payload hash', `<code class="nw-mono ov-hash" data-field="payloadHash">${escapeHtml(entry.payloadHashOnChain ?? '—')}</code>`)}
-  </dl>
-  <p class="ov-prov nw-receipt-line" data-prov="row">Recorded by the read-only tool; not yet re-read in this browser.</p>
-  <div class="ov-content">${content}</div>
-  <ul class="ov-checks">${checks}</ul>
-  <p class="ov-links nw-small">${explorerCell}</p>
-</li>`;
+  return [
+    cell(`<span class="sc-num" id="${anchorOf(id)}" data-block="${escapeHtml(String(r.block))}" data-extrinsic-index="${escapeHtml(String(r.extrinsicIndex))}" data-extrinsic-hash="${escapeHtml(r.extrinsicHash)}">${formatInt(r.block)}</span>`, caption(formatUtc(r.timestamp), r.timestamp)),
+    `<span data-field="kind" data-for="${escapeHtml(id)}" data-kind="${escapeHtml(r.kind)}">${escapeHtml(kindWord(r.kind))}</span>`,
+    cell(party('From', r.from, r.fromName, explorer), party('To', r.to, r.toName, explorer), agreementLine(r)),
+    message,
+    `<ul class="ov-checks">${checks}</ul>`,
+  ];
 }
 
-function howToRead() {
-  return `<section class="nw-section ov-htr" aria-labelledby="htr-h">
-  <span class="nw-label nw-eyebrow" id="htr-h">How to read this</span>
-  <dl class="ov-htr-list">
-${HOW_TO_READ.map(([term, text]) => `    <div class="ov-htr-row"><dt class="nw-label">${escapeHtml(term)}</dt>${leader()}<dd class="nw-body">${escapeHtml(text)}</dd></div>`).join('\n')}
-  </dl>
-</section>`;
+/** A party in the index: the name and the address truncated, the full address in the title; the copy buttons live on the message rows. */
+const shortParty = (addr, name) => `<span class="ov-who">${name ? `<span>${escapeHtml(name)}</span>` : ''}<span class="sc-mono" title="${escapeHtml(addr)}">${escapeHtml(truncateMiddle(addr))}</span></span>`;
+
+/** One line of the index: block, kind, parties, body state, and a link to the message where it is shown. */
+function indexRow(r, groupOf) {
+  const g = groupOf.get(r.id);
+  return [
+    cell(`<span class="sc-num">${formatInt(r.block)}</span>`, caption(formatUtc(r.timestamp), r.timestamp)),
+    escapeHtml(kindWord(r.kind)),
+    shortParty(r.from, r.fromName),
+    shortParty(r.to, r.toName),
+    escapeHtml(bodyWordOf(r)),
+    `<a href="#${anchorOf(r.id)}">${escapeHtml(g.title)}</a>`,
+  ];
 }
 
-/** The six-row Ledger: index, extrinsic, message, sender, state; the counts come from the record. */
-function ledgerOf(rows, total) {
-  const shown = rows.slice(0, LEDGER_ROWS);
-  const body = ledger({
-    head: ['#', 'Extrinsic', 'Message', 'From', 'State'],
-    rows: shown.map((r, i) => ({
-      id: r.id,
-      cells: [
-        String(i + 1),
-        `<a href="#row-${escapeHtml(r.id)}">${escapeHtml(short(r.extrinsicHash))}</a>`,
-        `${escapeHtml(r.kind)} · ${escapeHtml(bodyLabelOf(r))}`,
-        escapeHtml(r.fromName ?? short(r.from)),
-        tag({ state: r.bodyType === 'Sealed' && !r.decrypted ? 'sealed' : 'record', text: r.bodyType === 'Sealed' && !r.decrypted ? 'SEALED' : 'RECORD' }),
-      ],
-    })),
-    className: 'ov-ledger',
-  });
-  return `${body}
-  <p class="nw-pager nw-label"><span>${formatInt(shown.length)} of ${formatInt(total)}</span><a href="#all">all ${formatInt(total)} →</a></p>`;
+/** A collapsible group of messages: a native <details>, the shared table inside. */
+function group({ id, title, intro, rows, open = false, columns, rowsHtml, className = 'ov-table' }) {
+  const n = rows.length;
+  return `<details class="ov-group" id="${escapeHtml(id)}"${open ? ' open' : ''}>
+  <summary><h3 class="sc-h3">${escapeHtml(title)}</h3><span class="sc-caption">${formatInt(n)} ${n === 1 ? 'message' : 'messages'}</span>${icon('chevron-right')}${icon('chevron-down')}</summary>
+  <div class="ov-group-body">
+    ${intro ? `<p class="sc-body sc-muted">${intro}</p>` : ''}
+    ${table({ columns, rows: rowsHtml, caption: title, className })}
+  </div>
+</details>`;
 }
 
 /**
- * The whole page. `sample` is the parsed oversight-sample.json; `css` the
- * assembled stylesheet to inline; `facts` chain-facts.json for the footer
- * (the record's provenance stands in when absent); `inlineData` embeds the
- * sample in the page for the standalone copy, which has no network and no
- * sibling JSON file.
+ * The whole page. `sample` is the parsed oversight-sample.json; `facts`
+ * chain-facts.json and `builtAt` the build instant, for the footer line;
+ * `css` the assembled stylesheet to inline (tokens, fonts, chrome, then the
+ * page's own). `scripts` names the page's one script.
  */
-export function renderOversight({ sample, css = null, facts = null, inlineData = false, standalone = false, inlineScript = null } = {}) {
+export function renderOversight({ sample, facts, builtAt, css = null, scripts = ['oversight.js'] } = {}) {
+  if (!sample) throw new Error('renderOversight: no sample');
+  if (!facts?.provenance || !builtAt) throw new Error('renderOversight: facts (chain-facts.json) and builtAt are needed for the footer line');
   const { provenance, summary, rows } = sample;
   for (const path of ['explorer', 'httpEndpoint', 'callIndex', 'genesisHash', 'chainName', 'networkNote']) {
     if (provenance?.[path] === undefined || provenance[path] === null) {
@@ -200,91 +186,120 @@ export function renderOversight({ sample, css = null, facts = null, inlineData =
     }
   }
   if (!summary?.thread) throw new Error('oversight-sample.json: no complete thread was found when it was generated');
-  const threadIds = new Set(summary.thread?.rowIds ?? []);
-  const threadRows = rows.filter((r) => threadIds.has(r.id));
-  const otherRows = rows.filter((r) => !threadIds.has(r.id));
   const explorer = provenance.explorer;
+  // The one decision that keeps this page off a private node: the record's
+  // endpoint must be a public https:// or wss:// address, or no re-check is
+  // offered and the page says so.
+  const recheck = isPublicEndpoint(provenance.httpEndpoint);
 
-  const record = { method: 'FILE', url: 'oversight-sample.json', fetchedAt: provenance.generatedAt, block: provenance.generatedAtBlock, raw: 'oversight-sample.json' };
-  const live = { method: 'GET', url: provenance.httpEndpoint, fetchedAt: null, block: null, raw: 'oversight-sample.json', computed: 'blake2b-256 of each plaintext, in this browser, against the commitment' };
-  const figures = [
-    ...FIGURES.map(([key, label]) =>
-      reading({
+  // ── the groups: the thread first, then by what the operator could do ──────
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const threadRows = (summary.thread.rowIds ?? []).map((id) => byId.get(id)).filter(Boolean);
+  const threadIds = new Set(threadRows.map((r) => r.id));
+  const rest = rows.filter((r) => !threadIds.has(r.id));
+  const groups = [
+    {
+      ...THREAD_GROUP,
+      intro: `The messages a human would recognise as a deal being struck: an offer, its acceptance, and notice that the work was delivered. All of them are encrypted on chain under the agreement tag <code class="sc-full">${escapeHtml(summary.thread.agreement)}</code>; all were opened with the operator’s keys.`,
+      rows: threadRows,
+      open: true,
+    },
+    ...GROUPS.map((g) => ({ id: g.id, title: g.title, intro: g.intro, rows: rest.filter(g.holds), open: false })),
+  ];
+  const placed = new Set(groups.flatMap((g) => g.rows.map((r) => r.id)));
+  const unplaced = rows.filter((r) => !placed.has(r.id));
+  if (unplaced.length) groups.push({ id: 'g-other', title: 'Other messages', intro: 'Messages the groups above do not cover.', rows: unplaced, open: false });
+  const shown = groups.filter((g) => g.rows.length > 0);
+  const groupOf = new Map(shown.flatMap((g) => g.rows.map((r) => [r.id, g])));
+  const inBlockOrder = [...rows].sort((a, b) => a.block - b.block || a.extrinsicIndex - b.extrinsicIndex || a.eventIndex - b.eventIndex);
+
+  // ── the record ────────────────────────────────────────────────────────────
+  const notes = [
+    callout({ variant: 'info', title: provenance.chainName, body: escapeHtml(provenance.networkNote) }),
+    recheck
+      ? `<div data-ov-status data-state="reading">${callout({ variant: 'info', body: `<span data-status-text>${escapeHtml(STATUS.reading)}</span>` })}</div>`
+      : callout({ variant: 'info', body: escapeHtml(RECORDED_ONLY) }),
+  ].join('\n');
+  const detail = summary.selfCheckDetail ?? {};
+  const record = kvTable(
+    [
+      ['Chain', escapeHtml(provenance.chainName)],
+      ['Read from', `<code class="sc-mono">${escapeHtml(provenance.endpoint)}</code>`],
+      ['At block', `<span class="sc-num">${formatInt(provenance.generatedAtBlock)}</span>`],
+      ['Generated', `<span title="${escapeHtml(provenance.generatedAt)}">${escapeHtml(formatUtc(provenance.generatedAt))}</span>`],
+      [
+        'Blocks scanned',
+        cell(`<span class="sc-num">${formatInt(provenance.scannedToBlock)} to ${formatInt(provenance.scannedFromBlock)}</span>`, provenance.scanStoppedBecause ? caption(provenance.scanStoppedBecause) : ''),
+      ],
+      ['Messages in those blocks', `<span class="sc-num">${formatInt(provenance.messagesSeenInWindow ?? rows.length)}</span>`],
+      ['Genesis hash', `<code class="sc-full">${escapeHtml(provenance.genesisHash)}</code>`],
+      ['Runtime version', `<span class="sc-num">${formatInt(provenance.specVersion)}</span>`],
+      ['Tool', cell(`<code class="sc-mono">${escapeHtml(provenance.tool)}</code>`, caption('Read-only: it signs nothing and submits nothing.'))],
+      ['Operator key check', cell(`<span>${escapeHtml(summary.selfCheck)}</span>`, detail.method ? caption(`${detail.method}.`) : '')],
+      ['Explorer', explorer.indexesThisChain ? link({ href: explorer.base, text: 'These messages are in the explorer' }) : escapeHtml(explorer.note)],
+      ['Record file', link({ href: '/oversight-sample.json', text: 'oversight-sample.json (download)', download: 'oversight-sample.json' })],
+    ],
+    { caption: 'The record' },
+  );
+
+  // ── the five figures ──────────────────────────────────────────────────────
+  const total = summary.rows ?? rows.length;
+  const figures = stats(
+    [
+      ...FIGURES.map(([key, label, cap]) => ({
         key,
         label,
-        figure: key === 'selfCheck' ? summary.selfCheck : `${summary[key]} of ${summary.rows}`,
-        size: key === 'selfCheck' ? 'body' : 'm',
-        state: 'record',
-        source: key === 'selfCheck' ? { ...record, computed: 're-derived from the master seed and compared with agents.messagingKey' } : record,
-        stack: true,
-      }),
-    ),
-    reading({ key: RECHECK[0], label: RECHECK[1], figure: null, live: true, size: 'm', state: 'live', source: live, stack: true }),
+        caption: cap,
+        value:
+          key === 'selfCheck'
+            ? `${formatInt(detail.keysMatched ?? 0)} of ${formatInt(detail.keysPublishedOnChain ?? 0)}`
+            : `${formatInt(summary[key])} of ${formatInt(total)}`,
+      })),
+      { key: RECHECK[0], label: RECHECK[1], caption: RECHECK[2], value: null },
+    ],
+    { label: 'Summary of the record' },
+  );
+
+  // ── how to read this ──────────────────────────────────────────────────────
+  const howToRead = kvTable(
+    HOW_TO_READ.map(([term, text]) => [term, escapeHtml(text)]),
+    { caption: 'How to read this' },
+  );
+
+  // ── contents and the groups ───────────────────────────────────────────────
+  const toc = `<nav class="ov-toc sc-prose" aria-labelledby="toc-h">
+  <h3 class="sc-h3" id="toc-h">Contents</h3>
+  <ul>
+${shown.map((g) => `    <li><a href="#${escapeHtml(g.id)}">${escapeHtml(g.title)}</a> <span class="sc-muted">(${formatInt(g.rows.length)})</span></li>`).join('\n')}
+    <li><a href="#${ALL_GROUP.id}">${escapeHtml(ALL_GROUP.title)}</a> <span class="sc-muted">(${formatInt(rows.length)})</span></li>
+  </ul>
+</nav>`;
+  const groupsHtml = [
+    ...shown.map((g) => group({ ...g, columns: MESSAGE_COLUMNS, rowsHtml: g.rows.map((r) => messageRow(r, { explorer, recheck })) })),
+    group({
+      ...ALL_GROUP,
+      intro: 'Every message in the record, with the group it is shown in.',
+      rows: inBlockOrder,
+      columns: INDEX_COLUMNS,
+      rowsHtml: inBlockOrder.map((r) => indexRow(r, groupOf)),
+      className: 'ov-table ov-index',
+    }),
   ].join('\n');
 
-  const thread = threadRows.map((r) => row(r, { explorer })).join(`\n<li class="ov-join" aria-hidden="true">${leader({ arrow: true })}</li>\n`);
+  const body = `<div class="sc-container">
+  <div class="sc-page-head">
+    <h1 class="sc-h1">${escapeHtml(TITLE)}</h1>
+${rows.length === 40 ? `    <p class="sc-lead">${escapeHtml(STANDFIRST)}</p>\n` : ''}  </div>
+  <div class="sc-reading sc-prose">
+${EXPLANATION.map((sentence) => `    <p>${sentence}</p>`).join('\n')}
+  </div>
+  <noscript><div class="ov-noscript">${callout({ variant: 'warning', body: 'JavaScript is off, so the hash check did not run in this browser. Every field below is shown exactly as the read-only tool recorded it.' })}</div></noscript>
+  <p class="sc-sr" aria-live="polite" data-announce></p>
+</div>
+${section({ id: 'record', title: 'The record', intro: 'One read of a chain by a read-only tool, checked in with this site.', body: `<div class="ov-notes">${notes}</div>${record}` })}
+${section({ id: 'summary', title: 'Summary', body: figures })}
+${section({ id: 'how-to-read', title: 'How to read this', body: howToRead })}
+${section({ id: 'messages', title: 'The messages', intro: 'Grouped by what the operator could do with each message. The last group lists every message in block order.', body: `${toc}\n<div class="ov-groups">\n${groupsHtml}\n</div>` })}`;
 
-  const sampleScript = inlineData ? `<script type="application/json" id="oversight-sample">${JSON.stringify(sample).replace(/</g, '\\u003c')}</script>` : '';
-  const foot = facts?.provenance
-    ? { genesisHash: facts.provenance.genesisHash, specVersion: facts.provenance.specVersion, nodeVersion: facts.provenance.nodeVersion ?? null, builtAt: facts.provenance.fetchedAt, block: facts.provenance.readAtBlock }
-    : { genesisHash: provenance.genesisHash, specVersion: provenance.specVersion, nodeVersion: null, builtAt: provenance.generatedAt, block: provenance.generatedAtBlock };
-
-  return `<!doctype html>
-<html lang="en">
-<head>
-${head({
-  title: `${TITLE} — Scalar Commons`,
-  description:
-    'A sample of real agent-to-agent messages from a Scalar Commons development chain: the public metadata every observer sees, the encrypted bodies an operator opened with escrowed keys, and the commitment your own browser recomputes to check that the plaintext is the one the chain committed to.',
-  css,
-  scripts: inlineScript === null ? ['oversight.js'] : [],
-  extraHead: sampleScript ? `${sampleScript}\n` : '',
-})}
-</head>
-<body class="ov-body-page"${standalone ? ' data-standalone=""' : ''}>
-<a class="nw-visually-hidden" href="#rows-h">Skip to the messages</a>
-${topBar({ current: 'oversight' })}
-<noscript><p class="nw-band nw-frame">The live re-read and the in-browser hash check need JavaScript, which is off. Every on-chain field and plaintext below is still shown exactly as the read-only tool recorded it.</p></noscript>
-<main class="nw-frame ov" aria-labelledby="ov-h">
-  <section class="nw-section ov-hero">
-    <span class="nw-eyebrow">${tag({ state: 'record', text: 'Oversight · record' })}</span>
-    <h1 id="ov-h" class="nw-display">${escapeHtml(TITLE)}</h1>
-${rows.length === 40 ? `    <p class="nw-body ov-standfirst">${escapeHtml(STANDFIRST)}</p>\n` : ''}    <div class="nw-prose ov-explanation">
-${EXPLANATION.map((sentence) => `      <p class="nw-dim">${sentence}</p>`).join('\n')}
-    </div>
-    <p class="ov-label nw-small" role="note">${tag({ state: 'operator', text: provenance.chainName })} <span class="nw-dim">${escapeHtml(provenance.networkNote)}</span></p>
-    <p class="ov-status-line"><span class="nw-tag ov-status" data-ov-status data-state="connecting" role="status" aria-live="off"><span class="nw-dot" aria-hidden="true"></span><span data-status-text>Reading the chain…</span><span class="nw-dim"> · </span><span data-status-network>${escapeHtml(provenance.chainName)}</span></span></p>
-    <div class="nw-row ov-figures">
-${figures}
-    </div>
-  </section>
-${howToRead()}
-  <section class="nw-section ov-thread" aria-labelledby="thread-h">
-    <span class="nw-label nw-eyebrow">01 · One negotiation, end to end</span>
-    <h2 id="thread-h" class="nw-h2">Offer → Accept → Delivery, on a single agreement</h2>
-    <p class="nw-body nw-dim ov-lede">The same three messages a human would recognise as a deal being struck: an offer, its acceptance, and notice that the work was delivered. All three are encrypted on chain under the agreement tag <code class="nw-mono">${escapeHtml(summary.thread.agreement)}</code>; all three were opened with the operator’s keys.</p>
-    <ol class="ov-rows ov-rows-thread">
-${thread}
-    </ol>
-  </section>
-  <section class="nw-section ov-sample" aria-labelledby="rows-h">
-    <span class="nw-label nw-eyebrow">02 · The sample</span>
-    <h2 id="rows-h" class="nw-h2">${escapeHtml(String(rows.length))} messages, as the chain carries them</h2>
-    <p class="nw-body nw-dim ov-lede">Read from <code class="nw-mono">${escapeHtml(provenance.endpoint)}</code> at block <code class="nw-mono">#${escapeHtml(String(provenance.generatedAtBlock))}</code>, ${escapeHtml(provenance.generatedAt)}. Greyed rows are the ones the operator could not open: it holds no key for them, or the content never travelled on chain at all.</p>
-    ${ledgerOf(otherRows, rows.length)}
-    <ol class="ov-rows" id="all">
-${otherRows.map((r) => row(r, { explorer })).join('\n')}
-    </ol>
-  </section>
-  <section class="nw-section ov-foot">
-    <p class="nw-small nw-dim">Generated by <code class="nw-mono">${escapeHtml(provenance.tool)}</code>, which signs nothing and submits nothing. Genesis <code class="nw-mono">${escapeHtml(provenance.genesisHash)}</code>, runtime spec ${escapeHtml(String(provenance.specVersion))}. ${escapeHtml(provenance.scanStoppedBecause ?? '')}</p>
-    <p class="nw-small nw-dim">${escapeHtml(summary.selfCheckDetail.method)}.</p>
-  </section>
-</main>
-<p class="sr-status nw-visually-hidden" aria-live="polite"></p>
-${footer({ facts: foot })}
-${inlineScript === null ? '' : `<script type="module">${inlineScript.replace(/<\/script/gi, '<\\/script')}</script>`}
-</body>
-</html>
-`;
+  return page({ title: TITLE, description: DESCRIPTION, path: '/oversight', current: null, facts, builtAt, body, css, scripts });
 }
