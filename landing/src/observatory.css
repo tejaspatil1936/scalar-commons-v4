@@ -118,6 +118,8 @@ pre {
 .strip-plot { height: calc(var(--s-9) + var(--s-5)); margin-bottom: var(--s-4); }
 .strip-plot svg { display: block; width: 100%; height: 100%; overflow: visible; }
 .strip .reading-value { display: block; margin: 0 0 var(--s-2); }
+/* A strip's unit is a phrase ("of 199 block times within target"), so it takes its own line under the figure rather than run into the next column. */
+.strip .reading-value .nw-unit { display: block; margin-left: 0; margin-top: var(--s-2); white-space: normal; }
 .strip .reading-prov { display: none; margin: 0; font: var(--label); color: var(--ink-2); }
 html[data-sources] .strip .reading-prov { display: block; }
 .fact .reading-prov { display: none; }

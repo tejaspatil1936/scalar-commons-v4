@@ -587,6 +587,15 @@ test('sections: a numbered label, the instrument, then the Readings in a row —
   assert.match(allCss, /\.strip-plot \.plot-label \{[^}]*fill: var\(--ink-2\)/);
   const history = readFileSync(new URL('../src/observatory/instruments/history.js', import.meta.url), 'utf8');
   assert.equal((history.match(/'plot-zero'/g) ?? []).length, 4, 'one zero line per strip');
+  // Round 2 §4: the strips are Curves — a 1.5 px ink line over a flat 8 % ink pool (no gradient), three label values at the left, a 6 px end dot, and a table fallback of the points.
+  assert.match(allCss, /\.strip-plot \.plot-line \{ stroke: var\(--ink\); fill: none; stroke-width: 1\.5; \}/);
+  assert.match(allCss, /\.strip-plot \.plot-area \{ fill: var\(--ink\); fill-opacity: 0\.08; stroke: none; \}/);
+  assert.equal((history.match(/'plot-area'/g) ?? []).length, 4, 'a pool under every curve');
+  assert.equal((history.match(/r: 3 \}, 'plot-dot'/g) ?? []).length, 4, 'a 6 px end dot on every curve');
+  assert.equal((history.match(/curveValues\(svg, frame, y, \(v\)/g) ?? []).length, 4, 'values at the left of every curve');
+  assert.ok(!/'plot-bar/.test(history), 'no bars: the strips are curves');
+  assert.equal((history.match(/return \{ summary, rows: /g) ?? []).length, 4, 'every curve hands its points to the table');
+  assert.match(history, /export function curveTable/);
   // 06 · Verify: the commands as the chrome's code blocks with Copy; the posture rows under the record label; no badge.
   const verify = section('verify');
   assert.equal((verify.match(/<figure class="nw-code nw-copyable" data-lang="sh">/g) ?? []).length, 5);
