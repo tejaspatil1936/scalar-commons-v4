@@ -62,8 +62,9 @@ export function init(root, ctx) {
       return;
     }
     ctx.readout.showValue(countdown, record, {
-      value: formatDuration(era.seconds),
-      extra: `estimate — ${formatInteger(era.blocksRemaining)} block${era.blocksRemaining === 1 ? '' : 's'} left · ${elapsedPhrase(era, ctx.format)}`,
+      // The figure is the duration alone; the hedge is the receipt's ("about · estimate — …").
+      value: formatDuration(era.seconds).replace(/^about /, ''),
+      extra: `about · estimate — ${formatInteger(era.blocksRemaining)} block${era.blocksRemaining === 1 ? '' : 's'} left · ${elapsedPhrase(era, ctx.format)}`,
     });
   };
 

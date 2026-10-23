@@ -90,10 +90,10 @@ pre {
 /* The river: a 140 px canvas across the content width. */
 .river-strip { margin: 0 auto var(--s-9); }
 .river-strip figcaption { margin-bottom: var(--s-4); }
-.hero-river, .pulse-canvas { display: block; width: 100%; height: calc(var(--s-9) + var(--s-6) + var(--s-3)); }
+.hero-river { display: block; width: 100%; height: calc(var(--s-9) + var(--s-6) + var(--s-3)); }
 
 /* ── sections ─────────────────────────────────────────────────────────────── */
-.section-grid { display: grid; row-gap: var(--s-7); }
+.section-grid { display: grid; grid-template-columns: minmax(0, 1fr); row-gap: var(--s-7); }
 .section-head { display: block; margin: 0; }
 .instrument { min-width: 0; }
 .notes { display: grid; row-gap: var(--s-4); }
@@ -142,7 +142,8 @@ html[data-sources] .fact .reading-prov { display: inline; }
 .posture-record h3 { margin: 0 0 var(--s-4); color: var(--ink-3); }
 
 /* ── readouts: the figure's states, in the readout's class names ─────────── */
-.reading-value .error, .reading-value .unavailable { font: var(--small); color: var(--ink-3); display: block; }
+/* The reason a figure could not be read is a sentence: it wraps in its column (a figure never does). */
+.reading-value .error, .reading-value .unavailable { font: var(--small); color: var(--ink-3); display: block; white-space: normal; }
 /* A sub-line under a figure is words, not the figure: its own line, wrapping in its column. */
 .reading-value .sub { display: block; margin-top: var(--s-2); font: var(--mono); color: var(--ink-2); white-space: normal; }
 .reading-value a { color: inherit; text-decoration: none; }

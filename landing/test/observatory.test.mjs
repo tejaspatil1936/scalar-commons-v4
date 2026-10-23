@@ -509,7 +509,10 @@ test('the river under the first screen: a titled strip at 140 px across the cont
   assert.match(strip, /<h2 class="nw-label" id="river-h">Blocks arriving now<\/h2>/);
   assert.match(strip, /<canvas class="hero-river" role="img" aria-label="[^"]+"><\/canvas>/);
   // 140 px, on the spacing scale: 96 + 32 + 12.
-  assert.match(css, /\.hero-river, \.pulse-canvas \{ display: block; width: 100%; height: calc\(var\(--s-9\) \+ var\(--s-6\) \+ var\(--s-3\)\); \}/);
+  assert.match(css, /\.hero-river \{ display: block; width: 100%; height: calc\(var\(--s-9\) \+ var\(--s-6\) \+ var\(--s-3\)\); \}/);
+  // Drawn once (round 2 §3.2): 01 Chain carries no second river.
+  assert.equal((page.match(/<canvas class="(?:hero-river|pulse-canvas)"/g) ?? []).length, 1, 'the river is drawn twice');
+  assert.ok(!/<canvas/.test(section('chain')), '01 Chain draws no river of its own');
   // The canvas reads its colours by the names context.js resolves, each an alias of a Ledger token: live is ink, settled is ink-3.
   assert.match(css, /--live: var\(--ink\);/);
   assert.match(css, /--settled: var\(--ink-3\);/);
@@ -777,4 +780,19 @@ test('identity: the chrome’s wordmark in the bar, the chrome’s footer with t
   assert.ok(!/rel="icon"/.test(page) && !/rel="icon"/.test(index));
   assert.ok(!readdirSync(out).includes('favicon.svg'));
   assert.ok(!/class="merge"|howto|wordmark-text|<svg class="mark"/.test(page), 'the old footer is gone');
+});
+
+test('round 2 §3 — the live-data faults stay fixed: the hedge in the receipt, one river, a space after the address, nothing wider than the screen', () => {
+  // 1. Time to settlement is the duration alone ("2 h 53 min"); "about" is the receipt's word.
+  const daybar = readFileSync(new URL('../src/observatory/daybar.js', import.meta.url), 'utf8');
+  assert.match(daybar, /value: formatDuration\(era\.seconds\)\.replace\(\/\^about \/, ''\)/);
+  assert.match(daybar, /extra: `about · estimate — /);
+  // 2. One river (held in the river test). 4. The validators list separates its words with a space.
+  const ring = readFileSync(new URL('../src/observatory/instruments/validator-ring.js', import.meta.url), 'utf8');
+  assert.match(ring, /li\.append\(' ', addr, ' ', meta\)/);
+  assert.match(ring, /li\.append\(' ', label, ' ', meta\)/);
+  // 5. A section's one grid track may shrink below a code block's line (the block scrolls inside itself), and a failure's reason wraps.
+  assert.match(css, /\.section-grid \{ display: grid; grid-template-columns: minmax\(0, 1fr\);/);
+  assert.match(css, /\.reading-value \.error, \.reading-value \.unavailable \{[^}]*white-space: normal; \}/);
+  assert.match(chromeCss, /\.nw-code \{[^}]*overflow-x: auto;/);
 });

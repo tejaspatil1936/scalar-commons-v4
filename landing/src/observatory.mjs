@@ -144,8 +144,8 @@ function chainSection() {
     title: 'Chain',
     name: 'pulse',
     number: '01',
-    instrument: `        <canvas class="pulse-canvas" role="img" aria-label="River of recent blocks, newest at the right, each bar as tall as its transaction count, the finalized region tinted"></canvas>
-        <p class="pulse-status nw-visually-hidden" role="status"></p>`,
+    // The river is drawn once, under the first screen (.hero-river); this section keeps only its status line.
+    instrument: `        <p class="pulse-status nw-visually-hidden" role="status"></p>`,
     readings: [
       nwReading({ key: 'bestBlock', label: 'Height', size: 'l' }),
       nwReading({ key: 'finalizedBlock', label: 'Finalized', size: 'l' }),
@@ -453,7 +453,12 @@ ${nwReading({ key: 'hourMessages', label: 'Messages sent', minSpec: 309 })}
     </figure>
   </div>
 </header>
-<figure class="nw-frame river-strip" aria-labelledby="river-h">
+${riverStrip()}`;
+}
+
+/** The river, drawn once on the page: the titled strip under the first screen (section 01 keeps only its status line). */
+function riverStrip() {
+  return `<figure class="nw-frame river-strip" aria-labelledby="river-h">
   <figcaption><h2 class="nw-label" id="river-h">Blocks arriving now</h2></figcaption>
   <canvas class="hero-river" role="img" aria-label="River of recent blocks, newest at the right, each bar as tall as its transaction count, the newest final block marked"></canvas>
 </figure>`;
@@ -515,7 +520,9 @@ const HARNESS_SECTION = { pulse: 'chain', era: 'economy', economy: 'economy', po
 
 /** A page holding one instrument's section, for the dev harness. */
 export function renderHarness(name, { history, posture, status, css = '' }) {
-  const body = name === 'agent-field' || name === 'constellation' ? hero() : renderSection(HARNESS_SECTION[name] ?? name, { history, posture, status });
+  const section = name === 'agent-field' || name === 'constellation' ? hero() : renderSection(HARNESS_SECTION[name] ?? name, { history, posture, status });
+  // The river draws into the strip, so the chain's harness carries it.
+  const body = name === 'pulse' ? `${riverStrip()}\n${section}` : section;
   return `<!doctype html>
 <html lang="en">
 <head>
