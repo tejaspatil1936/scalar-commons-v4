@@ -6,6 +6,9 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 export const FONTS = [
+  // Nightwatch (src/chrome): Instrument Sans and Martian Mono, variable weight, latin subset.
+  ['@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2', 'instrument-sans-latin-wght-normal.woff2'],
+  ['@fontsource-variable/martian-mono/files/martian-mono-latin-wght-normal.woff2', 'martian-mono-latin-wght-normal.woff2'],
   // Display and figures: Source Serif 4, variable with its optical-size axis
   // (headings and figures are set at opsz 60), latin subset.
   ['@fontsource-variable/source-serif-4/files/source-serif-4-latin-opsz-normal.woff2', 'source-serif-4-latin-opsz-normal.woff2'],

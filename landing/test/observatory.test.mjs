@@ -540,7 +540,7 @@ test('sections: an eyebrow, an h2, one sentence, the instrument and a row of fig
 
 test('fonts: Source Serif 4 (optical size 60) for display and figures, Inter for the interface, JetBrains Mono for sources — self-hosted, swapped, metric-matched; nothing else ships', () => {
   const fonts = readdirSync(join(out, 'fonts')).sort();
-  assert.deepEqual(fonts, ['inter-latin-wght-normal.woff2', 'jetbrains-mono-latin-400-normal.woff2', 'source-serif-4-latin-opsz-normal.woff2']);
+  assert.deepEqual(fonts, ['instrument-sans-latin-wght-normal.woff2', 'inter-latin-wght-normal.woff2', 'jetbrains-mono-latin-400-normal.woff2', 'martian-mono-latin-wght-normal.woff2', 'source-serif-4-latin-opsz-normal.woff2']);
   assert.ok(!/Instrument Serif|instrument-serif|IBM Plex|ibm-plex/i.test(css + page), 'Instrument Serif and IBM Plex are gone');
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
   for (const gone of ['@fontsource/instrument-serif', '@fontsource/ibm-plex-mono', '@fontsource/ibm-plex-sans']) assert.ok(!(gone in (pkg.devDependencies ?? {})), `${gone} is still installed`);

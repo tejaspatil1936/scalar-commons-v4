@@ -13,7 +13,7 @@
 // reveal is the browser's IntersectionObserver). /pulse is bundled the same
 // way into its own one script, with force-graph and gsap, which no other
 // page loads. The landing page itself still ships no script at all.
-import { copyFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build, transform } from 'esbuild';
@@ -23,6 +23,7 @@ import { renderPage } from '../src/render.mjs';
 import { renderObservatory } from '../src/observatory.mjs';
 import { renderPulse } from '../src/pulse.mjs';
 import { FONTS, observatoryCss } from '../src/observatory-assets.mjs';
+import { chromeCss } from '../src/chrome/assets.mjs';
 
 const here = (relative) => fileURLToPath(new URL(relative, import.meta.url));
 const readJson = (relative) => JSON.parse(readFileSync(here(relative), 'utf8'));
@@ -101,6 +102,17 @@ const pulseBundle = await build({
 const bundleBytes = Object.values(bundle.metafile.outputs)[0]?.bytes ?? 0;
 const chunkBytes = Object.values(graph.metafile.outputs)[0]?.bytes ?? 0;
 const pulseBytes = Object.values(pulseBundle.metafile.outputs)[0]?.bytes ?? 0;
+
+// Pages built by their own modules: every scripts/pages/*.mjs exports a default
+// async function ({ outDir, here, readJson, facts, chromeCss, transform, build })
+// and emits its files into outDir. A page owns its module; nothing else in this
+// script changes when a page is added.
+const chrome = await transform(chromeCss(), { loader: 'css', minify: true });
+const pagesDir = here('./pages/');
+for (const name of readdirSync(pagesDir).filter((n) => n.endsWith('.mjs')).sort()) {
+  const page = await import(new URL(name, `file://${pagesDir}`).href);
+  await page.default({ outDir, here, readJson, facts, chromeCss: chrome.code.trim(), transform, build, common });
+}
 
 console.log(
   `built ${outDir}/index.html (${(html.length / 1024).toFixed(1)} kB) from ${facts.provenance.specName} spec ` +
