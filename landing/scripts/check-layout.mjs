@@ -1,16 +1,20 @@
-// The alignment check (SITE-ROUND2.md §2.8). Serves the built landing site and
+// The layout check (SITE-REDESIGN.md §2.3). Serves the built landing site and
 // the docs build, starts the explorer against the public chain, opens every
 // page at 1440 and 390 px, waits for live figures, and fails on:
-//   (a) two sibling Readings (or two figures) whose boxes intersect;
-//   (b) a figure, with its stub, wider than its column;
-//   (c) document.scrollWidth wider than the viewport;
-//   (d) a font-size or a spacing value computed on a Reading, a Ledger or the
-//       bar (and everything inside them) that is not on the scales;
-//   (e) a computed color or background-color that is not a Ledger token.
+//   (a) two stats in one row whose boxes intersect;
+//   (b) a stat value wider than its cell;
+//   (c) document.scrollWidth wider than the viewport (tables scroll inside
+//       their own container, never the page);
+//   (d) a font-size or a spacing value computed on a stat, a table, the
+//       header or the footer (and everything inside them) that is off the
+//       scales;
+//   (e) a computed color or background-color that is not one of the tokens;
+//   (f) uppercase text or letter-spacing anywhere but the display headline.
 // Each violation prints with the page, the width, a selector and the numbers.
 //
 //   node scripts/check-layout.mjs [--root DIR] [--only key,key] [--widths 1440,390]
 //                                 [--wait 10000] [--explorer-url URL | --no-explorer]
+//                                 [--read-timeout 10000]
 //
 // Build first: landing `npm run build`; docs `DOCS_BASE=/docs/ npm run build`;
 // explorer `npm run build`. Playwright comes from the global install (it is
@@ -35,6 +39,11 @@ const ONLY = flag('--only', null)?.split(',');
 const RPC = flag('--rpc', 'wss://rpc.scalarnet.io');
 const INDEXER = flag('--indexer', 'https://api.scalarnet.io');
 const CHROMIUM = flag('--chromium', '/opt/pw-browsers/chromium-1194/chrome-linux/chrome');
+// The explorer's per-read limit while checking. The check measures layout with
+// live data, not latency: from a machine far from the indexer a list read can
+// take longer than the service's 1.5 s default, and the page would show its
+// Stale state instead of the table being checked.
+const READ_TIMEOUT = flag('--read-timeout', '10000');
 
 const require = createRequire(import.meta.url);
 const { chromium } = require(join(execSync('npm root -g').toString().trim(), 'playwright'));
@@ -47,13 +56,14 @@ const hexToRgb = (hex) => {
   const [r, g, b] = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16));
   return `rgb(${r}, ${g}, ${b})`;
 };
-const COLOURS = ['--paper', '--paper-2', '--paper-3', '--ink', '--ink-2', '--ink-3', '--rule', '--rule-2'].map((n) => hexToRgb(tokenValue(n)));
+const COLOURS = ['--bg', '--bg-2', '--border', '--control', '--text', '--text-2', '--text-3', '--accent', '--accent-2', '--ok', '--warn', '--bad', '--ok-bg', '--warn-bg', '--bad-bg'].map((n) => hexToRgb(tokenValue(n)));
 const remPx = (v) => Math.round(parseFloat(v) * 16 * 100) / 100;
-const FONT_SIZES = ['--display', '--h2', '--h3', '--body', '--small', '--figure-xl', '--figure-l', '--figure-m', '--figure-s', '--label', '--mono'].map((n) => remPx(tokenValue(n).match(/([\d.]+)rem/)[1]));
-const STEPS = Array.from({ length: 10 }, (_, i) => parseFloat(tokenValue(`--s-${i + 1}`)));
-// The scale's steps, the 20 px gutter at 480 px and under (contract §2.7), and
-// the sub-step drawing geometry the stylesheets write as fractions of --s-1.
-const SPACING = [0, ...STEPS, 20, 1, 2, 3, 6];
+// The ten type tokens at desktop size, plus their mobile sizes (40, 32, 24, 18, 28) which are all on the scale already.
+const FONT_SIZES = [...new Set(['--display', '--h1', '--h2', '--h3', '--lead', '--body', '--small', '--caption', '--stat', '--mono'].map((n) => remPx(tokenValue(n).match(/([\d.]+)rem/)[1])).concat([40, 32, 24, 18, 28]))];
+const STEPS = Array.from({ length: 9 }, (_, i) => parseFloat(tokenValue(`--s-${i + 1}`)));
+// The scale's steps (4–96), the button's 20 px side padding and the badge's 2 px
+// vertical padding (both specified in §3), and the 1 px hairline offsets.
+const SPACING = [0, ...STEPS, 20, 2, 1];
 
 // ── the pages ────────────────────────────────────────────────────────────────
 const LANDING = join(ROOT, 'landing/dist');
@@ -66,8 +76,7 @@ const firstArticle = () => {
 };
 const STATIC_PAGES = {
   home: '/index.html',
-  observatory: '/observatory.html',
-  pulse: '/pulse.html',
+  network: '/network.html',
   faucet: '/faucet.html',
   oversight: '/oversight.html',
   404: '/no-page-is-logged-here',
@@ -75,7 +84,7 @@ const STATIC_PAGES = {
   'docs-article': null, // resolved at run time
   'docs-404': '/docs/no-page-is-logged-here',
 };
-const EXPLORER_PAGES = ['explorer-home', 'explorer-block', 'explorer-extrinsic', 'explorer-account'];
+const EXPLORER_PAGES = ['explorer-home', 'explorer-blocks', 'explorer-block', 'explorer-extrinsic', 'explorer-account', 'explorer-activity', 'explorer-search'];
 
 const TYPES = { '.html': 'text/html; charset=utf-8', '.css': 'text/css', '.js': 'text/javascript', '.json': 'application/json', '.woff2': 'font/woff2', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.txt': 'text/plain' };
 function serveStatic() {
@@ -117,7 +126,7 @@ async function startExplorer() {
   const port = await freePort();
   const child = spawn(process.execPath, [entry], {
     cwd: join(ROOT, 'explorer'),
-    env: { ...process.env, EXPLORER_PORT: String(port), EXPLORER_RPC_ENDPOINT: RPC, EXPLORER_INDEXER_URL: INDEXER },
+    env: { ...process.env, EXPLORER_PORT: String(port), EXPLORER_RPC_ENDPOINT: RPC, EXPLORER_INDEXER_URL: INDEXER, EXPLORER_READ_TIMEOUT_MS: READ_TIMEOUT },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   let log = '';
@@ -140,13 +149,15 @@ async function startExplorer() {
 async function explorerTargets(url) {
   const home = await (await fetch(`${url}/`)).text();
   const block = home.match(/href="(\/block\/\d+)"/)?.[1];
-  const extrinsic = home.match(/href="(\/extrinsic\/\d+\/\d+)"/)?.[1];
+  // The home page links blocks, not extrinsics: take the extrinsic from the block page.
+  const blockPage = block ? await (await fetch(`${url}${block}`)).text() : '';
+  const extrinsic = (home.match(/href="(\/extrinsic\/\d+\/\d+)"/) ?? blockPage.match(/href="(\/extrinsic\/\d+\/\d+)"/))?.[1];
   let account = home.match(/href="(\/account\/[1-9A-HJ-NP-Za-km-z]{40,})"/)?.[1];
   if (!account) {
     const agents = await (await fetch(`${INDEXER}/v1/agents?limit=1`)).json();
     account = agents.items?.[0]?.address ? `/account/${agents.items[0].address}` : null;
   }
-  return { 'explorer-home': '/', 'explorer-block': block, 'explorer-extrinsic': extrinsic, 'explorer-account': account };
+  return { 'explorer-home': '/', 'explorer-blocks': '/blocks', 'explorer-block': block, 'explorer-extrinsic': extrinsic, 'explorer-account': account, 'explorer-activity': '/activity', 'explorer-search': '/search?q=nothing-matches-this' };
 }
 
 // ── what runs in the page ────────────────────────────────────────────────────
@@ -162,7 +173,7 @@ function inspect({ colours, fontSizes, spacing }) {
     const parts = [];
     for (let x = el; x && x !== document.body && parts.length < 4; x = x.parentElement) {
       const cls = typeof x.className === 'string' ? x.className.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((c) => `.${c}`).join('') : '';
-      const key = x.getAttribute?.('data-reading') ? `[data-reading="${x.getAttribute('data-reading')}"]` : '';
+      const key = x.getAttribute?.('data-stat') ? `[data-stat="${x.getAttribute('data-stat')}"]` : '';
       parts.unshift(`${x.tagName.toLowerCase()}${x.id ? `#${x.id}` : ''}${cls}${key}`);
     }
     return parts.join(' > ');
@@ -170,39 +181,22 @@ function inspect({ colours, fontSizes, spacing }) {
   const box = (r) => `${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}×${Math.round(r.height)}`;
   const meets = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > 1 && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > 1;
 
-  // (a) sibling Readings, and any two figures, must not intersect
-  const readings = [...document.querySelectorAll('.nw-reading')].filter(visible);
-  for (let i = 0; i < readings.length; i += 1) {
-    for (let j = i + 1; j < readings.length; j += 1) {
-      const [a, b] = [readings[i], readings[j]];
-      if (a.contains(b) || b.contains(a)) continue;
-      const siblings = a.parentElement === b.parentElement || a.parentElement?.parentElement === b.parentElement?.parentElement;
-      if (!siblings) continue;
+  // (a) stats that share a row must not intersect
+  const statEls = [...document.querySelectorAll('.sc-stat')].filter(visible);
+  for (let i = 0; i < statEls.length; i += 1) {
+    for (let j = i + 1; j < statEls.length; j += 1) {
+      const [a, b] = [statEls[i], statEls[j]];
+      if (a.parentElement !== b.parentElement) continue;
       const [ra, rb] = [a.getBoundingClientRect(), b.getBoundingClientRect()];
-      if (meets(ra, rb)) out.push(`(a) readings intersect: ${sel(a)} [${box(ra)}] and ${sel(b)} [${box(rb)}]`);
+      if (meets(ra, rb)) out.push(`(a) stats intersect: ${sel(a)} [${box(ra)}] and ${sel(b)} [${box(rb)}]`);
     }
   }
-  const figures = [...document.querySelectorAll('.nw-reading-figure')].filter(visible);
-  for (let i = 0; i < figures.length; i += 1) {
-    for (let j = i + 1; j < figures.length; j += 1) {
-      const [ra, rb] = [figures[i].getBoundingClientRect(), figures[j].getBoundingClientRect()];
-      if (meets(ra, rb)) out.push(`(a) figures intersect: ${sel(figures[i])} [${box(ra)}] and ${sel(figures[j])} [${box(rb)}]`);
-    }
-  }
-  // (b) a figure (with its unit and stub) wider than its column
-  for (const fig of figures) {
-    const column = fig.closest('.nw-reading') ?? fig.parentElement;
-    const [rf, rc] = [fig.getBoundingClientRect(), column.getBoundingClientRect()];
-    const inner = fig.querySelector('.nw-figure');
-    const spill = Math.max(rf.right - rc.right, inner ? inner.scrollWidth - inner.clientWidth : 0, rf.left < rc.left - 1 ? rc.left - rf.left : 0);
-    if (spill > 1) out.push(`(b) figure wider than its column by ${Math.round(spill)} px: ${sel(fig)} "${fig.textContent.trim().slice(0, 40)}" figure ${Math.round(rf.width)} px in column ${Math.round(rc.width)} px`);
-  }
-  // (b) also: a Reading's label wider than its column (it would run into the next one)
-  for (const label of [...document.querySelectorAll('.nw-reading-line > .nw-label')].filter(visible)) {
-    const column = label.closest('.nw-reading');
-    const [rl, rc] = [label.getBoundingClientRect(), column.getBoundingClientRect()];
-    const spill = Math.max(rl.right - rc.right, label.scrollWidth - label.clientWidth);
-    if (spill > 1) out.push(`(b) label wider than its column by ${Math.round(spill)} px: ${sel(label)} "${label.textContent.trim().slice(0, 40)}"`);
+  // (b) a stat value wider than its cell
+  for (const value of [...document.querySelectorAll('.sc-stat-value')].filter(visible)) {
+    const cell = value.closest('.sc-stat');
+    const [rv, rc] = [value.getBoundingClientRect(), cell.getBoundingClientRect()];
+    const spill = Math.max(rv.right - rc.right, value.scrollWidth - value.clientWidth);
+    if (spill > 1) out.push(`(b) stat value wider than its cell by ${Math.round(spill)} px: ${sel(value)} "${value.textContent.trim().slice(0, 40)}"`);
   }
   // (c) no horizontal scroll; name the element that reaches furthest right
   const sw = document.documentElement.scrollWidth;
@@ -221,9 +215,9 @@ function inspect({ colours, fontSizes, spacing }) {
     }
     out.push(`(c) scrollWidth ${sw} px > viewport ${window.innerWidth} px${worst ? `; furthest right: ${sel(worst[0])} reaching ${Math.round(worst[1])} px` : ''}`);
   }
-  // (d) type and spacing on Readings, Ledgers and the bar
+  // (d) type and spacing on stats, tables, the header and the footer
   const near = (v, list) => list.some((x) => Math.abs(Math.abs(v) - x) < 0.6);
-  const scoped = [...document.querySelectorAll('.nw-reading, .nw-reading *, .nw-ledger, .nw-ledger *, .nw-bar, .nw-bar *')].filter(visible);
+  const scoped = [...document.querySelectorAll('.sc-stat, .sc-stat *, .sc-table, .sc-table *, .sc-header, .sc-header *, .sc-footer, .sc-footer *')].filter(visible);
   const seen = new Set();
   for (const el of scoped) {
     if (el.closest('svg') && el.tagName.toLowerCase() !== 'svg') continue;
@@ -246,7 +240,7 @@ function inspect({ colours, fontSizes, spacing }) {
       seen.add(k);
     }
   }
-  // (e) every computed colour is a Ledger token
+  // (e) every computed colour is a token
   const transparent = (c) => c === 'transparent' || /rgba\(\d+, \d+, \d+, 0\)/.test(c);
   const reported = new Set();
   for (const el of document.body.querySelectorAll('*')) {
@@ -263,7 +257,20 @@ function inspect({ colours, fontSizes, spacing }) {
       out.push(`(e) ${prop} ${value} is not a token: ${sel(el)}`);
     }
   }
-  return { violations: out, readings: readings.length, figures: figures.length, scrollWidth: sw };
+  // (f) sentence case: no uppercase transform and no letter-spacing but the display headline's
+  const cased = new Set();
+  for (const el of document.body.querySelectorAll('*')) {
+    if (!visible(el) || !el.textContent.trim()) continue;
+    const s = getComputedStyle(el);
+    const upper = s.textTransform === 'uppercase';
+    const tracked = s.letterSpacing !== 'normal' && parseFloat(s.letterSpacing) !== 0 && !el.closest('.sc-display');
+    if (!upper && !tracked) continue;
+    const k = sel(el);
+    if (cased.has(k)) continue;
+    cased.add(k);
+    out.push(`(f) ${upper ? 'uppercase' : `letter-spacing ${s.letterSpacing}`}: ${k}`);
+  }
+  return { violations: out, stats: statEls.length, tables: document.querySelectorAll(".sc-table").length, scrollWidth: sw };
 }
 
 // ── run ──────────────────────────────────────────────────────────────────────
@@ -303,7 +310,7 @@ for (const [key, url] of targets) {
           await page.goto(url, { waitUntil: 'load', timeout: 60_000 });
           await page.waitForTimeout(WAIT);
           const r = await page.evaluate(inspect, { colours: COLOURS, fontSizes: FONT_SIZES, spacing: SPACING });
-          const head = `${key}@${width} ${url.replace(base, '').replace(explorer?.url ?? '\0', 'explorer:')} — ${r.readings} readings, ${r.figures} figures, scrollWidth ${r.scrollWidth}`;
+          const head = `${key}@${width} ${url.replace(base, '').replace(explorer?.url ?? '\0', 'explorer:')} — ${r.stats} stats, ${r.tables} tables, scrollWidth ${r.scrollWidth}`;
           const body = r.violations.map((v) => `  ${v}`);
           if (errors.length) body.push(...errors.map((e) => `  (js) ${e}`));
           return [`${r.violations.length ? 'FAIL' : 'ok  '} ${head}${body.length ? `\n${body.join('\n')}` : ''}`, r.violations.length];

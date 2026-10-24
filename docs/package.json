@@ -9,6 +9,7 @@
     "dev": "vitepress dev .",
     "build": "vitepress build .",
     "preview": "vitepress preview .",
+    "check:built": "node scripts/check-built-docs.mjs",
     "lint": "markdownlint-cli2 \"index.md\" \"guide/**/*.md\" \"reference/**/*.md\" && node scripts/check-chain-values.mjs",
     "snapshot:chain": "node scripts/snapshot-chain.mjs"
   },

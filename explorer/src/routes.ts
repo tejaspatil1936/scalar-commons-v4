@@ -17,10 +17,13 @@ export type BlockRef =
 
 export type Route =
   | { readonly kind: 'home' }
-  | { readonly kind: 'block'; readonly ref: BlockRef }
+  | { readonly kind: 'blocks'; readonly page: number }
+  | { readonly kind: 'block'; readonly ref: BlockRef; readonly tab: 'extrinsics' | 'events' }
   | { readonly kind: 'extrinsic'; readonly ref: BlockRef; readonly index: number }
-  | { readonly kind: 'account'; readonly address: string }
-  | { readonly kind: 'activity'; readonly agent: string | null; readonly offset: number }
+  | { readonly kind: 'account'; readonly address: string; readonly tab: 'extrinsics' | 'activity'; readonly page: number }
+  | { readonly kind: 'activity'; readonly agent: string | null; readonly activityKind: string | null; readonly page: number }
+  /** The favicon, served at `/favicon.svg`. */
+  | { readonly kind: 'favicon' }
   /** The home page's search field: resolved to the matching view by the server. */
   | { readonly kind: 'search'; readonly query: string }
   /** The chrome stylesheet, served at `/chrome.css`. */
@@ -31,11 +34,22 @@ export type Route =
   | { readonly kind: 'notFound' };
 
 /** The font files the chrome's stylesheet addresses; anything else under `/fonts/` is 404. */
-export const FONT_FILES: readonly string[] = [
-  'source-serif-4-latin-opsz-normal.woff2',
-  'ibm-plex-mono-latin-400-normal.woff2',
-  'ibm-plex-mono-latin-500-normal.woff2',
-];
+export const FONT_FILES: readonly string[] = ['inter-latin-wght-normal.woff2', 'jetbrains-mono-latin-400-normal.woff2'];
+
+/** The activity kinds the filter chips name; each is one the indexer's `?kind=` accepts. */
+export const ACTIVITY_KINDS: readonly string[] = ['agreement', 'dispute', 'message', 'registration', 'slash'];
+
+/** The largest page number a paginated list accepts. */
+const MAX_PAGE = 100_000;
+
+/** Reads `?page=`: absent is 1; anything but a whole number from 1 to MAX_PAGE is null. */
+function parsePage(params: URLSearchParams): number | null {
+  const raw = params.get('page');
+  if (raw === null || raw === '') return 1;
+  if (!/^\d+$/.test(raw)) return null;
+  const n = Number(raw);
+  return n >= 1 && n <= MAX_PAGE ? n : null;
+}
 
 export const SEARCH_PATH = '/search';
 
@@ -70,7 +84,7 @@ function decodeSegment(segment: string): string | null {
 
 /** The bad-request route for a segment that is not valid percent-encoding. */
 function undecodable(segment: string): Route {
-  return { kind: 'badRequest', message: `not a valid URL-encoded path segment: ${segment}` };
+  return { kind: 'badRequest', message: `“${segment}” is not a valid address in a link.` };
 }
 
 /**
@@ -124,6 +138,15 @@ export function parseRoute(url: string): Route {
     return { kind: 'chrome' };
   }
 
+  if (head === 'favicon.svg' && segments.length === 1) {
+    return { kind: 'favicon' };
+  }
+
+  if (head === 'blocks' && segments.length === 1) {
+    const page = parsePage(parsed.searchParams);
+    return page === null ? { kind: 'badRequest', message: 'That is not a page number.' } : { kind: 'blocks', page };
+  }
+
   if (head === 'fonts' && segments.length === 2 && first !== undefined) {
     return FONT_FILES.includes(first) ? { kind: 'font', name: first } : { kind: 'notFound' };
   }
@@ -134,9 +157,10 @@ export function parseRoute(url: string): Route {
       return undecodable(first);
     }
     const ref = parseBlockRef(raw);
+    const tab = parsed.searchParams.get('tab') === 'events' ? 'events' : 'extrinsics';
     return ref
-      ? { kind: 'block', ref }
-      : { kind: 'badRequest', message: `not a block number or block hash: ${raw}` };
+      ? { kind: 'block', ref, tab }
+      : { kind: 'badRequest', message: `“${raw}” is not a block number or a block hash.` };
   }
 
   if (head === 'extrinsic' && segments.length === 3 && first !== undefined && second !== undefined) {
@@ -150,10 +174,10 @@ export function parseRoute(url: string): Route {
     }
     const ref = parseBlockRef(raw);
     if (!ref) {
-      return { kind: 'badRequest', message: `not a block number or block hash: ${raw}` };
+      return { kind: 'badRequest', message: `“${raw}” is not a block number or a block hash.` };
     }
     if (!BLOCK_NUMBER.test(rawIndex)) {
-      return { kind: 'badRequest', message: `not an extrinsic index: ${rawIndex}` };
+      return { kind: 'badRequest', message: `“${rawIndex}” is not an extrinsic index.` };
     }
     return { kind: 'extrinsic', ref, index: Number(rawIndex) };
   }
@@ -163,25 +187,20 @@ export function parseRoute(url: string): Route {
     if (address === null) {
       return undecodable(first);
     }
+    const page = parsePage(parsed.searchParams);
+    if (page === null) return { kind: 'badRequest', message: 'That is not a page number.' };
+    const tab = parsed.searchParams.get('tab') === 'activity' ? 'activity' : 'extrinsics';
     return isAddress(address)
-      ? { kind: 'account', address }
-      : { kind: 'badRequest', message: `not a valid SS58 account address: ${address}` };
+      ? { kind: 'account', address, tab, page }
+      : { kind: 'badRequest', message: `“${address}” is not an account address.` };
   }
 
   return { kind: 'notFound' };
 }
 
 /**
- * The largest `?offset=` the activity page accepts.
- *
- * Past it there is no page a reader would click through to, and a bounded value
- * keeps a hand-typed offset from being forwarded to the indexer as a number it
- * has to reject.
- */
-const MAX_ACTIVITY_OFFSET = 1_000_000;
-
-/**
- * Reads the activity page's query: an optional agent and an optional offset.
+ * Reads the activity page's query: an optional agent, an optional kind and
+ * an optional page.
  *
  * `URLSearchParams` has already percent-decoded the values. An empty agent is
  * what the filter form submits when cleared, so it means "every agent"; a value
@@ -191,14 +210,15 @@ const MAX_ACTIVITY_OFFSET = 1_000_000;
 function parseActivity(params: URLSearchParams): Route {
   const rawAgent = (params.get('agent') ?? '').trim();
   if (rawAgent !== '' && !isAddress(rawAgent)) {
-    return { kind: 'badRequest', message: `not a valid SS58 account address: ${rawAgent}` };
+    return { kind: 'badRequest', message: `“${rawAgent}” is not an account address.` };
   }
-  const rawOffset = params.get('offset') ?? '0';
-  const offset = Number(rawOffset);
-  if (!BLOCK_NUMBER.test(rawOffset) || offset > MAX_ACTIVITY_OFFSET) {
-    return { kind: 'badRequest', message: `not an activity offset: ${rawOffset}` };
+  const rawKind = (params.get('kind') ?? '').trim();
+  if (rawKind !== '' && !ACTIVITY_KINDS.includes(rawKind)) {
+    return { kind: 'badRequest', message: `“${rawKind}” is not a kind of agent event.` };
   }
-  return { kind: 'activity', agent: rawAgent === '' ? null : rawAgent, offset };
+  const page = parsePage(params);
+  if (page === null) return { kind: 'badRequest', message: 'That is not a page number.' };
+  return { kind: 'activity', agent: rawAgent === '' ? null : rawAgent, activityKind: rawKind === '' ? null : rawKind, page };
 }
 
 /** Renders a block reference back into its URL segment. */
@@ -223,13 +243,28 @@ export function accountPath(address: string): string {
   return `/account/${address}`;
 }
 
-/** The activity feed, optionally filtered to one agent and paged back from the newest. */
-export function activityPath(agent: string | null = null, offset = 0): string {
+/** The blocks list, page `page` (25 a page). */
+export function blocksPath(page = 1): string {
+  return page > 1 ? `/blocks?page=${page}` : '/blocks';
+}
+
+/** The activity feed, optionally filtered to one agent and one kind, page `page`. */
+export function activityPath(agent: string | null = null, page = 1, kind: string | null = null): string {
   const params = new URLSearchParams();
+  if (kind !== null) params.set('kind', kind);
   if (agent !== null) params.set('agent', agent);
-  if (offset > 0) params.set('offset', String(offset));
+  if (page > 1) params.set('page', String(page));
   const query = params.toString();
   return query === '' ? '/activity' : `/activity?${query}`;
+}
+
+/** An extrinsic named as `block-index` (the search field's fourth format), or null. */
+export function parseExtrinsicId(raw: string): { number: number; index: number } | null {
+  const match = /^(\d+)-(\d+)$/.exec(raw);
+  if (match === null) return null;
+  const number = Number(match[1]);
+  const index = Number(match[2]);
+  return Number.isSafeInteger(number) && number <= MAX_BLOCK_NUMBER && Number.isSafeInteger(index) ? { number, index } : null;
 }
 
 /** The search field's target: `GET /search?q=…`. */

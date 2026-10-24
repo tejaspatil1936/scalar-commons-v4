@@ -30,14 +30,20 @@ if (!/^https?:\/\//.test(indexerUrl)) {
   throw new Error(`EXPLORER_INDEXER_URL must be an http:// or https:// URL, not ${JSON.stringify(indexerUrl)}`);
 }
 
+// One upstream read's budget, so every page answers within two seconds when
+// the indexer sits beside the explorer. Raise it only where the indexer is
+// far away (a check run against the public API from another network).
+const readTimeoutMs = readIntEnv('EXPLORER_READ_TIMEOUT_MS', process.env.EXPLORER_READ_TIMEOUT_MS, 1_500, 100, 60_000);
+
 const chain = await connectExplorerChain({ rpcEndpoint });
 const info = chain.chainInfo();
 const server = createExplorerServer({
   chain,
-  activity: createIndexerClient({ baseUrl: indexerUrl }),
+  activity: createIndexerClient({ baseUrl: indexerUrl, timeoutMs: readTimeoutMs }),
   // The home page's indexer line, the account page's history and the
   // agent-scoped activity readings come from the same indexer.
-  indexer: createIndexerReader({ baseUrl: indexerUrl }),
+  indexer: createIndexerReader({ baseUrl: indexerUrl, timeoutMs: readTimeoutMs }),
+  readTimeoutMs,
 });
 
 server.listen(port, host, () => {

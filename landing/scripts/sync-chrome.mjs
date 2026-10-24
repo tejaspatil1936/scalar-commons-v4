@@ -1,4 +1,4 @@
-// Copies the chrome — tokens.css, chrome.css, print.css and the two font
+// Copies the chrome — tokens.css, fonts.css, chrome.css and the two font
 // files — into the docs theme and the explorer, so three builds share one
 // visual system without a monorepo. `--check` compares instead of copying
 // and exits non-zero on any difference; test/chrome.test.mjs runs the same
@@ -12,11 +12,11 @@ import { fileURLToPath } from 'node:url';
 
 const here = (relative) => fileURLToPath(new URL(relative, import.meta.url));
 
-export const CHROME_FILES = ['tokens.css', 'chrome.css', 'print.css'];
+export const CHROME_FILES = ['tokens.css', 'fonts.css', 'chrome.css'];
+// Inter (variable) for everything; JetBrains Mono 400 for hashes, addresses and code.
 export const CHROME_FONTS = [
-  ['@fontsource-variable/source-serif-4/files/source-serif-4-latin-opsz-normal.woff2', 'source-serif-4-latin-opsz-normal.woff2'],
-  ['@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2', 'ibm-plex-mono-latin-400-normal.woff2'],
-  ['@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2', 'ibm-plex-mono-latin-500-normal.woff2'],
+  ['@fontsource-variable/inter/files/inter-latin-wght-normal.woff2', 'inter-latin-wght-normal.woff2'],
+  ['@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2', 'jetbrains-mono-latin-400-normal.woff2'],
 ];
 export const TARGETS = [here('../../docs/.vitepress/theme/chrome'), here('../../explorer/src/chrome')];
 

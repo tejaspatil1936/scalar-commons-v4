@@ -73,7 +73,8 @@ export interface EventView {
   readonly index: number;
   readonly section: string;
   readonly method: string;
-  readonly fields: readonly { readonly name: string; readonly value: string }[];
+  /** `type` is the metadata type name ("BalanceOf<T>", "T::AccountId") when the runtime gave one, so balances can be shown in CMN. */
+  readonly fields: readonly { readonly name: string; readonly value: string; readonly type?: string }[];
 }
 
 /** A single extrinsic, addressed by (block, index) — its only stable coordinate. */

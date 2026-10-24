@@ -18,9 +18,9 @@
 import type { ActivityEntry, ActivityField, ActivityView, HistoryEntry, IndexerStatus } from './types.js';
 
 /** Rows per page. A screenful: the page refreshes, so it should stay cheap. */
-export const ACTIVITY_PAGE_SIZE = 50;
+export const ACTIVITY_PAGE_SIZE = 25;
 
-const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_TIMEOUT_MS = 1_500;
 
 /** The indexer did not answer, or answered with an error. Rendered as 502. */
 export class IndexerUnavailableError extends Error {
@@ -41,6 +41,8 @@ export class IndexerResponseError extends Error {
 export interface ActivityQuery {
   readonly agent: string | null;
   readonly offset: number;
+  /** One of the indexer's activity kinds (`?kind=`), or every kind when absent. */
+  readonly kind?: string;
 }
 
 /** Where the activity page reads from. The server takes it as a dependency so it can be stood in for. */
@@ -64,6 +66,7 @@ export function createIndexerClient(options: IndexerClientOptions): ActivitySour
     async activity(query) {
       const params = new URLSearchParams({ limit: String(query.limit), offset: String(query.offset) });
       if (query.agent !== null) params.set('agent', query.agent);
+      if (query.kind !== undefined) params.set('kind', query.kind);
       const url = `${base}/v1/activity?${params.toString()}`;
 
       let response: Response;

@@ -4,9 +4,9 @@
     "specName": "scalar-commons",
     "specVersion": 309,
     "genesisHash": "0xff6882b49ad61dd3128a6e834b4f81704a3824ce358f2f69fe765ca07cf803d1",
-    "readAtBlock": 1157833,
-    "readAtHash": "0x99e5a9febd68488f305fc68bc87f410e0828bd9e3b51e19f36084d6e34784afa",
-    "readAt": "2026-10-23T05:50:13.452Z",
+    "readAtBlock": 1166079,
+    "readAtHash": "0xae2b0c1c73d4229bcd196d429d91d5e081f4b3095746d1df16a6e46e88b9861b",
+    "readAt": "2026-10-23T19:35:31.410Z",
     "metadataVersion": 14
   },
   "pallets": {

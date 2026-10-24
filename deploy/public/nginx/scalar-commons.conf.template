@@ -214,6 +214,12 @@ server {
     access_log /var/log/nginx/scalar-web.access.log;
     error_log  /var/log/nginx/scalar-web.error.log warn;
 
+    # An unknown path gets the site's own 404 page (landing/dist/404.html,
+    # SITE-REDESIGN.md §5.4) with status 404, not nginx's bare one. The page
+    # addresses its stylesheet, script and fonts by absolute URL, so it renders
+    # at any depth. /docs/ falls back to the docs home and never reaches this.
+    error_page 404 /404.html;
+
     # ---- docs at /docs/ ---------------------------------------------------
     # The vitepress dist here was built with DOCS_BASE=/docs/, so every asset
     # URL it emits already carries the prefix.
@@ -254,6 +260,15 @@ server {
     add_header X-Content-Type-Options    "nosniff" always;
     add_header X-Frame-Options           "DENY" always;
     add_header Referrer-Policy           "no-referrer" always;
+    # CORS for the form on https://<DOMAIN>/faucet (SITE-REDESIGN.md §5.3), and
+    # for that origin only; with DOMAIN=scalarnet.io it reads
+    # "https://scalarnet.io". Declared here at server level, beside the
+    # security headers, so the one location below declares no add_header and
+    # inherits all of them (see the inheritance note at the top of the file).
+    add_header Access-Control-Allow-Origin  "https://<DOMAIN>" always;
+    add_header Access-Control-Allow-Methods "POST, GET, OPTIONS" always;
+    add_header Access-Control-Allow-Headers "content-type" always;
+    add_header Access-Control-Max-Age       "86400" always;
 
     # LAUNCH: 10r/m burst 5 — a dispenser, not an API.
     limit_req  zone=faucet_req burst=5 nodelay;
@@ -271,6 +286,10 @@ server {
     # proxy_set_header line below would hand the per-IP limit back to the
     # attacker. If you add one, copy the whole proxy block.
     location / {
+        # The browser's CORS preflight is answered here, with the server-level
+        # headers above, and never reaches the faucet. The `if` declares no
+        # add_header, so it inherits them all.
+        if ($request_method = OPTIONS) { return 204; }
         proxy_pass http://127.0.0.1:8082;
         proxy_http_version 1.1;
         proxy_set_header Host              $host;

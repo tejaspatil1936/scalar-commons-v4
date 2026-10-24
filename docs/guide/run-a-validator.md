@@ -155,6 +155,8 @@ Budget **~8 GB of disk and 15–60 minutes** depending on cores.
 
 ## 3. Chain spec and node key
 
+Get the chain spec in the browser — <a href="/docs/chainspec.json" download="chainspec.json">chainspec.json (download)</a> — or with `curl`:
+
 ```bash
 mkdir -p ~/scalar && cd ~/scalar
 curl -s -o chainspec.json -w 'http=%{http_code} ct=%{content_type} bytes=%{size_download}\n' \

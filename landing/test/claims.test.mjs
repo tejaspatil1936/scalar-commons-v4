@@ -16,7 +16,7 @@ import { renderPage, proseOf, placeholdersIn, resolve } from '../src/render.mjs'
 
 const facts = JSON.parse(readFileSync(new URL('../chain-facts.json', import.meta.url), 'utf8'));
 const repoRoot = new URL('../../', import.meta.url);
-const html = renderPage({ facts, content, sourceClaims });
+const html = renderPage({ facts, content });
 
 const readRepoFile = (relPath) => readFileSync(new URL(relPath, repoRoot), 'utf8');
 
@@ -57,8 +57,18 @@ test('no chain figure is hand-typed: prose carries digits only through placehold
   }
 });
 
+// "eight validators" is a hand-typed figure too (SITE-REDESIGN.md §6).
+const NUMBER_WORDS = /\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|billion|dozen|single|half|twice|double|triple)\b/i;
+
+test('no chain figure is spelled out either: prose carries no number words', () => {
+  for (const [where, str] of proseOf(content)) {
+    const m = str.replace(/\{\{[^}]+\}\}/g, '').match(NUMBER_WORDS);
+    assert.ok(!m, `${where}: number word "${m?.[0]}" in prose — use a {{placeholder}}`);
+  }
+});
+
 test('every pallet and extrinsic named in the content exists in live metadata', () => {
-  const refs = content.sections.flatMap((s) => (s.bullets ?? []).flatMap((b) => b.chainRefs ?? []));
+  const refs = content.chain.modules.flatMap((m) => m.chainRefs ?? []);
   assert.ok(refs.length > 0, 'content must cite the pallets it describes');
   for (const ref of refs) {
     const [palletName, callName] = ref.split('.');
@@ -139,27 +149,11 @@ test('the inert oracle-accuracy term is disclosed for as long as it stays unwire
   );
 });
 
-test('docs, explorer, faucet and repo are all linked, and unbuilt ones say so', () => {
-  const keys = content.links.map((l) => l.key);
-  for (const required of ['docs', 'explorer', 'faucet', 'repo']) {
-    assert.ok(keys.includes(required), `issue #74 requires a ${required} link`);
+test('docs, explorer, faucet and repo are all linked, and nothing is labelled planned', () => {
+  for (const href of ['/docs/', 'https://explorer.scalarnet.io/', '/faucet', 'https://github.com/tejaspatil1936/scalar-commons-v4']) {
+    assert.ok(html.includes(`href="${href}"`), `the home page does not link ${href}`);
   }
-  for (const link of content.links) {
-    assert.match(link.url, /^https:\/\//, `${link.key} must be an absolute https URL`);
-    assert.ok(['available', 'planned'].includes(link.status), `${link.key} has an unknown status`);
-    if (link.status === 'planned') {
-      assert.match(
-        link.url,
-        /github\.com\/[^/]+\/[^/]+\/issues\/\d+$/,
-        `${link.key} is not built yet, so it must link to its tracking issue`,
-      );
-      assert.match(
-        html,
-        new RegExp(`data-link="${link.key}"[^>]*data-status="planned"`),
-        `${link.key} is unbuilt and must be labelled planned on the page`,
-      );
-    }
-  }
+  assert.ok(!/planned/i.test(html), 'a built thing is never advertised as planned');
 });
 
 test('the rendered document is complete and fully resolved', () => {
@@ -172,23 +166,11 @@ test('the rendered document is complete and fully resolved', () => {
   assert.match(html, /<meta name="description" content="[^"]+"/);
 });
 
-test('a component whose code is already in the repository is not still advertised as planned', () => {
-  // The "Planned" badge is a promise that the thing does not exist yet. Once
-  // the component lands, that badge is a lie the page keeps telling — and the
-  // link keeps pointing at a closed tracking issue instead of the code. Each
-  // entry below pins a link key to the file that proves the component shipped.
-  const shipped = { faucet: 'faucet/package.json' };
-  for (const [key, marker] of Object.entries(shipped)) {
-    const link = content.links.find((l) => l.key === key);
-    assert.ok(link, `content must link ${key}`);
-    assert.ok(readRepoFile(marker).length > 0, `${marker} is missing — has ${key} been removed from the repo?`);
-    assert.notEqual(link.status, 'planned', `${key} has shipped (${marker}) but the page still calls it planned`);
-    assert.doesNotMatch(
-      link.url,
-      /\/issues\/\d+$/,
-      `${key} has shipped, so the page must link the component itself, not its tracking issue`,
-    );
-  }
+test('a component whose code is already in the repository is linked to itself, not to a tracking issue', () => {
+  // The faucet shipped (faucet/package.json); the page links the page that uses it.
+  assert.ok(readRepoFile('faucet/package.json').length > 0, 'faucet/package.json is missing — has the faucet been removed from the repo?');
+  assert.ok(html.includes('href="/faucet"'));
+  assert.ok(!/\/issues\/\d+/.test(html), 'the home page links no tracking issue');
 });
 
 test('the committed chain snapshot comes from the long-running devnet, not the genesis window', () => {

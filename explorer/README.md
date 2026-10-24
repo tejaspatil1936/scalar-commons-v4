@@ -3,7 +3,8 @@
 Web block explorer for Scalar Commons. Three views — **block**, **extrinsic**,
 **account** — server-rendered from a live node, with every page linking to the
 next: a block reaches its extrinsics, and an extrinsic reaches the accounts it
-touched. A fourth, **agent activity**, is a live feed read from the indexer.
+touched. The lists — **blocks** and **agent activity** — are read from the
+indexer. Every page carries the site's header, footer and search.
 
 ## Where the data comes from
 
@@ -36,65 +37,61 @@ public key. A string scan would both miss accounts and invent them.
 
 ## One page view is a bounded number of node reads
 
-No view walks the chain. The index page costs one header read plus the
-bounded set behind its readings (the newest 16 blocks decoded, and one storage
-read per figure); a block or extrinsic page costs the reads it takes to decode
-exactly one block plus its receipt readings; an account page costs one header
-read and a handful of storage reads (balances, agent metadata and stake,
-staking bond, the validator set). Nothing here fans a
-single request out across a range of blocks, so a visitor cannot turn one HTTP
-request into an unbounded amount of node work.
+No view walks the chain. A block or extrinsic page costs the reads it takes to
+decode exactly one block; an account page costs one header read and a handful
+of storage reads (balances, agent metadata and stake, staking bond, the
+validator set). Lists — the latest blocks, `/blocks`, an account's activity
+and `/activity` — come from the indexer, which already holds that history, so
+a visitor cannot turn one HTTP request into an unbounded amount of node work.
 
-## Agent activity — the one page read from the indexer
+## Agent activity
 
 `/activity` is one stream of what agents did: messages, registrations,
 heartbeats, the agreement lifecycle, disputes, oracle votes and slashes, newest
 first, optionally filtered to one agent (`?agent=<ss58>`; the page has a form).
 
-It is the one view that does not read the node, because it cannot within the
-rule above: a feed over history means walking blocks, which is unbounded node
-work per page view. The indexer already holds that history and classifies it
+It does not read the node, because it cannot within the rule above: a feed
+over history means walking blocks, which is unbounded node work per page view. The indexer already holds that history and classifies it
 (`GET /v1/activity`, see [`../indexer/README.md`](../indexer/README.md)), so the
 page costs one indexer request and zero node reads. What the explorer adds is
 typing: each event field is typed from the runtime metadata already in memory,
 so accounts become links and balances print in tokens because the runtime says
 they are balances.
 
-"Live" is a `<meta http-equiv="refresh">` every 12 s (two block times — the
-indexer follows finalized blocks) on the newest page. Older pages (`?offset=`)
-do not refresh, so the rows a reader is looking at do not move. No script is
-shipped, as everywhere else.
+The page does not reload itself: a visitor's scroll position and filter stay
+put. Newer rows are one click away ("Previous" goes to the newest page), and
+paging (`?page=`) reaches every event the indexer holds. Rows carry relative
+times ("4 min ago") with the UTC time in `title`.
 
 If the indexer is down or answers with something that is not the feed, the page
-is a `502` naming the indexer — never an empty feed. The runtime has no
+is a `502` with one plain sentence — never an empty feed, and never an internal
+address. The runtime has no
 `messages` pallet from runtime 309, so `message` rows appear once agents start
 sending.
 
 ## The chrome
 
-Pages are drawn in Nightwatch, the site's one visual system. The stylesheet
-(`src/chrome/`: `tokens.css`, `chrome.css`, `print.css` and two font files) is
-a synced, byte-identical copy of `landing/src/chrome/` — `landing/scripts/
-sync-chrome.mjs` writes it and a landing test fails on drift; never edit it
-here. The server serves it at `GET /chrome.css` (the three files concatenated,
-read once at startup) and the fonts at `GET /fonts/<name>.woff2`, because the
-stylesheet addresses them as `fonts/…` relative to its own URL.
+Pages use the site's plain chrome (SITE-REDESIGN.md §3): the same header,
+footer, tokens, type and components as scalarnet.io and the docs. The
+stylesheet (`src/chrome/`: `tokens.css`, `fonts.css`, `chrome.css` and two
+font files, Inter and JetBrains Mono) is a synced, byte-identical copy of
+`landing/src/chrome/` — `landing/scripts/sync-chrome.mjs` writes it and a
+landing test fails on drift; never edit it here. The server serves it at
+`GET /chrome.css` (the three files plus the explorer's few page-scoped rules
+in `src/explorer-css.ts`, read once at startup, gzipped when the request
+accepts it) and the fonts at `GET /fonts/<name>.woff2`.
 `src/chrome-templates.ts` mirrors `landing/src/chrome/templates.mjs` markup
 for markup, in TypeScript.
 
-Every page is server-rendered and stays so: the lamp and every Reading are
-filled from the node at request time and carry an `AS OF <UTC>` tag; the
-receipt under each figure names the RPC or storage item it came from
-(`chain_getHeader`, `emissions.eraStartBlock`, `escrow.disputeBountyBps` from
-metadata, `GET api…/v1/status`). A read that fails renders `unavailable` and
-the reason — one missing storage item costs one figure, not the page. No
-script is shipped beyond the activity page's meta refresh.
+Every page is server-rendered. Every upstream read is bounded
+(`EXPLORER_READ_TIMEOUT_MS`); a read that fails costs one figure, which keeps
+its last value and is marked Stale, not the page. The only script shipped is
+the chrome's copy button.
 
-The home page's search field posts to `GET /search?q=` and redirects to the
-matching view: a number → block; `0x` + 64 hex → block by hash, else the
-extrinsic with that hash among the newest 16 blocks (the node keeps no hash
-index); an SS58 address → account; otherwise an agent name the index resolves
-(`/v1/agents`) → that agent's activity; else a 404 Band.
+The search field (on every page) goes to `GET /search?q=` and redirects to the
+matching view: a block number → block; `0x` + 64 hex → block by hash; a
+`block-index` pair → that extrinsic; an SS58 address → account; otherwise a
+"Nothing found" page with the query and a way back.
 
 ## Read-only by construction
 
@@ -105,13 +102,14 @@ request that can change chain or server state.
 
 | Path | View |
 |---|---|
-| `/` | search; Best · Finalized · Era · Session · Validators · Issuance; the newest 16 blocks as a Spine; the last twelve extrinsics and events; the pool; the indexer line |
+| `/` | search; the network's figures; the latest blocks and the latest agent activity |
+| `/blocks`, `/blocks?page=` | every block, newest first, paged |
 | `/search?q=` | resolves to the matching view (see above) |
-| `/chrome.css`, `/fonts/<name>.woff2` | the synced chrome |
-| `/block/:number`, `/block/:hash` | block header + its extrinsics |
+| `/chrome.css`, `/fonts/<name>.woff2`, `/favicon.svg` | the synced chrome |
+| `/block/:number`, `/block/:hash` (`?tab=events`) | header, author, finalized state, extrinsics or events, previous/next |
 | `/extrinsic/:block/:index` | call, arguments, events, outcome, accounts touched |
-| `/account/:address` | balances and nonce, at the block they were read |
-| `/activity`, `/activity?agent=:address` | agent-activity feed from the indexer, newest first |
+| `/account/:address` (`?tab=activity`, `?page=`) | balances in CMN, agent details when registered, its extrinsics or its activity |
+| `/activity`, `?agent=:address`, `?kind=`, `?page=` | agent-activity feed from the indexer, newest first |
 
 A block is addressed by number or hash; an extrinsic by `(block, index)`, its
 only stable on-chain coordinate.
@@ -128,7 +126,8 @@ npm start                       # http://127.0.0.1:8081
 |---|---|---|
 | `EXPLORER_RPC_ENDPOINT` | `ws://127.0.0.1:9944` | node to read from |
 | `EXPLORER_HOST` / `EXPLORER_PORT` | `127.0.0.1` / `8081` | listen address (8081, not 8080: the indexer owns 8080) |
-| `EXPLORER_INDEXER_URL` | `http://127.0.0.1:8080` | indexer the `/activity` page reads |
+| `EXPLORER_INDEXER_URL` | `http://127.0.0.1:8080` | indexer the lists (blocks, activity, agents) are read from |
+| `EXPLORER_READ_TIMEOUT_MS` | `1500` | how long one upstream read may take before the figure goes Stale |
 
 ## Tests
 
@@ -136,8 +135,10 @@ npm start                       # http://127.0.0.1:8081
 npm test
 ```
 
-The live suite talks to the devnet RPC and is **not** skippable: it submits one
-real transfer, then asserts the explorer renders that block, that extrinsic and
-the accounts it named, cross-checked against direct node reads. An unreachable node
-fails the suite — mocking the chain would assert nothing about the only thing
-that can really break, which is decoding what a real runtime really returns.
+The unit suites render every view from fixtures. The live suite
+(`tests/explorer.live.test.ts`) talks to a **local devnet** RPC and is not
+skippable: it submits one real transfer, then asserts the explorer renders
+that block, that extrinsic and the accounts it named, cross-checked against
+direct node reads. Never point it at the public testnet — it signs and
+submits a real transaction. Without a local node, run the unit suites only:
+`npx vitest run --exclude tests/explorer.live.test.ts`.

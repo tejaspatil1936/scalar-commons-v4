@@ -9,11 +9,11 @@
     "metadataVersion": 15,
     "genesisHash": "0xff6882b49ad61dd3128a6e834b4f81704a3824ce358f2f69fe765ca07cf803d1",
     "ss58Format": 42,
-    "readAtBlock": 1161243,
-    "readAtBlockHash": "0x3f6b160b12899e7d3f3853b118c17d2c281ba2090aaa193b6671b7de1a466735",
-    "finalizedAtRead": 1161242,
+    "readAtBlock": 1167191,
+    "readAtBlockHash": "0x86cd379820caab05fa5d30bd052b169a887e4e4417e03ab951c5aa9f9aacd4b3",
+    "finalizedAtRead": 1167189,
     "nodeVersion": "4.0.0-5f5e3c9439f",
-    "fetchedAt": "2026-10-23T11:32:11.060Z"
+    "fetchedAt": "2026-10-23T21:27:08.713Z"
   },
   "token": {
     "symbol": "CMN",
@@ -134,213 +134,214 @@
     "registeredAgents": 204,
     "operatorRunAgents": 140,
     "openDisputes": 399,
-    "eraStartBlock": 1160932,
-    "eraElapsedBlocks": 311,
+    "eraStartBlock": 1164639,
+    "eraElapsedBlocks": 2552,
     "recentBlocks": [
       {
-        "number": 1161243,
+        "number": 1167191,
         "extrinsics": 1,
         "final": false
       },
       {
-        "number": 1161242,
+        "number": 1167190,
+        "extrinsics": 1,
+        "final": false
+      },
+      {
+        "number": 1167189,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161241,
+        "number": 1167188,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161240,
+        "number": 1167187,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161239,
+        "number": 1167186,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161238,
+        "number": 1167185,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161237,
+        "number": 1167184,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161236,
+        "number": 1167183,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161235,
+        "number": 1167182,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161234,
+        "number": 1167181,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161233,
+        "number": 1167180,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161232,
+        "number": 1167179,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161231,
+        "number": 1167178,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161230,
+        "number": 1167177,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161229,
+        "number": 1167176,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161228,
+        "number": 1167175,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161227,
+        "number": 1167174,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161226,
+        "number": 1167173,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161225,
+        "number": 1167172,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161224,
+        "number": 1167171,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161223,
+        "number": 1167170,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161222,
+        "number": 1167169,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161221,
+        "number": 1167168,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161220,
+        "number": 1167167,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161219,
+        "number": 1167166,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161218,
+        "number": 1167165,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161217,
+        "number": 1167164,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161216,
+        "number": 1167163,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161215,
+        "number": 1167162,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161214,
+        "number": 1167161,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161213,
+        "number": 1167160,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161212,
+        "number": 1167159,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161211,
+        "number": 1167158,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161210,
+        "number": 1167157,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161209,
+        "number": 1167156,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161208,
+        "number": 1167155,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161207,
+        "number": 1167154,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161206,
+        "number": 1167153,
         "extrinsics": 1,
         "final": true
       },
       {
-        "number": 1161205,
-        "extrinsics": 1,
-        "final": true
-      },
-      {
-        "number": 1161204,
+        "number": 1167152,
         "extrinsics": 1,
         "final": true
       }
     ],
-    "totalIssuancePlancks": "6054836317054727360198",
-    "eraNumber": 172,
-    "lastSettledEra": "171",
+    "totalIssuancePlancks": "6054836317050833702831",
+    "genesisIssuancePlancks": "6010250000010000000000",
+    "eraNumber": 173,
+    "lastSettledEra": "172",
     "alpha": 8000,
     "beta": 5000,
     "floorBps": 1000,

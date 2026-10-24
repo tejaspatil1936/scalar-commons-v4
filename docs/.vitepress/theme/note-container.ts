@@ -2,8 +2,7 @@
 // VitePress and not resolvable from docs/, so the container rule is written
 // here (the same algorithm: a fence of three or more colons, the name, an
 // optional label, closed by a colon fence of at least the opening length).
-// The rendered markup is the chrome's `marginNote` from templates.mjs:
-// <aside class="nw-note"> leader · <div class="nw-note-body"> label · text.
+// It renders as the chrome's info callout (see the renderer rules below).
 import type MarkdownIt from 'markdown-it'
 import type StateBlock from 'markdown-it/lib/rules_block/state_block.mjs'
 
@@ -72,12 +71,14 @@ export function noteContainer(md: MarkdownIt): void {
   md.block.ruler.before('fence', 'container_note', rule, {
     alt: ['paragraph', 'reference', 'blockquote', 'list'],
   })
+  // Rendered as the chrome's info callout; the label in sentence case.
   md.renderer.rules.container_note_open = (tokens, idx) => {
-    const label = tokens[idx].info.trim().slice(NAME.length).trim()
+    const raw = tokens[idx].info.trim().slice(NAME.length).trim().toLowerCase()
+    const label = raw ? raw[0].toUpperCase() + raw.slice(1) : ''
     return (
-      `<aside class="nw-note" data-note><span class="nw-leader" aria-hidden="true"></span>` +
-      `<div class="nw-note-body"><span class="nw-label">${md.utils.escapeHtml(label)}</span>`
+      `<aside class="sc-callout sc-note" role="note" data-note>` +
+      `<div class="sc-callout-body">${label ? `<strong>${md.utils.escapeHtml(label)}</strong>` : ''}<div>`
     )
   }
-  md.renderer.rules.container_note_close = () => '</div></aside>\n'
+  md.renderer.rules.container_note_close = () => '</div></div></aside>\n'
 }

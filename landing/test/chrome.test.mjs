@@ -1,140 +1,132 @@
-// The Ledger tokens (src/chrome/tokens.css): black ink on paper, held to the
-// round-2 brief (SITE-ROUND2.md §1.1). The palette is exact and has seven
-// values and no hue; the five ink/paper pairs meet the contrast the brief
-// states; the type scale is closed at eleven styles in two self-hosted faces;
-// the spacing scale is closed at ten steps; and no colour literal, bare pixel
-// spacing value or off-scale font lives anywhere outside tokens.css — not in
-// the chrome, the page stylesheets, the instruments, or the docs and explorer
-// copies. Print is the same page without the bar, in a separate sheet.
+// The plain chrome (SITE-REDESIGN.md §2–§3), held to the brief: the token
+// values exact, colour literals only from the token list on any surface, no
+// uppercase and no letter-spacing (except the display headline), every
+// margin/padding/gap on the 4–96 px scale, every font one of the ten type
+// tokens, weights 400/500/600 only, one shadow (an open menu), colour
+// transitions only; the header, footer and components as specified; the
+// copies in docs/ and explorer/ byte-identical.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync as listDir, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { contrast, rootTokens } from './lib/contrast.mjs';
+import { drift, syncPairs, CHROME_FILES, CHROME_FONTS } from '../scripts/sync-chrome.mjs';
+import {
+  BADGES,
+  ICONS,
+  badge,
+  button,
+  card,
+  footer,
+  head,
+  header,
+  icon,
+  kvTable,
+  navItems,
+  pagination,
+  stats,
+  table,
+  address,
+  callout,
+  codeBlock,
+  searchField,
+  tabs,
+  DISCLAIMER,
+} from '../src/chrome/templates.mjs';
 
-const css = readFileSync(new URL('../src/chrome/tokens.css', import.meta.url), 'utf8');
-const tokens = rootTokens(css);
+const read = (rel) => readFileSync(new URL(rel, import.meta.url), 'utf8');
+const tokensCss = read('../src/chrome/tokens.css');
+const tokens = rootTokens(tokensCss);
+const chromeCss = read('../src/chrome/chrome.css');
+const fontsCss = read('../src/chrome/fonts.css');
 
-const PALETTE = {
-  '--paper': '#0b0b0b',
-  '--paper-2': '#141414',
-  '--paper-3': '#1d1d1d',
-  '--ink': '#f2f2f2',
-  '--ink-2': '#bdbdbd',
-  '--ink-3': '#8f8f8f',
-  '--rule': '#2a2a2a',
-  '--rule-2': '#3d3d3d',
+export const COLOURS = {
+  '--bg': '#ffffff',
+  '--bg-2': '#f6f7f9',
+  '--border': '#e3e6ea',
+  '--control': '#8a919a',
+  '--text': '#1a1c1e',
+  '--text-2': '#5c6370',
+  '--text-3': '#6b727c',
+  '--accent': '#1457d6',
+  '--accent-2': '#0f46b0',
+  '--ok': '#188038',
+  '--warn': '#9a5b00',
+  '--bad': '#c62828',
+  '--ok-bg': '#ecfdf3',
+  '--warn-bg': '#fef7e6',
+  '--bad-bg': '#fdecec',
 };
-// Round 2's light values: print.css turns the page back to these, and nowhere else may they appear.
-export const PRINT_PALETTE = {
-  '--paper': '#fcfcfc',
-  '--paper-2': '#f4f4f4',
-  '--paper-3': '#ebebeb',
-  '--ink': '#111111',
-  '--ink-2': '#4d4d4d',
-  '--ink-3': '#6f6f6f',
-  '--rule': '#d6d6d6',
-  '--rule-2': '#b0b0b0',
-};
-// The seven colours a computed style may resolve to (rule and rule-2 are lines
-// and marks; the check-layout script holds computed colours to this set).
-export const LEDGER_COLOURS = Object.values(PALETTE);
-
-// Round 3: one size up — 96 px display, 20 px body, 80 px figures.
-const TYPE = {
-  '--display': '600 6rem/1.0 var(--font-serif)',
-  '--h2': '600 3rem/1.1 var(--font-serif)',
-  '--h3': '600 1.75rem/1.25 var(--font-serif)',
-  '--body': '400 1.25rem/1.55 var(--font-serif)',
-  '--small': '400 1.0625rem/1.5 var(--font-serif)',
-  '--figure-xl': '400 5rem/1 var(--font-mono)',
-  '--figure-l': '400 3.5rem/1 var(--font-mono)',
-  '--figure-m': '400 2.25rem/1 var(--font-mono)',
-  '--figure-s': '400 1.5rem/1 var(--font-mono)',
-  '--label': '500 0.75rem/1 var(--font-mono)',
-  '--mono': '400 0.9375rem/1.5 var(--font-mono)',
+export const TYPE = {
+  '--display': '600 3.5rem/1.1 var(--font-sans)',
+  '--h1': '600 2.5rem/1.2 var(--font-sans)',
+  '--h2': '600 1.75rem/1.25 var(--font-sans)',
+  '--h3': '600 1.25rem/1.35 var(--font-sans)',
+  '--lead': '400 1.125rem/1.6 var(--font-sans)',
+  '--body': '400 1rem/1.6 var(--font-sans)',
+  '--small': '400 0.875rem/1.5 var(--font-sans)',
+  '--caption': '400 0.8125rem/1.5 var(--font-sans)',
+  '--stat': '600 2rem/1.1 var(--font-sans)',
+  '--mono': '400 0.875rem/1.5 var(--font-mono)',
 };
 export const TYPE_TOKENS = Object.keys(TYPE).map((k) => k.slice(2));
+export const SPACING = { '--s-1': '4px', '--s-2': '8px', '--s-3': '12px', '--s-4': '16px', '--s-5': '24px', '--s-6': '32px', '--s-7': '48px', '--s-8': '64px', '--s-9': '96px' };
 
-export const SPACING = { '--s-1': '4px', '--s-2': '8px', '--s-3': '12px', '--s-4': '16px', '--s-5': '24px', '--s-6': '32px', '--s-7': '48px', '--s-8': '64px', '--s-9': '96px', '--s-10': '160px' };
+test('the colours are the brief’s, to the hex, and the text pairs read on white', () => {
+  for (const [name, hex] of Object.entries(COLOURS)) assert.equal(tokens[name], hex, name);
+  const colourTokens = Object.entries(tokens).filter(([, v]) => /^#/.test(v)).map(([k]) => k);
+  assert.deepEqual(colourTokens.sort(), Object.keys(COLOURS).sort(), 'a colour token outside the list');
+  const ratio = (a, b) => contrast(tokens[a], tokens[b]);
+  assert.ok(ratio('--text', '--bg') >= 16.5, 'text 17:1');
+  assert.ok(ratio('--text-2', '--bg') >= 5.9, 'text-2 6:1');
+  assert.ok(ratio('--text-3', '--bg') >= 4.5, 'text-3 4.9:1');
+  assert.ok(ratio('--accent', '--bg') >= 5.5, 'accent 6.2:1');
+  assert.ok(ratio('--control', '--bg') >= 3, 'control 3.2:1');
+  for (const s of ['ok', 'warn', 'bad']) assert.ok(contrast(tokens[`--${s}`], tokens[`--${s}-bg`]) >= 4.5, `${s} on its badge fill`);
+});
 
-test('the palette is the Ledger’s, to the hex: paper, ink and rules, and no hue', () => {
-  for (const [name, hex] of Object.entries(PALETTE)) assert.equal(tokens[name], hex, name);
-  const colours = Object.entries(tokens).filter(([, v]) => /^#|rgb|hsl/.test(v));
-  assert.deepEqual(colours.map(([k]) => k).sort(), Object.keys(PALETTE).sort(), 'a colour token outside the Ledger');
-  for (const gone of ['--pine-0', '--pine-1', '--pine-2', '--pine-3', '--bone', '--bone-dim', '--sage', '--leader', '--filament', '--glow', '--vermilion', '--ice', '--clay', '--font-sans']) {
-    assert.ok(!(gone in tokens), `${gone} is Nightwatch’s, deleted not aliased`);
-  }
-  for (const hex of Object.values(PALETTE)) {
-    const [r, g, b] = [1, 3, 5].map((i) => hex.slice(i, i + 2));
-    assert.ok(r === g && g === b, `${hex} is not a grey`);
+test('one light theme: no dark scheme anywhere in the chrome', () => {
+  for (const css of [tokensCss, chromeCss, fontsCss]) {
+    assert.ok(!/prefers-color-scheme/.test(css));
+    assert.ok(!/color-scheme:\s*dark/.test(css));
   }
 });
 
-test('the ink/paper pairs meet the contrast the brief states (round 3: dark)', () => {
-  const pairs = [
-    ['--ink', '--paper', 17.6],
-    ['--ink', '--paper-3', 15.1],
-    ['--ink-2', '--paper', 10.5],
-    ['--ink-2', '--paper-3', 9.0],
-    ['--ink-3', '--paper', 6.1],
-    ['--ink-3', '--paper-3', 5.2],
-  ];
-  for (const [ink, ground, stated] of pairs) {
-    const ratio = contrast(tokens[ink], tokens[ground]);
-    assert.ok(ratio >= stated - 0.05, `${ink} on ${ground} is ${ratio.toFixed(2)}:1, under the stated ${stated}:1`);
-    assert.ok(ratio >= 4.5, `${ink} on ${ground} is under WCAG AA`);
-  }
-  // Printed, the light values keep round 2's pairs.
-  for (const [ink, ground, stated] of [['--ink', '--paper', 18.4], ['--ink-2', '--paper', 8.2], ['--ink-3', '--paper', 4.9]]) {
-    const ratio = contrast(PRINT_PALETTE[ink], PRINT_PALETTE[ground]);
-    assert.ok(ratio >= stated - 0.05, `printed ${ink} on ${ground} is ${ratio.toFixed(2)}:1`);
-  }
-});
-
-test('dark by default and only; print is light and is the one place the light values survive', () => {
-  const chromeCss = readFileSync(new URL('../src/chrome/chrome.css', import.meta.url), 'utf8');
-  const printCss = readFileSync(new URL('../src/chrome/print.css', import.meta.url), 'utf8');
-  assert.match(chromeCss, /:root \{ color-scheme: dark; \}/);
-  const printRoot = printCss.match(/@media print \{\s*:root \{([^}]*)\}/)?.[1] ?? '';
-  assert.match(printRoot, /color-scheme: light;/);
-  for (const [name, hex] of Object.entries(PRINT_PALETTE)) assert.ok(printRoot.includes(`${name}: ${hex};`), `print sets ${name} to ${hex}`);
-  // Outside that block, print.css carries no colour at all.
-  assert.ok(!/#[0-9a-f]{3,8}\b/i.test(printCss.replace(/@media print \{\s*:root \{[^}]*\}/, '')), 'a colour in print.css outside its :root');
-});
-
-test('the type scale is closed: eleven styles, two self-hosted faces, and nothing else sets a size', () => {
+test('the type scale is closed: ten styles in two faces, mobile sizes for the headings and stats', () => {
   for (const [name, value] of Object.entries(TYPE)) assert.equal(tokens[name], value, name);
-  assert.equal(tokens['--font-serif'], '"Source Serif 4", Georgia, serif');
-  assert.equal(tokens['--font-mono'], '"IBM Plex Mono", ui-monospace, monospace');
-  const styles = Object.entries(tokens).filter(([, v]) => /rem\//.test(v)).map(([k]) => k);
-  assert.deepEqual(styles.sort(), Object.keys(TYPE).sort(), 'a type style outside the eleven');
+  assert.match(tokens['--font-sans'], /^"Inter Variable"/);
+  assert.match(tokens['--font-mono'], /^"JetBrains Mono"/);
+  const mobile = tokensCss.match(/@media \(max-width: 640px\) \{\s*:root \{([^}]*)\}/)?.[1] ?? '';
+  for (const [name, size] of [['--display', '2.5rem/1.15'], ['--h1', '2rem/1.2'], ['--h2', '1.5rem/1.25'], ['--h3', '1.125rem/1.35'], ['--stat', '1.75rem/1.1']]) {
+    assert.ok(mobile.includes(`${name}:`) && mobile.match(new RegExp(`${name}:[^;]*${size.replace('.', '\\.').replace('/', '\\/')}`)), `${name} at ${size} on mobile`);
+  }
+  assert.ok(!/Source Serif|IBM Plex|Instrument|Martian/.test(tokensCss + fontsCss + chromeCss), 'no retired face is named');
+  assert.match(fontsCss, /font-family: "Inter Variable"[\s\S]*inter-latin-wght-normal\.woff2/);
+  assert.match(fontsCss, /font-family: "JetBrains Mono"[\s\S]*jetbrains-mono-latin-400-normal\.woff2/);
+  assert.equal((fontsCss.match(/font-display: swap/g) ?? []).length, 2);
 });
 
-test('geometry, the spacing scale and motion as briefed; one theme, light; no loop', () => {
-  assert.equal(tokens['--radius'], '2px');
-  assert.equal(tokens['--bar'], '72px');
-  assert.equal(tokens['--content'], '1200px');
-  assert.equal(tokens['--gutter'], '24px');
+test('space and shape: the 4–96 px scale, radius 8 and 4, the container and the reading column', () => {
   for (const [name, px] of Object.entries(SPACING)) assert.equal(tokens[name], px, name);
-  const steps = Object.keys(tokens).filter((k) => /^--s-\d+$/.test(k));
-  assert.deepEqual(steps.sort(), Object.keys(SPACING).sort(), 'a spacing step outside the ten');
-  for (const [name, ms] of [['--t-attack', '120ms'], ['--t-cool', '1800ms'], ['--t-ui', '240ms'], ['--t-shift', '240ms']]) assert.equal(tokens[name], ms, name);
-  assert.equal(tokens['--ease-attack'], 'cubic-bezier(0.1, 0.9, 0.2, 1)');
-  assert.equal(tokens['--ease-cool'], 'cubic-bezier(0.2, 0.6, 0.4, 1)');
-  assert.equal(tokens['--ease-ui'], 'cubic-bezier(0.2, 0, 0, 1)');
-  assert.equal((css.match(/:root\s*\{/g) ?? []).length, 1, 'one :root block: one theme');
-  assert.ok(!/prefers-color-scheme/.test(css), 'no second colour scheme');
-  assert.ok(!/infinite|@keyframes/.test(css), 'no loop');
+  assert.deepEqual(Object.keys(tokens).filter((k) => /^--s-\d+$/.test(k)).sort(), Object.keys(SPACING).sort());
+  assert.equal(tokens['--radius'], '8px');
+  assert.equal(tokens['--radius-sm'], '4px');
+  assert.equal(tokens['--container'], '1120px');
+  assert.equal(tokens['--gutter'], '24px');
+  assert.equal(tokens['--reading'], '720px');
+  assert.equal(tokens['--header'], '64px');
+  assert.equal(tokens['--menu-shadow'], '0 2px 8px rgba(0, 0, 0, .12)');
 });
 
-// ── the scope the scales are enforced over ──────────────────────────────────
+// ── the scope the rules hold over ────────────────────────────────────────────
 const REPO = new URL('../../', import.meta.url);
-const walk = (rel, keep) => {
-  const root = new URL(rel, REPO);
+const rel = (url) => url.pathname.replace(new URL('.', REPO).pathname, '');
+const walk = (dir, keep) => {
+  const root = new URL(dir, REPO);
+  if (!existsSync(root)) return [];
   const out = [];
   const visit = (url) => {
-    for (const name of listDir(url)) {
-      if (name === 'node_modules' || name === 'dist' || name === 'cache') continue;
+    for (const name of readdirSync(url)) {
+      if (['node_modules', 'dist', 'cache', '.temp'].includes(name)) continue;
       const child = new URL(name, url);
       if (statSync(child).isDirectory()) visit(new URL(`${name}/`, url));
       else if (keep(name)) out.push(child);
@@ -143,17 +135,15 @@ const walk = (rel, keep) => {
   visit(root);
   return out;
 };
-const rel = (url) => url.pathname.replace(new URL('.', REPO).pathname, '');
-// Every file that can carry a colour: the chrome and its copies, every page
-// stylesheet and module, the instruments, the docs theme, the explorer's source.
-export const COLOUR_SCOPE = [
-  ...walk('landing/src/', (n) => /\.(css|m?js)$/.test(n)),
-  ...walk('docs/.vitepress/theme/', (n) => /\.(css|vue|ts)$/.test(n)),
-  ...walk('explorer/src/', (n) => /\.(css|ts)$/.test(n)),
-].filter((u) => !/\/chrome\/(?:tokens|print)\.css$/.test(u.pathname));
-// Every stylesheet the spacing and type scales are enforced over, with the
-// explorer's inline layout sheet (render.ts) lifted out of its template literal.
-export const STYLE_SCOPE = () => {
+
+const COLOUR_FILES = () =>
+  [
+    ...walk('landing/src/', (n) => /\.(css|m?js|svg)$/.test(n)),
+    ...walk('landing/public/', (n) => /\.svg$/.test(n)),
+    ...walk('docs/.vitepress/theme/', (n) => /\.(css|vue|ts|svg)$/.test(n)),
+    ...walk('explorer/src/', (n) => /\.(css|ts|svg)$/.test(n)),
+  ].filter((u) => !/\/chrome\/tokens\.css$/.test(u.pathname));
+export const STYLE_SHEETS = () => {
   const sheets = [
     ...walk('landing/src/', (n) => n.endsWith('.css')),
     ...walk('docs/.vitepress/theme/', (n) => n.endsWith('.css')),
@@ -161,46 +151,45 @@ export const STYLE_SCOPE = () => {
   ]
     .filter((u) => !/\/chrome\/tokens\.css$/.test(u.pathname))
     .map((u) => [rel(u), readFileSync(u, 'utf8')]);
-  const render = readFileSync(new URL('explorer/src/render.ts', REPO), 'utf8');
-  for (const m of render.matchAll(/const ([A-Z_]+_CSS) = `([^`]*)`/g)) sheets.push([`explorer/src/render.ts ${m[1]}`, m[2]]);
+  // The explorer's page-scoped rules live in TypeScript template strings.
+  for (const file of ['explorer/src/render.ts', 'explorer/src/explorer-css.ts']) {
+    const source = readFileSync(new URL(file, REPO), 'utf8');
+    for (const m of source.matchAll(/const ([A-Z_]+_CSS) = `([^`]*)`/g)) sheets.push([`${file} ${m[1]}`, m[2]]);
+  }
   return sheets;
 };
+const declarations = (sheet) =>
+  [...sheet.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)].flatMap((m) =>
+    [...m[2].matchAll(/(?:^|;)\s*([a-z-]+)\s*:\s*([^;]+)/g)].map((d) => [m[1].trim(), d[1], d[2].trim()]),
+  );
 
-// A literal is written-out colour: a hex, or an rgb()/hsl() whose first argument
-// is a number. A colour computed at runtime from a token's value (the agent
-// field mixes two tokens) is not a literal and is not caught.
-const COLOUR_LITERAL = /(?<![\w&-])#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})(?![\w-])|\b(?:rgba?|hsla?)\(\s*[\d.]/gi;
+const LITERAL = /(?<![\w&-])#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{3,4})(?![\w-])|\b(?:rgba?|hsla?)\(\s*[\d.]/gi;
+const ALLOWED = new Set(Object.values(COLOURS));
 
-test('no colour literal anywhere outside tokens.css: no hex, rgb or hsl in the chrome, the pages, the instruments or the copies', () => {
-  assert.ok(COLOUR_SCOPE.length > 40, 'the scope is the whole site');
+test('colours only from the token list on every surface: no literal colour that is not a token value', () => {
+  const files = COLOUR_FILES();
+  assert.ok(files.length > 20, 'the scope is the whole site');
   const hits = [];
-  for (const url of COLOUR_SCOPE) {
-    const source = readFileSync(url, 'utf8');
-    source.split('\n').forEach((line, i) => {
-      for (const m of line.matchAll(COLOUR_LITERAL)) hits.push(`${rel(url)}:${i + 1} ${m[0]}`);
-    });
-  }
-  assert.deepEqual(hits, [], `colour literals outside tokens.css:\n${hits.join('\n')}`);
-});
-
-test('no file names a deleted Nightwatch token: pine, bone, sage, leader, filament, glow, vermilion, ice, clay and the sans are gone, not aliased', () => {
-  const gone = /var\(--(?:pine-[0-3]|bone(?:-dim)?|sage|leader|filament|glow|vermilion|ice|clay|font-sans)\)/g;
-  const hits = [];
-  for (const url of COLOUR_SCOPE) {
+  for (const url of files) {
     readFileSync(url, 'utf8').split('\n').forEach((line, i) => {
-      for (const m of line.matchAll(gone)) hits.push(`${rel(url)}:${i + 1} ${m[0]}`);
+      for (const m of line.matchAll(LITERAL)) if (!ALLOWED.has(m[0].toLowerCase())) hits.push(`${rel(url)}:${i + 1} ${m[0]}`);
     });
   }
-  assert.deepEqual(hits, [], `references to deleted tokens:\n${hits.join('\n')}`);
+  assert.deepEqual(hits, [], `colour literals outside the token list:\n${hits.join('\n')}`);
 });
 
-const SPACING_PROPS = /^(?:margin|padding|inset|gap|row-gap|column-gap|top|right|bottom|left|height|min-height|max-height)(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?$/;
-const SCALE_VAR = /var\(--(?:s-(?:[1-9]|10)|bar|gutter)\)/g;
-// A value is on the scale when every part is 0, auto, none, 100%, a scale
-// variable (--s-n, or the --bar and --gutter geometry tokens), or a calc()
-// built from those, plain numbers and operators. Heights may also be measured
-// in viewport units: a full-screen surface (the pulse field, a presenter
-// slide, the docs main column) is viewport geometry, not a spacing step.
+test('sentence case: no text-transform uppercase, and no letter-spacing except the display headline', () => {
+  const bad = [];
+  for (const [file, sheet] of STYLE_SHEETS()) {
+    for (const [selector, prop, value] of declarations(sheet)) {
+      if (prop === 'text-transform' && /uppercase/.test(value)) bad.push(`${file} ${selector} { text-transform: ${value} }`);
+      if (prop === 'letter-spacing' && !/^(?:normal|0)$/.test(value) && !/sc-display|hero-title/.test(selector)) bad.push(`${file} ${selector} { letter-spacing: ${value} }`);
+    }
+  }
+  assert.deepEqual(bad, [], bad.join('\n'));
+});
+
+const SCALE_VAR = /var\(--(?:s-[1-9]|header|gutter)\)/g;
 const splitParts = (v) => {
   const parts = [];
   let depth = 0;
@@ -216,177 +205,151 @@ const splitParts = (v) => {
   if (cur) parts.push(cur);
   return parts;
 };
-export const onScale = (value, prop = '') => {
-  const v = value.replace(/!important/, '').trim();
-  if (/^(?:inherit|initial|unset|none)$/.test(v)) return true;
-  const viewport = /height$/.test(prop);
-  return splitParts(v).every((part) => {
-    if (/^(?:0|auto|100%|none)$/.test(part)) return true;
-    if (viewport && /^\d+d?vh$/.test(part)) return true;
-    if (/^var\(--(?:s-(?:[1-9]|10)|bar|gutter)\)$/.test(part)) return true;
-    if (/^calc\(/.test(part)) {
-      let rest = part.slice(4).replace(SCALE_VAR, '').replace(/100%/g, '');
-      if (viewport) rest = rest.replace(/\d+d?vh/g, '');
-      return /^[\s\d.+\-*/()]*$/.test(rest);
-    }
+/** 0, auto, 100%, a --s-n step (or the header and gutter), or a calc() of those. */
+export const onScale = (value) =>
+  splitParts(value.replace(/!important/, '').trim()).every((part) => {
+    if (/^(?:0|auto|inherit|unset|none)$/.test(part)) return true;
+    if (/^var\(--(?:s-[1-9]|header|gutter)\)$/.test(part)) return true;
+    if (/^calc\(/.test(part)) return /^[\s\d.+\-*/()%]*$/.test(part.slice(4).replace(SCALE_VAR, '').replace(/100%/g, ''));
     return false;
   });
-};
-const declarations = (sheet) =>
-  [...sheet.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)].flatMap((m) =>
-    [...m[2].matchAll(/(?:^|;)\s*([a-z-]+)\s*:\s*([^;]+)/g)].map((d) => [m[1].trim(), d[1], d[2].trim()]),
-  );
+const SPACING_PROPS = /^(?:margin|padding|gap|row-gap|column-gap)(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?$/;
 
-test('one spacing scale: every margin, padding, gap, offset and height is 0, auto, 100%, a --s-n step or a calc() of them', () => {
+test('one spacing scale: every margin, padding and gap is 0, auto, a --s-n step or a calc() of them', () => {
   const bad = [];
-  for (const [file, sheet] of STYLE_SCOPE()) {
+  for (const [file, sheet] of STYLE_SHEETS()) {
     for (const [selector, prop, value] of declarations(sheet)) {
       if (selector.startsWith('@font-face') || selector.startsWith(':root')) continue;
-      if (SPACING_PROPS.test(prop) && !onScale(value, prop)) bad.push(`${file} ${selector} { ${prop}: ${value} }`);
+      if (SPACING_PROPS.test(prop) && !onScale(value)) bad.push(`${file} ${selector} { ${prop}: ${value} }`);
     }
   }
   assert.deepEqual(bad, [], `off the spacing scale:\n${bad.join('\n')}`);
 });
 
-test('one type scale: every font is one of the eleven styles; nothing sets a font-size', () => {
-  const allowed = new RegExp(`^(?:var\\(--(?:${TYPE_TOKENS.join('|')})\\)|inherit)(?:\\s*!important)?$`);
+test('one type scale: every font is one of the ten tokens; weights 400, 500, 600; nothing sets a font-size', () => {
+  const allowed = new RegExp(`^(?:var\\(--(?:${TYPE_TOKENS.join('|')})\\)|inherit)$`);
   const bad = [];
-  for (const [file, sheet] of STYLE_SCOPE()) {
+  for (const [file, sheet] of STYLE_SHEETS()) {
     for (const [selector, prop, value] of declarations(sheet)) {
       if (selector.startsWith('@font-face') || selector.startsWith(':root')) continue;
       if (prop === 'font' && !allowed.test(value)) bad.push(`${file} ${selector} { font: ${value} }`);
-      if (prop === 'font-size' && !/^inherit$/.test(value)) bad.push(`${file} ${selector} { font-size: ${value} }`);
-      if (prop === 'font-family' && !/^var\(--font-(?:serif|mono)\)$|^inherit$/.test(value)) bad.push(`${file} ${selector} { font-family: ${value} }`);
+      if (prop === 'font-size' && value !== 'inherit') bad.push(`${file} ${selector} { font-size: ${value} }`);
+      if (prop === 'font-weight' && !/^(?:400|500|600|inherit|normal)$/.test(value)) bad.push(`${file} ${selector} { font-weight: ${value} }`);
+      if (prop === 'font-family' && !/^var\(--font-(?:sans|mono)\)$|^inherit$/.test(value)) bad.push(`${file} ${selector} { font-family: ${value} }`);
     }
   }
   assert.deepEqual(bad, [], `off the type scale:\n${bad.join('\n')}`);
 });
 
-// ── the chrome proper ────────────────────────────────────────────────────────
-import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { drift, syncPairs } from '../scripts/sync-chrome.mjs';
-import { reading, topBar, footer, DISCLAIMER } from '../src/chrome/templates.mjs';
-
-const chrome = readFileSync(new URL('../src/chrome/chrome.css', import.meta.url), 'utf8');
-const print = readFileSync(new URL('../src/chrome/print.css', import.meta.url), 'utf8');
-const blocks = (source) => [...source.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => [m[1].trim(), m[2]]);
+test('no elevation but an open menu, no motion but colour transitions, no 2 px rules, no dotted leaders', () => {
+  const bad = [];
+  for (const [file, sheet] of STYLE_SHEETS()) {
+    for (const [selector, prop, value] of declarations(sheet)) {
+      if (prop === 'box-shadow' && value !== 'none' && value !== 'var(--menu-shadow)') bad.push(`${file} ${selector} { box-shadow: ${value} }`);
+      if (prop === 'transition' && !/^(?:none|(?:color|background-color|border-color) \.15s(?:, (?:color|background-color|border-color) \.15s)*)$/.test(value)) bad.push(`${file} ${selector} { transition: ${value} }`);
+      if (/^animation/.test(prop) && value !== 'none') bad.push(`${file} ${selector} { ${prop}: ${value} }`);
+      if (/gradient\(/.test(value)) bad.push(`${file} ${selector} { ${prop}: ${value} }`);
+      if (/dotted|double/.test(value) && /^(?:border|text-decoration|outline)/.test(prop)) bad.push(`${file} ${selector} { ${prop}: ${value} }`);
+    }
+    if (/@keyframes/.test(sheet)) bad.push(`${file} declares @keyframes`);
+  }
+  assert.deepEqual(bad, [], bad.join('\n'));
+});
 
 test('the chrome copies in docs/ and explorer/ are byte-identical to the source, fonts included', () => {
-  assert.ok(syncPairs().length >= 10);
-  const bad = drift();
-  assert.deepEqual(bad.map(([, d]) => d), [], 'run `node scripts/sync-chrome.mjs`');
+  assert.deepEqual(CHROME_FILES, ['tokens.css', 'fonts.css', 'chrome.css']);
+  assert.deepEqual(CHROME_FONTS.map(([, n]) => n), ['inter-latin-wght-normal.woff2', 'jetbrains-mono-latin-400-normal.woff2']);
+  assert.equal(syncPairs().length, 10);
+  assert.deepEqual(drift().map(([, d]) => d), [], 'run `node scripts/sync-chrome.mjs`');
 });
 
-test('chrome.css draws in the Ledger: rules are lines not frames, the only gradients are leader dots and hatching, one loop, no glow, no italics', () => {
-  for (const [selector, body] of blocks(chrome)) {
-    if (selector.startsWith('@font-face') || selector.startsWith(':root')) continue;
-    // A four-sided border is a frame; the Ledger draws frames only as marks
-    // (a stub, a tag's mark, the lamp's ring, the switch) and the focus ring.
-    if (/(?:^|;)\s*border\s*:(?!\s*(?:0|none)\s*(?:;|$))/.test(body)) {
-      assert.match(selector, /focus-visible|nw-stub|nw-dot|nw-mark|nw-lamp|nw-switch|nw-ember|nw-redaction/, `${selector} draws a box`);
-    }
-  }
-  const loops = [...chrome.matchAll(/animation:[^;]*infinite/g)];
-  assert.equal(loops.length, 1, 'exactly one loop, the loading leader');
-  assert.match(chrome, /\.nw-reading\.is-loading \.nw-leader::before \{[^}]*nw-travel 1200ms linear infinite/);
-  assert.match(chrome, /@media \(prefers-reduced-motion: reduce\)[\s\S]*content: "loading"/);
-  const rest = chrome
-    .replace(/radial-gradient\(circle, (?:currentColor|var\(--(?:rule|rule-2|ink)\)) [0-9.]+px, transparent [0-9.]+px\)/g, '')
-    .replace(/repeating-linear-gradient\((?:45deg|-45deg|135deg), var\(--ink\) 0 1px, transparent 1px [0-9]+px\)/g, '');
-  assert.ok(!/gradient\(/.test(rest), 'the only gradients are the leader dots and the 45° hatch');
-  assert.ok(!/text-shadow|backdrop-filter|blur\(|drop-shadow/.test(chrome), 'no glow, no glass');
-  // A shadow is allowed only as a hard line or ring (blur 0): the double
-  // outline of an operator-run stub, a mark's ring, a one-pixel tick.
-  const hard = /^(?:inset )?(?:-?[\d.]+px|0) (?:-?[\d.]+px|0) 0(?: [\d.]+px)? var\(--(?:ink|ink-2|ink-3|rule|rule-2|paper|paper-2|paper-3)\)$/;
-  for (const [, value] of chrome.matchAll(/box-shadow:\s*([^;]+);/g)) {
-    if (value.trim() === 'none') continue;
-    for (const part of value.split(/,\s*/)) assert.match(part.trim(), hard, `a box-shadow with blur: ${value}`);
-  }
-  assert.ok(!/font-style:\s*italic/.test(chrome + print), 'no italics');
-  assert.ok(!/prefers-color-scheme/.test(chrome + print), 'one theme, dark; print is not a scheme');
-  assert.match(print, /@media print/);
-  assert.match(print, /\.nw-receipt, \.nw-receipt-line \{ display: block !important; \}/);
-  assert.match(print, /\.nw-bar[^{]*\{ display: none !important; \}/, 'print is the page without the bar');
-  for (const face of ['Source Serif 4', 'IBM Plex Mono']) assert.ok(chrome.includes(`font-family: "${face}"`), `${face} is self-hosted by the chrome`);
-  for (const file of ['source-serif-4-latin-opsz-normal.woff2', 'ibm-plex-mono-latin-400-normal.woff2', 'ibm-plex-mono-latin-500-normal.woff2']) assert.ok(chrome.includes(`url("fonts/${file}")`), file);
-  assert.match(chrome, /font-display: swap/);
-  assert.match(chrome, /\.nw-figure[^{]*\{[^}]*font-variant-numeric: tabular-nums lining-nums/);
-  assert.match(chrome, /font-optical-sizing: auto/);
+// ── components ───────────────────────────────────────────────────────────────
+const facts = { provenance: { specName: 'scalar-commons', specVersion: 309, readAtBlock: 1166072 } };
+
+test('header: wordmark, the four nav items in order, GitHub, one Get started button, a native menu; nothing else', () => {
+  const h = header({ current: 'network' });
+  assert.deepEqual(navItems().map((i) => i.label), ['Network', 'Explorer', 'Docs', 'Faucet']);
+  const nav = h.match(/<nav class="sc-nav"[^>]*>([\s\S]*?)<\/nav>/)[1];
+  assert.deepEqual([...nav.matchAll(/>([^<]+)<\/a>/g)].map((m) => m[1]), ['Network', 'Explorer', 'Docs', 'Faucet']);
+  assert.match(nav, /href="\/network" aria-current="page">Network/);
+  assert.match(h, /class="sc-wordmark" href="\/">Scalar Commons<\/a>/);
+  assert.match(h, /class="sc-header-link" href="https:\/\/github\.com\/[^"]+" rel="noopener">GitHub/);
+  assert.equal((h.match(/sc-btn-primary/g) ?? []).length, 1);
+  assert.match(h, /href="\/docs\/guide\/run-an-agent">Get started<\/a>/);
+  assert.match(h, /<details class="sc-menu">\s*<summary aria-label="Menu">/, 'the menu works without a script');
+  assert.match(h, /<summary aria-label="Menu">[\s\S]*?<span>Menu<\/span>[\s\S]*?<\/summary>/, 'the menu button is an icon and the word Menu');
+  assert.ok(!/\.sc-menu > summary > span\s*\{[^}]*(clip|position: absolute)/.test(read('../src/chrome/chrome.css')), 'the word Menu stays visible at every width');
+  assert.match(h, /<a class="sc-skip" href="#main">Skip to content<\/a>/);
+  for (const gone of ['AS BUILT', 'Sources', '⌘K', 'Present', 'connecting', 'Oversight', 'Pulse', 'Observatory']) assert.ok(!h.includes(gone), `the header carries ${gone}`);
+  assert.match(header({ site: 'https://scalarnet.io' }), /href="https:\/\/scalarnet\.io\/network"/);
 });
 
-test('a Reading without a source throws; with one it carries its label, leader, figure, stub and receipt', () => {
-  assert.throws(() => reading({ key: 'x', label: 'Height', figure: '1' }), /no source/);
-  const source = { method: 'GET', url: 'https://api.scalarnet.io/v1/status', fetchedAt: '2026-10-23T05:48:45.503Z', block: 1157819, raw: 'chain-facts.json' };
-  const html = reading({ key: 'height', label: 'Height', figure: '1,157,819', size: 'm', state: 'record', source });
-  for (const part of ['class="nw-label">Height<', 'class="nw-leader"', 'nw-figure nw-figure--m', '1,157,819', 'class="nw-stub"', 'data-state="record"', 'GET api.scalarnet.io/v1/status', 'fetched 2026-10-23 05:48:45 UTC · block 1,157,819', 'raw ↗']) {
-    assert.ok(html.includes(part), `reading lacks ${part}`);
+test('footer: four columns of links a person can read, the network values, one caption line from the facts', () => {
+  const f = footer({ facts, builtAt: '2026-10-23T11:32:11.000Z' });
+  assert.deepEqual([...f.matchAll(/<h2>([^<]+)<\/h2>/g)].map((m) => m[1]), ['Product', 'Developers', 'Project', 'Network']);
+  for (const word of ['Home', 'Network', 'Explorer', 'Faucet', 'Docs', 'Run a node', 'Run an agent', 'Run a validator', 'SDK', 'Privacy demo', 'GitHub', 'Releases', 'Constitution', 'Security', 'Public RPC', 'REST API', 'Chain spec (download)']) {
+    assert.ok(f.includes(`>${word}<`) || f.includes(`<span>${word}</span>`), `footer lacks ${word}`);
   }
-  const sealed = reading({ key: 'p', label: 'Posture', figure: 'x', source: { ...source, method: 'FILE', url: 'posture.json' }, sealed: true });
-  assert.match(sealed, /data-sealed="true"/);
-  assert.match(sealed, /<span class="nw-stub"/, 'a sealed stub is not a button: it does not tear');
+  assert.ok(f.includes('wss://rpc.scalarnet.io') && f.includes('https://api.scalarnet.io/v1'));
+  for (const [, href] of f.matchAll(/href="([^"]+)"/g)) {
+    assert.ok(!/\.rs$|\/status\.json$|\/posture\.json$|\/tree\//.test(href), `footer opens raw source or JSON: ${href}`);
+  }
+  assert.match(f, /href="\/docs\/chainspec\.json" download="chainspec\.json">Chain spec \(download\)/);
+  assert.match(f, /href="\/docs\/reference\/constitution">Constitution/);
+  assert.match(f, /SECURITY\.md"[^>]*>Security/);
+  assert.ok(f.includes(`${DISCLAIMER} Runtime scalar-commons 309. Page built 23 Oct 2026, 11:32 UTC from block 1,166,072.`));
+  assert.ok(!/©|copyright/i.test(f));
 });
 
-test('the bar and the footer are the brief’s: the six nav words, the lamp, Sources, ⌘K; three footer columns, the facts and the disclaimer', () => {
-  const bar = topBar({ current: 'observatory' });
-  assert.deepEqual([...bar.matchAll(/<a href="[^"]+"(?: aria-current="page")?>([^<]+)<\/a>/g)].map((m) => m[1]).slice(0, 6), ['Observatory', 'Pulse', 'Explorer', 'Docs', 'Oversight', 'Faucet']);
-  assert.match(bar, /<a href="observatory" aria-current="page">Observatory<\/a>/);
-  assert.match(bar, /data-lamp data-state="connecting"/);
-  assert.match(bar, /data-sources-switch/);
-  assert.match(bar, /⌘K/);
-  assert.ok(!bar.includes('Present'), 'Present is the Observatory’s alone');
-  assert.match(topBar({ current: 'observatory', present: true }), /aria-keyshortcuts="P">Present/);
-  const foot = footer({ facts: { genesisHash: '0xff6882b49ad61dd3128a6e834b4f81704a3824ce358f2f69fe765ca07cf803d1', specVersion: 309, nodeVersion: '4.0.0-5f5e3c9439f', builtAt: '2026-10-23T05:48:45.503Z', block: 1157819 } });
-  for (const word of ['Chain', 'Build', 'Govern', 'Observatory', 'Pulse', 'Explorer', 'Status', 'Docs', 'SDK', 'Faucet', 'GitHub', 'Constitution', 'Evidence', 'Changelog', 'Disclosures', 'genesis 0xff68…03d1', 'spec 309 · node 4.0.0-5f5e3c9439f', 'site built 2026-10-23 05:48:45 UTC against block 1,157,819', DISCLAIMER]) {
-    assert.ok(foot.includes(word), `footer lacks ${word}`);
-  }
-  assert.ok(!/©|copyright/i.test(foot), 'no copyright line');
+test('head: title "Page — Scalar Commons", description, canonical, Open Graph with the image, favicon, lang', () => {
+  const h = head({ title: 'Network', description: 'Live figures.', path: '/network' });
+  assert.match(h, /^<!doctype html>\n<html lang="en">/);
+  assert.match(h, /<title>Network — Scalar Commons<\/title>/);
+  assert.match(h, /<meta name="description" content="Live figures\.">/);
+  assert.match(h, /<link rel="canonical" href="https:\/\/scalarnet\.io\/network">/);
+  for (const p of ['og:title', 'og:description', 'og:image', 'og:url']) assert.match(h, new RegExp(`property="${p}"`));
+  assert.match(h, /<link rel="icon" href="\/favicon\.svg" type="image\/svg\+xml">/);
+  assert.match(h, /fonts\/inter-latin-wght-normal\.woff2/);
+  assert.match(h, /color-scheme|<meta name="viewport"/);
+  assert.ok(!/color-scheme" content="dark/.test(h));
+  assert.throws(() => head({ title: 'x' }), /description/);
 });
 
-// Design-prompt specimens that must never reach a built page (brief §6.2).
-export const FORBIDDEN_SPECIMENS = [/1,115,263/, /6,054,836,317/, /\bera 141\b/, /\bagents? 214\b/, /214 agents/, /5GbFZC[^<\s]*8pcj/, /swarm-\d{4}\b/, /fonts\.googleapis/, /cdn\./];
-
-test('no built page carries a design specimen, a Google font or a CDN', () => {
-  const out = mkdtempSync(join(tmpdir(), 'landing-specimens-'));
-  execFileSync(process.execPath, ['scripts/build.mjs'], { cwd: fileURLToPath(new URL('../', import.meta.url)), env: { ...process.env, LANDING_OUT_DIR: out }, stdio: 'pipe' });
-  const pages = readdirSync(out).filter((f) => f.endsWith('.html'));
-  assert.ok(pages.length >= 6);
-  // oversight.html renders public/oversight-sample.json, a real devnet record whose
-  // agreement account the brief later lifted as a design specimen (5GbFZC…8pcj). A
-  // string the record itself carries is a figure from the chain, not a typed one, so
-  // on that page only, a specimen match must also be verbatim in the record.
-  const record = readFileSync(new URL('../public/oversight-sample.json', import.meta.url), 'utf8');
-  for (const page of pages) {
-    const html = readFileSync(join(out, page), 'utf8');
-    for (const pattern of FORBIDDEN_SPECIMENS) {
-      const hit = html.match(pattern);
-      if (hit && page === 'oversight.html' && record.includes(hit[0])) continue;
-      assert.ok(!hit, `${page} matches ${pattern}`);
-    }
-  }
-  const fonts = readdirSync(join(out, 'fonts'));
-  assert.deepEqual(fonts.sort(), ['ibm-plex-mono-latin-400-normal.woff2', 'ibm-plex-mono-latin-500-normal.woff2', 'source-serif-4-latin-opsz-normal.woff2'], 'dist/fonts holds the two faces and nothing else');
+test('components: buttons, cards, stats, tables, badges, tabs, search, code, callouts, pagination, addresses, icons', () => {
+  assert.match(button({ text: 'Get started', href: '/docs/' }), /class="sc-btn sc-btn-primary" href="\/docs\/">Get started<\/a>/);
+  assert.match(button({ text: 'See the network', href: '/network', variant: 'text' }), /sc-btn-text[\s\S]*sc-icon-arrow-right/);
+  assert.match(button({ text: 'Request', type: 'submit', disabled: true }), /<button class="sc-btn sc-btn-primary" type="submit" disabled>/);
+  assert.match(card({ title: 'Run an agent', body: 'One sentence.', action: { text: 'Read', href: '/docs/' } }), /<article class="sc-card"><h3>Run an agent<\/h3><p>One sentence\.<\/p>/);
+  assert.match(stats([{ label: 'Block height', value: '1,166,072', caption: 'Updated 4 s ago', key: 'height' }]), /sc-stat-label">Block height<[\s\S]*data-value>1,166,072</);
+  assert.match(table({ columns: [{ label: 'Block' }], rows: [], empty: 'No disputes are open.' }), /colspan="1">No disputes are open\.</);
+  assert.match(table({ columns: [{ label: 'Block' }, { label: 'Extrinsics', align: 'right' }], rows: [['1', '2']] }), /<th scope="col" class="sc-r">Extrinsics/);
+  assert.match(kvTable([['Symbol', 'CMN']]), /<th scope="row">Symbol<\/th><td>CMN<\/td>/);
+  assert.deepEqual(Object.keys(BADGES).filter((w) => ['Live', 'Finalized', 'Pending', 'Stale', 'Dispute', 'Slashed', 'Operator-run', 'Testnet'].includes(w)).length, 8);
+  assert.match(badge('Finalized'), /sc-badge sc-badge-ok">Finalized/);
+  assert.match(badge('Dispute'), /sc-badge-bad/);
+  assert.throws(() => badge('Cool'), /status word/);
+  assert.match(tabs([{ label: 'Extrinsics', href: '?tab=extrinsics', current: true }, { label: 'Events', href: '?tab=events' }]), /role="tablist"[\s\S]*aria-selected="true">Extrinsics/);
+  assert.match(searchField({ action: '/search', placeholder: 'Search', label: 'Search' }), /role="search"[\s\S]*type="search" name="q"/);
+  assert.match(codeBlock('curl -s https://api.scalarnet.io/v1/status'), /sc-code"><pre><code>curl[\s\S]*data-copy=/);
+  assert.match(callout({ variant: 'warning', body: 'Testnet.' }), /sc-callout sc-callout-warning" role="alert"/);
+  assert.match(pagination({ nextHref: '?offset=25', from: 1, to: 25, total: 989474 }), /Showing 1–25 of 989,474/);
+  assert.match(address('5GrwvaEF5zXb26Fz9rcQpDWS57CtERHpNehXCPcNoHGKutQY', { href: '/account/x' }), /title="5Grwva[^"]+">5Grwva…utQY<\/a>/);
+  assert.deepEqual(ICONS, ['search', 'menu', 'close', 'external-link', 'copy', 'check', 'chevron-right', 'chevron-down', 'arrow-right', 'warning', 'info']);
+  assert.match(icon('search'), /viewBox="0 0 20 20" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1\.5"/);
+  assert.throws(() => icon('sparkles'));
 });
 
-// ── fit.js: a row drops one size step, as a whole, when a figure outgrows its column ──
-import { fitRow } from '../src/chrome/behaviour/fit.js';
-
-test('fit: a row whose figure outgrows its column drops one step for all its figures, and steps back when it fits again', () => {
-  const figure = (width, column) => {
-    const reading = { clientWidth: column };
-    return { scrollWidth: width, closest: () => reading, parentElement: reading };
-  };
-  const row = (figs) => ({ dataset: {}, figs, querySelectorAll: () => figs, removeAttribute(name) { if (name === 'data-step') delete this.dataset.step; } });
-  const fits = row([figure(200, 282), figure(180, 282)]);
-  assert.equal(fitRow(fits), false);
-  assert.equal(fits.dataset.step, undefined);
-  const spills = row([figure(200, 282), figure(300, 282)]);
-  assert.equal(fitRow(spills), true);
-  assert.equal(spills.dataset.step, '1', 'the whole row steps down');
-  spills.figs[1].scrollWidth = 240; // the live figure shrank
-  assert.equal(fitRow(spills), false);
-  assert.equal(spills.dataset.step, undefined, 'and steps back up');
+test('one chrome: the Ledger chrome, its fonts and the deleted pages are gone from every surface (§8)', () => {
+  for (const gone of ['landing/src/chrome-legacy', 'explorer/src/chrome-legacy', 'docs/.vitepress/theme/chrome-legacy', 'landing/src/pulse', 'landing/src/pulse.css', 'landing/src/observatory/instruments', 'landing/src/chrome/curve.mjs', 'landing/src/chrome/print.css']) {
+    assert.ok(!existsSync(new URL(gone, REPO)), `${gone} still exists`);
+  }
+  for (const name of ['lamp', 'palette', 'stubs', 'bar', 'digits', 'fit', 'print']) assert.ok(!existsSync(new URL(`landing/src/chrome/behaviour/${name}.js`, REPO)), `behaviour/${name}.js still exists`);
+  const pkg = read('../package.json');
+  for (const dep of ['source-serif', 'ibm-plex', 'd3-', 'force-graph', 'gsap']) assert.ok(!pkg.includes(dep), `landing/package.json still lists ${dep}`);
+  const sources = [...walk('landing/src/', (n) => /\.(css|m?js)$/.test(n)), ...walk('landing/scripts/', (n) => /\.m?js$/.test(n)), ...walk('docs/.vitepress/theme/', (n) => /\.(css|ts|vue)$/.test(n)), ...walk('explorer/src/', (n) => /\.(css|ts)$/.test(n))];
+  for (const u of sources) {
+    const text = readFileSync(u, 'utf8');
+    assert.ok(!/chrome-legacy/.test(text.replace(/\/\/.*$/gm, '')), `${rel(u)} reaches for chrome-legacy`);
+    assert.ok(!/\bnw-[a-z]/.test(text), `${rel(u)} carries an nw-* class`);
+  }
 });

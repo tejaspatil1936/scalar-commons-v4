@@ -52,7 +52,7 @@ tester guide that hides its own friction is not a test.
 | Indexer REST API | `https://api.scalarnet.io` |
 | Faucet | `https://faucet.scalarnet.io` |
 | Explorer | `https://explorer.scalarnet.io` |
-| Raw chain spec | `https://scalarnet.io/docs/chainspec.json` |
+| Raw chain spec | <a href="/docs/chainspec.json" download="chainspec.json">chainspec.json (download)</a> — `https://scalarnet.io/docs/chainspec.json` |
 
 A quick liveness check, and the two facts worth knowing before anything else:
 

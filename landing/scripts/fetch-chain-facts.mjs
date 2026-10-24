@@ -124,6 +124,8 @@ export async function readChainFacts(api) {
       eraElapsedBlocks: header.number.toNumber() - eraStartBlock,
       recentBlocks,
       totalIssuancePlancks: str(await api.query.balances.totalIssuance()),
+      // The genesis mint: total issuance at block 0, so the home page can state it without a live read.
+      genesisIssuancePlancks: str(await (await api.at(await api.rpc.chain.getBlockHash(0))).query.balances.totalIssuance()),
       eraNumber: (await api.query.agents.eraNumber()).toNumber(),
       lastSettledEra: lastSettledEra.isEmpty ? null : str(lastSettledEra),
       alpha: (await api.query.autoParams.alpha()).toNumber(),

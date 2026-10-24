@@ -1,0 +1,9 @@
+/*
+ * /404 — page-scoped rules on top of the chrome (SITE-REDESIGN.md §5.4).
+ * Tokens only; nothing that is not on the scales.
+ */
+.nf-path { color: var(--text); overflow-wrap: anywhere; }
+.nf-body { display: grid; gap: var(--s-6); }
+.nf-results { display: grid; gap: var(--s-3); margin-top: var(--s-4); }
+.nf-results ul { display: grid; gap: var(--s-3); }
+.nf-results li a { font: var(--body); font-weight: 500; }

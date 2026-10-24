@@ -35,7 +35,7 @@ function build() {
 
 const out = build();
 const pages = Object.fromEntries(
-  ['index.html', 'observatory.html', 'pulse.html'].map((name) => [name, readFileSync(join(out, name), 'utf8')]),
+  ['index.html', 'network.html', 'observatory.html', 'pulse.html'].map((name) => [name, readFileSync(join(out, name), 'utf8')]),
 );
 const names = Object.values(status.fields).flatMap((entry) => entry.names);
 const count = (text, name) => (text.match(new RegExp(`\\b${name}\\b`, 'g')) ?? []).length;
@@ -63,24 +63,21 @@ test('every status value carries the date it was true, the document it came from
   }
 });
 
-test('the Observatory prints the hosts record with the Validators notes, labelled a record, dated and sourced, and ships the file', () => {
-  const page = pages['observatory.html'];
-  const section = page.match(/<section id="validators"[\s\S]*?<\/section>/)?.[0] ?? '';
-  const record = section.match(/<p class="instrument-note status-record" data-record="true" data-status="hosts">([\s\S]*?)<\/p>/)?.[1];
-  assert.ok(record, 'the Validators section carries the status record in its notes');
-  assert.ok(section.indexOf('class="instrument-note ring-note"') < section.indexOf('status-record'), 'after the live note');
-  assert.match(record, /Record, not live/);
+test('the Network page prints the hosts record under the Validators table, dated, and ships the file for download', () => {
+  const page = pages['network.html'];
+  const section = page.match(/<section class="sc-section" id="validators"[\s\S]*?<\/section>/)?.[0] ?? '';
+  const record = section.match(/<p class="sc-stats-foot net-record" data-status="hosts">([\s\S]*?)<\/p>/)?.[1];
+  assert.ok(record, 'the Validators section carries the status record');
+  assert.ok(section.indexOf('id="validators-table"') < section.indexOf('net-record'), 'after the table');
   assert.ok(record.includes(escapeHtml(hosts.value)), 'the value is printed word for word');
-  assert.ok(record.includes(`as of ${hosts.asOf}`), 'the date is printed');
-  assert.ok(record.includes(escapeHtml(hosts.source)), 'the source is printed');
-  assert.match(record, /<a href="status\.json" class="mono">landing\/public\/status\.json<\/a>/);
-  assert.ok(!/data-reading=|reading-value/.test(record), 'the record is never a reading slot');
+  assert.match(record, /Operator’s record, as of \d{1,2} [A-Z][a-z]{2} \d{4}/, 'the date is printed');
+  assert.match(page, /<a href="status\.json" download="status\.json">status\.json \(download\)<\/a>/, 'linked from the sources table, as a download');
   assert.equal(readFileSync(join(out, 'status.json'), 'utf8'), statusText, 'dist/status.json is the record byte for byte');
 });
 
 test('no page prints a host or operator name outside the record', () => {
   for (const [file, html] of Object.entries(pages)) {
-    const records = [...html.matchAll(/<p class="instrument-note status-record"[\s\S]*?<\/p>/g)].map((m) => m[0]).join('\n');
+    const records = [...html.matchAll(/<p class="sc-stats-foot net-record"[\s\S]*?<\/p>/g)].map((m) => m[0]).join('\n');
     for (const name of names) {
       const outside = count(html, name) - count(records, name);
       assert.equal(outside, 0, `${file} prints "${name}" ${outside} time(s) outside the status record`);

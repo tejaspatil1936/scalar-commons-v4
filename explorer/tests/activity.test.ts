@@ -3,7 +3,7 @@ import type { AddressInfo } from 'node:net';
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 
-import { ACTIVITY_PAGE_SIZE, IndexerResponseError, createIndexerClient, toActivityView } from '../src/activity.js';
+import { ACTIVITY_PAGE_SIZE, IndexerResponseError, createIndexerClient, createIndexerReader, toActivityView } from '../src/activity.js';
 import type { ExplorerChain } from '../src/chain.js';
 import { renderActivity } from '../src/render.js';
 import { activityPath, parseRoute } from '../src/routes.js';
@@ -81,27 +81,25 @@ const FEED = {
 };
 
 describe('activity routes', () => {
-  it('routes the feed, with and without an agent filter', () => {
-    expect(parseRoute('/activity')).toEqual({ kind: 'activity', agent: null, offset: 0 });
-    expect(parseRoute(`/activity?agent=${ALICE}`)).toEqual({ kind: 'activity', agent: ALICE, offset: 0 });
-    expect(parseRoute(`/activity?agent=${ALICE}&offset=50`)).toEqual({ kind: 'activity', agent: ALICE, offset: 50 });
+  it('routes the feed, with and without an agent filter and a kind', () => {
+    expect(parseRoute('/activity')).toEqual({ kind: 'activity', agent: null, activityKind: null, page: 1 });
+    expect(parseRoute(`/activity?agent=${ALICE}`)).toEqual({ kind: 'activity', agent: ALICE, activityKind: null, page: 1 });
+    expect(parseRoute(`/activity?agent=${ALICE}&page=3&kind=slash`)).toEqual({ kind: 'activity', agent: ALICE, activityKind: 'slash', page: 3 });
     // The filter form submits an empty field when cleared; that means "everyone".
-    expect(parseRoute('/activity?agent=')).toEqual({ kind: 'activity', agent: null, offset: 0 });
-    expect(parseRoute('/activity?agent=%20' + ALICE + '%20')).toEqual({ kind: 'activity', agent: ALICE, offset: 0 });
+    expect(parseRoute('/activity?agent=')).toEqual({ kind: 'activity', agent: null, activityKind: null, page: 1 });
+    expect(parseRoute('/activity?agent=%20' + ALICE + '%20')).toEqual({ kind: 'activity', agent: ALICE, activityKind: null, page: 1 });
   });
 
   it('refuses a filter that is not an address, rather than showing an empty feed', () => {
-    expect(parseRoute('/activity?agent=nonsense')).toEqual({
-      kind: 'badRequest',
-      message: 'not a valid SS58 account address: nonsense',
-    });
-    expect(parseRoute('/activity?offset=-1').kind).toBe('badRequest');
-    expect(parseRoute('/activity?offset=1.5').kind).toBe('badRequest');
+    expect(parseRoute('/activity?agent=nonsense')).toEqual({ kind: 'badRequest', message: '“nonsense” is not an account address.' });
+    expect(parseRoute('/activity?page=0').kind).toBe('badRequest');
+    expect(parseRoute('/activity?page=1.5').kind).toBe('badRequest');
+    expect(parseRoute('/activity?kind=everything').kind).toBe('badRequest');
   });
 
   it('round-trips through the path builder', () => {
-    expect(parseRoute(activityPath())).toEqual({ kind: 'activity', agent: null, offset: 0 });
-    expect(parseRoute(activityPath(ALICE, 25))).toEqual({ kind: 'activity', agent: ALICE, offset: 25 });
+    expect(parseRoute(activityPath())).toEqual({ kind: 'activity', agent: null, activityKind: null, page: 1 });
+    expect(parseRoute(activityPath(ALICE, 2))).toEqual({ kind: 'activity', agent: ALICE, activityKind: null, page: 2 });
   });
 });
 
@@ -138,22 +136,33 @@ describe('toActivityView', () => {
   });
 });
 
+const NOW = '2026-10-23T12:00:00.000Z';
+const ctx = { info: CHAIN, renderedAt: NOW, block: null };
+const model = (view: ActivityView, extra: Partial<Parameters<typeof renderActivity>[0]> = {}) =>
+  renderActivity({ ctx, agent: view.agent, kind: null, page: 1, total: view.total, historyFrom: view.historyFrom, entries: view.entries, listAt: NOW, ...extra });
+
 describe('renderActivity', () => {
   const view: ActivityView = toActivityView(FEED, fieldTypes, { agent: null, offset: 0 });
-  const html = renderActivity(view, CHAIN);
+  const html = model(view);
 
-  it('lists activity newest first, linking block, extrinsic and agents', () => {
-    expect(html.indexOf('120-4')).toBeLessThan(html.indexOf('118-1'));
-    expect(html).toContain('href="/block/120"');
+  it('lists activity newest first in plain words, linking block, extrinsic and agents', () => {
+    expect(html.indexOf('href="/block/120"')).toBeLessThan(html.indexOf('href="/block/118"'));
     expect(html).toContain('href="/extrinsic/120/2"');
-    expect(html).toContain(`href="/activity?agent=${ALICE}"`);
     expect(html).toContain(`href="/account/${ALICE}"`);
-    expect(html).toContain('escrow.AgreementCreated');
+    expect(html).toContain('Agreement opened');
+    expect(html).not.toContain('escrow.AgreementCreated');
   });
 
-  it('prints balances in tokens, never raw plancks', () => {
-    expect(html).toContain('12.5 CMN');
-    expect(html).not.toContain('12500000000000');
+  it('prints balances with two decimals and the planck value in the title', () => {
+    expect(html).toContain('12.50 CMN');
+    expect(html).toContain('title="12,500,000,000,000 plancks"');
+  });
+
+  it('never repeats an agent address in Details', () => {
+    const row = html.slice(html.indexOf('href="/block/118"'));
+    const cells = row.slice(0, row.indexOf('</tr>'));
+    // The agent's address once (in the Agents cell), never again in Details.
+    expect(cells.split(`title="${ALICE}"`).length - 1).toBe(1);
   });
 
   it('escapes chain-supplied values', () => {
@@ -161,33 +170,33 @@ describe('renderActivity', () => {
     expect(html).toContain('&lt;script&gt;');
   });
 
-  it('refreshes itself while showing the newest page, and offers a filter form', () => {
-    expect(html).toMatch(/<meta http-equiv="refresh" content="\d+">/);
-    expect(html).toMatch(/<form[^>]*method="get"[^>]*action="\/activity"/);
+  it('never reloads itself, and offers the chips and the agent filter', () => {
+    expect(html).not.toContain('http-equiv="refresh"');
+    expect(html).toMatch(/<form[^>]*action="\/activity" method="get"/);
     expect(html).toContain('name="agent"');
+    for (const label of ['All', 'Agreements', 'Disputes', 'Messages', 'Registrations', 'Slashes']) expect(html).toContain(`>${label}</a>`);
   });
 
-  it('does not refresh an older page out from under the reader', () => {
-    const older = renderActivity({ ...view, offset: 50 }, CHAIN);
-    expect(older).not.toContain('http-equiv="refresh"');
-  });
-
-  it('says whose activity it is showing and how far back history reaches', () => {
-    const filtered = renderActivity({ ...view, agent: ALICE }, CHAIN);
-    expect(filtered).toContain(ALICE);
-    expect(filtered).toContain('href="/activity"');
-    expect(html).toContain('block 100');
+  it('says how far back history reaches, without raw counts', () => {
+    expect(html).toContain('Agent events, newest first. History reaches back to block');
+    expect(html).toContain('href="/block/100"');
+    expect(html).not.toContain('Showing every agent');
   });
 
   it('says so when there is no activity, rather than rendering an empty table', () => {
-    const empty = renderActivity({ ...view, total: 0, entries: [] }, CHAIN);
-    expect(empty).toContain('No agent activity');
+    const empty = model({ ...view, total: 0, entries: [] });
+    expect(empty).toContain('No agent events');
   });
 
-  it('links to older activity only when there is more', () => {
-    expect(html).not.toContain('Older');
-    const more = renderActivity({ ...view, total: 120 }, CHAIN);
-    expect(more).toContain(`href="/activity?offset=${ACTIVITY_PAGE_SIZE}"`);
+  it('pages 25 at a time, with Next only when there is more', () => {
+    expect(html).not.toContain('href="/activity?page=2"');
+    const more = model({ ...view, total: 120 });
+    expect(more).toContain('href="/activity?page=2"');
+    expect(ACTIVITY_PAGE_SIZE).toBe(25);
+  });
+
+  it('names the indexer as its source in the footer', () => {
+    expect(html).toContain('List from the indexer, 0 s ago.');
   });
 });
 
@@ -208,16 +217,25 @@ describe('the /activity page over HTTP', () => {
       seen.push(request.url ?? '');
       if (request.url?.includes('fail')) {
         response.writeHead(500, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ error: 'node unreachable' }));
+        response.end(JSON.stringify({ error: 'node unreachable at http://10.0.0.1:9944' }));
+        return;
+      }
+      if (request.url?.startsWith(`/v1/agents/${BOB}`)) {
+        response.writeHead(404, { 'content-type': 'application/json' });
+        response.end(JSON.stringify({ error: 'not a registered agent' }));
         return;
       }
       response.writeHead(200, { 'content-type': 'application/json' });
+      if (request.url?.startsWith('/v1/agents/')) {
+        response.end(JSON.stringify({ total: 1, limit: 25, offset: 0, items: [{ id: '120-4', blockNumber: 120, index: 4, section: 'escrow', method: 'AgreementCreated', phase: 'ApplyExtrinsic', extrinsicId: '120-2', data: {}, accounts: [ALICE] }] }));
+        return;
+      }
       response.end(JSON.stringify(FEED));
     });
     await new Promise<void>((resolve) => indexer.listen(0, '127.0.0.1', resolve));
     const indexerUrl = `http://127.0.0.1:${(indexer.address() as AddressInfo).port}`;
 
-    explorer = createExplorerServer({ chain, activity: createIndexerClient({ baseUrl: indexerUrl }), onError: () => {} });
+    explorer = createExplorerServer({ chain, activity: createIndexerClient({ baseUrl: indexerUrl }), indexer: createIndexerReader({ baseUrl: indexerUrl }), onError: () => {} });
     await new Promise<void>((resolve) => explorer.listen(0, '127.0.0.1', resolve));
     base = `http://127.0.0.1:${(explorer.address() as AddressInfo).port}`;
   });
@@ -227,14 +245,31 @@ describe('the /activity page over HTTP', () => {
     await new Promise<void>((resolve) => indexer.close(() => resolve()));
   });
 
-  it('asks the indexer for the newest page, filtered by the agent', async () => {
-    const response = await fetch(`${base}/activity?agent=${ALICE}`);
+  it('asks the indexer for the newest page of every agent, 25 at a time', async () => {
+    const response = await fetch(`${base}/activity`);
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain('escrow.AgreementCreated');
-    expect(seen.at(-1)).toBe(`/v1/activity?limit=${ACTIVITY_PAGE_SIZE}&offset=0&agent=${ALICE}`);
+    expect(await response.text()).toContain('Agreement opened');
+    expect(seen.at(-1)).toBe(`/v1/activity?limit=25&offset=0`);
   });
 
-  it('reports an indexer failure as 502, not as an empty feed', async () => {
+  it('pages by offset on the indexer and passes the kind', async () => {
+    await fetch(`${base}/activity?kind=dispute&page=3`);
+    expect(seen.at(-1)).toBe(`/v1/activity?limit=25&offset=50&kind=dispute`);
+  });
+
+  it("reads one agent's activity from /v1/agents/:address/events, never a scan of /v1/activity", async () => {
+    const response = await fetch(`${base}/activity?agent=${ALICE}&page=2`);
+    expect(response.status).toBe(200);
+    expect(seen.at(-1)).toBe(`/v1/agents/${ALICE}/events?limit=25&offset=25`);
+  });
+
+  it('shows an address that is not a registered agent as having no agent events, not as a failure', async () => {
+    const response = await fetch(`${base}/activity?agent=${BOB}`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('This address is not a registered agent, so it has no agent events.');
+  });
+
+  it('reports an indexer failure as 502 in one plain sentence, never an internal address', async () => {
     const failing = createExplorerServer({
       chain,
       activity: createIndexerClient({ baseUrl: `http://127.0.0.1:${(indexer.address() as AddressInfo).port}/fail` }),
@@ -244,25 +279,30 @@ describe('the /activity page over HTTP', () => {
     try {
       const response = await fetch(`http://127.0.0.1:${(failing.address() as AddressInfo).port}/activity`);
       expect(response.status).toBe(502);
-      expect(await response.text()).toContain('node unreachable');
+      const text = await response.text();
+      expect(text).toContain('The indexer could not answer this request.');
+      expect(text).not.toMatch(/127\.0\.0\.1|10\.0\.0\.1|node unreachable/);
     } finally {
       await new Promise<void>((resolve) => failing.close(() => resolve()));
     }
   });
 
-  it('reports an unreachable indexer as 502', async () => {
-    const orphan = createExplorerServer({
-      chain,
-      activity: createIndexerClient({ baseUrl: 'http://127.0.0.1:1', timeoutMs: 2_000 }),
-      onError: () => {},
-    });
+  it('says only "The indexer did not answer in time" when it times out', async () => {
+    const slow = createServer(() => {});
+    await new Promise<void>((resolve) => slow.listen(0, '127.0.0.1', resolve));
+    const url = `http://127.0.0.1:${(slow.address() as AddressInfo).port}`;
+    const orphan = createExplorerServer({ chain, activity: createIndexerClient({ baseUrl: url, timeoutMs: 200 }), onError: () => {}, readTimeoutMs: 200 });
     await new Promise<void>((resolve) => orphan.listen(0, '127.0.0.1', resolve));
     try {
       const response = await fetch(`http://127.0.0.1:${(orphan.address() as AddressInfo).port}/activity`);
-      expect(response.status).toBe(502);
-      expect(await response.text()).toContain('indexer');
+      expect(response.status).toBe(504);
+      const text = await response.text();
+      expect(text).toContain('The indexer did not answer in time.');
+      expect(text).not.toContain(url);
     } finally {
       await new Promise<void>((resolve) => orphan.close(() => resolve()));
+      slow.closeAllConnections();
+      await new Promise<void>((resolve) => slow.close(() => resolve()));
     }
   });
 
@@ -271,13 +311,5 @@ describe('the /activity page over HTTP', () => {
     const response = await fetch(`${base}/activity?agent=nonsense`);
     expect(response.status).toBe(400);
     expect(seen.length).toBe(before);
-  });
-});
-
-describe('renderActivity provenance', () => {
-  it('names the indexer as its source, not the node alone', () => {
-    const html = renderActivity(toActivityView(FEED, fieldTypes, { agent: null, offset: 0 }), CHAIN);
-    expect(html).toContain('Activity read from the indexer');
-    expect(html).not.toContain('Read directly from the node');
   });
 });
