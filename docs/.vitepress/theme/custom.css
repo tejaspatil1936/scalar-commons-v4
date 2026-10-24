@@ -255,7 +255,7 @@
 .vp-doc h4,
 .vp-doc h5,
 .vp-doc h6 { font: var(--body); font-weight: 600; letter-spacing: normal; margin: var(--s-5) 0 var(--s-2); }
-.vp-doc a { color: var(--accent); font-weight: 400; text-decoration: none; }
+.vp-doc a { color: var(--accent); font-weight: 400; text-decoration: underline; text-underline-offset: 0.15em; text-decoration-thickness: 1px; }
 .vp-doc a:hover { color: var(--accent-2); text-decoration: underline; }
 .vp-doc strong { font-weight: 600; }
 .vp-doc .header-anchor { color: var(--text-3); }

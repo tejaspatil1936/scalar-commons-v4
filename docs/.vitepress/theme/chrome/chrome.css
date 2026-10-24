@@ -11,13 +11,16 @@
 /* ── base ─────────────────────────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 html { background: var(--bg); color: var(--text); -webkit-text-size-adjust: 100%; scroll-padding-top: calc(var(--header) + var(--s-4)); }
-body { margin: 0; font: var(--body); background: var(--bg); color: var(--text); }
+body { margin: 0; min-height: 100vh; display: flex; flex-direction: column; font: var(--body); background: var(--bg); color: var(--text); }
 h1, h2, h3, p, ul, ol, dl, dd, figure, pre, blockquote { margin: 0; }
 ul, ol { padding: 0; list-style: none; }
 img, svg { display: block; max-width: 100%; }
 button, input, select, textarea { font: inherit; color: inherit; }
 a { color: var(--accent); text-decoration: none; transition: color .15s, background-color .15s, border-color .15s; }
 a:hover, a:focus-visible { text-decoration: underline; }
+/* A link inside running text is told apart by more than its colour (WCAG 1.4.1): underlined at rest, offset from the baseline. */
+p a, li a, dd a, .sc-callout-body a { text-decoration: underline; text-underline-offset: 0.15em; text-decoration-thickness: 1px; }
+.sc-footer-col a, .sc-menu-panel a, .sc-crumbs a, .sc-pagination a, .sc-addr a, .sc-btn { text-decoration: none; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 ::selection { background: var(--bg-2); }
 [hidden] { display: none !important; }
@@ -60,7 +63,7 @@ a:hover, a:focus-visible { text-decoration: underline; }
 .sc-stack > * + * { margin-top: var(--s-4); }
 .sc-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); }
 .sc-between { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--s-3); }
-main { display: block; }
+main { display: block; flex: 1 0 auto; }
 /* A short page (the 404, the faucet) keeps its footer at the bottom of the window. */
 body:has(> main) { min-height: 100vh; display: flex; flex-direction: column; }
 body > main { flex: 1 0 auto; }
@@ -131,7 +134,7 @@ main > .sc-section:last-child { padding-bottom: 0; }
 .sc-stats-foot { margin-top: var(--s-3); font: var(--caption); color: var(--text-2); }
 
 /* ── table ────────────────────────────────────────────────────────────────── */
-.sc-table-wrap { width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.sc-table-wrap { position: relative; width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); }
 .sc-table { width: 100%; border-collapse: collapse; font: var(--small); }
 .sc-table th { font: var(--caption); font-weight: 500; color: var(--text-2); background: var(--bg-2); text-align: left; padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--border); white-space: nowrap; }
 .sc-table td { padding: var(--s-3) var(--s-4); border-bottom: 1px solid var(--border); vertical-align: top; }
@@ -175,6 +178,8 @@ main > .sc-section:last-child { padding-bottom: 0; }
 /* ── code block ───────────────────────────────────────────────────────────── */
 .sc-code { position: relative; background: var(--bg-2); border-radius: var(--radius); }
 .sc-code pre { padding: var(--s-4); padding-right: calc(var(--s-8) + var(--s-5)); overflow-x: auto; font: var(--mono); color: var(--text); white-space: pre; }
+.sc-code pre code { font: inherit; }
+code, kbd, samp { font-family: var(--font-mono); }
 /* The browser gives <code> its own monospace; the block's face wins. */
 .sc-code pre code { font: inherit; }
 .sc-copy { display: inline-flex; align-items: center; gap: var(--s-1); padding: var(--s-1) var(--s-2); border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg); color: var(--text-2); font: var(--caption); font-weight: 500; cursor: pointer; transition: color .15s, background-color .15s, border-color .15s; }

@@ -538,14 +538,15 @@ export function renderAccount(m: AccountModel): string {
   const { ctx, view } = m;
   const info = ctx.info;
   const path = accountPath(view.address);
-  const statRow = stats(
+  // A key/value table, not a stat row: a genesis-scale balance is wider than a stat cell at 1440 and 390.
+  const statRow = kvTable(
     [
-      { label: 'Free balance', value: amount(view.free, info) },
-      { label: 'Reserved', value: amount(view.reserved, info) },
-      { label: 'Total', value: amount(view.free + view.reserved, info) },
-      { label: 'Nonce', value: formatInt(view.nonce), caption: 'Extrinsics sent' },
+      ['Free balance', amount(view.free, info)],
+      ['Reserved', amount(view.reserved, info)],
+      ['Total', amount(view.free + view.reserved, info)],
+      ['Extrinsics sent', formatInt(view.nonce)],
     ],
-    { label: 'Balances' },
+    { caption: 'Balances' },
   );
   const a = m.agent;
   const agentCard = a
